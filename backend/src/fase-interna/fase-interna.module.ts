@@ -37,7 +37,18 @@ import { PublicacaoTelaService } from './telas/publicacao-tela.service';
 import { AchadoConformidade, RevisaoConformidade } from './conformidade/achado.entity';
 import { ConformidadeService } from './conformidade/conformidade.service';
 import { ConformidadeController } from './conformidade/conformidade.controller';
-import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, PlanejamentoFluxoOrgao, RequisitoLegalFluxo, TravaAtoFluxo } from './fluxo/modelo-fluxo.entities';
+import {
+  EtapaModeloFluxo,
+  FluxoProcessoFaseInterna,
+  ModeloFluxoFaseInterna,
+  PlanejamentoFluxoOrgao,
+  RascunhoModeloFluxo,
+  RequisitoLegalFluxo,
+  TravaAtoFluxo,
+  VersaoModeloFluxo,
+} from './fluxo/modelo-fluxo.entities';
+import { ConstrutorFluxoController } from './fluxo/construtor-fluxo.controller';
+import { ConstrutorFluxoService } from './fluxo/construtor-fluxo.service';
 import { PlanejamentoFluxoService } from './fluxo/planejamento-fluxo.service';
 import { PendenciaDfdService } from './fluxo/pendencia-dfd.service';
 import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
@@ -146,6 +157,9 @@ import {
       TravaAtoFluxo,
       FluxoProcessoFaseInterna,
       PlanejamentoFluxoOrgao,
+      // Construtor de fluxo: rascunho do grafo e histórico de versões
+      RascunhoModeloFluxo,
+      VersaoModeloFluxo,
       // F3 — despacho das etapas de registro (folha dos autos)
       DespachoFaseInterna,
       // F4a — rascunho da IA por etapa (não é peça)
@@ -166,6 +180,8 @@ import {
     OrcamentoController,
     TelasAnaliseDecisaoController,
     ConformidadeController,
+    // Construtor de fluxo (antes do ModeloFluxoController: rotas mais específicas primeiro)
+    ConstrutorFluxoController,
     ModeloFluxoController,
     FluxoProcessoController,
     IntegracaoFluxoController,
@@ -183,6 +199,7 @@ import {
     // Demanda aprovada → aviso e pendência "Montar o DFD" para quem monta o DFD
     PendenciaDfdService,
     FluxoProcessoService,
+    ConstrutorFluxoService,
     IntegracaoFluxoService,
     DespachoEtapaService,
     RevisaoIaService,

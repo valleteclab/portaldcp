@@ -5,13 +5,17 @@ import { ehUuid } from '../../auth/acesso/acesso-licitacao.service';
 import { MODALIDADES_CONTRATACAO_DIRETA } from '../documentos-obrigatorios';
 import type { AtoProtegido, Severidade } from '../conformidade/tipos';
 import { quemCumpriu } from '../tarefas/tarefa-regras';
-import type { EstadoFluxoParaEtapas, MarcaEtapa } from '../tarefas/etapas-fase-interna';
+import type { DecisaoCondicao, EstadoFluxoParaEtapas, MarcaEtapa, RetornoEtapa } from '../tarefas/etapas-fase-interna';
 
-/** Marcas do fluxo do processo (as três colunas jsonb), como gravadas. */
+/** Marcas do fluxo do processo (as colunas jsonb), como gravadas. */
 export interface MarcasFluxo {
   reabertas: Record<string, MarcaEtapa>;
   a_revisar: Record<string, MarcaEtapa>;
   registros: Record<string, MarcaEtapa>;
+  /** Construtor de fluxo: respostas das condições. */
+  decisoes: Record<string, DecisaoCondicao>;
+  /** Construtor de fluxo: devoluções em curso (etapa que corrige → quem devolveu). */
+  retornos: Record<string, RetornoEtapa>;
 }
 
 /** Delta de uma gravação de marcas: chaves a remover e/ou chaves a pôr (a pôr vence). */
@@ -19,12 +23,16 @@ export interface DeltaMarcas {
   reabertas?: { por?: Record<string, MarcaEtapa>; remover?: string[] };
   a_revisar?: { por?: Record<string, MarcaEtapa>; remover?: string[] };
   registros?: { por?: Record<string, MarcaEtapa>; remover?: string[] };
+  decisoes?: { por?: Record<string, DecisaoCondicao>; remover?: string[] };
+  retornos?: { por?: Record<string, RetornoEtapa>; remover?: string[] };
 }
 
-const CAMPOS_MARCAS = ['reabertas', 'a_revisar', 'registros'] as const;
+const CAMPOS_MARCAS = ['reabertas', 'a_revisar', 'registros', 'decisoes', 'retornos'] as const;
 import { CODIGOS_DO_CATALOGO } from './catalogo-fluxo';
 import { PAPEIS_FASE_INTERNA, ROTULO_PAPEL } from './codigos';
-import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, RequisitoLegalFluxo, TravaAtoFluxo } from './modelo-fluxo.entities';
+import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, RequisitoLegalFluxo, TravaAtoFluxo, VersaoModeloFluxo } from './modelo-fluxo.entities';
+import { GrafoFluxo, aplicarEdicaoLegadaNoGrafo, grafoDeEtapas, projetarGrafo } from './grafo-fluxo';
+import { ResultadoConferencia, conferirGrafo } from './motor-grafo';
 import {
   AprovacaoDemandaModelo,
   EtapaDoModelo,
@@ -40,12 +48,20 @@ import {
   modeloEfetivoDoProcesso,
   snapshotDoModelo,
   tipoDoProcesso,
-  validarModelo,
 } from './modelo-fluxo';
 import { REQUISITOS_SEMENTE, comOrdemNovaDaDireta, etapasSemente, modeloSemente, ordemAnteriorDaDireta } from './semente-fluxo';
 import { TravaAto, travasSemente } from './travas';
 
 type Autor = { id: string | null; nome: string | null };
+
+/** De onde veio a versão ativada (histórico de versões). */
+export type OrigemVersao = 'CONSTRUTOR' | 'TELA_ANTIGA' | 'RESTAURAR' | 'MIGRACAO' | 'CONFIGURACAO';
+
+/** Grafo gravado (jsonb) → grafo, ou null quando não é um grafo. */
+export function grafoGravado(v: unknown): GrafoFluxo | null {
+  const g = v as GrafoFluxo | null;
+  return g && Array.isArray(g.nos) && Array.isArray(g.arestas) ? g : null;
+}
 
 /** Status da demanda (módulo de demandas) que contam como aprovada. */
 const DEMANDA_APROVADA = ['APROVADA', 'CONSOLIDADA', 'EM_CONTRATACAO', 'CONTRATADA'];
@@ -84,6 +100,7 @@ export class ModeloFluxoService {
     @InjectRepository(RequisitoLegalFluxo) private readonly requisitoRepo: Repository<RequisitoLegalFluxo>,
     @InjectRepository(TravaAtoFluxo) private readonly travaRepo: Repository<TravaAtoFluxo>,
     @InjectRepository(FluxoProcessoFaseInterna) private readonly fluxoRepo: Repository<FluxoProcessoFaseInterna>,
+    @InjectRepository(VersaoModeloFluxo) private readonly versaoRepo: Repository<VersaoModeloFluxo>,
   ) {}
 
   // ==========================================================================
@@ -166,8 +183,9 @@ export class ModeloFluxoService {
         for (const e of comOrdemNovaDaDireta(lista)) {
           await em.query(`UPDATE modelos_fluxo_etapas SET ordem = $2, depende_de = $3::jsonb WHERE id::text = $1`, [e.id, e.ordem, JSON.stringify(e.depende_de)]);
         }
+        // O grafo (se já convertido) sai: é refeito das etapas novas pela migração de boot
         await em.query(
-          `UPDATE modelos_fluxo_fase_interna SET versao = versao + 1, atualizado_por_nome = $2, updated_at = now() WHERE id::text = $1`,
+          `UPDATE modelos_fluxo_fase_interna SET versao = versao + 1, atualizado_por_nome = $2, grafo = NULL, updated_at = now() WHERE id::text = $1`,
           [m.id, 'Sistema (ordem da contratação direta: minutas → parecer → autorização — art. 53, §4º)'],
         );
       });
@@ -224,7 +242,9 @@ export class ModeloFluxoService {
     const tipo = linha.tipo_processo as TipoProcessoFluxo;
     const semente = modeloSemente(tipo);
     const ap = (linha.aprovacao_demanda ?? {}) as Partial<AprovacaoDemandaModelo>;
-    const lista: EtapaDoModelo[] = etapas.map((e) => ({
+    // Construtor de fluxo: com o grafo gravado, as etapas são a projeção dele
+    const grafo = grafoGravado(linha.grafo);
+    const lista: EtapaDoModelo[] = grafo ? projetarGrafo(grafo) : etapas.map((e) => ({
       codigo: e.codigo,
       grupo: e.grupo,
       grupo_titulo: e.grupo_titulo,
@@ -267,7 +287,16 @@ export class ModeloFluxoService {
       },
       exigir_posse_pecas: linha.exigir_posse_pecas !== false,
       etapas: lista,
+      // Modelo anterior ao construtor: o grafo equivalente é montado em memória (a migração de boot grava)
+      grafo: grafo ?? grafoDeEtapas(lista),
     };
+  }
+
+  /** Etapas do grafo + as do catálogo que faltarem (como na semente: opcional desligada). */
+  etapasDoGrafo(tipo: TipoProcessoFluxo, grafo: GrafoFluxo): EtapaDoModelo[] {
+    const lista = projetarGrafo(grafo);
+    for (const s of modeloSemente(tipo).etapas) if (!lista.some((x) => x.codigo === s.codigo)) lista.push({ ...s, ligada: s.obrigatoria ? s.ligada : false });
+    return lista.sort((a, b) => a.ordem - b.ordem || a.codigo.localeCompare(b.codigo));
   }
 
   private async carregar(where: { orgao_id: string | null; tipo: TipoProcessoFluxo }): Promise<ModeloFluxo | null> {
@@ -370,22 +399,42 @@ export class ModeloFluxoService {
     return { setores, usuarios: usuarios.map((u) => ({ id: u.id, nome: u.nome, ativo: u.ativo !== false, setor_id: u.setor_id ?? null, papeis: Array.isArray(u.papeis) ? u.papeis : [] })) };
   }
 
-  async validar(orgaoId: string | null, modelo: ModeloFluxo): Promise<ResultadoValidacao> {
+  /**
+   * CONFERÊNCIA do modelo (construtor de fluxo): a estrutura do grafo e a lei
+   * (`requisitos_legais_fluxo`) — `motor-grafo.ts › conferirGrafo`, que inclui
+   * a validação de sempre sobre as etapas projetadas.
+   */
+  async validar(orgaoId: string | null, modelo: ModeloFluxo): Promise<ResultadoConferencia> {
     const ctx = await this.contextoDoOrgao(orgaoId);
-    return validarModelo(modelo, await this.requisitos(), {
-      catalogo: CODIGOS_DO_CATALOGO,
+    return conferirGrafo(modelo.grafo ?? grafoDeEtapas(modelo.etapas), {
+      tipo: modelo.tipo_processo,
+      requisitos: await this.requisitos(),
       papeis: PAPEIS_FASE_INTERNA,
       setores: orgaoId ? ctx.setores.map((s) => s.id) : undefined,
       usuarios: orgaoId ? ctx.usuarios : undefined,
+      aprovacao_demanda: modelo.aprovacao_demanda,
+      exigir_posse_pecas: modelo.exigir_posse_pecas,
+      nome: modelo.nome,
     });
   }
 
-  /** Aplica o corpo sobre o vigente e valida — sem gravar (pré-visualização da tela). */
+  /**
+   * Tela antiga (lista de etapas): aplica o corpo sobre o vigente — as
+   * edições vão para o GRAFO (nó do mesmo código; dependência trocada
+   * reescreve as setas) — e confere, sem gravar (pré-visualização).
+   */
   async simular(orgaoId: string | null, tipo: TipoProcessoFluxo, corpo: any): Promise<{ modelo: ModeloFluxo; validacao: ResultadoValidacao }> {
     const base = orgaoId ? await this.modeloVigente(orgaoId, tipo) : await this.modeloDoSistema(tipo);
     const { modelo, erros } = aplicarEdicao(base, corpo);
-    const validacao = await this.validar(orgaoId, modelo);
-    return { modelo, validacao: { ...validacao, ok: validacao.ok && !erros.length, erros: [...erros, ...validacao.erros] } };
+    const editado = this.comEtapasEditadas(base, modelo);
+    const validacao = await this.validar(orgaoId, editado);
+    return { modelo: editado, validacao: { ...validacao, ok: validacao.ok && !erros.length, erros: [...erros, ...validacao.erros] } };
+  }
+
+  /** O modelo `depois` (lista de etapas editada) com o grafo de `antes` atualizado e as etapas reprojetadas. */
+  comEtapasEditadas(antes: ModeloFluxo, depois: ModeloFluxo): ModeloFluxo {
+    const grafo = aplicarEdicaoLegadaNoGrafo(antes.grafo ?? grafoDeEtapas(antes.etapas), antes.etapas, depois.etapas);
+    return { ...depois, grafo, etapas: this.etapasDoGrafo(depois.tipo_processo, grafo) };
   }
 
   /**
@@ -402,17 +451,36 @@ export class ModeloFluxoService {
         avisos: validacao.avisos,
       });
     }
-    const salvo = await this.persistir(orgaoId, tipo, modelo, autor);
+    const salvo = await this.persistir(orgaoId, tipo, modelo, autor, undefined, 'TELA_ANTIGA');
     return { modelo: salvo, validacao };
   }
 
   /** "Restaurar modelo padrão": o modelo do órgão volta a ser a cópia do modelo do sistema. */
   async restaurarPadrao(orgaoId: string, tipo: TipoProcessoFluxo, autor: Autor): Promise<ModeloFluxo> {
     const sistema = await this.modeloDoSistema(tipo);
-    return this.persistir(orgaoId, tipo, { ...sistema, id: null, orgao_id: orgaoId }, autor, sistema.id);
+    return this.persistir(orgaoId, tipo, { ...sistema, id: null, orgao_id: orgaoId }, autor, sistema.id, 'RESTAURAR');
   }
 
-  private async persistir(orgaoId: string | null, tipo: TipoProcessoFluxo, m: ModeloFluxo, autor: Autor, origemId?: string | null): Promise<ModeloFluxo> {
+  /**
+   * ATIVA uma nova versão do modelo (grava o grafo, as etapas projetadas e a
+   * linha do histórico de versões). Quem chama já conferiu. Processos em
+   * andamento mantêm o retrato; os novos usam esta versão.
+   */
+  ativarVersao(orgaoId: string | null, tipo: TipoProcessoFluxo, m: ModeloFluxo, autor: Autor, origem: OrigemVersao): Promise<ModeloFluxo> {
+    return this.persistir(orgaoId, tipo, m, autor, undefined, origem);
+  }
+
+  private async persistir(
+    orgaoId: string | null,
+    tipo: TipoProcessoFluxo,
+    entrada: ModeloFluxo,
+    autor: Autor,
+    origemId?: string | null,
+    origemVersao: OrigemVersao = 'TELA_ANTIGA',
+  ): Promise<ModeloFluxo> {
+    // O grafo é a fonte: as etapas gravadas são sempre a projeção dele
+    const grafo = entrada.grafo ?? grafoDeEtapas(entrada.etapas);
+    const m: ModeloFluxo = { ...entrada, grafo, etapas: this.etapasDoGrafo(tipo, grafo) };
     this.limparCache();
     await this.ds.transaction(async (em: EntityManager) => {
       const [atual] = await em.query(
@@ -420,12 +488,15 @@ export class ModeloFluxoService {
         orgaoId ? [tipo, orgaoId] : [tipo],
       );
       let id: string;
+      let versao = 1;
       if (atual) {
         id = atual.id;
+        versao = Number(atual.versao) + 1;
         await em.update(ModeloFluxoFaseInterna, id, {
           nome: m.nome,
           descricao: m.descricao,
-          versao: Number(atual.versao) + 1,
+          versao,
+          grafo: grafo as any,
           aprovacao_demanda: m.aprovacao_demanda as any,
           exigir_posse_pecas: m.exigir_posse_pecas !== false,
           ...(origemId !== undefined ? { origem_modelo_id: origemId } : {}),
@@ -446,6 +517,7 @@ export class ModeloFluxoService {
             nome: m.nome,
             descricao: m.descricao,
             versao: 1,
+            grafo: grafo as any,
             aprovacao_demanda: m.aprovacao_demanda as any,
             exigir_posse_pecas: m.exigir_posse_pecas !== false,
             origem_modelo_id: origemId ?? sistema[0]?.id ?? null,
@@ -457,6 +529,26 @@ export class ModeloFluxoService {
         id = r.raw[0].id;
       }
       await em.createQueryBuilder().insert().into(EtapaModeloFluxo).values(m.etapas.map((e) => this.linhaDaEtapa(id, e))).execute();
+      // Histórico de versões (construtor de fluxo)
+      await em
+        .createQueryBuilder()
+        .insert()
+        .into(VersaoModeloFluxo)
+        .values({
+          modelo_id: id,
+          orgao_id: orgaoId,
+          tipo_processo: tipo,
+          versao,
+          nome: m.nome,
+          grafo: grafo as any,
+          aprovacao_demanda: m.aprovacao_demanda as any,
+          exigir_posse_pecas: m.exigir_posse_pecas !== false,
+          origem: origemVersao,
+          ativado_por_id: autor.id,
+          ativado_por_nome: autor.nome,
+        })
+        .orIgnore()
+        .execute();
     });
     // De novo depois do commit: quem leu durante a transação guardou o modelo antigo
     this.limparCache();
@@ -498,7 +590,10 @@ export class ModeloFluxoService {
         }
         return n;
       });
-      if (mudou) await this.persistir(orgaoId, tipo, { ...atual, orgao_id: orgaoId, etapas }, autor, atual.orgao_id ? undefined : atual.id);
+      if (mudou) {
+        const editado = this.comEtapasEditadas(atual, { ...atual, orgao_id: orgaoId, etapas });
+        await this.persistir(orgaoId, tipo, editado, autor, atual.orgao_id ? undefined : atual.id, 'CONFIGURACAO');
+      }
     }
   }
 
@@ -591,6 +686,8 @@ export class ModeloFluxoService {
         reabertas: {},
         a_revisar: {},
         registros: {},
+        decisoes: {},
+        retornos: {},
       });
       return { fluxo: transitorio, tipo, orgao_id: lic.orgao_id };
     }
@@ -660,6 +757,8 @@ export class ModeloFluxoService {
         reabertas: r.fluxo.reabertas ?? {},
         a_revisar: r.fluxo.a_revisar ?? {},
         registros: r.fluxo.registros ?? {},
+        decisoes: r.fluxo.decisoes ?? {},
+        retornos: r.fluxo.retornos ?? {},
       },
     };
   }
@@ -841,14 +940,16 @@ export class ModeloFluxoService {
     }
     const [linha] = sets.length
       ? await this.ds.query(
-          `UPDATE fluxos_processo_fase_interna SET ${sets.join(', ')}, updated_at = now() WHERE id::text = $1 RETURNING reabertas, a_revisar, registros`,
+          `UPDATE fluxos_processo_fase_interna SET ${sets.join(', ')}, updated_at = now() WHERE id::text = $1 RETURNING reabertas, a_revisar, registros, decisoes, retornos`,
           params,
         )
-      : await this.ds.query(`SELECT reabertas, a_revisar, registros FROM fluxos_processo_fase_interna WHERE id::text = $1`, [fluxoId]);
+      : await this.ds.query(`SELECT reabertas, a_revisar, registros, decisoes, retornos FROM fluxos_processo_fase_interna WHERE id::text = $1`, [fluxoId]);
     return {
       reabertas: (linha?.reabertas ?? {}) as Record<string, MarcaEtapa>,
       a_revisar: (linha?.a_revisar ?? {}) as Record<string, MarcaEtapa>,
       registros: (linha?.registros ?? {}) as Record<string, MarcaEtapa>,
+      decisoes: (linha?.decisoes ?? {}) as Record<string, DecisaoCondicao>,
+      retornos: (linha?.retornos ?? {}) as Record<string, RetornoEtapa>,
     };
   }
 
@@ -927,7 +1028,16 @@ export class ModeloFluxoService {
             ligada: e.codigo === 'CONTROLE_INTERNO' ? !!c.controle_interno_ativo : e.ligada,
           }));
           const [existe] = await this.ds.query(`SELECT 1 FROM modelos_fluxo_fase_interna WHERE orgao_id::text = $1 AND tipo_processo = $2`, [c.orgao_id, tipo]);
-          if (!existe) await this.persistir(c.orgao_id, tipo, { ...sistema, id: null, orgao_id: c.orgao_id, etapas }, { id: 'sistema', nome: 'Migração (configuração da fase interna)' }, sistema.id);
+          if (!existe) {
+            await this.persistir(
+              c.orgao_id,
+              tipo,
+              { ...sistema, id: null, orgao_id: c.orgao_id, etapas, grafo: aplicarEdicaoLegadaNoGrafo(sistema.grafo ?? grafoDeEtapas(sistema.etapas), sistema.etapas, etapas) },
+              { id: 'sistema', nome: 'Migração (configuração da fase interna)' },
+              sistema.id,
+              'MIGRACAO',
+            );
+          }
         }
         orgaos++;
       } catch (e: any) {
@@ -947,6 +1057,107 @@ export class ModeloFluxoService {
         this.logger.warn(`Fluxo do processo ${p.id} não migrado: ${e?.message ?? e}`);
       }
     }
-    return { orgaos, processos: n };
+    const grafos = await this.migrarParaGrafo();
+    return { orgaos, processos: n, ...grafos };
+  }
+
+  /**
+   * CONSTRUTOR DE FLUXO — migração de boot (idempotente):
+   *  1. cada modelo (sistema e órgãos) sem grafo ganha o GRAFO EQUIVALENTE às
+   *     etapas gravadas (etapa → nó; dependência → aresta; diligência do
+   *     parecer → devolve) e a linha da versão atual no histórico — a versão
+   *     não muda (é o mesmo modelo);
+   *  2. o retrato (snapshot) de cada processo ganha o grafo equivalente às
+   *     etapas dele. As ETAPAS do retrato não são tocadas: o processo em
+   *     andamento continua exatamente como estava.
+   */
+  async migrarParaGrafo(): Promise<{ modelos_convertidos: number; retratos_convertidos: number }> {
+    let modelos = 0;
+    const semGrafo: Array<{ id: string; orgao_id: string | null; tipo_processo: string }> = await this.ds.query(
+      `SELECT id::text AS id, orgao_id::text AS orgao_id, tipo_processo FROM modelos_fluxo_fase_interna WHERE grafo IS NULL`,
+    );
+    for (const l of semGrafo) {
+      try {
+        const m = await this.carregar({ orgao_id: l.orgao_id, tipo: l.tipo_processo as TipoProcessoFluxo });
+        if (!m?.grafo) continue;
+        const r = await this.ds.query(`UPDATE modelos_fluxo_fase_interna SET grafo = $2::jsonb WHERE id::text = $1 AND grafo IS NULL RETURNING id`, [l.id, JSON.stringify(m.grafo)]);
+        if (!Number(r?.[1] ?? r?.length ?? 0)) continue;
+        await this.versaoRepo
+          .createQueryBuilder()
+          .insert()
+          .into(VersaoModeloFluxo)
+          .values({
+            modelo_id: l.id,
+            orgao_id: l.orgao_id,
+            tipo_processo: l.tipo_processo,
+            versao: m.versao,
+            nome: m.nome,
+            grafo: m.grafo as any,
+            aprovacao_demanda: m.aprovacao_demanda as any,
+            exigir_posse_pecas: m.exigir_posse_pecas !== false,
+            origem: 'MIGRACAO',
+            ativado_por_id: 'sistema',
+            ativado_por_nome: 'Migração (construtor de fluxo)',
+          })
+          .orIgnore()
+          .execute();
+        modelos++;
+      } catch (e: any) {
+        this.logger.warn(`Modelo de fluxo ${l.id} não convertido em grafo: ${e?.message ?? e}`);
+      }
+    }
+    if (modelos) this.limparCache();
+    let retratos = 0;
+    for (;;) {
+      const lote: Array<{ id: string; snapshot: any }> = await this.ds.query(
+        `SELECT id::text AS id, snapshot FROM fluxos_processo_fase_interna WHERE NOT (snapshot ? 'grafo') ORDER BY created_at LIMIT 200`,
+      );
+      if (!lote.length) break;
+      for (const f of lote) {
+        const etapas = Array.isArray(f.snapshot?.etapas) ? f.snapshot.etapas : [];
+        let grafo: GrafoFluxo | null = null;
+        try {
+          grafo = grafoDeEtapas(etapas);
+        } catch (e: any) {
+          this.logger.warn(`Retrato do fluxo ${f.id} não convertido em grafo: ${e?.message ?? e}`);
+        }
+        // Sem conversão possível, marca com grafo nulo (não tenta de novo a cada boot)
+        await this.ds.query(`UPDATE fluxos_processo_fase_interna SET snapshot = snapshot || jsonb_build_object('grafo', $2::jsonb) WHERE id::text = $1 AND NOT (snapshot ? 'grafo')`, [
+          f.id,
+          JSON.stringify(grafo),
+        ]);
+        retratos++;
+      }
+    }
+    return { modelos_convertidos: modelos, retratos_convertidos: retratos };
+  }
+
+  // ==========================================================================
+  // VERSÕES (construtor de fluxo)
+  // ==========================================================================
+
+  /** Linha do modelo (id e versão) do órgão (ou do sistema) para o tipo. */
+  async linhaDoModelo(orgaoId: string | null, tipo: TipoProcessoFluxo): Promise<{ id: string; versao: number } | null> {
+    const [l] = await this.ds.query(
+      `SELECT id::text AS id, versao FROM modelos_fluxo_fase_interna WHERE ${orgaoId ? 'orgao_id::text = $2' : 'orgao_id IS NULL'} AND tipo_processo = $1`,
+      orgaoId ? [tipo, orgaoId] : [tipo],
+    );
+    return l ? { id: l.id, versao: Number(l.versao) } : null;
+  }
+
+  /** Histórico de versões do modelo (mais nova primeiro), sem o grafo. */
+  async versoes(orgaoId: string | null, tipo: TipoProcessoFluxo): Promise<Array<{ versao: number; nome: string; origem: string; ativado_por_nome: string | null; ativado_em: Date; ativa: boolean }>> {
+    await this.garantirSemente();
+    const l = await this.linhaDoModelo(orgaoId, tipo);
+    if (!l) return [];
+    const linhas = await this.versaoRepo.find({ where: { modelo_id: l.id }, order: { versao: 'DESC' } });
+    return linhas.map((v) => ({ versao: v.versao, nome: v.nome, origem: v.origem, ativado_por_nome: v.ativado_por_nome, ativado_em: v.ativado_em, ativa: v.versao === l.versao }));
+  }
+
+  /** Uma versão do histórico, com o grafo. */
+  async versao(orgaoId: string | null, tipo: TipoProcessoFluxo, versao: number): Promise<VersaoModeloFluxo | null> {
+    const l = await this.linhaDoModelo(orgaoId, tipo);
+    if (!l || !Number.isInteger(versao)) return null;
+    return this.versaoRepo.findOne({ where: { modelo_id: l.id, versao } });
   }
 }

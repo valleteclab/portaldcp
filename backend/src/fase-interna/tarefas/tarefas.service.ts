@@ -23,6 +23,7 @@ import { ConfigFaseInternaEfetiva, configEfetiva, papelValido, validarConfigurac
 import { ContextoFluxoProcesso, CondutorDoProcesso, ModeloFluxoService } from '../fluxo/modelo-fluxo.service';
 import { PendenciaDfdService } from '../fluxo/pendencia-dfd.service';
 import { ModeloFluxo, niveisDoGrafo } from '../fluxo/modelo-fluxo';
+import type { DadosCondicao } from '../fluxo/motor-grafo';
 import {
   BloqueiosDePortao,
   DEFINICAO_PASSO,
@@ -481,13 +482,16 @@ export class TarefasService {
       await this.atualizarEstadoDoFluxo(fluxo.ctx, instrucao.itens, { modo: config.modo, agente_id: agente ?? criador });
     }
     const etapas = etapasDaFaseInterna(
-      { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
+      { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao, dados: await this.dadosDasCondicoes(licitacaoId, fluxo.modelo) },
       instrucao.itens,
       fluxo.modelo,
       await this.bloqueiosDePortao(licitacaoId),
       fluxo.estado,
     );
     const passos = passosDasEtapas(etapas);
+    // Construtor de fluxo: a resposta que o sistema acabou de dar a uma condição fica gravada (não muda
+    // mais se o dado mudar); a devolução termina quando quem devolveu conclui
+    if (fluxo.ctx && FASES_INTERNAS.includes(lic.fase)) await this.gravarDecisoesEDevolucoes(fluxo.ctx, passos);
     const abertas = await this.tarefaRepo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTA' } });
 
     const prazos = prazosDoModelo(fluxo.modelo);
@@ -1472,7 +1476,7 @@ export class TarefasService {
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
     const fluxo = await this.modeloDoProcesso(licitacaoId, lic.orgao_id, instrucao.contratacao_direta);
     return etapasDaFaseInterna(
-      { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao },
+      { contratacao_direta: instrucao.contratacao_direta, fase: lic.fase, situacao: lic.situacao, dados: await this.dadosDasCondicoes(licitacaoId, fluxo.modelo) },
       instrucao.itens,
       fluxo.modelo,
       await this.bloqueiosDePortao(licitacaoId),
@@ -1505,6 +1509,63 @@ export class TarefasService {
     const [l] = contratacaoDireta === undefined ? await this.ds.query(`SELECT modalidade::text AS modalidade FROM licitacoes WHERE id::text = $1`, [licitacaoId]) : [];
     const tipo = contratacaoDireta === undefined ? this.modeloFluxo.tipoDaModalidade(l?.modalidade) : contratacaoDireta ? 'DISPENSA' : 'LICITACAO';
     return { modelo: await this.modeloFluxo.modeloVigente(orgaoId, tipo), estado: {}, ctx: null };
+  }
+
+  /**
+   * CONSTRUTOR DE FLUXO: dados do processo que as condições do modelo leem
+   * (valor total estimado, tipo de contratação, modalidade, fundamento legal).
+   * Só consulta quando o modelo tem condição.
+   */
+  async dadosDasCondicoes(licitacaoId: string, modelo: Pick<ModeloFluxo, 'etapas'>): Promise<DadosCondicao | null> {
+    if (!modelo.etapas.some((e) => e.conclusao === 'CONDICAO')) return null;
+    const [l] = await this.ds.query(
+      `SELECT valor_total_estimado, tipo_contratacao::text AS tipo_contratacao, modalidade::text AS modalidade, fundamento_legal FROM licitacoes WHERE id::text = $1`,
+      [licitacaoId],
+    );
+    if (!l) return null;
+    const valor = l.valor_total_estimado === null || l.valor_total_estimado === undefined ? null : Number(l.valor_total_estimado);
+    return { valor_total_estimado: Number.isFinite(valor) ? valor : null, tipo_contratacao: l.tipo_contratacao ?? null, modalidade: l.modalidade ?? null, fundamento_legal: l.fundamento_legal ?? null };
+  }
+
+  /**
+   * CONSTRUTOR DE FLUXO (na sincronização, depois do commit): grava a resposta
+   * que o sistema acabou de dar a uma condição (com o histórico) e encerra a
+   * devolução cuja aprovação já concluiu. Delta atômico (`aplicarMarcas`).
+   */
+  private async gravarDecisoesEDevolucoes(ctx: ContextoFluxoProcesso, passos: PassoCalculado[]): Promise<void> {
+    try {
+      const novas = passos.filter((p) => p.conclusao === 'CONDICAO' && p.decisao && p.decisao.registrada === false);
+      const retornos = ctx.estado.retornos ?? {};
+      const encerradas = Object.entries(retornos)
+        .filter(([, m]) => passos.find((p) => p.passo === m?.de)?.situacao === 'CONCLUIDO')
+        .map(([t]) => t);
+      if (!novas.length && !encerradas.length) return;
+      const em = new Date().toISOString();
+      const por = Object.fromEntries(
+        novas.map((p) => {
+          const { registrada, ...d } = p.decisao!;
+          void registrada;
+          return [p.passo, { ...d, em }];
+        }),
+      );
+      const gravado = await this.modeloFluxo.aplicarMarcas(ctx.fluxo.id, { decisoes: { por }, retornos: { remover: encerradas } });
+      ctx.fluxo.decisoes = gravado.decisoes;
+      ctx.fluxo.retornos = gravado.retornos;
+      ctx.estado.decisoes = gravado.decisoes;
+      ctx.estado.retornos = gravado.retornos;
+      for (const p of novas) {
+        await this.log(
+          ctx.licitacao_id,
+          AcaoLogFaseInterna.CONDICAO_RESPONDIDA,
+          `Condição "${p.titulo}" avaliada pelo sistema: ${p.decisao!.resposta === 'sim' ? 'sim' : 'não'} — ${p.decisao!.descricao ?? ''}`.trim(),
+          null,
+          { etapa: p.passo, resposta: p.decisao!.resposta, automatica: true, descricao: p.decisao!.descricao ?? null },
+          { usuario_nome: 'Sistema' },
+        );
+      }
+    } catch (e: any) {
+      this.logger.warn(`Decisões do fluxo do processo ${ctx.licitacao_id} não gravadas: ${e?.message ?? e}`);
+    }
   }
 
   /** F1: controle interno ligado no modelo de fluxo DESTE processo (operacional vigente). */
@@ -1662,7 +1723,9 @@ export class TarefasService {
         licitacaoId,
         ['ETAPA_ALTERADA', 'TAREFA_CRIADA', 'TAREFA_CONCLUIDA', 'TAREFA_CANCELADA', 'TAREFA_REATRIBUIDA', 'ETAPA_REABERTA', 'ETAPA_REVISADA', 'ETAPA_REGISTRADA', 'DEMANDA_APROVADA', 'PARECER_DISPENSADO',
           // F4a: IA em toda etapa — rascunho gerado, aceito ou descartado e quem revisou na emissão
-          'IA_RASCUNHO_GERADO', 'IA_RASCUNHO_ACEITO', 'IA_RASCUNHO_DESCARTADO', 'IA_REVISADA_POR'],
+          'IA_RASCUNHO_GERADO', 'IA_RASCUNHO_ACEITO', 'IA_RASCUNHO_DESCARTADO', 'IA_REVISADA_POR',
+          // Construtor de fluxo: condição respondida e devolução por uma aprovação
+          'CONDICAO_RESPONDIDA', 'ETAPA_DEVOLVIDA'],
       ],
     );
     const atual = etapaAtual(etapas);

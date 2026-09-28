@@ -14,13 +14,13 @@ import { PlanejamentoFluxoService } from './planejamento-fluxo.service';
 import { ATOS_PROTEGIDOS, ROTULO_ATO } from './travas';
 
 /** Administração do órgão: login do órgão, usuário com papel ADMIN ou admin da plataforma. */
-function exigirAdminDoOrgao(ator: Ator) {
+export function exigirAdminDoOrgao(ator: Ator) {
   if (ator.admin || ator.tipo === 'ORGAO' || (ator.tipo === 'USUARIO' && ator.role === 'ADMIN')) return;
   throw new ForbiddenException('Só o administrador do órgão altera o modelo de fluxo da fase interna');
 }
 
 /** Órgão do token; o admin da plataforma informa ?orgao_id= (ou ?sistema=true para o modelo do sistema). */
-function alvo(ator: Ator, orgaoId?: string, sistema?: string): string | null {
+export function alvo(ator: Ator, orgaoId?: string, sistema?: string): string | null {
   if (sistema === 'true' || sistema === '1') {
     if (!ator.admin) throw new ForbiddenException('Só o administrador da plataforma altera o modelo do sistema');
     return null;
@@ -32,7 +32,7 @@ function alvo(ator: Ator, orgaoId?: string, sistema?: string): string | null {
   return ator.orgaoId!;
 }
 
-function tipoDaRota(tipo: string): TipoProcessoFluxo {
+export function tipoDaRota(tipo: string): TipoProcessoFluxo {
   const t = String(tipo ?? '').toUpperCase();
   if (!tipoProcessoValido(t)) throw new BadRequestException(`Tipo de processo inválido — use ${TIPOS_PROCESSO_FLUXO.join(', ')}.`);
   return t;
@@ -200,10 +200,22 @@ export class FluxoProcessoController {
     return this.fluxo.reabrir(id, codigo, body ?? {}, ator);
   }
 
-  /** Avançar: { texto } — registra a etapa de registro ou confirma a revisão (reaberta / a revisar). */
+  /**
+   * Avançar: { texto } — registra a etapa de registro ou confirma a revisão (reaberta / a revisar).
+   * Construtor de fluxo: condição → { resposta: 'sim' | 'nao', texto? }.
+   */
   @Post(':licitacaoId/etapas/:codigo/concluir')
   concluir(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.fluxo.concluir(id, codigo, body ?? {}, ator);
+  }
+
+  /**
+   * Construtor de fluxo: a APROVAÇÃO devolve { motivo, para?: códigos } — a
+   * etapa devolvida corrige e o processo volta direto para quem devolveu.
+   */
+  @Post(':licitacaoId/etapas/:codigo/devolver')
+  devolver(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    return this.fluxo.devolver(id, codigo, body ?? {}, ator);
   }
 
   /** { observacao? } — só quem o modelo designa (padrão: "pode aprovar demandas"). */

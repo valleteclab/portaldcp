@@ -15,6 +15,8 @@
  * etapa obrigatória, dependência mínima e segregação de funções (aviso).
  */
 
+import type { GrafoFluxo } from './grafo-fluxo';
+
 export type TipoProcessoFluxo = 'DISPENSA' | 'INEXIGIBILIDADE' | 'LICITACAO';
 export const TIPOS_PROCESSO_FLUXO: TipoProcessoFluxo[] = ['DISPENSA', 'INEXIGIBILIDADE', 'LICITACAO'];
 
@@ -49,7 +51,28 @@ export const ehContratacaoDireta = (tipo: TipoProcessoFluxo) => tipo !== 'LICITA
  *  - REGISTRO: um despacho registrado no processo (etapas sem peça própria:
  *    "autorização de início", "indicação da modalidade").
  */
-export type ConclusaoEtapa = 'PECAS' | 'DIVULGACAO' | 'REGISTRO';
+export type ConclusaoEtapa = 'PECAS' | 'DIVULGACAO' | 'REGISTRO' | 'CONDICAO';
+
+/** Tipo do nó do grafo que originou a etapa (construtor de fluxo). */
+export type TipoNoEtapa = 'etapa' | 'aprovacao' | 'condicao';
+
+/**
+ * CONDIÇÃO avaliável pelo sistema (construtor de fluxo): expressão simples
+ * sobre os dados do processo, ou `manual` (quem conduz responde sim/não).
+ * Ver `motor-grafo.ts › avaliarCondicao`.
+ */
+export type CampoCondicao = 'manual' | 'valor_total_estimado' | 'tipo_contratacao' | 'modalidade' | 'fundamento_legal';
+export type OperadorCondicao = '>' | '>=' | '<' | '<=' | 'entre' | 'igual' | 'diferente' | 'em' | 'contem';
+export interface CondicaoFluxo {
+  campo: CampoCondicao;
+  operador?: OperadorCondicao | null;
+  /** Número (valor) ou texto (tipo, modalidade, fundamento). */
+  valor?: number | string | null;
+  /** `entre`: limite superior (inclusive). */
+  valor_ate?: number | null;
+  /** `em`: lista de textos aceitos. */
+  valores?: string[] | null;
+}
 
 export interface ResponsavelEtapa {
   papel: string | null;
@@ -89,6 +112,23 @@ export interface EtapaDoModelo {
    * se nenhuma etapa que depende dela começou — o caminho já percorrido não muda.
    */
   entrou_depois?: boolean;
+
+  // --- Construtor de fluxo (grafo) — ausentes nas etapas dos modelos antigos ---
+  /** Nó do grafo que originou a etapa. */
+  no_id?: string;
+  /** etapa | aprovacao | condicao. */
+  tipo_no?: TipoNoEtapa;
+  /**
+   * Ligada ao INÍCIO do fluxo (o processo chega a ela sem passar por outra).
+   * `undefined` = etapa de modelo antigo: sempre alcançável (comportamento de antes do grafo).
+   */
+  raiz?: boolean;
+  /** Etapa de condição: o que o sistema avalia (ou `manual`). */
+  condicao?: CondicaoFluxo | null;
+  /** Dependência que sai de uma condição: { código da condição: 'sim' | 'nao' } — só vale nessa resposta. */
+  ramos?: Record<string, 'sim' | 'nao'>;
+  /** Aprovação: para onde devolve (códigos). Vazio = às etapas imediatamente anteriores. */
+  devolve_para?: string[];
 }
 
 export type TipoAprovador = 'PERMISSAO' | 'PAPEL' | 'SETOR' | 'USUARIO';
@@ -121,6 +161,12 @@ export interface ModeloFluxo {
    */
   exigir_posse_pecas: boolean;
   etapas: EtapaDoModelo[];
+  /**
+   * GRAFO do construtor de fluxo (nós e arestas — `grafo-fluxo.ts`). As
+   * `etapas` são a PROJEÇÃO dele (o que o motor executa). Modelo antigo sem
+   * grafo gravado: montado em memória a partir das etapas.
+   */
+  grafo?: GrafoFluxo | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +624,8 @@ export interface SnapshotModelo {
   tipo_processo: TipoProcessoFluxo;
   aprovacao_demanda: AprovacaoDemandaModelo;
   etapas: EtapaDoModelo[];
+  /** Grafo do caminho (construtor de fluxo). Processo antigo: convertido pela migração de boot (as etapas não mudam). */
+  grafo?: GrafoFluxo | null;
 }
 
 export function snapshotDoModelo(m: ModeloFluxo): SnapshotModelo {
@@ -590,6 +638,7 @@ export function snapshotDoModelo(m: ModeloFluxo): SnapshotModelo {
     tipo_processo: m.tipo_processo,
     aprovacao_demanda: JSON.parse(JSON.stringify(m.aprovacao_demanda)),
     etapas: JSON.parse(JSON.stringify(m.etapas)),
+    ...(m.grafo ? { grafo: JSON.parse(JSON.stringify(m.grafo)) } : {}),
   };
 }
 
@@ -630,6 +679,7 @@ export function modeloEfetivoDoProcesso(snapshot: SnapshotModelo, vigente: Model
     // Operacional (como quem faz e o prazo): segue o modelo vigente
     exigir_posse_pecas: vigente ? vigente.exigir_posse_pecas !== false : true,
     etapas,
+    grafo: snapshot.grafo ?? null,
   };
 }
 

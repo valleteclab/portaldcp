@@ -50,6 +50,9 @@ export enum AcaoLogFaseInterna {
   AUTOS_RENUMERADOS = 'AUTOS_RENUMERADOS',
   // Isolamento das peças (homologação multiusuário): administrador/login do órgão trabalhou fora da responsabilidade/posse
   ACAO_FORA_DA_RESPONSABILIDADE = 'ACAO_FORA_DA_RESPONSABILIDADE',
+  // Construtor de fluxo: condição respondida (pelo sistema ou por quem conduz) e devolução por uma aprovação
+  CONDICAO_RESPONDIDA = 'CONDICAO_RESPONDIDA',
+  ETAPA_DEVOLVIDA = 'ETAPA_DEVOLVIDA',
 }
 
 @Entity('logs_fase_interna')
