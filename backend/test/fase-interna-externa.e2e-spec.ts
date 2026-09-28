@@ -158,7 +158,7 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
       expect(q.body.opcoes.map((o: any) => o.tipo)).toEqual(expect.arrayContaining(['DFD', 'PP', 'DO', 'AA', 'DP', 'PJ', 'OUT']));
       const dfd = q.body.checklist.linhas.find((l: any) => l.tipo === 'DFD');
       expect(dfd).toMatchObject({ status: 'OK', origem: 'ARQUIVO', obrigatorio: true });
-      expect(q.body.checklist.obrigatorias_pendentes).toEqual(['Autorização da autoridade competente (Art. 72, VIII)']);
+      expect(q.body.checklist.obrigatorias_pendentes).toEqual(['Autorização da autoridade competente (Art. 72, VIII)', 'Compatibilidade orçamentária (Art. 72, IV)']);
       expect(q.body.checklist.antes_da_autorizacao).toEqual(['Art. 72, IV — Compatibilidade orçamentária']);
       expect(q.body.disputa.opcoes).toHaveLength(2);
       expect(q.body.disputa.padrao_do_orgao).toBe(true);

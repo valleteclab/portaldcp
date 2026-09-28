@@ -12,7 +12,7 @@
  * dispensa): importe de './support/dispensa'.
  */
 import { AppE2E, processarFilaPncpAtual } from './app';
-import { calendarioDoOrgao, fimDoPrazoEmDiasUteis, inicioDoDia } from '../../src/common/prazos/dias-uteis';
+import { calendarioDoOrgao, fimDoPrazoEmDiasUteis, inicioDoDia, inicioDoDiaSeguinte } from '../../src/common/prazos/dias-uteis';
 import {
   FornecedorFixture,
   LicitacaoFixture,
@@ -104,13 +104,13 @@ export function doisDiasUteisAoMeioDia(base: Date = new Date()): Date {
   return new Date(inicioDoDia(venc).getTime() + 12 * 3_600_000);
 }
 
-/** Prazo sugerido pelo cockpit: mínimo legal (3 dias úteis) + 1 h de folga. */
+/** Prazo que atende ao mínimo legal (3 dias úteis completos — art. 75, §3º) com folga. */
 export function fimPropostasSugerido(): Date {
-  // Mesma conta do backend (E7a): 3º dia útil depois da divulgação no
-  // calendário (feriados nacionais), meio-dia de Brasília — art. 183 inclui o
-  // dia do vencimento, então o recebimento pode terminar nesse dia.
+  // Mesma conta do backend (E7a): o prazo vence às 23:59 do 3º dia útil depois
+  // da divulgação (calendário com feriados nacionais) e só se completa com o
+  // dia inteiro — o recebimento termina no DIA SEGUINTE, ao meio-dia de Brasília.
   const venc = fimDoPrazoEmDiasUteis(new Date(), 3, calendarioDoOrgao(null));
-  return new Date(inicioDoDia(venc).getTime() + 12 * 3_600_000);
+  return new Date(inicioDoDiaSeguinte(venc).getTime() + 12 * 3_600_000);
 }
 
 /**
@@ -144,6 +144,8 @@ export async function vincularOrgaoPncp(ctx: AppE2E, orgao: OrgaoFixture, codigo
 export const DOCUMENTOS_ART_72: Array<[TipoDocumentoFaseInterna, string]> = [
   [TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'Formalização da demanda (DFD)'],
   [TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Estimativa de despesa'],
+  // art. 72, IV não admite "não se aplica": a informação orçamentária é obrigatória
+  [TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA, 'Informação orçamentária (compatibilidade — art. 72, IV)'],
   [TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Autorização da autoridade competente'],
 ];
 

@@ -51,7 +51,7 @@ import {
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { MigracaoDivulgacaoBootService } from '../src/pncp/migracao-divulgacao-boot.service';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
-import { calendarioDoOrgao, fimDoPrazoEmDiasUteis, inicioDoDia } from '../src/common/prazos/dias-uteis';
+import { calendarioDoOrgao, fimDoDia, fimDoPrazoEmDiasUteis } from '../src/common/prazos/dias-uteis';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -65,9 +65,14 @@ describe('Divulgação oficial no PNCP e regras da dispensa (IN SEGES 67/2021)',
   let f3: FornecedorFixture;
   const http = () => ctx.http();
 
-  /** Dispensa instruída (art. 72) e com a fase interna concluída, pronta para gerar o aviso e divulgar. */
+  /**
+   * Dispensa instruída (art. 72) e com a fase interna concluída, pronta para gerar o aviso e divulgar.
+   * Conduzida pelo agente quando o ato é dele (`token` de um usuário): os atos do processo inteiro
+   * são só de quem conduz — o agente designado (`pregoeiro_id`), quem criou ou o login do órgão.
+   */
   async function dispensaInstruida(o: OrgaoFixture, token = o.token) {
-    const lic = await criarLicitacao(ctx, o, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+    const extras = token === o.token ? {} : { pregoeiro_id: agente.id };
+    const lic = await criarLicitacao(ctx, o, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras });
     for (const [tipo, titulo] of DOCUMENTOS_ART_72) await criarDocumentoInstrucao(ctx, lic, tipo, titulo);
     await http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(token)).expect(200);
     return lic;
@@ -188,7 +193,8 @@ describe('Divulgação oficial no PNCP e regras da dispensa (IN SEGES 67/2021)',
       expect(depois.meio_divulgacao_oficial).toBe('PNCP');
       expect(depois.referencia_divulgacao_oficial).toMatch(/-1-\d{6}\/\d{4}$/);
       const divulgacao = new Date((await ctx.dataSource.query(`SELECT data_divulgacao_oficial AS d FROM licitacoes WHERE id = $1`, [lic.id]))[0].d);
-      const minimo = inicioDoDia(fimDoPrazoEmDiasUteis(divulgacao, 3, calendarioDoOrgao(orgao.id)));
+      // o mínimo é o fim do 3º dia útil (o dia inteiro — art. 75, §3º c/c art. 183)
+      const minimo = fimDoDia(fimDoPrazoEmDiasUteis(divulgacao, 3, calendarioDoOrgao(orgao.id)));
       const [row] = await ctx.dataSource.query(`SELECT data_fim_acolhimento AS fim, data_abertura_sessao AS ab FROM licitacoes WHERE id = $1`, [lic.id]);
       expect(new Date(row.fim).getTime()).toBeGreaterThanOrEqual(minimo.getTime());
       expect(new Date(row.ab).getTime()).toBeGreaterThanOrEqual(new Date(row.fim).getTime());

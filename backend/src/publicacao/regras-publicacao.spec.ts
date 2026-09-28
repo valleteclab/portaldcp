@@ -59,26 +59,31 @@ describe('avaliação do cronograma de publicação (E7a)', () => {
   const pregaoBens = { modalidade: 'PREGAO_ELETRONICO', tipo_contratacao: 'COMPRA', criterio_julgamento: 'MENOR_PRECO' };
   const agora = bsb('2026-09-25', '09:00'); // sexta
 
-  it('art. 183: exclui o dia da divulgação e INCLUI o da abertura — sex 25/09/2026 + 8 dias úteis (12/10 no caminho? não) → abertura a partir de qua 07/10', () => {
-    // 28, 29, 30, 01, 02, 05, 06, 07 → o 8º dia útil é 07/10: a abertura pode ser nesse dia
-    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-07', '09:00') }, agora, { cal: CALENDARIO_NACIONAL });
+  it('art. 183: exclui o dia da divulgação e INCLUI o da abertura — sex 25/09/2026 + 8 dias úteis → o prazo vence qua 07/10 às 23:59; abertura a partir daí (08/10)', () => {
+    // 28, 29, 30, 01, 02, 05, 06, 07 → o 8º dia útil é 07/10: o prazo só se completa com ele INTEIRO
+    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-08', '09:00') }, agora, { cal: CALENDARIO_NACIONAL });
     expect(iso(av.vencimento)).toBe(iso(new Date('2026-10-07T23:59:59.999-03:00')));
-    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-07T00:00:00-03:00')));
+    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-07T23:59:59.999-03:00')));
     expect(av.pendencias).toEqual([]);
+    // 23:59 do dia do vencimento (o formulário grava no minuto) atende; 09:00 do mesmo dia, não
+    expect(avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-07', '23:59') }, agora, { cal: CALENDARIO_NACIONAL }).pendencias).toEqual([]);
+    const noDia = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-07', '09:00') }, agora, { cal: CALENDARIO_NACIONAL });
+    expect(noDia.pendencias.join(' ')).toMatch(/mínimo 07\/10\/2026,? 23:59 \(fim do 8º dia útil/);
     const cedo = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-06', '15:00') }, agora, { cal: CALENDARIO_NACIONAL });
     expect(cedo.pendencias.join(' ')).toMatch(/Prazo mínimo de 8 dias úteis.*art\. 55, I, a.*8º dia útil/);
   });
 
-  it('exemplo clássico: divulgação na segunda 01/02/2027 → abertura a partir da quinta 11/02 (8º dia útil; Carnaval não adotado conta)', () => {
-    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2027-02-11', '09:00') }, bsb('2027-02-01', '08:00'), { cal: CALENDARIO_NACIONAL });
-    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2027-02-11T00:00:00-03:00')));
+  it('exemplo clássico: divulgação na segunda 01/02/2027 → o prazo vence na quinta 11/02 (8º dia útil; Carnaval não adotado conta); abertura a partir de 12/02', () => {
+    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2027-02-12', '09:00') }, bsb('2027-02-01', '08:00'), { cal: CALENDARIO_NACIONAL });
+    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2027-02-11T23:59:59.999-03:00')));
     expect(av.pendencias).toEqual([]);
+    expect(avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2027-02-11', '09:00') }, bsb('2027-02-01', '08:00'), { cal: CALENDARIO_NACIONAL }).pendencias).toHaveLength(1);
   });
 
   it('feriado municipal do órgão desloca a data mínima', () => {
     const cal = criarCalendario([{ descricao: 'Padroeira', data: '2026-10-06' }]);
-    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-07', '09:00') }, agora, { cal });
-    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-08T00:00:00-03:00')));
+    const av = avaliarPrazosDePublicacao(pregaoBens, { data_abertura_sessao: bsb('2026-10-08', '09:00') }, agora, { cal });
+    expect(iso(av.minimo_abertura)).toBe(iso(new Date('2026-10-08T23:59:59.999-03:00')));
     expect(av.pendencias.join(' ')).toMatch(/8 dias úteis/);
   });
 

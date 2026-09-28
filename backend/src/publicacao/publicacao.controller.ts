@@ -138,7 +138,7 @@ export class PublicacaoController {
       pendencias: av.pendencias,
       feriados_no_periodo: this.feriados.diasSemExpediente(lic.orgao_id, av.divulgacao, ate),
       contagem:
-        'Art. 183: exclui o dia da divulgação e inclui o do vencimento; só contam dias com expediente no órgão (feriados e pontos facultativos adotados não contam). A abertura pode ocorrer a partir das 00:00 do último dia útil do prazo.',
+        'Art. 183: exclui o dia da divulgação e inclui o do vencimento; só contam dias com expediente no órgão (feriados e pontos facultativos adotados não contam). O prazo só se completa com o último dia útil inteiro: a abertura (ou o fim do recebimento) pode ocorrer a partir das 23:59 desse dia — na prática, do dia seguinte.',
       calendario_orgao: !!calendarioDoOrgao(lic.orgao_id),
     };
   }

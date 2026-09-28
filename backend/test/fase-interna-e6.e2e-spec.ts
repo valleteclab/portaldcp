@@ -122,7 +122,9 @@ describe('Fase interna — Entrega 6 (autos em PDF com folhas numeradas)', () =>
     // Na ordem do fluxo (homologação multiusuário): pesquisa → reserva → minutas → parecer → autorização
     for (const t of ['AR', 'TR']) expect((await naoSeAplica(t)).status).toBe(201);
     expect((await anexar('PP', await pdfPaginas('PESQUISA', 2, true))).status).toBe(201);
-    for (const t of ['DO', 'JC', 'ME', 'MC']) expect([t, (await naoSeAplica(t)).status]).toEqual([t, 201]);
+    // art. 72, IV não admite "não se aplica": a informação orçamentária é anexada
+    expect((await anexar('DO', await pdfPaginas('INFORMACAO ORCAMENTARIA', 1))).status).toBe(201);
+    for (const t of ['JC', 'ME', 'MC']) expect([t, (await naoSeAplica(t)).status]).toEqual([t, 201]);
     // Relatório do agente GERADO no sistema (peça feita aqui, PDF gerado)
     expect((await http().post(`/api/fase-interna/${lic.id}/minutas/RAG/gerar`).set(bearer(agente.token))).status).toBe(201);
     await esperar(); // a peça gerada é juntada na sincronização (depois do commit), antes do próximo anexo
@@ -203,7 +205,7 @@ describe('Fase interna — Entrega 6 (autos em PDF com folhas numeradas)', () =>
       });
     });
 
-    it('ordem de JUNTADA: DFD fls. 1–3, ETP v1 fls. 4–5 (mantido e anotado), ETP v2 fls. 6–7, pesquisa, relatório, despacho, justificativas', async () => {
+    it('ordem de JUNTADA: DFD fls. 1–3, ETP v1 fls. 4–5 (mantido e anotado), ETP v2 fls. 6–7, pesquisa, informação orçamentária, relatório, despacho, justificativas', async () => {
       expect(daFolha(1)).toMatch(/DFD PAGINA 1 DE 3/);
       expect(daFolha(3)).toMatch(/DFD PAGINA 3 DE 3/);
       // a versão substituída CONTINUA nos autos, na folha original, anotada
@@ -214,12 +216,13 @@ describe('Fase interna — Entrega 6 (autos em PDF com folhas numeradas)', () =>
       expect(daFolha(6)).toMatch(/Substitui as fls\. 4–5/);
       expect(daFolha(8)).toMatch(/PESQUISA PAGINA 1 DE 2/);
       expect(daFolha(9)).toMatch(/PESQUISA PAGINA 2 DE 2/); // página girada, também carimbada
+      expect(daFolha(10)).toMatch(/INFORMACAO ORCAMENTARIA PAGINA 1 DE 1/); // art. 72, IV (anexada — não admite "não se aplica")
       const idx = meta.indice as any[];
       const primeiro = (re: RegExp) => idx.find((e) => re.test(e.titulo));
       const rag = primeiro(/[Rr]elatório do agente/);
       const aa = primeiro(/[Aa]utoriza/);
       const just = primeiro(/Termo de justificativas/);
-      expect(rag.folha_inicial).toBe(10);
+      expect(rag.folha_inicial).toBe(11);
       expect(rag.origem).toBe('Gerada no sistema');
       expect(aa.folha_inicial).toBe(rag.folha_final + 1); // o despacho foi juntado depois do relatório
       expect(daFolha(aa.folha_inicial)).toMatch(/DESPACHO PAGINA 1 DE 1/);

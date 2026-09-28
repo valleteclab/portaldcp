@@ -22,6 +22,11 @@ describe('Autorização da autoridade (Entrega 3B)', () => {
     expect(falta.ok).toBe(false);
     expect(falta.pendentes).toEqual(['Art. 72, II — Estimativa de despesa (art. 23)', 'Art. 72, IV — Compatibilidade da previsão de recursos orçamentários']);
     expect(falta.linhas.find((l) => l.inciso === 'II')!.situacao).toBe('EM_ANDAMENTO');
+    // Art. 72, IV não admite "não se aplica": a informação orçamentária marcada assim continua pendente
+    const nsa = portaoBArt72([linha('DFD'), linha('ETP', 'NAO_SE_APLICA'), linha('PP'), linha('DO', 'NAO_SE_APLICA')]);
+    expect(nsa.ok).toBe(false);
+    expect(nsa.pendentes).toEqual(['Art. 72, IV — Compatibilidade da previsão de recursos orçamentários']);
+    expect(nsa.linhas.find((l) => l.inciso === 'IV')!.situacao).toBe('PENDENTE');
   });
 
   it('colegiada: quem falta, "posso assinar" só para o signatário que ainda não assinou', () => {

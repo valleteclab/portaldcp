@@ -80,6 +80,13 @@ export interface PecaConformidade {
   signatarios_faltantes: string[];
   desatualizada: { texto: string; motivo?: string } | null;
   justificativa_marca: string | null;
+  /**
+   * Parecer jurídico EMITIDO no sistema (PJ/PJE): a conclusão registrada na
+   * emissão (`dados_estruturados._parecer.conclusao` — FAVORAVEL |
+   * FAVORAVEL_COM_RESSALVAS | DESFAVORAVEL). Null nas demais peças e no
+   * parecer anexado (feito fora: a conclusão não é registrada no sistema).
+   */
+  conclusao_parecer: string | null;
   /** Origem externa (aba Documentos) — `documentos_licitacao.id`. */
   id_externo?: string | null;
 }
@@ -188,6 +195,12 @@ export interface Regra {
   garantida_no_ato?: boolean;
   /** Achado desta regra não gera tarefa (a peça pendente já é a tarefa da etapa). */
   sem_tarefa?: boolean;
+  /**
+   * Outros portões que também aplicam a regra (além do `portao` principal —
+   * ex.: PARECER-01 segura o AUTORIZAR e o PUBLICAR). `regrasDoPortao` e a
+   * semente das travas por ato leem daqui.
+   */
+  tambem_no_portao?: Portao[];
   /** null = aplica; texto = por que não se aplica a este processo agora. */
   aplicavel?: (ctx: ContextoConformidade) => string | null;
   avaliar: (ctx: ContextoConformidade) => AchadoCalculado[];

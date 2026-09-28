@@ -37,6 +37,18 @@ export const INCISOS_ART72: Array<{ inciso: string; texto: string; tipos: string
 export const PRONTA = new Set(['OK', 'NAO_SE_APLICA']);
 
 /**
+ * Incisos que NÃO admitem "não se aplica": o IV (compatibilidade da previsão
+ * de recursos orçamentários) não é "se for o caso" — toda contratação tem
+ * dotação. A informação orçamentária é emitida (reserva) ou anexada; um "não
+ * se aplica" gravado antes desta regra (processo antigo) não supre o inciso.
+ */
+export const INCISOS_SEM_NAO_SE_APLICA = new Set(['IV']);
+export const SO_PRONTA = new Set(['OK']);
+
+/** Statuses que contam como "pronta" para o inciso (o IV só aceita a peça feita/anexada). */
+export const prontaNoInciso = (inciso: string): Set<string> => (INCISOS_SEM_NAO_SE_APLICA.has(inciso) ? SO_PRONTA : PRONTA);
+
+/**
  * RAZÃO DA ESCOLHA (VI) E JUSTIFICATIVA DE PREÇO (VII) — o momento depende de
  * COMO o contratado é escolhido (homologação 26/09/2026):
  *  - dispensa ELETRÔNICA (com ou sem lances): o contratado e o preço final
@@ -120,10 +132,12 @@ export function portaoBArt72(itens: LinhaInstrucaoPortao[], modalidade?: string 
       situacao = s.ok ? 'OK' : s.pecas.some((p) => p.status !== 'PENDENTE' && p.status !== 'NAO_SE_APLICA') ? 'EM_ANDAMENTO' : 'PENDENTE';
       return { inciso: i.inciso, referencia: `Art. 72, ${i.inciso}`, texto: i.texto, momento, exigido, situacao, pecas };
     }
-    if (momento !== 'ANTES' && momento !== 'ESTA_ETAPA') situacao = pecas.length && pecas.every((p) => PRONTA.has(p.status)) ? 'OK' : 'DEPOIS';
+    const pronta = prontaNoInciso(i.inciso);
+    if (momento !== 'ANTES' && momento !== 'ESTA_ETAPA') situacao = pecas.length && pecas.every((p) => pronta.has(p.status)) ? 'OK' : 'DEPOIS';
     else if (!pecas.length) situacao = 'OK';
-    else if (pecas.every((p) => PRONTA.has(p.status))) situacao = 'OK';
-    else if (pecas.some((p) => p.status !== 'PENDENTE')) situacao = 'EM_ANDAMENTO';
+    else if (pecas.every((p) => pronta.has(p.status))) situacao = 'OK';
+    // "não se aplica" num inciso que não o admite (IV) não é "em andamento": continua pendente
+    else if (pecas.some((p) => p.status !== 'PENDENTE' && !(pronta === SO_PRONTA && p.status === 'NAO_SE_APLICA'))) situacao = 'EM_ANDAMENTO';
     else situacao = 'PENDENTE';
     return { inciso: i.inciso, referencia: `Art. 72, ${i.inciso}`, texto: i.texto, momento, exigido, situacao, pecas };
   });
@@ -136,21 +150,24 @@ const ROTULO_STATUS: Record<string, string> = {
   EM_ELABORACAO: 'em elaboração',
   EM_APROVACAO: 'em aprovação',
   EM_ASSINATURA: 'aguardando assinaturas',
+  NAO_SE_APLICA: 'marcada "não se aplica" — o inciso não admite',
 };
 
 /**
  * Situação das peças de um conjunto de tipos (roteiro do parecer e regras
  * A72-*): fora da instrução → NAO_SE_APLICA; todas prontas → CONFORME; senão
- * PENDENTE com o que falta.
+ * PENDENTE com o que falta. `prontas`: statuses que contam (o inciso IV não
+ * aceita "não se aplica" — `prontaNoInciso`).
  */
 export function situacaoDasPecasDoArt72(
   itens: LinhaInstrucaoPortao[],
   tipos: string[],
   rotulo: string,
+  prontas: Set<string> = PRONTA,
 ): { situacao: 'NAO_SE_APLICA' | 'CONFORME' | 'PENDENTE'; detalhe: string; faltam: Array<{ tipo: string; titulo: string; status: string; documento_id?: string | null }> } {
   const presentes = pecasDoInciso(itens, tipos);
   if (!presentes.length) return { situacao: 'NAO_SE_APLICA', detalhe: `${rotulo}: fora da instrução deste processo`, faltam: [] };
-  const faltam = presentes.filter((x) => !PRONTA.has(x.status));
+  const faltam = presentes.filter((x) => !prontas.has(x.status));
   if (!faltam.length) return { situacao: 'CONFORME', detalhe: `${rotulo}: juntadas`, faltam: [] };
   return { situacao: 'PENDENTE', detalhe: `Falta(m): ${faltam.map((x) => x.tipo).join(', ')}`, faltam };
 }

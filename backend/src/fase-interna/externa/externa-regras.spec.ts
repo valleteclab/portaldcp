@@ -189,13 +189,15 @@ describe('fase interna feita fora — checklist incremental', () => {
   it('conforme os arquivos são classificados: obrigatórias pendentes, fora do checklist e o que falta antes da autorização', () => {
     const vazio = checklistIncremental({ contratacao_direta: true, checklist: DIRETA, classificadas: [] });
     expect(vazio.completo).toBe(false);
-    expect(vazio.obrigatorias_pendentes).toHaveLength(3); // DFD, estimativa, autorização
+    expect(vazio.obrigatorias_pendentes).toHaveLength(4); // DFD, estimativa, autorização e compatibilidade orçamentária (art. 72, IV)
     expect(vazio.antes_da_autorizacao).toHaveLength(3); // art. 72, I, II e IV
 
-    const meio = checklistIncremental({ contratacao_direta: true, checklist: DIRETA, classificadas: ['DFD', 'PP', 'OUT'], nao_se_aplica: ['ETP', 'AR', 'TR'] });
+    const meio = checklistIncremental({ contratacao_direta: true, checklist: DIRETA, classificadas: ['DFD', 'PP', 'OUT'], nao_se_aplica: ['ETP', 'AR', 'TR', 'DO'] });
     expect(meio.linhas.find((l) => l.tipo === 'DFD')).toMatchObject({ status: 'OK', origem: 'ARQUIVO' });
     expect(meio.linhas.find((l) => l.tipo === 'ETP')).toMatchObject({ status: 'NAO_SE_APLICA' });
-    expect(meio.obrigatorias_pendentes).toEqual(['Autorização da autoridade competente (Art. 72, VIII)']);
+    // Art. 72, IV não admite "não se aplica": a informação orçamentária continua pendente (e obrigatória)
+    expect(meio.linhas.find((l) => l.tipo === 'DO')).toMatchObject({ status: 'PENDENTE', obrigatorio: true, pode_nao_se_aplicar: false });
+    expect(meio.obrigatorias_pendentes).toEqual(['Autorização da autoridade competente (Art. 72, VIII)', 'Compatibilidade orçamentária (Art. 72, IV)']);
     expect(meio.fora_do_checklist).toEqual(['OUT']);
     expect(meio.antes_da_autorizacao).toEqual(['Art. 72, IV — Compatibilidade orçamentária']);
 

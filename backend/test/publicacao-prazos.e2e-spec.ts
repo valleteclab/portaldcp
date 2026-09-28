@@ -51,7 +51,7 @@ import {
   diaEmBrasilia,
   ehDiaUtil,
   fimDoPrazoEmDiasUteis,
-  inicioDoDia,
+  fimDoDia,
   DIA_MS,
 } from '../src/common/prazos/dias-uteis';
 import { formatarRelogioBrasilia } from '../src/impugnacoes/prazo-manifestacao.util';
@@ -59,9 +59,14 @@ import { formatarRelogioBrasilia } from '../src/impugnacoes/prazo-manifestacao.u
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const HORA = 3_600_000;
 
-/** Primeira data/hora aceita para a abertura: 00:00 do N-ésimo dia útil depois da divulgação (art. 55 + art. 183 — inclui o dia do vencimento). */
+/**
+ * Primeira data/hora aceita para a abertura: o FIM (23:59:59.999) do N-ésimo dia
+ * útil depois da divulgação (art. 55 + art. 183 — o prazo só se completa com o
+ * dia do vencimento inteiro; a comparação do backend é no minuto).
+ */
 function minimoAbertura(orgaoId: string | null, dias: number, base = new Date()): Date {
-  return inicioDoDia(fimDoPrazoEmDiasUteis(base, dias, calendarioDoOrgao(orgaoId)));
+  // no segundo cheio (23:59:59.000): o banco guarda as datas sem os milissegundos
+  return new Date(fimDoDia(fimDoPrazoEmDiasUteis(base, dias, calendarioDoOrgao(orgaoId))).getTime() - 999);
 }
 
 /** Corpo do PUT publicar-edital com abertura/fim do recebimento em `abertura`. */

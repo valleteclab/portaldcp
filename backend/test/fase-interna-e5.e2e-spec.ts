@@ -90,7 +90,8 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
     const ordem = ['DFD', 'PP', 'ETP', 'AR', 'TR', 'DO', 'RAG', 'ME', 'MC', 'JC', 'PJ', ...(opcoes.controleInterno ? ['MCI'] : []), 'AA', 'DP'];
     for (const t of ordem) {
       if (t === opcoes.ate) return;
-      const status = ['DFD', 'PP', 'AA', 'MCI'].includes(t) || anexos[t] ? (await anexar(lic, t, token, anexos[t])).status : (await naoSeAplica(lic, t, token)).status;
+      // DO: art. 72, IV não admite "não se aplica" — anexada
+      const status = ['DFD', 'PP', 'DO', 'AA', 'MCI'].includes(t) || anexos[t] ? (await anexar(lic, t, token, anexos[t])).status : (await naoSeAplica(lic, t, token)).status;
       expect([t, status]).toEqual([t, 201]);
     }
   };

@@ -7,7 +7,8 @@
  *  Portão B — art. 72 (etapa 6, autorização): A72-I, A72-II, A72-IV e, na
  *            contratação direta sem aviso, A72-VI e A72-VII (na dispensa
  *            eletrônica são cumpridos após a seleção do fornecedor; V é da
- *            fase externa; III e VIII conferidos antes de publicar).
+ *            fase externa; III e VIII conferidos antes de publicar);
+ *            PARECER-01 (parecer desfavorável — art. 53; também no portão C).
  *  Portão C — antes de publicar (etapa 8): ENQ-01, VINC-01, MARCA-01,
  *            PRECO-01..04, CRONO-01, LEI-01, EXERC-01, DUP-01, ASS-01,
  *            PRAZO-01, MINUTA-DESAT, SIGILO-01, ART92-01, DISP-01 (Entrega 5).
@@ -19,11 +20,11 @@
  * órgão — a mesma função da pré-condição do PUBLICAR).
  */
 import { diasUteisEntre } from '../../common/prazos/dias-uteis';
-import { avaliarPrazosDePublicacao, fimDoRecebimento, formatarDataBrasilia } from '../../publicacao/regras-publicacao';
+import { antesDoMinimo, avaliarPrazosDePublicacao, fimDoRecebimento, formatarDataBrasilia } from '../../publicacao/regras-publicacao';
 import { detectarIndicacaoMarca } from '../telas/etp-analise';
 import { propostasDiretas } from '../telas/pesquisa-regras';
 import { PassoFaseInterna, dependenciasDoPasso, passoDaPeca } from '../tarefas/etapas-fase-interna';
-import { INCISOS_ART72, PRONTA, contratacaoSemAviso, descreverFaltantes, motivoEscolhaAposSelecao, situacaoDasPecasDoArt72, situacaoEscolhaPreco } from './art72';
+import { INCISOS_ART72, INCISOS_SEM_NAO_SE_APLICA, PRONTA, contratacaoSemAviso, descreverFaltantes, motivoEscolhaAposSelecao, prontaNoInciso, situacaoDasPecasDoArt72, situacaoEscolhaPreco } from './art72';
 import { leisOrcamentariasCitadas, ocorrenciasDeOutroProcesso, ocorrenciasDoArt75, textoPuro } from './texto';
 import type { AchadoCalculado, ContextoConformidade, Evidencia, PecaConformidade, Regra } from './tipos';
 
@@ -235,7 +236,7 @@ function regraArt72(inciso: string, opcoes: { severidade: 'BLOQUEIO' | 'ATENCAO'
       return null;
     },
     avaliar(ctx) {
-      const s = situacaoDasPecasDoArt72(ctx.instrucao, tipos, def.texto);
+      const s = situacaoDasPecasDoArt72(ctx.instrucao, tipos, def.texto, prontaNoInciso(inciso));
       if (s.situacao !== 'PENDENTE') return [];
       const evid: Evidencia[] = s.faltam.map((f) => {
         const p = ctx.pecas.find((x) => x.tipo === f.tipo);
@@ -245,9 +246,11 @@ function regraArt72(inciso: string, opcoes: { severidade: 'BLOQUEIO' | 'ATENCAO'
       const complemento =
         inciso === 'VIII'
           ? 'Sem a autorização não se publica.'
-          : antesDeAutorizar
-            ? 'Sem isso a autoridade não autoriza (trava da lei: autorizar): faça, anexe ou marque "não se aplica" quando a lei permitir.'
-            : 'Junte a peça ou registre por que não se aplica.';
+          : INCISOS_SEM_NAO_SE_APLICA.has(inciso)
+            ? 'O art. 72, IV não admite "não se aplica" (toda contratação tem dotação): emita a reserva (informação orçamentária) ou anexe a feita fora. Sem isso a autoridade não autoriza (trava da lei: autorizar).'
+            : antesDeAutorizar
+              ? 'Sem isso a autoridade não autoriza (trava da lei: autorizar): faça, anexe ou marque "não se aplica" quando a lei permitir.'
+              : 'Junte a peça ou registre por que não se aplica.';
       return [
         {
           regra: codigo,
@@ -815,7 +818,7 @@ export const PRAZO_01: Regra = {
   },
   avaliar(ctx) {
     const av = avaliacaoDoPrazo(ctx);
-    if (!av || !av.minimo_abertura || !av.recebimento || av.recebimento.getTime() >= av.minimo_abertura.getTime()) return [];
+    if (!av || !av.minimo_abertura || !av.recebimento || !antesDoMinimo(av.recebimento, av.minimo_abertura)) return [];
     return [
       {
         regra: 'PRAZO-01',
@@ -824,7 +827,7 @@ export const PRAZO_01: Regra = {
         titulo: 'Janela de propostas abaixo do mínimo',
         mensagem:
           `Janela de propostas com ${av.dias_uteis} dia(s) útil(eis) (divulgação ${formatarDataBrasilia(av.divulgacao, false)}, fim do recebimento ${formatarDataBrasilia(av.recebimento)}): ` +
-          `o mínimo é de ${av.minimo} dias úteis (${av.fundamento}), contados no calendário do órgão — o fim do recebimento vai a partir de ${formatarDataBrasilia(av.minimo_abertura, false)}.`,
+          `o mínimo é de ${av.minimo} dias úteis (${av.fundamento}), contados no calendário do órgão e completos — o fim do recebimento vai a partir de ${formatarDataBrasilia(av.minimo_abertura)} (fim do ${av.minimo}º dia útil).`,
         evidencias: doTipo(ctx, 'ME').slice(0, 1).map((p) => evidenciaDaPeca(p)),
         tipo_peca_responsavel: 'ME',
         acao: 'CORRIGIR_PECA',
@@ -859,7 +862,7 @@ export function avaliacaoDoPrazo(ctx: ContextoConformidade) {
     minimo: av.prazo.dias,
     fundamento: av.prazo.fundamento,
     dias_uteis: recebimento ? diasUteisEntre(av.divulgacao, recebimento, ctx.calendario) : null,
-    atende: !recebimento || !av.minimo_abertura || recebimento.getTime() >= av.minimo_abertura.getTime(),
+    atende: !recebimento || !av.minimo_abertura || !antesDoMinimo(recebimento, av.minimo_abertura),
   };
 }
 
@@ -1035,6 +1038,84 @@ export const FLUXO_01: Regra = {
   },
 };
 
+/**
+ * PARECER-01 (art. 53, caput, §1º e §4º) — a conclusão do PARECER JURÍDICO
+ * emitido no sistema vincula os atos seguintes:
+ *  - DESFAVORÁVEL → BLOQUEIO do AUTORIZAR (portão B) e do PUBLICAR (portão
+ *    C): a autoridade não autoriza nem se publica contra o parecer sem
+ *    despacho motivado divergindo dele (art. 53, §1º c/c art. 72, III e
+ *    VIII). O sistema ainda não registra esse despacho de forma estruturada:
+ *    o caminho é corrigir as peças apontadas e emitir novo parecer (versão
+ *    nova da peça — o achado se resolve sozinho) ou, quando couber, o
+ *    jurídico dispensar o parecer ("não se aplica", art. 53, §5º);
+ *  - FAVORÁVEL COM RESSALVAS → ATENÇÃO com justificativa obrigatória para
+ *    PUBLICAR: quem conduz registra como as ressalvas foram saneadas (ou por
+ *    que não se aplicam). No ato de AUTORIZAR não exige a justificativa (o
+ *    parecer é favorável; o saneamento é conferido antes de publicar);
+ *  - FAVORÁVEL → nada.
+ * Parecer anexado (feito fora) não traz a conclusão no sistema; sem parecer
+ * (ou "não se aplica"), a regra não se aplica. A chave leva a VERSÃO da
+ * peça: novo parecer = nova ocorrência (a justificativa anterior não vale).
+ */
+export const PARECER_01: Regra = {
+  codigo: 'PARECER-01',
+  descricao: 'Parecer jurídico desfavorável trava a autorização e a publicação; com ressalvas, exige o registro do saneamento antes de publicar (art. 53)',
+  severidade: 'BLOQUEIO',
+  etapa: 'AUTORIZACAO',
+  portao: 'B',
+  tambem_no_portao: ['C'],
+  aplicavel(ctx) {
+    const pj = parecerVigente(ctx);
+    if (!pj) return 'Sem parecer jurídico (ou "não se aplica").';
+    if (pj.anexada) return 'Parecer anexado (feito fora): a conclusão não é registrada no sistema — confira no PDF.';
+    if (!pj.conclusao_parecer) return 'Parecer ainda não emitido.';
+    return null;
+  },
+  avaliar(ctx) {
+    const pj = parecerVigente(ctx)!;
+    const c = pj.conclusao_parecer;
+    if (c === 'DESFAVORAVEL') {
+      return [
+        {
+          regra: 'PARECER-01',
+          chave: `desfavoravel:v${pj.versao}`,
+          severidade: 'BLOQUEIO',
+          titulo: 'Parecer jurídico desfavorável',
+          mensagem: 'Parecer jurídico desfavorável: corrija as peças apontadas e emita novo parecer, ou junte despacho motivado da autoridade divergindo do parecer (art. 53).',
+          evidencias: [evidenciaDaPeca(pj)],
+          tipo_peca_responsavel: 'PJ',
+          acao: 'CORRIGIR_PECA',
+        },
+      ];
+    }
+    if (c === 'FAVORAVEL_COM_RESSALVAS') {
+      return [
+        {
+          regra: 'PARECER-01',
+          chave: `ressalvas:v${pj.versao}`,
+          severidade: 'ATENCAO',
+          titulo: 'Parecer favorável condicionado ao saneamento das ressalvas',
+          mensagem:
+            'O parecer jurídico é favorável, condicionado ao saneamento das ressalvas (art. 53, §1º). Antes de publicar, corrija as peças apontadas e registre aqui como as ressalvas foram atendidas — ou justifique por que não se aplicam.',
+          evidencias: [evidenciaDaPeca(pj)],
+          // A justificativa é cobrada para PUBLICAR (portão C); o AUTORIZAR não a exige
+          exige_justificativa: ctx.ato_pretendido !== 'AUTORIZAR',
+          tipo_peca_responsavel: 'PJ',
+          acao: 'JUSTIFICAR',
+        },
+      ];
+    }
+    return [];
+  },
+};
+
+/** Parecer jurídico ativo (versão atual; havendo mais de um, o de maior versão). */
+function parecerVigente(ctx: ContextoConformidade): PecaConformidade | null {
+  const lista = doTipo(ctx, 'PJ');
+  if (!lista.length) return null;
+  return [...lista].sort((a, b) => b.versao - a.versao)[0];
+}
+
 /** TODAS AS REGRAS, na ordem da tela (portão A, B e C). */
 export const REGRAS: Regra[] = [
   LIM_01,
@@ -1048,6 +1129,7 @@ export const REGRAS: Regra[] = [
   A72_VI,
   A72_VII,
   A72_VIII,
+  PARECER_01,
   ENQ_01,
   VINC_01,
   MARCA_01,

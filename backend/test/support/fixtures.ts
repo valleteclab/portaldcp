@@ -472,6 +472,8 @@ const CONTRATACAO_DIRETA = [ModalidadeLicitacao.DISPENSA_ELETRONICA, ModalidadeL
 const TITULO_PECA_E2E: Record<string, string> = {
   DFD: 'Formalização da demanda (DFD)',
   PP: 'Estimativa de despesa',
+  // art. 72, IV não admite "não se aplica": a informação orçamentária é feita (obrigatória)
+  DO: 'Informação orçamentária (compatibilidade — art. 72, IV)',
   AA: 'Autorização da autoridade competente',
 };
 
@@ -481,7 +483,7 @@ const TITULO_PECA_E2E: Record<string, string> = {
  * (homologação multiusuário, 27/09/2026): o sistema só deixa trabalhar numa
  * etapa que PODE COMEÇAR — demanda aprovada (o login do órgão aprova ao fazer o
  * DFD) e dependências do modelo concluídas. As peças obrigatórias (DFD,
- * estimativa, autorização, e todas no rito completo) são feitas no sistema; as
+ * estimativa, informação orçamentária, autorização, e todas no rito completo) são feitas no sistema; as
  * "se for o caso" da contratação direta, marcadas "não se aplica" com
  * justificativa. Tudo pela API, com o login do órgão (quem conduz).
  * `incluirAlvo`: cumpre também as peças da própria etapa.

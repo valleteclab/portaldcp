@@ -147,14 +147,15 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(r.body.message).toMatch(/aprovada internamente/);
     });
 
-    it('sem instrução, o checklist aponta DFD, estimativa e autorização e a fase interna não conclui', async () => {
+    it('sem instrução, o checklist aponta DFD, estimativa, autorização e compatibilidade orçamentária e a fase interna não conclui', async () => {
       const inst = await ctx.http().get(`/api/fase-interna/${lic.id}/instrucao`).set(bearer(orgao.token)).expect(200);
       expect(inst.body.contratacao_direta).toBe(true);
       expect(inst.body.pode_divulgar).toBe(false);
-      expect(inst.body.pendentes).toHaveLength(3);
+      expect(inst.body.pendentes).toHaveLength(4); // DFD, estimativa, autorização e informação orçamentária (art. 72, IV)
       expect(inst.body.pendentes.join(' | ')).toMatch(/Formaliza.*demanda/);
       expect(inst.body.pendentes.join(' | ')).toMatch(/Estimativa de despesa/);
       expect(inst.body.pendentes.join(' | ')).toMatch(/Autoriza/);
+      expect(inst.body.pendentes.join(' | ')).toMatch(/Compatibilidade orçamentária \(Art\. 72, IV\)/);
 
       // "Divulgar aviso" do cockpit chama primeiro o avanço da fase interna
       const av = await ctx.http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(orgao.token));
@@ -195,7 +196,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(depois.fase).toBe(FaseLicitacao.APROVACAO_INTERNA);
     });
 
-    it('com DFD + estimativa + autorização, a instrução libera e a fase interna conclui', async () => {
+    it('com DFD + estimativa + informação orçamentária + autorização, a instrução libera e a fase interna conclui', async () => {
       for (const [tipo, titulo] of DOCUMENTOS_ART_72) {
         await criarDocumentoInstrucao(ctx, lic, tipo, titulo);
       }

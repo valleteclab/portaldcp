@@ -179,7 +179,8 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       await http().put('/api/fluxo-fase-interna/requisitos/RL-CD-AUTORIZACAO').set(bearer(ctx.tokenAdmin())).send({ mensagem: 'Falta a autorização da autoridade competente' }).expect(200);
       const travas = (await http().get('/api/fluxo-fase-interna/travas').set(bearer(agenteA.token)).expect(200)).body;
       expect(travas.map((t: any) => t.ato)).toEqual(['CONCLUIR_PESQUISA', 'AUTORIZAR', 'PUBLICAR']);
-      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'LIM-03', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
+      // PARECER-01 (art. 53): o parecer desfavorável segura o autorizar (e o publicar)
+      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'LIM-03', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII', 'PARECER-01']);
       expect((await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(A.token)).send({ ativa: false })).status).toBe(403);
       await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(ctx.tokenAdmin())).send({ severidade: 'BLOQUEIO' }).expect(200);
       const sis = (await modelo(ctx.tokenAdmin(), 'DISPENSA', '?sistema=true').expect(200)).body;

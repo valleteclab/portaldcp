@@ -44,7 +44,7 @@ export function diaEmBrasilia(d: Date): number {
 }
 
 /** Último instante (23:59:59.999 em Brasília) do dia (meia-noite UTC do relógio de Brasília). */
-function fimDoDia(diaUtcMs: number): Date {
+function fimDoDiaMs(diaUtcMs: number): Date {
   return new Date(diaUtcMs + DIA_MS - 1 + DESLOCAMENTO_BRASILIA_MS);
 }
 
@@ -67,7 +67,7 @@ export function fimDoPrazoEmDiasUteis(
     cursor += DIA_MS;
     if (ehDiaUtil(new Date(cursor), cal)) contados++;
   }
-  return fimDoDia(cursor);
+  return fimDoDiaMs(cursor);
 }
 
 /**
@@ -85,7 +85,7 @@ export function limiteDiasUteisAntes(
     cursor -= DIA_MS;
     if (ehDiaUtil(new Date(cursor), cal)) contados++;
   }
-  return fimDoDia(cursor);
+  return fimDoDiaMs(cursor);
 }
 
 /**
@@ -107,6 +107,15 @@ export function prorrogarParaDiaUtil(vencimento: Date, cal: CalendarioDiasUteis 
 /** Primeiro instante (00:00, Brasília) do dia de `d`. */
 export function inicioDoDia(d: Date): Date {
   return new Date(diaEmBrasilia(d) + DESLOCAMENTO_BRASILIA_MS);
+}
+
+/**
+ * Último instante (23:59:59.999, Brasília) do dia de `d` — o "fim do dia do
+ * vencimento" do art. 183 (o prazo em dias úteis só se completa com o dia
+ * inteiro do vencimento).
+ */
+export function fimDoDia(d: Date): Date {
+  return fimDoDiaMs(diaEmBrasilia(d));
 }
 
 /** Primeiro instante (00:00, Brasília) do dia seguinte ao de `d`. */

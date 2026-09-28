@@ -125,7 +125,9 @@ export interface LinhaChecklistInstrucao {
 
 /**
  * INSTRUÇÃO DA CONTRATAÇÃO DIRETA (art. 72) — fonte única (antes dentro do
- * FaseInternaService): obrigatórios DFD, estimativa de despesa e autorização;
+ * FaseInternaService): obrigatórios DFD, estimativa de despesa, compatibilidade
+ * orçamentária e autorização (incisos I, II, IV e VIII não trazem "se for o
+ * caso" — o IV não admite "não se aplica": toda contratação tem dotação);
  * os demais "se for o caso" (admitem "não se aplica" com justificativa).
  */
 export const CHECKLIST_CONTRATACAO_DIRETA: ReadonlyArray<LinhaChecklistInstrucao> = [
@@ -136,7 +138,8 @@ export const CHECKLIST_CONTRATACAO_DIRETA: ReadonlyArray<LinhaChecklistInstrucao
   { tipo: TipoDocumentoFaseInterna.TERMO_REFERENCIA, titulo: 'Termo de Referência (TR)', obrigatorio: false, fundamento: 'Art. 72, I — "se for o caso"' },
   { tipo: TipoDocumentoFaseInterna.ANALISE_RISCOS, titulo: 'Análise de riscos', obrigatorio: false, fundamento: 'Art. 72, I — "se for o caso"' },
   { tipo: TipoDocumentoFaseInterna.PARECER_JURIDICO, titulo: 'Parecer jurídico', obrigatorio: false, fundamento: 'Art. 72, III c/c Art. 53, §5º' },
-  { tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA, titulo: 'Compatibilidade orçamentária', obrigatorio: false, fundamento: 'Art. 72, IV' },
+  // Art. 72, IV não é "se for o caso": obrigatória (emitida na reserva ou anexada), sem "não se aplica"
+  { tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA, titulo: 'Compatibilidade orçamentária', obrigatorio: true, fundamento: 'Art. 72, IV' },
   {
     tipo: TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO,
     titulo: 'Justificativa da contratação direta (razão da escolha e do preço)',
