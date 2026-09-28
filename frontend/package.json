@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/fase-interna/visao-fluxo.test.mjs src/lib/datas-br.test.mjs src/lib/demandas/trimestre.test.mjs src/lib/aprovacoes/aba-inicial.test.mjs"
+    "test:unit": "node --experimental-strip-types --no-warnings --test src/lib/fase-interna/visao-fluxo.test.mjs src/lib/datas-br.test.mjs src/lib/demandas/trimestre.test.mjs src/lib/aprovacoes/aba-inicial.test.mjs src/lib/demandas/proxima-acao-dfd.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

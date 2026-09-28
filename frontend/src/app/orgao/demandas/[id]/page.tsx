@@ -38,6 +38,7 @@ import { FormItemDemanda } from '@/components/demandas/FormItemDemanda'
 import { PainelBuscaItem } from '@/components/demandas/PainelBuscaItem'
 import { AcompanhamentoDemanda } from '@/components/demandas/AcompanhamentoDemanda'
 import { ResumoDemanda, checklistDaDemanda } from '@/components/demandas/ResumoDemanda'
+import { rotaDoProcessoAberto } from '@/lib/demandas/proxima-acao-dfd'
 
 /** Linha "rótulo: valor" dos dados da demanda. */
 function Dado({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
@@ -285,7 +286,7 @@ export default function DetalheDemandaPage() {
           await authFetch(`${API_URL}/api/fase-interna/${licId}/preparar-automatico`, { method: 'POST' })
         } catch { /* cockpit permite disparar de novo */ }
       }
-      router.push(`/orgao/processos/${licId}`)
+      router.push(rotaDoProcessoAberto(licId, dfd.rotulo))
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       toast.error(`Não foi possível iniciar a contratação: ${msg}`)

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { AlertCircle, ArrowLeft, ArrowRight, Check, ChevronRight, Home, Loader2 } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
+import { comAvisoDeAbertura } from "@/lib/demandas/proxima-acao-dfd"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -133,6 +134,9 @@ function FaseInternaFeitaFora() {
   const [resultado, setResultado] = useState<ResultadoJuntada | null>(null)
   const [pendentes, setPendentes] = useState<EstadoDocumentosExternos | null>(null)
   const [opcoesPecas, setOpcoesPecas] = useState<Array<{ tipo: string; rotulo: string }>>([])
+  // Rótulo do DFD de origem ("DFD nº N/AAAA") para o aviso "Processo aberto" na tela do processo
+  const [dfdRotulo, setDfdRotulo] = useState<string | null>(null)
+  const destinoFinal = (destino: string) => (dfdId ? comAvisoDeAbertura(destino, dfdRotulo) : destino)
 
   const set = (p: Partial<Dados>) => setDados((d) => ({ ...d, ...p }))
   const direta = MODALIDADES_CONTRATACAO_DIRETA.includes(dados.modalidade)
@@ -148,6 +152,7 @@ function FaseInternaFeitaFora() {
       .then(async (r) => {
         if (!r.ok) return toast.error("DFD de origem não encontrado.")
         const d = await r.json()
+        setDfdRotulo(typeof d.rotulo === "string" ? d.rotulo : null)
         const its: any[] = d.itens ?? []
         const setores = [...new Set((d.demandas ?? []).map((x: any) => x.unidade_requisitante))].join(", ")
         set({
@@ -337,7 +342,7 @@ function FaseInternaFeitaFora() {
       }
       if (!res.pendencias.length) {
         toast.success(`Processo ${res.numero_processo} criado com ${res.juntadas.length} peça(s) juntada(s).`)
-        router.push(res.destino)
+        router.push(destinoFinal(res.destino))
         return
       }
       setResultado(res)
@@ -364,7 +369,7 @@ function FaseInternaFeitaFora() {
       const novo = j as ResultadoJuntada
       if (!novo.pendencias.length) {
         toast.success("Pendências resolvidas.")
-        router.push(novo.destino)
+        router.push(destinoFinal(novo.destino))
         return
       }
       setResultado({ ...novo, juntadas: [...resultado.juntadas, ...novo.juntadas], nao_se_aplica: [...resultado.nao_se_aplica, ...novo.nao_se_aplica] })
