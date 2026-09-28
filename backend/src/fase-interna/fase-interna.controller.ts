@@ -24,7 +24,7 @@ import { extname, join } from 'path';
 import { FaseInternaService } from './fase-interna.service';
 import { PreparacaoAutomaticaService } from './preparacao-automatica.service';
 import { DerivacaoService } from './derivacao.service';
-import { TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
+import { StatusDocumento, TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { ANEXO_MAX_BYTES, PecasFaseInternaService } from './pecas-fase-interna.service';
 import { ConsumoLimiteService } from '../parametros-licitacao/consumo-limite.service';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
@@ -100,10 +100,11 @@ export class FaseInternaController {
     const doc = await this.juntada.anexar(licitacaoId, tipo, arquivo, body ?? {}, ator);
     // Etapa com "aprovação interna": a peça anexada pela etapa vai para o fluxo
     // de aprovação do órgão (a juntada em lote da fase feita fora não passa aqui)
-    if (await this.aprovacaoPecas.avaliarPeca(doc.id, { anexadaAgora: true })) {
-      return (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
-    }
-    return doc;
+    await this.aprovacaoPecas.avaliarPeca(doc.id, { anexadaAgora: true });
+    // Sempre a peça RELIDA: o envio ao fluxo pode ter sido feito pela fila do
+    // processo antes desta avaliação (aí ela devolve false e o objeto em mãos
+    // ainda estaria com o status anterior)
+    return (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
   }
 
   /** Arquivo da peça (anexo, PDF gerado ou assinado) — só o órgão dono. */
@@ -142,8 +143,10 @@ export class FaseInternaController {
     const autor = await this.tarefas.autor(ator);
     let doc = await this.pecas.emitirPeca(licitacaoId, tipo, ator, autor);
     // Etapa com "aprovação interna": a peça emitida vai para o fluxo do órgão
-    const emAprovacao = await this.aprovacaoPecas.avaliarPeca(doc.id);
-    if (emAprovacao) doc = (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
+    await this.aprovacaoPecas.avaliarPeca(doc.id);
+    // Relida sempre (a fila do processo pode ter enviado antes desta avaliação)
+    doc = (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
+    const emAprovacao = doc.status === StatusDocumento.AGUARDANDO_APROVACAO;
     return { documento_id: doc.id, tipo: doc.tipo, versao: doc.versao, status: doc.status, emitido: doc.dados_estruturados?._emitido ?? null, em_aprovacao: emAprovacao };
   }
 
@@ -249,10 +252,9 @@ export class FaseInternaController {
     if (!String(body.descricao ?? '').trim()) return doc;
     const gerada = await this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);
     // Etapa com "aprovação interna": a peça gerada vai para o fluxo do órgão
-    if (await this.aprovacaoPecas.avaliarPeca(gerada.id)) {
-      return (await this.faseInternaService.getDocumento(gerada.id).catch(() => null)) ?? gerada;
-    }
-    return gerada;
+    await this.aprovacaoPecas.avaliarPeca(gerada.id);
+    // Relida sempre (a fila do processo pode ter enviado antes desta avaliação)
+    return (await this.faseInternaService.getDocumento(gerada.id).catch(() => null)) ?? gerada;
   }
 
   @Post('importar-processo')
