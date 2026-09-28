@@ -32,6 +32,16 @@ describe('Motor — revisão idempotente', () => {
     expect(planoVazio(r2.plano)).toBe(true);
   });
 
+  it('evidências gravadas no jsonb (chaves reordenadas pelo Postgres) não contam como mudança', () => {
+    const av = avaliarRegras(montarContexto(pa139Real()));
+    const r1 = aplicar([], av);
+    const reordenada = r1.tabela.map((a: any) => ({
+      ...a,
+      evidencias: (a.evidencias ?? []).map((e: any) => Object.fromEntries(Object.entries(e).sort(([x], [y]) => y.length - x.length))),
+    }));
+    expect(planoVazio(aplicar(reordenada, avaliarRegras(montarContexto(pa139Real()))).plano)).toBe(true);
+  });
+
   it('o achado que deixa de ocorrer vira RESOLVIDO (com o motivo); o que reaparece é REABERTO', () => {
     const { tabela } = aplicar([], avaliarRegras(montarContexto(pa139Real())));
     const corrigido = aplicar(tabela, avaliarRegras(montarContexto(pa139Corrigido())));

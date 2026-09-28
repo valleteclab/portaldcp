@@ -164,7 +164,8 @@ describe('Fase interna — Entrega 1 (base)', () => {
       const pp = itemDe(inst, 'PP');
       expect(pp.status).toBe('OK');
       expect(pp.peca).toMatchObject({ anexada: true, numero_peca: 'Mapa 012/2026', folha_inicial: antes + 1, versao: 1 });
-      expect(inst.pode_divulgar).toBe(true);
+      // só falta a autorização (ela vem depois das etapas anteriores — ordem do fluxo)
+      expect(inst.pendentes).toEqual([expect.stringMatching(/Autorização/)]);
       expect(pp.pode_nao_se_aplicar).toBe(false); // obrigatória no art. 72
       expect(itemDe(inst, 'ETP').pode_nao_se_aplicar).toBe(true);
     });

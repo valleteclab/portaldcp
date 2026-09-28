@@ -69,7 +69,14 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
   const emitir = (l: { id: string }, tipo: string, texto: string, token = agente.token) => {
     const resposta: Promise<any> = (async () => {
       if (tipo !== 'DFD') await cumprirEtapasAnteriores(ctx, { id: l.id, orgao: A }, tipo);
-      return http().post(`/api/fase-interna/${l.id}/documento`).set(bearer(token)).send({ tipo, titulo: tipo, descricao: texto });
+      const r = await http().post(`/api/fase-interna/${l.id}/documento`).set(bearer(token)).send({ tipo, titulo: tipo, descricao: texto });
+      // A peça pode ir ao fluxo pela avaliação em segundo plano (fila do processo): relê a situação gravada
+      await tarefas().aguardarPendentes();
+      if (r.status === 201 && r.body?.id) {
+        const [doc] = await sql(`SELECT status::text AS status FROM documentos_fase_interna WHERE id = $1`, [r.body.id]);
+        if (doc) r.body.status = doc.status;
+      }
+      return r;
     })();
     return Object.assign(resposta, {
       expect: (status: number) =>
@@ -300,6 +307,9 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
       expect(doc.status).toBe('ASSINADO');
       expect(doc.assinaturas.map((a: any) => [a.assinante_nome, a.assinante_cargo])).toEqual([['Dora Diretora', 'Diretora Administrativa']]);
       expect((await instrucao(l, 'DFD')).status).toBe('OK');
+    });
+
+    afterAll(async () => {
       await ligarAprovacaoInterna('DFD', false);
     });
   });

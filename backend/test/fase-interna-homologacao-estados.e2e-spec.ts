@@ -277,7 +277,7 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
       // Mesma ordem da dispensa (decisão do dono, 27/09/2026): relatório/minutas e parecer ANTES da autorização
       const antes = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });
       expect(antes.status).toBe(403);
-      expect(antes.body.message).toMatch(/Relatório do agente e minutas/);
+      expect(antes.body.message).toMatch(/Parecer jurídico/); // o parecer, por sua vez, espera o relatório e as minutas
       // relatório e justificativa "não se aplica", parecer idem: a autorização pode começar — e o portão B cobra VI e VII
       for (const t of ['RAG', 'ME', 'MC', 'JC', 'PJ']) expect([t, (await naoSeAplica(lic, t)).status]).toEqual([t, 201]);
       const barrado = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });

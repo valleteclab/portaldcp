@@ -38,6 +38,8 @@ interface ContextoPermissao {
   criador: string | null;
   tarefas: Array<{ chave: string; usuario_id: string | null }>;
   diligencias: string[];
+  /** Signatários da autorização na configuração (a autoridade — respondem pela etapa da autorização). */
+  signatarios: string[];
   setores: Map<string, { nome: string; chefe: string | null }>;
   nomes: Map<string, string>;
 }
@@ -178,6 +180,7 @@ export class PermissaoEtapaService implements OnModuleInit {
       criador,
       tarefas,
       diligencias: diligencias.map((d) => d.tipo_alvo),
+      signatarios: (config.signatarios_autorizacao ?? []).map((x) => x.usuario_id).filter(Boolean),
       setores,
       nomes: new Map(pessoas.map((p) => [p.id, p.nome])),
     };
@@ -211,6 +214,8 @@ export class PermissaoEtapaService implements OnModuleInit {
     const pendencias = (calc ? calc.pendencias : this.pendenciasFora(ctx, etapa)).map(titulo);
     const calculado = responsavelDoPasso(codigo, { modo: ctx.modo as any, responsaveis: responsaveisDoModelo(ctx.modelo) }, { agente_id: ctx.agente, criador_usuario_id: ctx.criador });
     const daTarefa = ctx.tarefas.filter((t) => t.chave === chaveDoPasso(codigo) && t.usuario_id).map((t) => ({ usuario_id: t.usuario_id }));
+    // A autoridade configurada (signatários da autorização) responde pela etapa da autorização
+    if (codigo === 'AUTORIZACAO') daTarefa.push(...ctx.signatarios.map((id) => ({ usuario_id: id })));
     const r = avaliarPermissaoEtapa(
       {
         etapa: { codigo, titulo: etapa.titulo, responsavel: etapa.responsavel },

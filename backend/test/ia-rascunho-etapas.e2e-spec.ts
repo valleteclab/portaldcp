@@ -315,7 +315,7 @@ describe('F4a — IA em toda etapa: rascunho ao chegar e revisão humana', () =>
       expect(aut.situacao).toBe('EM_ELABORACAO'); // só vale assinado pela autoridade
       expect(aut.peca.ia_rascunho).toMatchObject({ revisado_por_nome: 'Ana Agente' });
       expect(itemDe(await instrucao(lic, agente.token), 'AA').status).not.toBe('OK');
-      const [rev] = await logs(lic, 'IA_REVISADA_POR');
+      const rev = (await logs(lic, 'IA_REVISADA_POR')).find((l: any) => l.documento_id === res.aceite.documento_id);
       expect(rev).toMatchObject({ usuario_id: agente.id, documento_id: res.aceite.documento_id });
     });
 
