@@ -54,20 +54,21 @@ describe('Reconferência do cronograma pela divulgação CONFIRMADA (art. 55; ar
     expect(r.cronograma.data_fim_acolhimento).toEqual(new Date('2026-10-02T15:00:00Z'));
   });
 
-  test('dispensa confirmada tarde: fim do recebimento (e abertura/limite que o acompanhavam) vai ao 3º dia útil, mesmo horário', () => {
+  test('dispensa confirmada tarde: fim do recebimento (e abertura/limite que o acompanhavam) vai ao dia seguinte ao 3º dia útil, mesmo horário', () => {
     const r = reajustarCronogramaNaDivulgacao(
       { modalidade: M.DISPENSA_ELETRONICA },
       { data_inicio_acolhimento: '2026-09-23T12:00:00Z', data_fim_acolhimento: '2026-09-28T18:00:00Z', data_abertura_sessao: '2026-09-28T18:00:00Z', data_limite_impugnacao: '2026-09-28T18:00:00Z' },
       divulgacao,
       { cal: CALENDARIO_NACIONAL },
     );
-    // 18:00Z = 15:00 em Brasília; 3º dia útil depois de 28/09 = 01/10
-    expect(r.cronograma.data_fim_acolhimento).toEqual(new Date('2026-10-01T18:00:00Z'));
-    expect(r.cronograma.data_abertura_sessao).toEqual(new Date('2026-10-01T18:00:00Z'));
-    expect(r.cronograma.data_limite_impugnacao).toEqual(new Date('2026-10-01T18:00:00Z'));
+    // 18:00Z = 15:00 em Brasília; 3º dia útil depois de 28/09 = 01/10, que precisa ficar INTEIRO → 02/10, 15:00
+    expect(r.cronograma.data_fim_acolhimento).toEqual(new Date('2026-10-02T18:00:00Z'));
+    expect(r.cronograma.data_abertura_sessao).toEqual(new Date('2026-10-02T18:00:00Z'));
+    expect(r.cronograma.data_limite_impugnacao).toEqual(new Date('2026-10-02T18:00:00Z'));
     expect(r.cronograma.data_inicio_acolhimento).toEqual(new Date('2026-09-23T12:00:00Z'));
     expect(r.descricao).toMatch(/3 dias úteis/);
-    expect(r.minimo).toEqual(new Date('2026-10-01T03:00:00Z'));
+    // mínimo = fim do dia do vencimento (01/10 23:59:59.999 em Brasília)
+    expect(r.minimo).toEqual(new Date('2026-10-02T02:59:59.999Z'));
   });
 
   test('pregão (8 dias úteis): abertura adiada e o limite de impugnação do edital cai (vale o art. 164 da nova abertura)', () => {
@@ -77,9 +78,9 @@ describe('Reconferência do cronograma pela divulgação CONFIRMADA (art. 55; ar
       divulgacao,
       { cal: CALENDARIO_NACIONAL },
     );
-    // 8 dias úteis depois de 28/09 → 08/10 (sem feriado nacional no período)
-    expect(r.cronograma.data_abertura_sessao).toEqual(new Date('2026-10-08T13:00:00Z'));
-    expect(r.cronograma.data_fim_acolhimento).toEqual(new Date('2026-10-08T13:00:00Z'));
+    // 8 dias úteis depois de 28/09 → 08/10 (sem feriado nacional no período), inteiro → 09/10
+    expect(r.cronograma.data_abertura_sessao).toEqual(new Date('2026-10-09T13:00:00Z'));
+    expect(r.cronograma.data_fim_acolhimento).toEqual(new Date('2026-10-09T13:00:00Z'));
     expect(r.cronograma.data_limite_impugnacao).toBeNull();
   });
 
@@ -118,7 +119,7 @@ describe('Atos da divulgação e da dispensa', () => {
     expect(l.fase).toBe(F.PUBLICADO);
     expect(l.data_divulgacao_oficial).toEqual(new Date('2026-09-28T15:00:00Z'));
     expect(l.meio_divulgacao_oficial).toBe('PNCP');
-    expect(l.data_fim_acolhimento).toEqual(new Date('2026-10-01T18:00:00Z'));
+    expect(l.data_fim_acolhimento).toEqual(new Date('2026-10-02T18:00:00Z')); // dia seguinte ao 3º dia útil (01/10 inteiro)
     expect(c.dados!.cronograma_ajustado.length).toBeGreaterThan(0);
     expect(c.dados!.ajuste_descricao).toMatch(/Divulgação oficial confirmada/);
   });

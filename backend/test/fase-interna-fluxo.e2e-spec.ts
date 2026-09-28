@@ -179,7 +179,8 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       await http().put('/api/fluxo-fase-interna/requisitos/RL-CD-AUTORIZACAO').set(bearer(ctx.tokenAdmin())).send({ mensagem: 'Falta a autorização da autoridade competente' }).expect(200);
       const travas = (await http().get('/api/fluxo-fase-interna/travas').set(bearer(agenteA.token)).expect(200)).body;
       expect(travas.map((t: any) => t.ato)).toEqual(['CONCLUIR_PESQUISA', 'AUTORIZAR', 'PUBLICAR']);
-      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'LIM-03', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
+      // PARECER-01 (art. 53): o parecer desfavorável segura o autorizar (e o publicar)
+      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'LIM-03', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII', 'PARECER-01']);
       expect((await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(A.token)).send({ ativa: false })).status).toBe(403);
       await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(ctx.tokenAdmin())).send({ severidade: 'BLOQUEIO' }).expect(200);
       const sis = (await modelo(ctx.tokenAdmin(), 'DISPENSA', '?sistema=true').expect(200)).body;
@@ -327,6 +328,25 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
   });
 
   // ==========================================================================
+  describe('C2. reabrir duas etapas ao mesmo tempo (marcas gravadas por delta, sem perder uma a outra)', () => {
+    it('dois "voltar" simultâneos em etapas diferentes: as duas ficam reabertas', async () => {
+      const lic2 = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agenteA.id } });
+      for (const t of ['DFD', 'PP', 'DO']) expect((await anexar(lic2, t, agenteA.token)).status).toBe(201);
+      const antes = await etapas(lic2, agenteA.token);
+      expect(passo(antes, 'DFD').situacao).toBe('CONCLUIDO');
+      expect(passo(antes, 'RESERVA').situacao).toBe('CONCLUIDO');
+      const reabrir2 = (codigo: string, motivo: string) =>
+        http().post(`/api/fase-interna/${lic2.id}/etapas/${codigo}/reabrir`).set(bearer(agenteA.token)).send({ motivo });
+      const [r1, r2] = await Promise.all([reabrir2('DFD', 'Necessidade mudou — rever a demanda'), reabrir2('RESERVA', 'Dotação trocada — refazer a reserva')]);
+      expect([r1.status, r2.status]).toEqual([201, 201]);
+      const [f] = await sql(`SELECT reabertas FROM fluxos_processo_fase_interna WHERE licitacao_id = $1`, [lic2.id]);
+      expect(Object.keys(f.reabertas ?? {}).sort()).toEqual(['DFD', 'RESERVA']);
+      const depois = await etapas(lic2, agenteA.token);
+      expect(passo(depois, 'DFD')).toMatchObject({ situacao: 'EM_ANDAMENTO', reaberta: { motivo: 'Necessidade mudou — rever a demanda' } });
+      expect(passo(depois, 'RESERVA')).toMatchObject({ situacao: 'EM_ANDAMENTO', reaberta: { motivo: 'Dotação trocada — refazer a reserva' } });
+    });
+  });
+
   describe('D. etapa opcional de registro e o caminho do processo (snapshot)', () => {
     let D: OrgaoFixture;
     let antigo: LicitacaoFixture;

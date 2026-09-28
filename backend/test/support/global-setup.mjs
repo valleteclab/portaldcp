@@ -37,6 +37,10 @@ export default async function globalSetup() {
   const dataDir = path.join(baseDir, 'pgdata');
   const uploadsDir = path.join(baseDir, 'uploads');
   fs.mkdirSync(uploadsDir, { recursive: true });
+  // Como root (contêiner de desenvolvimento), o embedded-postgres roda o initdb
+  // como o usuário `postgres`: o diretório temporário (0700) precisa ser
+  // atravessável por ele. No CI (não root) não muda nada.
+  if (os.userInfo().uid === 0) fs.chmodSync(baseDir, 0o755);
 
   const port = await portaLivre();
   const user = 'e2e';
@@ -50,6 +54,9 @@ export default async function globalSetup() {
     user,
     password,
     persistent: false, // apaga o diretório de dados no stop()
+    // Como root, o initdb roda como o usuário `postgres` (que já existe na
+    // imagem): a biblioteca cria o diretório de dados e o entrega a ele.
+    createPostgresUser: os.userInfo().uid === 0,
     authMethod: 'password',
     // Só escuta em loopback: ninguém de fora alcança o banco de teste
     postgresFlags: ['-c', 'listen_addresses=127.0.0.1', '-c', 'fsync=off', '-c', 'max_connections=200'],

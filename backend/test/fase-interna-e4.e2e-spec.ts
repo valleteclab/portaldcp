@@ -79,11 +79,12 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
   /**
    * Art. 72, I, II e IV completos (portão B) e o que é "se for o caso" decidido — NA ORDEM DO FLUXO
    * (homologação multiusuário; art. 53, §4º): demanda → ETP/TR/pesquisa → reserva → minutas → parecer →
-   * autorização. DFD, estimativa e autorização anexadas; as demais anexadas quando informadas, senão "não se aplica".
+   * autorização. DFD, estimativa, informação orçamentária (art. 72, IV não admite "não se aplica") e autorização
+   * anexadas; as demais anexadas quando informadas, senão "não se aplica".
    */
   const instruir = async (lic: { id: string }, token: string, anexos: Record<string, string> = {}) => {
     for (const t of ['DFD', 'PP', 'ETP', 'AR', 'TR', 'DO', 'RAG', 'ME', 'MC', 'JC', 'PJ', 'AA', 'DP']) {
-      const status = ['DFD', 'PP', 'AA'].includes(t) || anexos[t] ? (await anexar(lic, t, token, anexos[t])).status : (await naoSeAplica(lic, t, token)).status;
+      const status = ['DFD', 'PP', 'DO', 'AA'].includes(t) || anexos[t] ? (await anexar(lic, t, token, anexos[t])).status : (await naoSeAplica(lic, t, token)).status;
       expect([t, status]).toEqual([t, 201]);
     }
   };

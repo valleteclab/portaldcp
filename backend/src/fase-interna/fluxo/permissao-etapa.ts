@@ -68,7 +68,7 @@ export interface EntradaPermissao {
   diligencia_aberta?: boolean;
 }
 
-export type CodigoPermissao = 'OK' | 'AGUARDANDO_DEMANDA' | 'AGUARDANDO_ETAPAS' | 'NAO_RESPONSAVEL' | 'SEM_POSSE';
+export type CodigoPermissao = 'OK' | 'AGUARDANDO_DEMANDA' | 'AGUARDANDO_ETAPAS' | 'NAO_RESPONSAVEL' | 'SEM_POSSE' | 'FORA_DO_MODELO';
 
 export interface ResultadoPermissao {
   pode: boolean;
@@ -98,6 +98,17 @@ export function ehResponsavelPelaEtapa(e: Pick<EntradaPermissao, 'etapa' | 'alte
     if (a.setor_id && (p.setor_id === a.setor_id || p.chefe_de.includes(a.setor_id))) return true;
   }
   return false;
+}
+
+/**
+ * Quem CONDUZ o processo: o privilegiado (administrador do órgão, login do
+ * órgão, administrador da plataforma), o agente designado ou, sem agente,
+ * quem criou o processo. Ações do processo inteiro e peças fora do modelo.
+ */
+export function ehCondutor(p: PerfilTrabalho, processo: { agente: string | null; criador: string | null }): boolean {
+  if (p.privilegiado) return true;
+  if (!p.usuario_id) return false;
+  return p.usuario_id === processo.agente || p.usuario_id === processo.criador;
 }
 
 /** O processo está com a pessoa (setor de lotação, ela mesma ou chefe do setor de destino)? */

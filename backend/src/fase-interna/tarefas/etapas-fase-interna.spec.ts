@@ -19,7 +19,7 @@ function instrucaoDireta(status: Partial<Record<string, string>> = {}, extras: A
     { tipo: 'TR', titulo: 'TR', obrigatorio: false },
     { tipo: 'AR', titulo: 'Riscos', obrigatorio: false },
     { tipo: 'PJ', titulo: 'Parecer', obrigatorio: false },
-    { tipo: 'DO', titulo: 'Dotação', obrigatorio: false },
+    { tipo: 'DO', titulo: 'Dotação', obrigatorio: true },
     { tipo: 'JC', titulo: 'Justificativa', obrigatorio: false },
     { tipo: 'DP', titulo: 'Designação', obrigatorio: false },
     { tipo: 'RAG', titulo: 'Relatório', obrigatorio: false },

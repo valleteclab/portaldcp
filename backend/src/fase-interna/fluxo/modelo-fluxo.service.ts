@@ -6,6 +6,22 @@ import { MODALIDADES_CONTRATACAO_DIRETA } from '../documentos-obrigatorios';
 import type { AtoProtegido, Severidade } from '../conformidade/tipos';
 import { quemCumpriu } from '../tarefas/tarefa-regras';
 import type { EstadoFluxoParaEtapas, MarcaEtapa } from '../tarefas/etapas-fase-interna';
+
+/** Marcas do fluxo do processo (as três colunas jsonb), como gravadas. */
+export interface MarcasFluxo {
+  reabertas: Record<string, MarcaEtapa>;
+  a_revisar: Record<string, MarcaEtapa>;
+  registros: Record<string, MarcaEtapa>;
+}
+
+/** Delta de uma gravação de marcas: chaves a remover e/ou chaves a pôr (a pôr vence). */
+export interface DeltaMarcas {
+  reabertas?: { por?: Record<string, MarcaEtapa>; remover?: string[] };
+  a_revisar?: { por?: Record<string, MarcaEtapa>; remover?: string[] };
+  registros?: { por?: Record<string, MarcaEtapa>; remover?: string[] };
+}
+
+const CAMPOS_MARCAS = ['reabertas', 'a_revisar', 'registros'] as const;
 import { CODIGOS_DO_CATALOGO } from './catalogo-fluxo';
 import { PAPEIS_FASE_INTERNA, ROTULO_PAPEL } from './codigos';
 import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, RequisitoLegalFluxo, TravaAtoFluxo } from './modelo-fluxo.entities';
@@ -800,16 +816,40 @@ export class ModeloFluxoService {
   // MARCAS (reaberta / a revisar / registro)
   // ==========================================================================
 
-  async gravarMarcas(fluxoId: string, marcas: { reabertas?: Record<string, MarcaEtapa>; a_revisar?: Record<string, MarcaEtapa>; registros?: Record<string, MarcaEtapa> }): Promise<void> {
+  /**
+   * Grava as marcas por DELTA, atomicamente no banco (`jsonb - chaves || novas`),
+   * e devolve o estado gravado. Antes, cada chamador lia as três colunas,
+   * mexia em memória e gravava as colunas inteiras: dois "voltar" ao mesmo
+   * tempo (ou um "voltar" cruzando com a limpeza feita pela fila do processo)
+   * perdiam a marca um do outro. Com o delta, cada gravação só toca o que
+   * mudou e o Postgres serializa as duas.
+   */
+  async aplicarMarcas(fluxoId: string, delta: DeltaMarcas): Promise<MarcasFluxo> {
     const sets: string[] = [];
     const params: unknown[] = [fluxoId];
-    for (const campo of ['reabertas', 'a_revisar', 'registros'] as const) {
-      if (marcas[campo] === undefined) continue;
-      params.push(JSON.stringify(marcas[campo]));
-      sets.push(`${campo} = $${params.length}::jsonb`);
+    for (const campo of CAMPOS_MARCAS) {
+      const d = delta[campo];
+      if (!d) continue;
+      const remover = Array.from(new Set(d.remover ?? []));
+      const por = d.por ?? {};
+      if (!remover.length && !Object.keys(por).length) continue;
+      params.push(remover);
+      const iRemover = params.length;
+      params.push(JSON.stringify(por));
+      const iPor = params.length;
+      sets.push(`${campo} = (COALESCE(${campo}, '{}'::jsonb) - $${iRemover}::text[]) || $${iPor}::jsonb`);
     }
-    if (!sets.length) return;
-    await this.ds.query(`UPDATE fluxos_processo_fase_interna SET ${sets.join(', ')}, updated_at = now() WHERE id::text = $1`, params);
+    const [linha] = sets.length
+      ? await this.ds.query(
+          `UPDATE fluxos_processo_fase_interna SET ${sets.join(', ')}, updated_at = now() WHERE id::text = $1 RETURNING reabertas, a_revisar, registros`,
+          params,
+        )
+      : await this.ds.query(`SELECT reabertas, a_revisar, registros FROM fluxos_processo_fase_interna WHERE id::text = $1`, [fluxoId]);
+    return {
+      reabertas: (linha?.reabertas ?? {}) as Record<string, MarcaEtapa>,
+      a_revisar: (linha?.a_revisar ?? {}) as Record<string, MarcaEtapa>,
+      registros: (linha?.registros ?? {}) as Record<string, MarcaEtapa>,
+    };
   }
 
   /**
@@ -817,8 +857,8 @@ export class ModeloFluxoService {
    * revisão foi feita — a marca sai sozinha. Devolve os códigos limpos.
    */
   async limparMarcasPorPecaAlterada(ctx: ContextoFluxoProcesso): Promise<Array<{ codigo: string; marca: 'reaberta' | 'a_revisar' }>> {
-    const reabertas = { ...(ctx.fluxo.reabertas ?? {}) };
-    const aRevisar = { ...(ctx.fluxo.a_revisar ?? {}) };
+    const reabertas = ctx.fluxo.reabertas ?? {};
+    const aRevisar = ctx.fluxo.a_revisar ?? {};
     const limpos: Array<{ codigo: string; marca: 'reaberta' | 'a_revisar' }> = [];
     const alterada = async (codigo: string, em: string) => {
       const tipos = ctx.modelo.etapas.find((e) => e.codigo === codigo)?.tipos_peca ?? [];
@@ -830,23 +870,21 @@ export class ModeloFluxoService {
       return !!r;
     };
     for (const [codigo, m] of Object.entries(reabertas)) {
-      if (await alterada(codigo, (m as MarcaEtapa).em)) {
-        delete reabertas[codigo];
-        limpos.push({ codigo, marca: 'reaberta' });
-      }
+      if (await alterada(codigo, (m as MarcaEtapa).em)) limpos.push({ codigo, marca: 'reaberta' });
     }
     for (const [codigo, m] of Object.entries(aRevisar)) {
-      if (await alterada(codigo, (m as MarcaEtapa).em)) {
-        delete aRevisar[codigo];
-        limpos.push({ codigo, marca: 'a_revisar' });
-      }
+      if (await alterada(codigo, (m as MarcaEtapa).em)) limpos.push({ codigo, marca: 'a_revisar' });
     }
     if (limpos.length) {
-      await this.gravarMarcas(ctx.fluxo.id, { reabertas, a_revisar: aRevisar });
-      ctx.fluxo.reabertas = reabertas;
-      ctx.fluxo.a_revisar = aRevisar;
-      ctx.estado.reabertas = reabertas;
-      ctx.estado.a_revisar = aRevisar;
+      // Só as chaves limpas saem; uma marca posta por outra gravação nesse meio-tempo fica
+      const gravado = await this.aplicarMarcas(ctx.fluxo.id, {
+        reabertas: { remover: limpos.filter((l) => l.marca === 'reaberta').map((l) => l.codigo) },
+        a_revisar: { remover: limpos.filter((l) => l.marca === 'a_revisar').map((l) => l.codigo) },
+      });
+      ctx.fluxo.reabertas = gravado.reabertas;
+      ctx.fluxo.a_revisar = gravado.a_revisar;
+      ctx.estado.reabertas = gravado.reabertas;
+      ctx.estado.a_revisar = gravado.a_revisar;
     }
     return limpos;
   }

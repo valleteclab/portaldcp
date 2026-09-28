@@ -314,7 +314,10 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
     it('com parecer pronto nasce a tarefa do controle interno (caixa do papel, sem agente); desativar cancela', async () => {
       for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, C.token)).status).toBe(201);
       // Na ordem do fluxo (mapa do dono): ETP/TR → reserva → minutas → parecer → controle interno → autorização
-      for (const t of ['ETP', 'AR', 'TR', 'DO', 'RAG', 'MC', 'JC', 'ME', 'PJ']) expect([t, (await naoSeAplica(lic, t, C.token)).status]).toEqual([t, 201]);
+      for (const t of ['ETP', 'AR', 'TR']) expect([t, (await naoSeAplica(lic, t, C.token)).status]).toEqual([t, 201]);
+      // art. 72, IV não admite "não se aplica": a informação orçamentária é anexada
+      expect((await anexar(lic, 'DO', C.token)).status).toBe(201);
+      for (const t of ['RAG', 'MC', 'JC', 'ME', 'PJ']) expect([t, (await naoSeAplica(lic, t, C.token)).status]).toEqual([t, 201]);
       const ci = await abertaDe(lic, 'CONTROLE_INTERNO');
       // processo criado pelo login do órgão, sem agente: a caixa do papel "Agente de contratação"
       expect(ci).toMatchObject({ responsavel_papel: 'AGENTE_CONTRATACAO', prazo_dias_uteis: 3, tipo_peca: 'MCI' });

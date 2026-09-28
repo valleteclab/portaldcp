@@ -6,7 +6,7 @@
  */
 import { montarContexto } from './contexto';
 import { consumo, pa139Corrigido, pa139Real } from './fixtures/pa-139-2025';
-import { avaliarRegras } from './motor';
+import { avaliarRegras, pendenciasDoPortao, regrasDoPortao } from './motor';
 import {
   A72_I,
   A72_II,
@@ -29,6 +29,7 @@ import {
   LIM_03,
   MARCA_01,
   MINUTA_DESAT,
+  PARECER_01,
   PRAZO_01,
   PRECO_01,
   PRECO_02,
@@ -59,7 +60,7 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     expect(real.filter((a) => a.erro)).toEqual([]);
     const corrigido = avaliarRegras(ctxCorrigido());
     expect(corrigido.filter((a) => a.achados.length).map((a) => `${a.regra.codigo}: ${a.achados[0].mensagem}`)).toEqual([]);
-    expect(REGRAS).toHaveLength(29); // F1: + FLUXO-01; homologação multiusuário: + LIM-03
+    expect(REGRAS).toHaveLength(30); // F1: + FLUXO-01; homologação multiusuário: + LIM-03; art. 53: + PARECER-01
   });
 
   describe('LIM-01 — limite do inciso no exercício, no ramo (portão A)', () => {
@@ -136,6 +137,15 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
       expect(rodar(A72_II, ctx).achados).toEqual([]);
       expect(rodar(A72_VIII, ctx).achados[0]).toMatchObject({ regra: 'A72-VIII', severidade: 'BLOQUEIO' });
     });
+    it('art. 72, IV não admite "não se aplica": a informação orçamentária marcada assim continua faltando (BLOQUEIO); o I admite', () => {
+      const ctx = com(pa139Real, (e) => {
+        e.instrucao.itens = e.instrucao.itens.map((i) => (i.tipo === 'AA' ? { ...i, status: 'EM_ELABORACAO' } : i.tipo === 'DO' || i.tipo === 'ETP' ? { ...i, status: 'NAO_SE_APLICA' } : i));
+      });
+      const [a] = rodar(A72_IV, ctx).achados;
+      expect(a).toMatchObject({ regra: 'A72-IV', severidade: 'BLOQUEIO', tipo_peca_responsavel: 'DO' });
+      expect(a.mensagem).toMatch(/não admite "não se aplica".*emita a reserva/);
+      expect(rodar(A72_I, ctx).achados).toEqual([]);
+    });
     it('autorização já dada (real): o portão B foi superado — I, II e IV não se aplicam mais; no ato de autorizar voltam a valer', () => {
       expect(rodar(A72_I)).toMatchObject({ aplicavel: false });
       const ctx = com(pa139Real, (e) => {
@@ -194,6 +204,54 @@ describe('Motor de conformidade — PA 139/2025 (dispara com o real, não dispar
     });
     it('rito completo: não se aplica (instrução do art. 18)', () => {
       expect(rodar(A72_I, com(pa139Real, (e) => (e.instrucao.contratacao_direta = false)))).toMatchObject({ aplicavel: false });
+    });
+  });
+
+  describe('PARECER-01 — conclusão do parecer jurídico emitido no sistema (art. 53)', () => {
+    const comParecer = (conclusao: string | null, mut?: (e: EntradaContexto) => void) =>
+      com(pa139Real, (e) => {
+        e.documentos = e.documentos.map((d) =>
+          d.id === 'doc-PJ' ? { ...d, origem: 'INTERNO', status: 'ASSINADO', versao: 2, descricao: 'Parecer jurídico.', dados_estruturados: conclusao ? { _parecer: { conclusao, fase: 'PREVIA' } } : {} } : d,
+        );
+        mut?.(e);
+      });
+    it('DESFAVORÁVEL → BLOQUEIO, chave com a versão da peça, evidência no parecer', () => {
+      const r = rodar(PARECER_01, comParecer('DESFAVORAVEL'));
+      expect(r.aplicavel).toBe(true);
+      expect(r.achados).toHaveLength(1);
+      expect(r.achados[0]).toMatchObject({ regra: 'PARECER-01', severidade: 'BLOQUEIO', chave: 'desfavoravel:v2', tipo_peca_responsavel: 'PJ', acao: 'CORRIGIR_PECA' });
+      expect(r.achados[0].mensagem).toMatch(/desfavorável.*emita novo parecer.*despacho motivado.*art\. 53/);
+      expect(r.achados[0].evidencias[0]).toMatchObject({ tipo: 'PJ', documento_id: 'doc-PJ' });
+      // vale igual no ato de autorizar e no de publicar
+      for (const ato of ['AUTORIZAR', 'PUBLICAR'] as const) expect(rodar(PARECER_01, comParecer('DESFAVORAVEL', (e) => (e.ato_pretendido = ato))).achados[0].severidade).toBe('BLOQUEIO');
+    });
+    it('FAVORÁVEL COM RESSALVAS → ATENÇÃO com justificativa obrigatória para publicar (não para autorizar)', () => {
+      const [a] = rodar(PARECER_01, comParecer('FAVORAVEL_COM_RESSALVAS')).achados;
+      expect(a).toMatchObject({ severidade: 'ATENCAO', chave: 'ressalvas:v2', exige_justificativa: true, acao: 'JUSTIFICAR', tipo_peca_responsavel: 'PJ' });
+      expect(a.mensagem).toMatch(/saneamento das ressalvas/);
+      expect(rodar(PARECER_01, comParecer('FAVORAVEL_COM_RESSALVAS', (e) => (e.ato_pretendido = 'PUBLICAR'))).achados[0].exige_justificativa).toBe(true);
+      expect(rodar(PARECER_01, comParecer('FAVORAVEL_COM_RESSALVAS', (e) => (e.ato_pretendido = 'AUTORIZAR'))).achados[0].exige_justificativa).toBe(false);
+    });
+    it('FAVORÁVEL: nada', () => {
+      const r = rodar(PARECER_01, comParecer('FAVORAVEL'));
+      expect(r).toMatchObject({ aplicavel: true, achados: [] });
+    });
+    it('sem parecer, "não se aplica", anexado (feito fora) ou ainda não emitido: não se aplica', () => {
+      expect(rodar(PARECER_01, com(pa139Real, (e) => (e.documentos = e.documentos.filter((d) => d.tipo !== 'PJ'))))).toMatchObject({ aplicavel: false, motivo: expect.stringMatching(/Sem parecer/) });
+      expect(rodar(PARECER_01, com(pa139Real, (e) => (e.documentos = e.documentos.map((d) => (d.tipo === 'PJ' ? { ...d, dados_estruturados: { nao_se_aplica: true } } : d)))))).toMatchObject({ aplicavel: false });
+      // o real: parecer anexado
+      expect(rodar(PARECER_01)).toMatchObject({ aplicavel: false, motivo: expect.stringMatching(/anexado/) });
+      expect(rodar(PARECER_01, comParecer(null))).toMatchObject({ aplicavel: false, motivo: expect.stringMatching(/não emitido/) });
+    });
+    it('está nos portões B (autorizar) e C (publicar) — e por isso na semente das travas dos dois atos', () => {
+      expect(regrasDoPortao('B').map((r) => r.codigo)).toContain('PARECER-01');
+      expect(regrasDoPortao('C').map((r) => r.codigo)).toContain('PARECER-01');
+      expect(regrasDoPortao('A').map((r) => r.codigo)).not.toContain('PARECER-01');
+      const av = avaliarRegras(comParecer('DESFAVORAVEL', (e) => (e.ato_pretendido = 'AUTORIZAR')));
+      expect(pendenciasDoPortao('B', av, new Set()).join(' ')).toMatch(/PARECER-01: Parecer jurídico desfavorável/);
+      const ressalvas = avaliarRegras(comParecer('FAVORAVEL_COM_RESSALVAS', (e) => (e.ato_pretendido = 'PUBLICAR')));
+      expect(pendenciasDoPortao('C', ressalvas, new Set()).join(' ')).toMatch(/PARECER-01 \(justificativa obrigatória\)/);
+      expect(pendenciasDoPortao('C', ressalvas, new Set(['PARECER-01|ressalvas:v2'])).join(' ')).not.toMatch(/PARECER-01/);
     });
   });
 

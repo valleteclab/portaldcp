@@ -107,7 +107,7 @@ describe('Fase interna — Entrega 1 (base)', () => {
       expect(r.status).toBe(400);
       expect(JSON.stringify(r.body)).toMatch(/Estimativa de despesa/);
       const inst = await instrucao(lic);
-      expect(inst.pendentes).toHaveLength(2); // estimativa e autorização
+      expect(inst.pendentes).toHaveLength(3); // estimativa, autorização e informação orçamentária (art. 72, IV)
     });
 
     it('recusa arquivo que não é PDF, data futura e falta de data (nada gravado)', async () => {
@@ -164,8 +164,9 @@ describe('Fase interna — Entrega 1 (base)', () => {
       const pp = itemDe(inst, 'PP');
       expect(pp.status).toBe('OK');
       expect(pp.peca).toMatchObject({ anexada: true, numero_peca: 'Mapa 012/2026', folha_inicial: antes + 1, versao: 1 });
-      // só falta a autorização (ela vem depois das etapas anteriores — ordem do fluxo)
-      expect(inst.pendentes).toEqual([expect.stringMatching(/Autorização/)]);
+      // faltam a autorização (ela vem depois das etapas anteriores — ordem do fluxo) e a informação orçamentária (art. 72, IV, obrigatória)
+      expect(inst.pendentes).toEqual([expect.stringMatching(/Autorização/), expect.stringMatching(/Compatibilidade orçamentária \(Art\. 72, IV\)/)]);
+      expect(itemDe(inst, 'DO').pode_nao_se_aplicar).toBe(false); // art. 72, IV não admite "não se aplica"
       expect(pp.pode_nao_se_aplicar).toBe(false); // obrigatória no art. 72
       expect(itemDe(inst, 'ETP').pode_nao_se_aplicar).toBe(true);
     });

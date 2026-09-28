@@ -8,8 +8,10 @@ import {
   CalendarioDiasUteis,
   calendarioDoOrgao,
   diaEmBrasilia,
+  fimDoDia,
   fimDoPrazoEmDiasUteis,
   inicioDoDia,
+  inicioDoDiaSeguinte,
   limiteDiasUteisAntes,
 } from '../common/prazos/dias-uteis';
 
@@ -49,11 +51,14 @@ import {
  *    = 15 e IV = 35), vale o MAIOR prazo — o mais longo nunca viola a lei.
  *  - Contagem (art. 183, caput e III): EXCLUI o dia da divulgação e INCLUI o
  *    do vencimento, contando só dias com expediente no CALENDÁRIO DO ÓRGÃO. O
- *    dia do vencimento é o da abertura da sessão (ou do fim do recebimento, na
- *    dispensa): ela pode ocorrer a partir das 00:00 (Brasília) do N-ésimo dia
- *    útil depois da divulgação — ex.: divulgação na segunda 01, 8 dias úteis
- *    (02, 03, 04, 05, 08, 09, 10, 11) → abertura a partir de 11. É a leitura
- *    corrente do "excluir o dia da divulgação e incluir o da abertura".
+ *    prazo MÍNIMO só se completa com o dia do vencimento INTEIRO: a abertura
+ *    da sessão (ou o fim do recebimento, na dispensa) só pode ocorrer depois
+ *    de completado o N-ésimo dia útil depois da divulgação — mínimo às
+ *    23:59 (Brasília) desse dia; na prática, a partir do dia seguinte. Ex.:
+ *    divulgação na segunda 01, 8 dias úteis (02, 03, 04, 05, 08, 09, 10, 11)
+ *    → o prazo vence em 11 às 23:59; abertura a partir daí (12, na prática).
+ *    Marcar a abertura às 09:00 do dia 11 daria aos licitantes só 7 dias
+ *    úteis inteiros — menos que o mínimo do art. 55 / art. 75, §3º.
  *  - O art. 55 conta "a partir da data de divulgação do edital": é a
  *    disposição especial que afasta a regra geral do art. 183 §1º, I (dia do
  *    começo = 1º dia útil seguinte à disponibilização).
@@ -249,6 +254,16 @@ export function formatarDataBrasilia(d: Date, comHora = true): string {
   });
 }
 
+/**
+ * A data informada fica ANTES do mínimo legal? O mínimo é o último instante
+ * do dia do vencimento (23:59:59.999); o formulário grava no minuto — por isso
+ * a comparação é no minuto: 23:59 do dia do vencimento atende, 23:58 não.
+ */
+export function antesDoMinimo(data: Date, minimo: Date): boolean {
+  const aoMinuto = (d: Date) => Math.floor(d.getTime() / 60_000);
+  return aoMinuto(data) < aoMinuto(minimo);
+}
+
 /** Referência do "prazo para apresentação de propostas": fim do recebimento (ou a abertura). */
 export function fimDoRecebimento(c: Cronograma): Date | null {
   return dt(c.data_fim_acolhimento) ?? dt(c.data_abertura_sessao);
@@ -260,7 +275,12 @@ export interface AvaliacaoPrazos {
   divulgacao: Date;
   /** Vencimento do prazo mínimo (23:59:59 do N-ésimo dia útil). */
   vencimento: Date | null;
-  /** Primeira data/hora admitida para o fim do recebimento e a abertura: 00:00 do N-ésimo dia útil (art. 183 — inclui o dia do vencimento). */
+  /**
+   * Primeira data/hora admitida para o fim do recebimento e a abertura: o FIM
+   * (23:59:59.999, Brasília) do N-ésimo dia útil — o prazo só se completa com o
+   * dia do vencimento inteiro (art. 183; art. 55; art. 75, §3º). Na prática, o
+   * dia seguinte. A comparação com a data informada é no minuto (`antesDoMinimo`).
+   */
   minimo_abertura: Date | null;
   pendencias: string[];
 }
@@ -303,18 +323,19 @@ export function avaliarPrazosDePublicacao(
   let minimo: Date | null = null;
   if (prazo.dias) {
     vencimento = fimDoPrazoEmDiasUteis(divulgacao, prazo.dias, cal);
-    minimo = inicioDoDia(vencimento);
+    // O mínimo é o FIM do dia do vencimento (o N-ésimo dia útil completo — art. 183, caput; art. 55; art. 75, §3º)
+    minimo = fimDoDia(vencimento);
   }
   if (prazo.dias && recebimento && vencimento && minimo) {
     for (const [rotulo, data] of [
       [ehDispensa ? 'o fim do recebimento de propostas' : 'a abertura da sessão pública', ehDispensa ? recebimento : abertura],
       ['o fim do recebimento de propostas', ehDispensa ? null : fim],
     ] as Array<[string, Date | null]>) {
-      if (data && data.getTime() < minimo.getTime()) {
+      if (data && antesDoMinimo(data, minimo)) {
         pend.push(
           `Prazo mínimo de ${prazo.dias} dias úteis entre a divulgação e ${rotulo} (${prazo.fundamento} — ${prazo.descricao}; ` +
             `contagem do art. 183 no calendário do órgão): informado ${formatarDataBrasilia(data)}, ` +
-            `mínimo ${formatarDataBrasilia(minimo, false)} (${prazo.dias}º dia útil depois da divulgação).`,
+            `mínimo ${formatarDataBrasilia(minimo)} (fim do ${prazo.dias}º dia útil depois da divulgação — o prazo só se completa com o dia inteiro).`,
         );
       }
     }
@@ -566,7 +587,7 @@ export interface ReajusteDivulgacao {
   ajustes: AjusteCronograma[];
   /** Cronograma resultante (datas). */
   cronograma: Cronograma;
-  /** 00:00 (Brasília) do N-ésimo dia útil depois da divulgação confirmada — null sem prazo mínimo. */
+  /** Fim (23:59:59.999, Brasília) do N-ésimo dia útil depois da divulgação confirmada — null sem prazo mínimo. */
   minimo: Date | null;
   prazo: PrazoMinimo;
   /** Texto para o histórico/aviso (null sem ajuste). */
@@ -630,21 +651,23 @@ export function reajustarCronogramaNaDivulgacao(
 
   let minimo: Date | null = null;
   if (prazo.dias) {
-    minimo = inicioDoDia(fimDoPrazoEmDiasUteis(divulgacao, prazo.dias, cal));
-    const noMinimo = (data: Date) => new Date(minimo!.getTime() + (data.getTime() - inicioDoDia(data).getTime()));
+    // Mínimo = fim do dia do vencimento (o N-ésimo dia útil inteiro): a data
+    // que ficou aquém vai para o DIA SEGUINTE ao vencimento, no mesmo horário
+    minimo = fimDoDia(fimDoPrazoEmDiasUteis(divulgacao, prazo.dias, cal));
+    const noMinimo = (data: Date) => new Date(inicioDoDiaSeguinte(minimo!).getTime() + (data.getTime() - inicioDoDia(data).getTime()));
     const ehDispensa = d.modalidade === ModalidadeLicitacao.DISPENSA_ELETRONICA;
     const fimAntigo = dt(c.data_fim_acolhimento);
     const abAntiga = dt(c.data_abertura_sessao);
     if (ehDispensa) {
       const ref = fimAntigo ?? abAntiga;
-      if (ref && ref.getTime() < minimo.getTime()) {
+      if (ref && antesDoMinimo(ref, minimo)) {
         const n = noMinimo(ref);
         if (fimAntigo) definir('data_fim_acolhimento', n);
         if (abAntiga && abAntiga.getTime() < n.getTime()) definir('data_abertura_sessao', n);
       }
     } else {
-      if (abAntiga && abAntiga.getTime() < minimo.getTime()) definir('data_abertura_sessao', noMinimo(abAntiga));
-      if (fimAntigo && fimAntigo.getTime() < minimo.getTime()) definir('data_fim_acolhimento', noMinimo(fimAntigo));
+      if (abAntiga && antesDoMinimo(abAntiga, minimo)) definir('data_abertura_sessao', noMinimo(abAntiga));
+      if (fimAntigo && antesDoMinimo(fimAntigo, minimo)) definir('data_fim_acolhimento', noMinimo(fimAntigo));
       const ab = dt(novo.data_abertura_sessao);
       const fim = dt(novo.data_fim_acolhimento);
       if (ab && fim && fim.getTime() > ab.getTime()) definir('data_fim_acolhimento', ab);

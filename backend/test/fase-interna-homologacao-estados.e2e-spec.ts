@@ -273,7 +273,12 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
     it('inexigibilidade (sem aviso): sem relatório/justificativa com a escolha e o preço, a autorização é recusada com mensagem clara; com o relatório, vai', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.INEXIGIBILIDADE, { extras: { pregoeiro_id: agente.id } });
       for (const t of ['DFD', 'PP']) expect((await anexar(lic, t)).status).toBe(201);
-      for (const t of ['ETP', 'AR', 'TR', 'DO']) expect((await naoSeAplica(lic, t)).status).toBe(201);
+      for (const t of ['ETP', 'AR', 'TR']) expect((await naoSeAplica(lic, t)).status).toBe(201);
+      // art. 72, IV não admite "não se aplica" (400): a informação orçamentária é anexada
+      const nsaDo = await naoSeAplica(lic, 'DO');
+      expect(nsaDo.status).toBe(400);
+      expect(nsaDo.body.message).toMatch(/Art\. 72, IV/);
+      expect((await anexar(lic, 'DO')).status).toBe(201);
       // Mesma ordem da dispensa (decisão do dono, 27/09/2026): relatório/minutas e parecer ANTES da autorização
       const antes = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });
       expect(antes.status).toBe(403);

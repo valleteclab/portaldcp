@@ -175,6 +175,7 @@ export function pecaDoContexto(d: DocumentoLinha, textosPdf?: string[] | null): 
     desatualizada:
       dados._desatualizada?.texto && desatualizacaoRelevante(d.tipo, dados._desatualizada) ? { texto: String(dados._desatualizada.texto), motivo: dados._desatualizada.motivo } : null,
     justificativa_marca: dados._marca?.justificativa ? String(dados._marca.justificativa) : null,
+    conclusao_parecer: !anexada && (d.tipo === 'PJ' || d.tipo === 'PJE') && dados._parecer?.conclusao ? String(dados._parecer.conclusao).toUpperCase() : null,
     id_externo: d.sistema_origem === 'documentos_licitacao' ? d.id_externo ?? null : null,
   };
 }

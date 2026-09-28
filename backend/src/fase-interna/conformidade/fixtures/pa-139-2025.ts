@@ -147,7 +147,7 @@ export function pa139Real(): EntradaContexto {
     valor_itens: VALOR,
     instrucao: {
       contratacao_direta: true,
-      itens: [linha('DFD', 'OK', true), linha('PP', 'OK', true), linha('AA', 'OK', true), linha('ETP'), linha('TR'), linha('AR', 'NAO_SE_APLICA'), linha('PJ'), linha('DO'), linha('JC', 'NAO_SE_APLICA'), linha('DP'), linha('RAG'), linha('MC'), linha('ME')],
+      itens: [linha('DFD', 'OK', true), linha('PP', 'OK', true), linha('AA', 'OK', true), linha('ETP'), linha('TR'), linha('AR', 'NAO_SE_APLICA'), linha('PJ'), linha('DO', 'OK', true), linha('JC', 'NAO_SE_APLICA'), linha('DP'), linha('RAG'), linha('MC'), linha('ME')],
     },
     documentos,
     textos_pdf: textos,

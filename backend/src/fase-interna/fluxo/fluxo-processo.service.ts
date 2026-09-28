@@ -12,7 +12,7 @@ import { FaseInternaService } from '../fase-interna.service';
 import { MarcaEtapa, PassoCalculado, passosDasEtapas } from '../tarefas/etapas-fase-interna';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { dependentesDe } from './modelo-fluxo';
-import { ModeloFluxoService } from './modelo-fluxo.service';
+import { DeltaMarcas, ModeloFluxoService } from './modelo-fluxo.service';
 
 const dataBr = (iso: string) => iso.split('-').reverse().join('/');
 const hojeBrasilia = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -94,21 +94,24 @@ export class FluxoProcessoService {
     const ctx = await this.contexto(licitacaoId);
     const autor = await this.tarefas.autor(ator);
     const em = new Date().toISOString();
-    const reabertas: Record<string, MarcaEtapa> = { ...(ctx.fluxo.reabertas ?? {}), [codigo]: { em, por_id: autor.id, por_nome: autor.nome, motivo } };
-    const aRevisar: Record<string, MarcaEtapa> = { ...(ctx.fluxo.a_revisar ?? {}) };
-    delete aRevisar[codigo];
+    const reaberta: MarcaEtapa = { em, por_id: autor.id, por_nome: autor.nome, motivo };
+    const reabertasAtuais = ctx.fluxo.reabertas ?? {};
     // As etapas que dependem dela e já estavam concluídas ficam "a revisar" (as peças NÃO são apagadas)
     const etapas = passosDasEtapas(await this.tarefas.etapasCalculadas(licitacaoId, lic));
     const marcadas: string[] = [];
+    const aRevisarPor: Record<string, MarcaEtapa> = {};
     for (const dep of dependentesDe(ctx.modelo.etapas, codigo)) {
       const p = etapas.find((x) => x.passo === dep);
-      if (!p || (p.situacao !== 'CONCLUIDO' && p.situacao !== 'A_REVISAR') || reabertas[dep]) continue;
-      aRevisar[dep] = { em, por_id: autor.id, por_nome: autor.nome, origem: codigo, motivo: `"${passo.titulo}" foi reaberta: ${motivo}` };
+      if (!p || (p.situacao !== 'CONCLUIDO' && p.situacao !== 'A_REVISAR') || reabertasAtuais[dep]) continue;
+      aRevisarPor[dep] = { em, por_id: autor.id, por_nome: autor.nome, origem: codigo, motivo: `"${passo.titulo}" foi reaberta: ${motivo}` };
       marcadas.push(dep);
     }
-    const registros = { ...(ctx.fluxo.registros ?? {}) };
-    delete registros[codigo];
-    await this.modeloFluxo.gravarMarcas(ctx.fluxo.id, { reabertas, a_revisar: aRevisar, registros });
+    // Só o delta desta reabertura vai ao banco (atômico): outra marca posta ao mesmo tempo não se perde
+    await this.modeloFluxo.aplicarMarcas(ctx.fluxo.id, {
+      reabertas: { por: { [codigo]: reaberta } },
+      a_revisar: { por: aRevisarPor, remover: [codigo] },
+      registros: { remover: [codigo] },
+    });
     // Reabrir a demanda desfaz a aprovação (a demanda revista é aprovada de novo)
     const ap = ctx.modelo.aprovacao_demanda;
     const desfez = ap.exigida && codigo === ap.etapa && ctx.fluxo.demanda_aprovada && ctx.fluxo.aprovacao_demanda?.origem !== 'DEMANDA';
@@ -188,18 +191,18 @@ export class FluxoProcessoService {
     const autor = await this.tarefas.autor(ator);
     const em = new Date().toISOString();
     const marca: MarcaEtapa = { em, por_id: autor.id, por_nome: autor.nome, texto };
-    const reabertas = { ...(ctx.fluxo.reabertas ?? {}) };
-    const aRevisar = { ...(ctx.fluxo.a_revisar ?? {}) };
-    const registros = { ...(ctx.fluxo.registros ?? {}) };
+    // Delta desta conclusão (gravado atomicamente — ver ModeloFluxoService.aplicarMarcas)
+    const delta: DeltaMarcas = {};
+    let registrar = false;
     let acao: AcaoLogFaseInterna;
     let descricao: string;
     if (passo.reaberta) {
-      delete reabertas[codigo];
-      if (passo.conclusao === 'REGISTRO') registros[codigo] = marca;
+      delta.reabertas = { remover: [codigo] };
+      registrar = passo.conclusao === 'REGISTRO';
       acao = AcaoLogFaseInterna.ETAPA_REVISADA;
       descricao = `Etapa "${passo.titulo}" revista (reabertura encerrada) por ${autor.nome ?? 'usuário'}: ${texto}`;
     } else if (passo.situacao === 'A_REVISAR') {
-      delete aRevisar[codigo];
+      delta.a_revisar = { remover: [codigo] };
       acao = AcaoLogFaseInterna.ETAPA_REVISADA;
       descricao = `Etapa "${passo.titulo}" revista (continua valendo) por ${autor.nome ?? 'usuário'}: ${texto}`;
     } else if (passo.conclusao === 'REGISTRO' && (passo.situacao === 'DISPONIVEL' || passo.situacao === 'AGUARDANDO')) {
@@ -207,7 +210,7 @@ export class FluxoProcessoService {
         const nomes = passo.pendencias.map((d) => ctx.modelo.etapas.find((e) => e.codigo === d)?.titulo ?? d);
         throw new ConflictException(`Esta etapa depende de outra que ainda não terminou: ${nomes.join(', ')}.`);
       }
-      registros[codigo] = marca;
+      registrar = true;
       acao = AcaoLogFaseInterna.ETAPA_REGISTRADA;
       descricao = `Etapa "${passo.titulo}" registrada por ${autor.nome ?? 'usuário'}: ${texto}`;
     } else {
@@ -215,12 +218,12 @@ export class FluxoProcessoService {
     }
     // F3: o despacho da etapa de REGISTRO vira folha nos autos (PDF, mesma sequência das peças)
     let despacho: MarcaEtapa['despacho'] = null;
-    if (passo.conclusao === 'REGISTRO' && registros[codigo] === marca) {
+    if (registrar) {
       const d = await this.despachos.registrar(licitacaoId, { etapa: codigo, titulo_etapa: passo.titulo, texto, autor });
       despacho = { id: d.id, folha_inicial: d.folha_inicial, folha_final: d.folha_final, url: d.url };
-      registros[codigo] = { ...marca, despacho };
+      delta.registros = { por: { [codigo]: { ...marca, despacho } } };
     }
-    await this.modeloFluxo.gravarMarcas(ctx.fluxo.id, { reabertas, a_revisar: aRevisar, registros });
+    await this.modeloFluxo.aplicarMarcas(ctx.fluxo.id, delta);
     await this.log(licitacaoId, acao, `${descricao}${despacho ? ` (despacho nos autos, fl. ${despacho.folha_inicial})` : ''}`, { etapa: codigo, texto, despacho }, autor);
     // F4a: despacho registrado a partir do texto sugerido pela IA (aceito) → registra quem revisou
     if (passo.conclusao === 'REGISTRO' && despacho) await this.revisaoIa.registrarNaEmissao(licitacaoId, 'REGISTRO', { etapa: codigo, autor, ato: 'registrado' });

@@ -28,6 +28,7 @@ export class RascunhoIaController {
   }
 
   /** "Gerar com IA" / "Gerar de novo": { peca, etapa?, destino?, finalidade?, despacho? } (os três últimos só no envio). */
+  @TrabalhoNaEtapa({ rascunhoCorpo: 'peca', acao: 'gerar o rascunho da IA' })
   @Post(':licitacaoId/rascunho-ia/gerar')
   @DonoModo('leitura')
   async gerar(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
@@ -42,6 +43,7 @@ export class RascunhoIaController {
     return this.rascunhos.aceitar(id, rascunhoId, ator, await this.tarefas.autor(ator));
   }
 
+  @TrabalhoNaEtapa({ rascunhoParam: 'rascunhoId', acao: 'descartar o rascunho da IA' })
   @Post(':licitacaoId/rascunho-ia/:rascunhoId/descartar')
   @DonoModo('leitura')
   async descartar(@Param('licitacaoId') id: string, @Param('rascunhoId') rascunhoId: string, @AtorAtual() ator: Ator) {

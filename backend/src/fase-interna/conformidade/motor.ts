@@ -110,14 +110,16 @@ export const planoVazio = (p: PlanoRevisao) => !p.criar.length && !p.atualizar.l
 
 /**
  * Regras que cada portão aplica POR PADRÃO. A: limite; B: limite + art. 72
- * (I, II, IV); C: tudo o que não é do portão B. Desde a F1 isto é só a
- * SEMENTE das travas por ato (`fluxo/travas.ts`, tabela `travas_ato_fluxo`):
- * quem decide no ato são os dados.
+ * (I, II, IV) + parecer; C: tudo o que não é do portão B — mais as que
+ * declaram `tambem_no_portao` (PARECER-01 segura o autorizar E o publicar).
+ * Desde a F1 isto é só a SEMENTE das travas por ato (`fluxo/travas.ts`,
+ * tabela `travas_ato_fluxo`): quem decide no ato são os dados.
  */
 export function regrasDoPortao(portao: Portao, regras: Regra[] = REGRAS): Regra[] {
-  if (portao === 'A') return regras.filter((r) => r.etapa === 'PESQUISA');
-  if (portao === 'B') return regras.filter((r) => r.etapa === 'PESQUISA' || r.etapa === 'AUTORIZACAO');
-  return regras.filter((r) => r.portao !== 'B');
+  const tambem = (r: Regra) => !!r.tambem_no_portao?.includes(portao);
+  if (portao === 'A') return regras.filter((r) => r.etapa === 'PESQUISA' || tambem(r));
+  if (portao === 'B') return regras.filter((r) => r.etapa === 'PESQUISA' || r.etapa === 'AUTORIZACAO' || tambem(r));
+  return regras.filter((r) => r.portao !== 'B' || tambem(r));
 }
 
 const onde = (a: AchadoCalculado) => {

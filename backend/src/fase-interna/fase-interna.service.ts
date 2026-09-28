@@ -444,8 +444,14 @@ export class FaseInternaService {
       throw new BadRequestException('Documento fora do checklist do Art. 72');
     }
     if (item.obrigatorio) {
+      // Art. 72, IV (compatibilidade orçamentária) não é "se for o caso": a
+      // informação orçamentária é emitida na reserva ou anexada — nunca dispensada
+      const como =
+        tipo === TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA
+          ? ' — o art. 72, IV não admite "não se aplica": emita a reserva (tela da reserva) ou anexe a informação orçamentária feita fora'
+          : '';
       throw new BadRequestException(
-        `${item.titulo} é obrigatório (${item.fundamento}) e não pode ser dispensado`,
+        `${item.titulo} é obrigatório (${item.fundamento}) e não pode ser dispensado${como}`,
       );
     }
 

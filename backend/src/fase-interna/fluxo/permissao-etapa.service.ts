@@ -11,7 +11,7 @@ import { chaveDoPasso, responsavelDoPasso } from '../tarefas/tarefa-regras';
 import { TarefasService, responsaveisDoModelo } from '../tarefas/tarefas.service';
 import { EtapaDoModelo, ModeloFluxo, ResponsavelEtapa, dependenciasEfetivas } from './modelo-fluxo';
 import { ModeloFluxoService } from './modelo-fluxo.service';
-import { PerfilTrabalho, PosseParaTrabalho, ResultadoPermissao, avaliarPermissaoEtapa, ehResponsavelPelaEtapa } from './permissao-etapa';
+import { PerfilTrabalho, PosseParaTrabalho, ResultadoPermissao, avaliarPermissaoEtapa, ehCondutor, ehResponsavelPelaEtapa } from './permissao-etapa';
 
 /** Documentos do órgão juntados ao processo (designação do agente e da equipe): fora da ordem das etapas. */
 const DOCUMENTOS_DO_ORGAO = ['DP', 'DEA'];
@@ -247,12 +247,23 @@ export class PermissaoEtapaService implements OnModuleInit {
 
   async avaliar(licitacaoId: string, alvo: AlvoDaEscrita, ator: Ator, opcoes: { aguardar?: boolean } = {}): Promise<ResultadoNaEtapa> {
     const ctx = await this.contexto(licitacaoId, { aguardar: opcoes.aguardar !== false });
-    if (!ctx) return OK;
-    const passo = this.passoDoAlvo(ctx, alvo);
-    if (!passo) return OK; // peça fora do modelo (genérica, fase externa)
+    if (!ctx) return OK; // fora da fase interna (ou processo não encontrado): não é escrita numa etapa
     const perfil = await this.perfil(ator, ctx.orgao_id);
+    const passo = this.passoDoAlvo(ctx, alvo);
+    if (!passo) return this.avaliarForaDoModelo(ctx, perfil);
     if (alvo.tipo && DOCUMENTOS_DO_ORGAO.includes(String(alvo.tipo))) return this.avaliarDocumentoDoOrgao(ctx, passo, perfil);
     return this.avaliarNoContexto(ctx, passo, perfil);
+  }
+
+  /**
+   * Peça que não pertence a nenhuma etapa do modelo do processo (tipo
+   * genérico, peça de outro rito): não há responsável de etapa a consultar,
+   * então só quem CONDUZ o processo a junta (a mesma regra de `exigirCondutor`).
+   */
+  private avaliarForaDoModelo(ctx: ContextoPermissao, perfil: PerfilTrabalho): ResultadoNaEtapa {
+    if (ehCondutor(perfil, ctx)) return OK;
+    const motivo = 'Esta peça não pertence a nenhuma etapa do fluxo: só quem conduz o processo (o agente de contratação, quem o criou, o administrador do órgão ou o login do órgão) pode juntá-la.';
+    return { pode: false, codigo: 'FORA_DO_MODELO', motivo, por_privilegio: false, motivo_sem_privilegio: motivo, passo: null, titulo: null };
   }
 
   /**
@@ -329,8 +340,7 @@ export class PermissaoEtapaService implements OnModuleInit {
     if (!lic) return;
     const perfil = await this.perfil(ator, lic.orgao_id);
     if (perfil.privilegiado) return;
-    const { agente, criador } = await this.tarefas.agenteECriador(licitacaoId);
-    if (perfil.usuario_id && (perfil.usuario_id === agente || perfil.usuario_id === criador)) return;
+    if (ehCondutor(perfil, await this.tarefas.agenteECriador(licitacaoId))) return;
     throw new ForbiddenException(`Só quem conduz o processo (o agente de contratação, quem o criou, o administrador do órgão ou o login do órgão) pode ${acao}.`);
   }
 }

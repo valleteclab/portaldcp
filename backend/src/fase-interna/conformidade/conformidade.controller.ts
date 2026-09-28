@@ -52,7 +52,17 @@ export class ConformidadeController {
     return this.conformidade.resumo(id);
   }
 
+  /*
+   * Decisões da conformidade e da publicação (etapa PUBLICACAO, do agente):
+   * `condutor` em vez de `passo: 'PUBLICACAO'` porque a etapa só "pode
+   * começar" depois da autorização e do parecer, e a revisão, a justificativa
+   * de um achado ATENÇÃO e a escolha da disputa acontecem ao longo de toda a
+   * instrução — quem conduz o processo (agente, criador sem agente,
+   * administrador ou login do órgão) responde por elas.
+   */
+
   /** "Revisar agora": roda o motor, grava os achados (idempotente) e as tarefas. */
+  @TrabalhoNaEtapa({ condutor: 'revisar a conformidade' })
   @Post(':licitacaoId/conformidade/revisar')
   async revisar(@Param('licitacaoId') id: string, @AtorAtual() ator: Ator) {
     await this.conformidade.revisar(id, { origem: 'MANUAL', autor: await this.tarefas.autor(ator) });
@@ -63,6 +73,7 @@ export class ConformidadeController {
   }
 
   /** Justificar achado ATENÇÃO: { justificativa } (vai para os autos). BLOQUEIO: 409. */
+  @TrabalhoNaEtapa({ condutor: 'justificar um achado da conformidade' })
   @Post(':licitacaoId/conformidade/achados/:achadoId/justificar')
   async justificar(@Param('licitacaoId') id: string, @Param('achadoId') achadoId: string, @Body() body: any, @AtorAtual() ator: Ator) {
     await this.conformidade.justificar(id, achadoId, body ?? {}, await this.tarefas.autor(ator));
@@ -82,6 +93,7 @@ export class ConformidadeController {
    * Escolha da disputa da dispensa no processo: { com_lances: boolean }. Só na
    * fase interna (depois de publicar, 409); registra quem escolheu.
    */
+  @TrabalhoNaEtapa({ condutor: 'escolher a disputa da dispensa' })
   @Put(':licitacaoId/modo-disputa')
   async definirModoDisputa(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.publicacao.definirModoDisputa(id, body ?? {}, await this.tarefas.autor(ator));
