@@ -38,6 +38,7 @@ import {
   gerarAvisoDispensa,
   gerarCnpj,
   pdfDeTeste,
+  cumprirEtapasAnteriores,
 } from './support';
 import { corpoDivulgacao, criarDocumentoInstrucao, fimPropostasSugerido } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
@@ -75,13 +76,16 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
     await esperar();
     return (await http().get(`/api/fase-interna/${lic.id}/conformidade`).set(bearer(token)).expect(200)).body;
   };
-  /** Art. 72, I, II e IV completos (portão B) e o que é "se for o caso" decidido. */
+  /**
+   * Art. 72, I, II e IV completos (portão B) e o que é "se for o caso" decidido — NA ORDEM DO FLUXO
+   * (homologação multiusuário; art. 53, §4º): demanda → ETP/TR/pesquisa → reserva → minutas → parecer →
+   * autorização. DFD, estimativa e autorização anexadas; as demais anexadas quando informadas, senão "não se aplica".
+   */
   const instruir = async (lic: { id: string }, token: string, anexos: Record<string, string> = {}) => {
-    for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, token, anexos[t])).status).toBe(201);
-    for (const t of ['AR', 'TR', 'DO', 'PJ', 'JC', 'DP', 'RAG', 'ME'].filter((x) => !anexos[x])) expect((await naoSeAplica(lic, t, token)).status).toBe(201);
-    for (const [t, texto] of Object.entries(anexos).filter(([t]) => !['DFD', 'PP'].includes(t))) expect((await anexar(lic, t, token, texto)).status).toBe(201);
-    if (!anexos.ETP) expect((await naoSeAplica(lic, 'ETP', token)).status).toBe(201);
-    expect((await anexar(lic, 'AA', token)).status).toBe(201);
+    for (const t of ['DFD', 'PP', 'ETP', 'AR', 'TR', 'DO', 'RAG', 'ME', 'MC', 'JC', 'PJ', 'AA', 'DP']) {
+      const status = ['DFD', 'PP', 'AA'].includes(t) || anexos[t] ? (await anexar(lic, t, token, anexos[t])).status : (await naoSeAplica(lic, t, token)).status;
+      expect([t, status]).toEqual([t, 201]);
+    }
   };
   const publicar = (lic: LicitacaoFixture) => http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(A.token)).send(corpoDivulgacao(fimPropostasSugerido()));
   const prepararPublicacao = async (lic: LicitacaoFixture) => {
@@ -246,7 +250,13 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       agenteX = await criarUsuarioOrgao(ctx, X, { role: RoleUsuario.PREGOEIRO, nome: 'Xavier Agente' });
       await criarLicitacao(ctx, X, ModalidadeLicitacao.DISPENSA_ELETRONICA, { itens: [{ descricao: 'Serviço A', quantidade: 1, valor_unitario_estimado: 40_000 }] });
       l2 = await criarLicitacao(ctx, X, ModalidadeLicitacao.DISPENSA_ELETRONICA, { itens: [{ descricao: 'Serviço B', quantidade: 1, valor_unitario_estimado: 30_000 }], extras: { pregoeiro_id: agenteX.id } });
+      // E6 (homologação multiusuário): o ramo é o da classe do catálogo — item sem código não soma com outras dispensas
+      await classificar();
+      // A pesquisa só anda com a demanda aprovada (ordem do fluxo) — e só então nasce a tarefa do achado
+      await cumprirEtapasAnteriores(ctx, l2, 'PESQUISA');
     });
+    const classificar = () =>
+      sql(`UPDATE itens_licitacao SET classe_catalogo = '0859', tipo_item = 'SERVICO' WHERE licitacao_id IN (SELECT id FROM licitacoes WHERE orgao_id = $1)`, [X.id]);
 
     it('soma do ramo (R$ 70.000,00) acima do limite: LIM-01 BLOQUEIO com tarefa da pesquisa', async () => {
       const t = await conformidade(l2, X.token);
@@ -273,6 +283,8 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
 
     it('emitir o mapa e a certidão com o valor que estoura o limite: 400 (portão A)', async () => {
       const l3 = await criarLicitacao(ctx, X, ModalidadeLicitacao.DISPENSA_ELETRONICA, { itens: [{ descricao: 'Serviço C', quantidade: 1, valor_unitario_estimado: 1 }] });
+      await classificar();
+      await cumprirEtapasAnteriores(ctx, l3, 'PESQUISA');
       for (const [f, v] of [['Alfa', 10_000], ['Beta', 11_000], ['Gama', 12_000]] as const) {
         await http()
           .post(`/api/fase-interna/${l3.id}/pesquisa/propostas`)
@@ -317,27 +329,30 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
     });
 
-    it('anexar o despacho assinado fora, enviar para a autoridade e o envio genérico para assinatura: 400 com o que falta', async () => {
+    it('anexar o despacho assinado fora, enviar para a autoridade e o envio genérico para assinatura: recusados antes das etapas anteriores', async () => {
+      // Homologação multiusuário: a autorização só começa com as etapas anteriores concluídas (art. 72, I, II
+      // e IV; parecer — art. 53, §4º) — a recusa vem antes do portão B, com o que falta
       const r = await anexar(lic, 'AA', agente.token);
-      expect(r.status).toBe(400);
-      expect(r.body.portao).toBe('B');
-      expect(r.body.pendencias.join(' ')).toMatch(/A72-I: Art\. 72, I .*falta/);
-      expect(r.body.pendencias.join(' ')).toMatch(/A72-II: Art\. 72, II/);
+      expect(r.status).toBe(403);
+      expect(r.body.codigo).toBe('AGUARDANDO_DEMANDA');
       const env = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });
-      expect(env.status).toBe(400);
+      expect(env.status).toBe(403);
+      const ass = await http().post(`/api/fase-interna/${lic.id}/documentos/AA/assinatura`).set(bearer(A.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });
+      expect(ass.status).toBe(403);
       const [{ n }] = await sql(`SELECT COUNT(*)::int AS n FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'AA'`, [lic.id]);
       expect(n).toBe(0); // nada gerado
-      await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Despacho');
-      const ass = await http().post(`/api/fase-interna/${lic.id}/documentos/AA/assinatura`).set(bearer(A.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });
-      expect(ass.status).toBe(400);
-      expect(ass.body.portao).toBe('B');
+      // com a demanda e a pesquisa, mas sem a reserva e o parecer: ainda não
+      await cumprirEtapasAnteriores(ctx, lic, 'PESQUISA', { incluirAlvo: true });
+      const r2 = await anexar(lic, 'AA', agente.token);
+      expect(r2.status).toBe(403);
+      expect(r2.body.codigo).toBe('AGUARDANDO_ETAPAS');
+      expect(r2.body.message).toMatch(/Informação orçamentária e reserva/);
       const tela = (await http().get(`/api/fase-interna/${lic.id}/autorizacao`).set(bearer(agente.token)).expect(200)).body;
       expect(tela.portao_b_bloqueios.join(' ')).toMatch(/A72-I/);
     });
 
-    it('com o art. 72, I, II e IV completos, o despacho vai para a autoridade e é assinado', async () => {
-      for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, agente.token)).status).toBe(201);
-      for (const t of ['ETP', 'AR', 'TR', 'DO']) expect((await naoSeAplica(lic, t, agente.token)).status).toBe(201);
+    it('com o art. 72, I, II e IV completos (e o parecer), o despacho vai para a autoridade e é assinado', async () => {
+      await cumprirEtapasAnteriores(ctx, lic, 'AUTORIZACAO', { token: agente.token });
       await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] }).expect(201);
       const r = await http().post(`/api/fase-interna/${lic.id}/autorizacao/assinar`).set(bearer(presidente.token)).send({}).expect(201);
       expect(r.body.situacao).toBe('AUTORIZADA');

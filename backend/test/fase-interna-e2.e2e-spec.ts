@@ -278,6 +278,9 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
     });
 
     it('com o DFD pronto, a pesquisa vai para Compras (30 dias úteis) e o estudo para o Requisitante', async () => {
+      // Por setor, só quem está com o processo trabalha na peça (homologação multiusuário): recebeu a tarefa, recebe o processo
+      expect((await anexar(lic, 'DFD', juridico.token)).status).toBe(403);
+      await http().post(`/api/fase-interna/${lic.id}/tramitar`).set(bearer(A.token)).send({ para_usuario_id: juridico.id, despacho: 'Encaminhe-se ao Paulo para a demanda.' }).expect(201);
       expect((await anexar(lic, 'DFD', juridico.token)).status).toBe(201);
       expect(await abertaDe(lic, 'PESQUISA')).toMatchObject({ responsavel_papel: 'COMPRAS', prazo_dias_uteis: 30 });
       expect(await abertaDe(lic, 'ETP')).toMatchObject({ responsavel_papel: 'REQUISITANTE' });
@@ -310,19 +313,23 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
 
     it('com parecer pronto nasce a tarefa do controle interno (caixa do papel, sem agente); desativar cancela', async () => {
       for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, C.token)).status).toBe(201);
-      for (const t of ['ETP', 'AR', 'TR', 'DO', 'DP', 'RAG', 'MC', 'JC', 'PJ']) expect((await naoSeAplica(lic, t, C.token)).status).toBe(201);
-      // Portão B (Entrega 4): o despacho entra depois do art. 72, I, II e IV
-      expect((await anexar(lic, 'AA', C.token)).status).toBe(201);
+      // Na ordem do fluxo (mapa do dono): ETP/TR → reserva → minutas → parecer → controle interno → autorização
+      for (const t of ['ETP', 'AR', 'TR', 'DO', 'RAG', 'MC', 'JC', 'ME', 'PJ']) expect([t, (await naoSeAplica(lic, t, C.token)).status]).toEqual([t, 201]);
       const ci = await abertaDe(lic, 'CONTROLE_INTERNO');
       // processo criado pelo login do órgão, sem agente: a caixa do papel "Agente de contratação"
       expect(ci).toMatchObject({ responsavel_papel: 'AGENTE_CONTRATACAO', prazo_dias_uteis: 3, tipo_peca: 'MCI' });
-      expect(await abertaDe(lic, 'PUBLICACAO')).toBeFalsy(); // publicação espera o controle interno
+      // a autorização espera o controle interno ligado (e a publicação, a autorização)
+      expect((await anexar(lic, 'AA', C.token)).status).toBe(403);
+      expect(await abertaDe(lic, 'PUBLICACAO')).toBeFalsy();
       // o login do órgão vê a tarefa sem dono em "Para mim"
       expect((await caixa(C.token)).tarefas.some((t: any) => t.id === ci.id)).toBe(true);
 
       expect((await configurar(C.token, { controle_interno_ativo: false })).status).toBe(200);
       const [t] = await sql(`SELECT status, motivo_cancelamento FROM tarefas WHERE id = $1`, [ci.id]);
       expect(t).toMatchObject({ status: 'CANCELADA', motivo_cancelamento: expect.stringMatching(/deixou de se aplicar/) });
+      // Portão B (Entrega 4): o despacho entra depois do art. 72, I, II e IV — e do parecer (art. 53, §4º)
+      expect((await anexar(lic, 'AA', C.token)).status).toBe(201);
+      expect((await naoSeAplica(lic, 'DP', C.token)).status).toBe(201);
       expect(await abertaDe(lic, 'PUBLICACAO')).toMatchObject({ tipo: 'PUBLICACAO', prazo_dias_uteis: 5 });
       const logs = await sql(`SELECT dados_depois FROM logs_fase_interna WHERE licitacao_id = $1 AND acao::text = 'ETAPA_ALTERADA'`, [lic.id]);
       expect(logs.some((l: any) => l.dados_depois.etapa === 'CONTROLE_INTERNO' && l.dados_depois.situacao === 'NAO_APLICAVEL')).toBe(true);

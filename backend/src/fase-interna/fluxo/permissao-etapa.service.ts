@@ -11,7 +11,10 @@ import { chaveDoPasso, responsavelDoPasso } from '../tarefas/tarefa-regras';
 import { TarefasService, responsaveisDoModelo } from '../tarefas/tarefas.service';
 import { EtapaDoModelo, ModeloFluxo, ResponsavelEtapa, dependenciasEfetivas } from './modelo-fluxo';
 import { ModeloFluxoService } from './modelo-fluxo.service';
-import { PerfilTrabalho, PosseParaTrabalho, ResultadoPermissao, avaliarPermissaoEtapa } from './permissao-etapa';
+import { PerfilTrabalho, PosseParaTrabalho, ResultadoPermissao, avaliarPermissaoEtapa, ehResponsavelPelaEtapa } from './permissao-etapa';
+
+/** Documentos do órgão juntados ao processo (designação do agente e da equipe): fora da ordem das etapas. */
+const DOCUMENTOS_DO_ORGAO = ['DP', 'DEA'];
 
 /** Alvo de uma escrita: a etapa (código do modelo) ou o tipo da peça. */
 export interface AlvoDaEscrita {
@@ -200,7 +203,8 @@ export class PermissaoEtapaService implements OnModuleInit {
 
   private avaliarNoContexto(ctx: ContextoPermissao, codigo: string, perfil: PerfilTrabalho): ResultadoNaEtapa {
     const etapa = ctx.modelo.etapas.find((e) => e.codigo === codigo);
-    if (!etapa) return { ...OK, passo: codigo };
+    // Etapa fora do modelo ou desligada: a própria tela recusa (ex.: controle interno desativado → 409)
+    if (!etapa || !etapa.ligada) return { ...OK, passo: codigo };
     const calc = ctx.passos.find((p) => p.passo === codigo);
     const titulo = (c: string) => ctx.modelo.etapas.find((e) => e.codigo === c)?.titulo ?? c;
     const aguardandoDemanda = calc ? calc.aguardando_demanda : ctx.falta_aprovacao && codigo !== ctx.modelo.aprovacao_demanda.etapa;
@@ -241,7 +245,24 @@ export class PermissaoEtapaService implements OnModuleInit {
     if (!ctx) return OK;
     const passo = this.passoDoAlvo(ctx, alvo);
     if (!passo) return OK; // peça fora do modelo (genérica, fase externa)
-    return this.avaliarNoContexto(ctx, passo, await this.perfil(ator, ctx.orgao_id));
+    const perfil = await this.perfil(ator, ctx.orgao_id);
+    if (alvo.tipo && DOCUMENTOS_DO_ORGAO.includes(String(alvo.tipo))) return this.avaliarDocumentoDoOrgao(ctx, passo, perfil);
+    return this.avaliarNoContexto(ctx, passo, perfil);
+  }
+
+  /**
+   * DESIGNAÇÃO do agente e da equipe (portaria do exercício — documento do
+   * ÓRGÃO, referenciado pelo processo): não segue a ordem das etapas (o
+   * relatório do agente, antes da autorização, já a cita). Junta quem conduz o
+   * processo ou quem responde pela etapa da autorização (a autoridade).
+   */
+  private avaliarDocumentoDoOrgao(ctx: ContextoPermissao, passo: string, perfil: PerfilTrabalho): ResultadoNaEtapa {
+    const etapa = ctx.modelo.etapas.find((e) => e.codigo === passo);
+    if (!etapa || perfil.privilegiado) return { ...OK, passo, titulo: etapa?.titulo ?? null };
+    const conduz = !!perfil.usuario_id && (perfil.usuario_id === ctx.agente || perfil.usuario_id === ctx.criador);
+    if (conduz || ehResponsavelPelaEtapa({ etapa, alternativos: [] }, perfil)) return { ...OK, passo, titulo: etapa.titulo };
+    const motivo = `A designação do agente é juntada por quem conduz o processo ou por ${this.rotuloResponsavel(etapa.responsavel, ctx)}.`;
+    return { pode: false, codigo: 'NAO_RESPONSAVEL', motivo, por_privilegio: false, motivo_sem_privilegio: motivo, passo, titulo: etapa.titulo };
   }
 
   /**

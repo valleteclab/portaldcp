@@ -155,12 +155,12 @@ describe('F3a — integração da tramitação com as tarefas', () => {
       expect(caixa.tarefas.some((t: any) => t.id === reserva.id)).toBe(true);
     });
 
-    it('a Contabilidade conclui a reserva → o processo volta sozinho ao condutor para a autorização', async () => {
+    it('a Contabilidade conclui a reserva → o processo volta sozinho ao condutor para as minutas (ordem do fluxo: minutas → parecer → autorização)', async () => {
       expect((await anexar(lic, 'DO', katia.token)).status).toBe(201);
       const ts = await tramitacoes(lic);
       expect(ts).toHaveLength(3);
       expect(ts[2]).toMatchObject({ automatico: true, para_usuario_id: agente.id, de_setor_nome: 'Contabilidade' });
-      expect(ts[2].despacho).toMatch(/^Encaminhe-se ao\(à\) Ana Agente para autorização/);
+      expect(ts[2].despacho).toMatch(/^Encaminhe-se ao\(à\) Ana Agente para relatório do agente e minutas/);
     });
   });
 

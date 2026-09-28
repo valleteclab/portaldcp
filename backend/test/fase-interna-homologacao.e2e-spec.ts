@@ -36,6 +36,7 @@ import {
   criarOrgao,
   criarUsuarioOrgao,
   gerarCnpj,
+  cumprirEtapasAnteriores,
 } from './support';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { UnidadeMedida } from '../src/itens/entities/item-licitacao.entity';
@@ -149,6 +150,8 @@ describe('Fase interna — correções da homologação (documentos, versões, E
 
     beforeAll(async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
+      // As minutas vêm depois da reserva (ordem do fluxo — homologação multiusuário)
+      await cumprirEtapasAnteriores(ctx, lic, 'MINUTAS');
       await http().post(`/api/fase-interna/${lic.id}/minutas/TODAS/gerar`).set(bearer(agente.token)).expect(201);
     });
 
@@ -330,7 +333,7 @@ describe('Fase interna — correções da homologação (documentos, versões, E
       expect(conf.achados.filter((a: any) => a.regra === 'PRECO-04' && a.status !== 'RESOLVIDO')).toEqual([]);
     });
 
-    it('reserva emitida e despacho de autorização: sem "A definir" (cadastro sem município), só a data', async () => {
+    it('reserva emitida (a autorização vem depois do parecer — art. 53, §4º)', async () => {
       const dotacao = (
         await http()
           .post('/api/orcamento/dotacoes')
@@ -345,17 +348,8 @@ describe('Fase interna — correções da homologação (documentos, versões, E
         .send({ dotacao_id: dotacao, lei_ldo_id: ldo, linhas: [{ exercicio: ANO, valor: 10000 }, { exercicio: ANO + 1, valor: 12600 }], declaracao_adequacao: true, declaracao_lrf: true })
         .expect(200);
       await http().post(`/api/fase-interna/${lic.id}/reserva/emitir`).set(bearer(agente.token)).expect(201);
-
-      const aa = (await http().post(`/api/fase-interna/${lic.id}/autorizacao/gerar`).set(bearer(agente.token)).expect(201)).body;
-      const [despacho] = await sql(`SELECT id::text AS id, dados_estruturados FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'AA' AND versao_atual`, [lic.id]);
-      const textoDespacho = String(despacho.dados_estruturados.autorizacao);
-      semDefeitosDeTexto(textoDespacho, 'despacho');
-      expect(textoDespacho).toMatch(/<p>\d{2} de [a-zç]+ de \d{4}\.<\/p>/);
-      expect(textoDespacho).toMatch(/R\$\s?22\.600,00/);
-      semDefeitosDeTexto(await textoDaPeca(despacho.id), 'PDF do despacho');
-      expect(aa).toBeTruthy();
-      await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({}).expect(201);
-      await http().post(`/api/fase-interna/${lic.id}/autorizacao/assinar`).set(bearer(autoridade.token)).send({}).expect(201);
+      // antes do parecer, o despacho de autorização não é gerado (ordem do fluxo)
+      expect((await http().post(`/api/fase-interna/${lic.id}/autorizacao/gerar`).set(bearer(agente.token))).status).toBe(403);
     });
 
     it('designação anexada (PDF de 2 páginas) e minutas: "Dispensa eletrônica", o NOME do agente, sem código interno', async () => {
@@ -366,6 +360,7 @@ describe('Fase interna — correções da homologação (documentos, versões, E
         .field('numero_peca', 'Portaria 089/2024')
         .attach('arquivo', await pdfPaginas('PORTARIAANEXA', 2), { filename: 'portaria.pdf', contentType: 'application/pdf' });
       expect(dp.status).toBe(201);
+      expect((await naoSeAplica(lic, 'JC')).status).toBe(201); // justificativa no relatório do agente
       const m = (await http().post(`/api/fase-interna/${lic.id}/minutas/TODAS/gerar`).set(bearer(agente.token)).expect(201)).body;
       expect(m.pecas.RAG.secoes.identificacao).toMatch(/Agente de contratação: Joana Agente, designado pela Portaria 089\/2024/);
       expect(m.pecas.RAG.secoes.identificacao).toMatch(/Dispensa eletrônica nº/);
@@ -409,6 +404,20 @@ describe('Fase interna — correções da homologação (documentos, versões, E
       expect(s.diligencias[0]).toMatchObject({ status: 'SANADA', corrigida: true, versao_corrigida: 3 });
       const r = (await http().post(`/api/fase-interna/${lic.id}/parecer/emitir`).set(bearer(juridico.token)).send({ conclusao: 'FAVORAVEL' }).expect(201)).body;
       expect(r.parecer).toMatchObject({ status: 'ASSINADO' });
+    });
+
+    it('despacho de autorização DEPOIS do parecer: sem "A definir" (cadastro sem município), só a data', async () => {
+      await esperar();
+      const aa = (await http().post(`/api/fase-interna/${lic.id}/autorizacao/gerar`).set(bearer(agente.token)).expect(201)).body;
+      const [despacho] = await sql(`SELECT id::text AS id, dados_estruturados FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'AA' AND versao_atual`, [lic.id]);
+      const textoDespacho = String(despacho.dados_estruturados.autorizacao);
+      semDefeitosDeTexto(textoDespacho, 'despacho');
+      expect(textoDespacho).toMatch(/<p>\d{2} de [a-zç]+ de \d{4}\.<\/p>/);
+      expect(textoDespacho).toMatch(/R\$\s?22\.600,00/);
+      semDefeitosDeTexto(await textoDaPeca(despacho.id), 'PDF do despacho');
+      expect(aa).toBeTruthy();
+      await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({}).expect(201);
+      await http().post(`/api/fase-interna/${lic.id}/autorizacao/assinar`).set(bearer(autoridade.token)).send({}).expect(201);
     });
 
     it('AUTOS: capa, abertura e índice sem folha, ordem de juntada, carimbo contínuo, anexo com as páginas originais, versões mantidas, sem defeitos de texto', async () => {

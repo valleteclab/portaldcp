@@ -119,12 +119,16 @@ describe('Fase interna — Entrega 6 (autos em PDF com folhas numeradas)', () =>
     expect((await anexar('DFD', await pdfPaginas('DFD', 3))).status).toBe(201);
     expect((await anexar('ETP', await pdfPaginas('ETPVERSAOUM', 2), diaBrasilia(12))).status).toBe(201);
     expect((await anexar('ETP', await pdfPaginas('ETPVERSAODOIS solucao similar ou superior ao ARION (SNEWS)', 2), diaBrasilia(12))).status).toBe(201);
-    for (const t of ['AR', 'TR', 'DO', 'PJ', 'JC', 'DP', 'ME', 'MC']) expect((await naoSeAplica(t)).status).toBe(201);
+    // Na ordem do fluxo (homologação multiusuário): pesquisa → reserva → minutas → parecer → autorização
+    for (const t of ['AR', 'TR']) expect((await naoSeAplica(t)).status).toBe(201);
     expect((await anexar('PP', await pdfPaginas('PESQUISA', 2, true))).status).toBe(201);
+    for (const t of ['DO', 'JC', 'ME', 'MC']) expect([t, (await naoSeAplica(t)).status]).toEqual([t, 201]);
     // Relatório do agente GERADO no sistema (peça feita aqui, PDF gerado)
     expect((await http().post(`/api/fase-interna/${lic.id}/minutas/RAG/gerar`).set(bearer(agente.token))).status).toBe(201);
     await esperar(); // a peça gerada é juntada na sincronização (depois do commit), antes do próximo anexo
+    expect((await naoSeAplica('PJ')).status).toBe(201);
     expect((await anexar('AA', await pdfPaginas('DESPACHO', 1))).status).toBe(201);
+    expect((await naoSeAplica('DP')).status).toBe(201);
     await esperar();
     // Achado ATENÇÃO (marca "similar ou superior") justificado → vai para os autos
     const conf = (await http().get(`/api/fase-interna/${lic.id}/conformidade`).set(bearer(agente.token)).expect(200)).body;

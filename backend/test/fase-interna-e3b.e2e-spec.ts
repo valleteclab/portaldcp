@@ -36,6 +36,7 @@ import {
   criarLicitacao,
   criarOrgao,
   criarUsuarioOrgao,
+  cumprirEtapasAnteriores,
   pdfDeTeste,
 } from './support';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
@@ -86,10 +87,13 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
     http().post(`/api/fase-interna/${lic.id}/instrucao/${tipo}/nao-se-aplica`).set(bearer(token)).send({ justificativa: 'Não se aplica a esta contratação direta (art. 72).' });
   const papeis = (orgao: OrgaoFixture, u: UsuarioOrgaoFixture, lista: string[]) =>
     http().put(`/api/fase-interna/configuracao/usuarios/${u.id}`).set(bearer(orgao.token)).send({ papeis: lista, setor_id: null }).expect(200);
-  /** Portão B (Entrega 4): o art. 72, I, II e IV completos antes de autorizar. */
-  const instruirParaAutorizar = async (lic: { id: string }, token: string) => {
-    for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, token)).status).toBe(201);
-    for (const t of ['ETP', 'AR', 'TR', 'DO']) expect((await naoSeAplica(lic, t, token)).status).toBe(201);
+  /**
+   * Portão B (Entrega 4): o art. 72, I, II e IV completos antes de autorizar — e, na ordem do fluxo
+   * (homologação multiusuário; art. 53, §4º), as minutas e o parecer também: tudo o que vem antes da
+   * autorização, feito por quem conduz (DFD e estimativa no sistema; o resto "não se aplica").
+   */
+  const instruirParaAutorizar = async (lic: LicitacaoFixture, token: string) => {
+    await cumprirEtapasAnteriores(ctx, lic, 'AUTORIZACAO', { token });
   };
 
   beforeAll(async () => {
@@ -151,6 +155,11 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
     });
 
     it('despacho gerado pelo modelo (processo, fundamento, teto, dotação, autoridade) NÃO conta antes de assinado', async () => {
+      // Antes das etapas anteriores (ordem do fluxo) o despacho nem é gerado
+      const cedo = await http().post(`/api/fase-interna/${lic.id}/autorizacao/gerar`).set(bearer(agente.token));
+      expect(cedo.status).toBe(403);
+      expect(cedo.body.codigo).toBe('AGUARDANDO_DEMANDA');
+      await instruirParaAutorizar(lic, agente.token);
       const g = (await http().post(`/api/fase-interna/${lic.id}/autorizacao/gerar`).set(bearer(agente.token)).expect(201)).body;
       expect(g.situacao).toBe('EM_ELABORACAO');
       expect(g.peca).toMatchObject({ gerada_pelo_modelo: true, exige_assinatura: true, tem_arquivo: true });
@@ -164,12 +173,13 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
     });
 
     it('enviar à Mesa; quem não é signatário não assina; só fica AUTORIZADA na 4ª assinatura; a tarefa da etapa conclui', async () => {
-      // Portão B (Entrega 4): sem o art. 72, I, II e IV completos o despacho não vai para a Mesa
-      const barrado = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({});
-      expect(barrado.status).toBe(400);
-      expect(barrado.body.portao).toBe('B');
-      expect(barrado.body.pendencias.join(' ')).toMatch(/Art\. 72, I .*falta/);
-      await instruirParaAutorizar(lic, agente.token);
+      // Sem as etapas anteriores (art. 72, I, II e IV; parecer — art. 53, §4º) o despacho não vai para a Mesa
+      const outro = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
+      await cumprirEtapasAnteriores(ctx, outro, 'MINUTAS', { token: agente.token });
+      const barrado = await http().post(`/api/fase-interna/${outro.id}/autorizacao/enviar`).set(bearer(agente.token)).send({});
+      expect(barrado.status).toBe(403);
+      expect(barrado.body.codigo).toBe('AGUARDANDO_ETAPAS');
+      expect(barrado.body.message).toMatch(/Parecer jurídico/);
       const env = (await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({}).expect(201)).body;
       expect(env.situacao).toBe('AGUARDANDO_ASSINATURAS');
       expect(env.signatarios.map((s: any) => s.papel)).toEqual(PAPEIS_MESA);
@@ -255,7 +265,7 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
 
     it('despacho assinado FORA (anexo) também autoriza', async () => {
       const outro = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
-      expect((await anexar(outro, 'AA', agente.token)).status).toBe(400); // portão B (Entrega 4)
+      expect((await anexar(outro, 'AA', agente.token)).status).toBe(403); // antes das etapas anteriores (ordem do fluxo)
       await instruirParaAutorizar(outro, agente.token);
       expect((await anexar(outro, 'AA', agente.token)).status).toBe(201);
       const r = (await http().get(`/api/fase-interna/${outro.id}/autorizacao`).set(bearer(agente.token)).expect(200)).body;
@@ -282,6 +292,8 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
         .field('data_documento', hoje())
         .attach('arquivo', pdfDeTeste('Portaria'), { filename: 'portaria.pdf', contentType: 'application/pdf' })
         .expect(201);
+      // As minutas vêm depois do ETP, do TR e da reserva (ordem do fluxo)
+      for (const l of [lic, outro]) await cumprirEtapasAnteriores(ctx, l, 'MINUTAS', { token: agente.token });
       // o OUTRO processo gera as suas minutas antes (não pode vazar para este)
       await http().post(`/api/fase-interna/${outro.id}/minutas/TODAS/gerar`).set(bearer(agente.token)).expect(201);
     });
@@ -353,6 +365,8 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
     it('tipo inválido: 400; minuta feita fora (anexo) também conta', async () => {
       expect((await http().post(`/api/fase-interna/${lic.id}/minutas/XYZ/gerar`).set(bearer(agente.token))).status).toBe(400);
       const l2 = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
+      expect((await anexar(l2, 'MC', agente.token)).status).toBe(403); // antes da reserva (ordem do fluxo)
+      await cumprirEtapasAnteriores(ctx, l2, 'MINUTAS', { token: agente.token });
       expect((await anexar(l2, 'MC', agente.token)).status).toBe(201);
       const r = (await http().get(`/api/fase-interna/${l2.id}/minutas`).set(bearer(agente.token)).expect(200)).body;
       expect(r.pecas.MC.peca).toMatchObject({ anexada: true, gerada_pelo_modelo: false });
@@ -364,7 +378,6 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
   describe('D. parecer com diligências (modo por setor)', () => {
     let lic: LicitacaoFixture;
     let diligenciaId: string;
-    let aaAssinado: any;
 
     beforeAll(async () => {
       await http()
@@ -372,21 +385,24 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
         .set(bearer(C.token))
         .send({ modo: 'POR_SETOR', signatarios_autorizacao: [{ usuario_id: presidenteC.id, papel: 'Presidente' }] })
         .expect(200);
+      // Por setor: o agente também responde pelo TR (papel Requisitante), para corrigir na diligência
+      await papeis(C, agenteC, ['AGENTE_CONTRATACAO', 'REQUISITANTE']);
       lic = await criarLicitacao(ctx, C, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agenteC.id } });
-      for (const t of ['DFD', 'TR', 'PP', 'DO']) expect((await anexar(lic, t, agenteC.token)).status).toBe(201);
-      for (const t of ['ETP', 'AR', 'DP', 'JC']) expect((await naoSeAplica(lic, t, agenteC.token)).status).toBe(201);
-      // autorização assinada (etapa 6) — DEPOIS do TR
-      await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agenteC.token)).send({}).expect(201);
-      await http().post(`/api/fase-interna/${lic.id}/autorizacao/assinar`).set(bearer(presidenteC.token)).send({}).expect(201);
-      await http().post(`/api/fase-interna/${lic.id}/minutas/TODAS/gerar`).set(bearer(agenteC.token)).expect(201);
-      [aaAssinado] = await sql(`SELECT id::text AS id, status::text AS status, versao, assinaturas FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'AA' AND versao_atual`, [lic.id]);
-      expect(aaAssinado.status).toBe('ASSINADO');
+      // Etapas até as minutas, na ordem do fluxo, pelo login do órgão (quem conduz, com registro)
+      for (const t of ['DFD', 'TR', 'PP']) expect((await anexar(lic, t, C.token)).status).toBe(201);
+      for (const t of ['ETP', 'AR']) expect((await naoSeAplica(lic, t, C.token)).status).toBe(201);
+      expect((await anexar(lic, 'DO', C.token)).status).toBe(201);
+      expect((await naoSeAplica(lic, 'JC', C.token)).status).toBe(201);
+      await http().post(`/api/fase-interna/${lic.id}/minutas/TODAS/gerar`).set(bearer(C.token)).expect(201);
+      // O processo vai para a Procuradoria (posse — modo por setor): o parecer vem ANTES da autorização (art. 53, §4º)
+      await tarefas().aguardarPendentes();
+      await http().post(`/api/fase-interna/${lic.id}/tramitar`).set(bearer(C.token)).send({ para_usuario_id: juridicoC.id, despacho: 'À Procuradoria para o parecer.' }).expect(201);
     });
 
     it('tela: autos na ordem com folhas e o roteiro; a tarefa do parecer é da Procuradoria (papel JURÍDICO)', async () => {
       const r = (await http().get(`/api/fase-interna/${lic.id}/parecer`).set(bearer(juridicoC.token)).expect(200)).body;
       expect(r).toMatchObject({ fase: 'PREVIA', disponivel: true, pode_emitir: true, minutas_prontas: true });
-      expect(r.autos.map((a: any) => a.tipo)).toEqual(expect.arrayContaining(['DFD', 'TR', 'PP', 'DO', 'AA', 'RAG', 'ME', 'MC']));
+      expect(r.autos.map((a: any) => a.tipo)).toEqual(expect.arrayContaining(['DFD', 'TR', 'PP', 'DO', 'RAG', 'ME', 'MC']));
       const folhas = r.autos.filter((a: any) => a.folha_inicial != null).map((a: any) => a.folha_inicial);
       expect(folhas).toEqual([...folhas].sort((a, b) => a - b));
       expect(r.roteiro.map((i: any) => i.id)).toEqual(expect.arrayContaining(['A72_I', 'A72_II', 'A72_IV', 'A72_VIII', 'ART75', 'ART41', 'ART24', 'ART92', 'VINC']));
@@ -437,7 +453,7 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       expect((await http().post(`/api/fase-interna/${l2.id}/parecer/diligencias/${diligenciaId}/sanar`).set(bearer(agenteC.token)).send({})).status).toBe(404);
     });
 
-    it('corrigida (TR v2) e sanada: volta para a Procuradoria SEM perder a autorização assinada depois', async () => {
+    it('corrigida (TR v2 — a diligência devolve a peça a quem responde por ela, sem a posse) e sanada: volta para a Procuradoria', async () => {
       expect((await anexar(lic, 'TR', agenteC.token)).status).toBe(201);
       const r = (await http()
         .post(`/api/fase-interna/${lic.id}/parecer/diligencias/${diligenciaId}/sanar`)
@@ -449,10 +465,6 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       expect(ts.find((x: any) => x.chave === `diligencia:${diligenciaId}`)).toMatchObject({ status: 'CONCLUIDA', concluida_por_id: agenteC.id });
       const analise = r.analise.id;
       expect(ts.find((x: any) => x.chave === `parecer-retorno:${analise}`)).toMatchObject({ status: 'ABERTA', passo: 'PARECER', responsavel_papel: 'JURIDICO', origem: 'DILIGENCIA' });
-      // a autorização (assinada depois do TR) continua a mesma, assinada
-      const [aa] = await sql(`SELECT id::text AS id, status::text AS status, versao, assinaturas FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'AA' AND versao_atual`, [lic.id]);
-      expect(aa).toMatchObject({ id: aaAssinado.id, status: 'ASSINADO', versao: aaAssinado.versao });
-      expect(aa.assinaturas).toHaveLength(1);
       // sanar de novo: 400 (não está aberta)
       expect((await http().post(`/api/fase-interna/${lic.id}/parecer/diligencias/${diligenciaId}/sanar`).set(bearer(agenteC.token)).send({ resposta: 'x' })).status).toBe(400);
     });
@@ -546,6 +558,8 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
 
     it('ativo: só o papel CONTROLE_INTERNO se manifesta; apontamentos obrigatórios; a peça fica assinada (aviso, não bloqueio)', async () => {
       await http().put('/api/fase-interna/configuracao').set(bearer(D.token)).send({ modo: 'SIMPLES', controle_interno_ativo: true }).expect(200);
+      // O controle interno vem depois do parecer (ordem do fluxo)
+      await cumprirEtapasAnteriores(ctx, lic, 'CONTROLE_INTERNO');
       const r = (await http().get(`/api/fase-interna/${lic.id}/controle-interno`).set(bearer(controlador.token)).expect(200)).body;
       expect(r).toMatchObject({ ativo: true, pode_manifestar: true });
       expect(r.instrucao).toMatchObject({ tipo: 'MCI', obrigatorio: false });

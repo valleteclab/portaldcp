@@ -30,6 +30,7 @@ import {
   criarOrgao,
   criarUsuarioOrgao,
   pdfDeTeste,
+  cumprirEtapasAnteriores,
 } from './support';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
@@ -276,21 +277,8 @@ describe('F4a — IA em toda etapa: rascunho ao chegar e revisão humana', () =>
     beforeAll(async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       await esperar();
-    });
-
-    it('AA: rascunho cita o art. 72, VIII; aceitar GERA o despacho com o texto revisado (não autoriza nada) e registra a revisão', async () => {
-      const g = (await gerar(lic, agente.token, { peca: 'AA' }).expect(201)).body;
-      expect(g.rascunho.secoes.map((s: any) => s.id)).toEqual(['autorizacao']);
-      expect(pedidos[pedidos.length - 1]).toContain('art. 72, VIII');
-      const res = (await aceitar(lic, g.rascunho.id, agente.token).expect(201)).body;
-      expect(res.aceite.documento_id).toBeTruthy();
-      const aut = (await http().get(`/api/fase-interna/${lic.id}/autorizacao`).set(bearer(agente.token)).expect(200)).body;
-      expect(aut.secoes.autorizacao).toContain('Texto IA de autorizacao.');
-      expect(aut.situacao).toBe('EM_ELABORACAO'); // só vale assinado pela autoridade
-      expect(aut.peca.ia_rascunho).toMatchObject({ revisado_por_nome: 'Ana Agente' });
-      expect(itemDe(await instrucao(lic, agente.token), 'AA').status).not.toBe('OK');
-      const [rev] = await logs(lic, 'IA_REVISADA_POR');
-      expect(rev).toMatchObject({ usuario_id: agente.id, documento_id: res.aceite.documento_id });
+      // As etapas até o parecer (demanda, ETP/TR, pesquisa, reserva e minutas), na ordem do fluxo
+      await cumprirEtapasAnteriores(ctx, lic, 'PARECER');
     });
 
     it('PJ: minuta para o jurídico — só o papel Jurídico aceita; a conclusão NUNCA é preenchida; a emissão registra quem revisou', async () => {
@@ -313,6 +301,22 @@ describe('F4a — IA em toda etapa: rascunho ao chegar e revisão humana', () =>
       expect(doParecer).toMatchObject({ usuario_id: jurista.id, usuario_nome: 'Paula Procuradora' });
       const [doc] = await sql(`SELECT dados_estruturados->'_ia_rascunho' AS meta FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo = 'PJ' AND versao_atual = true`, [lic.id]);
       expect(doc.meta).toMatchObject({ aceito_por_nome: 'Paula Procuradora', revisado_por_nome: 'Paula Procuradora' });
+    });
+
+    // Ordem do fluxo (art. 53, §4º): o despacho da autoridade vem DEPOIS do parecer
+    it('AA: rascunho cita o art. 72, VIII; aceitar GERA o despacho com o texto revisado (não autoriza nada) e registra a revisão', async () => {
+      const g = (await gerar(lic, agente.token, { peca: 'AA' }).expect(201)).body;
+      expect(g.rascunho.secoes.map((s: any) => s.id)).toEqual(['autorizacao']);
+      expect(pedidos[pedidos.length - 1]).toContain('art. 72, VIII');
+      const res = (await aceitar(lic, g.rascunho.id, agente.token).expect(201)).body;
+      expect(res.aceite.documento_id).toBeTruthy();
+      const aut = (await http().get(`/api/fase-interna/${lic.id}/autorizacao`).set(bearer(agente.token)).expect(200)).body;
+      expect(aut.secoes.autorizacao).toContain('Texto IA de autorizacao.');
+      expect(aut.situacao).toBe('EM_ELABORACAO'); // só vale assinado pela autoridade
+      expect(aut.peca.ia_rascunho).toMatchObject({ revisado_por_nome: 'Ana Agente' });
+      expect(itemDe(await instrucao(lic, agente.token), 'AA').status).not.toBe('OK');
+      const [rev] = await logs(lic, 'IA_REVISADA_POR');
+      expect(rev).toMatchObject({ usuario_id: agente.id, documento_id: res.aceite.documento_id });
     });
 
     it('MCI: só quem tem o papel Controle interno aceita (os campos vão para o formulário)', async () => {

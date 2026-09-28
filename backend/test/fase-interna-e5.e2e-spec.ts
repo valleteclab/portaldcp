@@ -41,6 +41,7 @@ import {
   enviarProposta,
   gerarAvisoDispensa,
   pdfDeTeste,
+  cumprirEtapasAnteriores,
 } from './support';
 import { abrirJanelaLances, corpoDivulgacao, criarDispensaPublicada, fimPropostasSugerido, moverFimDaJanela, vincularOrgaoPncp } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
@@ -81,11 +82,17 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
   const naoSeAplica = (lic: { id: string }, tipo: string, token: string) =>
     http().post(`/api/fase-interna/${lic.id}/instrucao/${tipo}/nao-se-aplica`).set(bearer(token)).send({ justificativa: 'Não se aplica a esta contratação direta (art. 72).' });
   /** Art. 72 completo pelos anexos (como a E4). */
-  const instruir = async (lic: { id: string }, token: string, anexos: Record<string, string> = {}) => {
-    for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, token, anexos[t])).status).toBe(201);
-    for (const t of ['AR', 'TR', 'DO', 'PJ', 'JC', 'DP', 'RAG', 'ME', 'ETP'].filter((x) => !anexos[x])) expect((await naoSeAplica(lic, t, token)).status).toBe(201);
-    for (const [t, texto] of Object.entries(anexos).filter(([t]) => !['DFD', 'PP'].includes(t))) expect((await anexar(lic, t, token, texto)).status).toBe(201);
-    expect((await anexar(lic, 'AA', token)).status).toBe(201);
+  /**
+   * NA ORDEM DO FLUXO (homologação multiusuário; art. 53, §4º): demanda → ETP/TR/pesquisa → reserva →
+   * minutas → parecer → (controle interno, quando ligado) → autorização. `ate` para antes de uma peça.
+   */
+  const instruir = async (lic: { id: string }, token: string, anexos: Record<string, string> = {}, opcoes: { controleInterno?: boolean; ate?: string } = {}) => {
+    const ordem = ['DFD', 'PP', 'ETP', 'AR', 'TR', 'DO', 'RAG', 'ME', 'MC', 'JC', 'PJ', ...(opcoes.controleInterno ? ['MCI'] : []), 'AA', 'DP'];
+    for (const t of ordem) {
+      if (t === opcoes.ate) return;
+      const status = ['DFD', 'PP', 'AA', 'MCI'].includes(t) || anexos[t] ? (await anexar(lic, t, token, anexos[t])).status : (await naoSeAplica(lic, t, token)).status;
+      expect([t, status]).toEqual([t, 201]);
+    }
   };
   const conformidade = async (lic: { id: string }, token: string) => {
     await esperar();
@@ -174,8 +181,11 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
     it('publicar congela a ESCOLHA (não o padrão); depois de publicar a escolha não muda (409)', async () => {
       const DOCS = ['DFD', 'PP', 'AA'];
       for (const t of DOCS) {
+        // Na ordem do fluxo: antes da autorização, as etapas anteriores ("se for o caso" = "não se aplica")
+        if (t === 'AA') await cumprirEtapasAnteriores(ctx, lic, 'AUTORIZACAO');
         await http().post(`/api/fase-interna/${lic.id}/documento`).set(bearer(A.token)).send({ tipo: t, titulo: t, descricao: `${t} — documento de teste E2E` }).expect(201);
       }
+      await cumprirEtapasAnteriores(ctx, lic, 'PUBLICACAO');
       await http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(A.token)).expect(200);
       await gerarAvisoDispensa(ctx, lic);
       const pub = await http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(agenteA.token)).send(corpoDivulgacao(fimPropostasSugerido()));
@@ -202,6 +212,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
 
     it('na fase interna, sem escolha, vale o padrão sugerido (ainda não congelado); a minuta do aviso o reflete', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      await cumprirEtapasAnteriores(ctx, lic, 'MINUTAS'); // a minuta só depois da reserva (ordem do fluxo)
       const p = await processo(lic, A.token);
       expect(p.licitacao.modo_disputa_dispensa).toMatchObject({ aplica: true, com_lances: false, congelado: false, fonte: 'SUGERIDO', editavel: true });
       expect(p.licitacao.modo_disputa_dispensa.descricao).toMatch(/Sem disputa de lances — só o recebimento de propostas no prazo do aviso/);
@@ -384,25 +395,31 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
     beforeAll(async () => {
       expect((await configurar(A, { dispensa_com_lances: false, controle_interno_ativo: true, regulamento_adota_in67: true })).status).toBe(200);
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agenteA.id } });
-      await instruir(lic, agenteA.token);
-      await http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(A.token)).expect(200);
-      await gerarAvisoDispensa(ctx, lic);
+      await instruir(lic, agenteA.token, {}, { controleInterno: true, ate: 'MCI' });
     });
 
-    it('controle interno ativo e sem manifestação: aviso no checklist e na tela, sem bloquear', async () => {
+    it('controle interno ativo: é etapa do fluxo entre o parecer e a autorização — sem a manifestação, a autorização espera; com ela, segue', async () => {
+      // Homologação multiusuário (mapa do dono: Jurídico → Controle Interno → Presidência — Portaria 089/2024)
+      const cedo = await anexar(lic, 'AA', agenteA.token);
+      expect(cedo.status).toBe(403);
+      expect(cedo.body.message).toMatch(/Manifestação do controle interno/);
       const conf = (await http().get(`/api/licitacoes/${lic.id}/conferencia-publicacao`).set(bearer(A.token)).expect(200)).body;
       const ci = conf.itens.find((i: any) => i.chave === 'CONTROLE_INTERNO');
       expect(ci).toMatchObject({ estado: 'ALERTA', bloqueia: false, acao: 'ABRIR_CONTROLE_INTERNO' });
+      expect(conf.itens.find((i: any) => i.chave === 'ETAPAS')).toMatchObject({ estado: 'PENDENTE', bloqueia: true });
+      for (const t of ['MCI', 'AA']) expect([t, (await anexar(lic, t, agenteA.token)).status]).toEqual([t, 201]);
+      expect((await naoSeAplica(lic, 'DP', agenteA.token)).status).toBe(201);
+      await http().put(`/api/fase-interna/${lic.id}/avancar`).set(bearer(A.token)).expect(200);
+      await gerarAvisoDispensa(ctx, lic);
       const t = await conformidade(lic, agenteA.token);
-      expect(t.publicacao.controle_interno).toMatchObject({ ativo: true, manifestado: false });
-      expect(t.publicacao.controle_interno.aviso).toMatch(/Não impede a publicação/);
+      expect(t.publicacao.controle_interno).toMatchObject({ ativo: true, manifestado: true });
       // DISP-01: sem lances num órgão cujo regulamento adota a IN 67 → ATENÇÃO, não bloqueia
       const disp = t.achados.find((a: any) => a.regra === 'DISP-01');
       expect(disp).toMatchObject({ severidade: 'ATENCAO', exige_justificativa: false });
       expect(t.publicar.pode).toBe(true);
     });
 
-    it('publica (sem lances, controle interno pendente) e o registro no Diário Oficial confirma a divulgação: etapa 8 e tarefa concluídas', async () => {
+    it('publica (sem lances, controle interno manifestado) e o registro no Diário Oficial confirma a divulgação: etapa 8 e tarefa concluídas', async () => {
       const r = await http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(agenteA.token)).send(corpoDivulgacao(fimPropostasSugerido()));
       expect(r.status).toBe(200);
       expect(r.body.fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
