@@ -26,7 +26,7 @@ import {
   tipoDoProcesso,
   validarModelo,
 } from './modelo-fluxo';
-import { REQUISITOS_SEMENTE, etapasSemente, modeloSemente } from './semente-fluxo';
+import { REQUISITOS_SEMENTE, comOrdemNovaDaDireta, etapasSemente, modeloSemente, ordemAnteriorDaDireta } from './semente-fluxo';
 import { TravaAto, travasSemente } from './travas';
 
 type Autor = { id: string | null; nome: string | null };
@@ -119,6 +119,45 @@ export class ModeloFluxoService {
       .values(travasSemente().map((t) => ({ ...t, atualizado_por_nome: 'Sistema (semente)' })))
       .orIgnore()
       .execute();
+    await this.atualizarOrdemDaDireta();
+  }
+
+  /**
+   * ORDEM DA CONTRATAÇÃO DIRETA (homologação multiusuário, 27/09/2026 — mapa
+   * aprovado pelo dono, §4 do plano; art. 53, §4º e art. 72, VI a VIII):
+   * minutas → parecer → controle interno → AUTORIZAÇÃO → publicação. A
+   * semente da F1 tinha a autorização antes das minutas e do parecer.
+   * Idempotente e conservador: muda só o modelo do SISTEMA e os modelos de
+   * órgão criados pela migração automática (nunca editados por ninguém), e só
+   * se as dependências ainda são exatamente as da semente anterior. Modelo
+   * editado pelo órgão fica como está (a validação mostra o aviso do art. 53,
+   * §4º); processo em andamento mantém o snapshot.
+   */
+  private async atualizarOrdemDaDireta(): Promise<void> {
+    const modelos: Array<{ id: string; orgao_id: string | null; versao: number }> = await this.ds.query(
+      `SELECT id::text AS id, orgao_id::text AS orgao_id, versao FROM modelos_fluxo_fase_interna
+        WHERE tipo_processo IN ('DISPENSA', 'INEXIGIBILIDADE')
+          AND (orgao_id IS NULL OR (versao = 1 AND atualizado_por_id = 'sistema'))`,
+    );
+    for (const m of modelos) {
+      const etapas: Array<{ id: string; codigo: string; ordem: number; depende_de: string[] }> = await this.ds.query(
+        `SELECT id::text AS id, codigo, ordem, depende_de FROM modelos_fluxo_etapas WHERE modelo_id::text = $1`,
+        [m.id],
+      );
+      const lista = etapas.map((e) => ({ ...e, depende_de: Array.isArray(e.depende_de) ? e.depende_de : [] }));
+      if (!ordemAnteriorDaDireta(lista)) continue;
+      await this.ds.transaction(async (em) => {
+        for (const e of comOrdemNovaDaDireta(lista)) {
+          await em.query(`UPDATE modelos_fluxo_etapas SET ordem = $2, depende_de = $3::jsonb WHERE id::text = $1`, [e.id, e.ordem, JSON.stringify(e.depende_de)]);
+        }
+        await em.query(
+          `UPDATE modelos_fluxo_fase_interna SET versao = versao + 1, atualizado_por_nome = $2, updated_at = now() WHERE id::text = $1`,
+          [m.id, 'Sistema (ordem da contratação direta: minutas → parecer → autorização — art. 53, §4º)'],
+        );
+      });
+      this.logger.log(`Modelo de fluxo ${m.orgao_id ? `do órgão ${m.orgao_id}` : 'do sistema'} (${m.id}): ordem da contratação direta atualizada (art. 53, §4º).`);
+    }
+    this.limparCache();
   }
 
   /**
@@ -210,6 +249,7 @@ export class ModeloFluxoService {
         },
         aceita_peca_externa: ap.aceita_peca_externa !== false,
       },
+      exigir_posse_pecas: linha.exigir_posse_pecas !== false,
       etapas: lista,
     };
   }
@@ -371,6 +411,7 @@ export class ModeloFluxoService {
           descricao: m.descricao,
           versao: Number(atual.versao) + 1,
           aprovacao_demanda: m.aprovacao_demanda as any,
+          exigir_posse_pecas: m.exigir_posse_pecas !== false,
           ...(origemId !== undefined ? { origem_modelo_id: origemId } : {}),
           atualizado_por_id: autor.id,
           atualizado_por_nome: autor.nome,
@@ -390,6 +431,7 @@ export class ModeloFluxoService {
             descricao: m.descricao,
             versao: 1,
             aprovacao_demanda: m.aprovacao_demanda as any,
+            exigir_posse_pecas: m.exigir_posse_pecas !== false,
             origem_modelo_id: origemId ?? sistema[0]?.id ?? null,
             atualizado_por_id: autor.id,
             atualizado_por_nome: autor.nome,

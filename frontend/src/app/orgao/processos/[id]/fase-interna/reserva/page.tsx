@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { DotacaoDialog, LeiDialog } from "@/components/fase-interna/etapas/CadastroOrcamentoDialogs"
 import { erroDaApi, fmtDia, fmtMoeda } from "@/lib/fase-interna/telas"
@@ -92,6 +93,8 @@ const numero = (v: string) => Number(String(v).replace(/\./g, "").replace(",", "
 
 export default function ReservaPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const { pedirTexto, dialogo } = useDialogoConfirmacao()
   const [d, setD] = useState<ReservaTela | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -201,7 +204,7 @@ export default function ReservaPage() {
   }
 
   const r = d.atual
-  const editavel = !r || r.status === "RASCUNHO" || r.status === "DEVOLVIDA"
+  const editavel = (!r || r.status === "RASCUNHO" || r.status === "DEVOLVIDA") && perm.pode
   const dotacaoSel = d.opcoes.dotacoes.find((x) => x.id === r?.dotacao_id) ?? null
   const totalLocal = linhas.reduce((s, l) => s + (numero(l.valor) || 0), 0)
   const leisDo = (tipo: "LDO" | "LOA" | "PPA") => d.opcoes.leis.filter((l) => l.tipo === tipo)
@@ -209,6 +212,7 @@ export default function ReservaPage() {
 
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="reserva"
       titulo="Informação orçamentária"
@@ -230,7 +234,7 @@ export default function ReservaPage() {
             )}
             <Button
               variant="outline"
-              disabled={ocupado}
+              disabled={ocupado || !perm.pode}
               onClick={async () => {
                 const m = await pedirTexto({ titulo: "Retificar a informação orçamentária", mensagem: "Cria uma versão nova para corrigir a classificação. A atual fica no histórico.", rotulo: "Motivo", obrigatorio: true, confirmarRotulo: "Criar versão nova" })
                 if (m) acao(() => chamar("POST", "/retificar", { motivo: m }), "Versão nova criada — ajuste e emita de novo")
@@ -240,7 +244,7 @@ export default function ReservaPage() {
             </Button>
             <Button
               variant={d.precisa_renovar ? "default" : "outline"}
-              disabled={ocupado}
+              disabled={ocupado || !perm.pode}
               onClick={() => {
                 setRenovarForm({ exercicio: String(Math.max(d.exercicio_corrente, (r.exercicio_base ?? d.exercicio_corrente) + 1)), motivo: "" })
                 setRenovar(true)
@@ -253,7 +257,7 @@ export default function ReservaPage() {
           <>
             <Button
               variant="outline"
-              disabled={ocupado || !r || r.status !== "RASCUNHO"}
+              disabled={ocupado || !r || r.status !== "RASCUNHO" || !perm.pode}
               onClick={async () => {
                 const m = await pedirTexto({ titulo: "Devolver sem saldo", mensagem: "Registra que não há dotação suficiente para a despesa. O pedido volta para quem o fez.", rotulo: "Motivo", obrigatorio: true, confirmarRotulo: "Devolver" })
                 if (m) acao(() => chamar("POST", "/devolver", { motivo: m }), "Pedido devolvido sem saldo")
@@ -261,7 +265,7 @@ export default function ReservaPage() {
             >
               Devolver sem saldo
             </Button>
-            <Button disabled={ocupado || !r || !!d.conferencia?.bloqueios.length} title={d.conferencia?.bloqueios.join(" ") || "Emite a informação orçamentária pelo modelo"} onClick={() => acao(() => chamar("POST", "/emitir"), "Informação orçamentária emitida e saldo reservado")}>
+            <Button disabled={ocupado || !r || !!d.conferencia?.bloqueios.length || !perm.pode} title={d.conferencia?.bloqueios.join(" ") || "Emite a informação orçamentária pelo modelo"} onClick={() => acao(() => chamar("POST", "/emitir"), "Informação orçamentária emitida e saldo reservado")}>
               {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />} Emitir e reservar saldo
             </Button>
           </>

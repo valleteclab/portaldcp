@@ -24,6 +24,7 @@ import { TarefasService } from '../tarefas/tarefas.service';
 import { OrcamentoService } from '../orcamento/orcamento.service';
 import { DocumentosTelaService } from './documentos-tela.service';
 import { PesquisaTelaService } from './pesquisa-tela.service';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
 
 const UPLOAD_EVIDENCIA = FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
@@ -34,7 +35,7 @@ const UPLOAD_EVIDENCIA = FileInterceptor('arquivo', { storage: memoryStorage(), 
  * órgão 404; escrita 403). Autor sempre do JWT.
  */
 @Controller('fase-interna')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class TelasFaseInternaController {
   constructor(
     private readonly documentos: DocumentosTelaService,
@@ -54,12 +55,14 @@ export class TelasFaseInternaController {
     return this.documentos.obterDfd(id);
   }
 
+  @TrabalhoNaEtapa({ passo: 'DFD', acao: 'salvar a demanda' })
   @Put(':licitacaoId/dfd')
   async salvarDfd(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.documentos.salvarDfd(id, body ?? {}, await this.autor(ator));
   }
 
   /** Gera a peça pelo modelo (completa as seções vazias pela derivação) e o PDF — DFD, ETP e TR. */
+  @TrabalhoNaEtapa({ tipoParam: 'tipo', acao: 'gerar a peça' })
   @Post(':licitacaoId/documentos/:tipo/gerar')
   async gerar(@Param('licitacaoId') id: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
     return this.documentos.gerar(id, tipo, await this.autor(ator));
@@ -73,12 +76,14 @@ export class TelasFaseInternaController {
   }
 
   /** Assistente do ETP: { acao: ANALISAR | RASCUNHO | REESCREVER_MARCA, secao_id?, trecho? } — só sugere. */
+  @TrabalhoNaEtapa({ passo: 'ETP', acao: 'assistente do ETP' })
   @Post(':licitacaoId/etp/assistente')
   async assistente(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.documentos.assistente(id, body ?? {}, await this.autor(ator));
   }
 
   /** Justificativa formal da indicação de marca (art. 41, I). */
+  @TrabalhoNaEtapa({ passo: 'ETP', acao: 'justificativa de marca' })
   @Put(':licitacaoId/etp/marca')
   async justificativaMarca(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.documentos.salvarJustificativaMarca(id, body ?? {}, await this.autor(ator));
@@ -99,11 +104,13 @@ export class TelasFaseInternaController {
   }
 
   /** Parâmetro do art. 23, §1º: { situacao: CONSULTADO | SEM_RETORNO | NAO_CONSULTADO, data_consulta, resultado }. */
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'registrar consulta da pesquisa' })
   @Put(':licitacaoId/pesquisa/parametros/:inciso')
   async salvarParametro(@Param('licitacaoId') id: string, @Param('inciso') inciso: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.pesquisa.salvarParametro(id, inciso, body ?? {}, await this.autor(ator));
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'registrar consulta da pesquisa' })
   @Post(':licitacaoId/pesquisa/parametros/:inciso/evidencia')
   @UseInterceptors(UPLOAD_EVIDENCIA)
   async evidencia(@Param('licitacaoId') id: string, @Param('inciso') inciso: string, @UploadedFile() arquivo: Express.Multer.File, @AtorAtual() ator: Ator) {
@@ -111,16 +118,19 @@ export class TelasFaseInternaController {
   }
 
   /** Proposta (cotação direta): { fornecedor, cnpj, data_emissao, validade_ate, itens: [{ item_numero, valor_unitario }] }. */
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'registrar cotação' })
   @Post(':licitacaoId/pesquisa/propostas')
   async adicionarProposta(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.pesquisa.adicionarProposta(id, body ?? {}, await this.autor(ator));
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'remover cotação' })
   @Delete(':licitacaoId/pesquisa/propostas/:grupoId')
   async removerProposta(@Param('licitacaoId') id: string, @Param('grupoId') grupoId: string, @AtorAtual() ator: Ator) {
     return this.pesquisa.removerProposta(id, grupoId, await this.autor(ator));
   }
 
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'registrar cotação' })
   @Post(':licitacaoId/pesquisa/propostas/:grupoId/comprovante')
   @UseInterceptors(UPLOAD_EVIDENCIA)
   async comprovante(@Param('licitacaoId') id: string, @Param('grupoId') grupoId: string, @UploadedFile() arquivo: Express.Multer.File, @AtorAtual() ator: Ator) {
@@ -128,18 +138,21 @@ export class TelasFaseInternaController {
   }
 
   /** { metodo: MENOR | MEDIA | MEDIANA, justificativa_metodo, justificativa_fornecedores, justificativa_menos_de_tres, publicacao_prevista, solicitacao_enviada_em }. */
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'método da pesquisa' })
   @Put(':licitacaoId/pesquisa/metodo')
   salvarMetodo(@Param('licitacaoId') id: string, @Body() body: any) {
     return this.pesquisa.salvarMetodo(id, body ?? {});
   }
 
   /** Emite o mapa e a certidão (400 com `pendencias` quando falta algo). */
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'emitir mapa e certidão' })
   @Post(':licitacaoId/pesquisa/emitir')
   async emitirPesquisa(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.pesquisa.emitir(id, body ?? {}, await this.autor(ator));
   }
 
   /** Pesquisa feita fora: { itens: [{ item_id, valor_unitario }] } (o mapa vai pelo anexo da peça PP). */
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'valores dos itens' })
   @Put(':licitacaoId/pesquisa/valores-itens')
   async valoresItens(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.pesquisa.salvarValoresItens(id, body ?? {}, await this.autor(ator));
@@ -164,29 +177,34 @@ export class TelasFaseInternaController {
   }
 
   /** Autosave: { dotacao_id, lei_ldo_id, lei_loa_id, lei_ppa_id, linhas: [{ exercicio, valor, situacao }], declaracao_adequacao, declaracao_lrf, observacao }. */
+  @TrabalhoNaEtapa({ passo: 'RESERVA', acao: 'salvar a reserva' })
   @Put(':licitacaoId/reserva')
   async salvarReserva(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.orcamento.salvar(id, body ?? {}, await this.autor(ator));
   }
 
+  @TrabalhoNaEtapa({ passo: 'RESERVA', acao: 'emitir e reservar' })
   @Post(':licitacaoId/reserva/emitir')
   async emitirReserva(@Param('licitacaoId') id: string, @AtorAtual() ator: Ator) {
     return this.orcamento.emitir(id, await this.autor(ator));
   }
 
   /** Nova versão para corrigir a classificação: { motivo }. */
+  @TrabalhoNaEtapa({ passo: 'RESERVA', acao: 'retificar a reserva' })
   @Post(':licitacaoId/reserva/retificar')
   async retificarReserva(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.orcamento.novaVersao(id, 'RETIFICAR', body ?? {}, await this.autor(ator));
   }
 
   /** Renovar dotação (virada do exercício): { exercicio?, motivo? } — nova versão + tarefa da Contabilidade. */
+  @TrabalhoNaEtapa({ passo: 'RESERVA', acao: 'renovar a dotação' })
   @Post(':licitacaoId/reserva/renovar')
   async renovarReserva(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.orcamento.novaVersao(id, 'RENOVAR', body ?? {}, await this.autor(ator));
   }
 
   /** Devolver sem saldo: { motivo }. */
+  @TrabalhoNaEtapa({ passo: 'RESERVA', acao: 'devolver sem dotação' })
   @Post(':licitacaoId/reserva/devolver')
   async devolverReserva(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.orcamento.devolver(id, body ?? {}, await this.autor(ator));

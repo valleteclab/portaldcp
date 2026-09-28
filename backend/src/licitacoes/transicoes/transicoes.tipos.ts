@@ -214,6 +214,12 @@ export interface ConsultasTransicao {
    * ausente = sem checagem (testes unitários).
    */
   conformidade?(portao: 'A' | 'C', contexto?: { cronograma?: Record<string, any> | null; somenteAvaliacao?: boolean }): Promise<string[]>;
+  /**
+   * ETAPAS DO FLUXO (homologação multiusuário — E3): etapas obrigatórias do
+   * modelo de fluxo do processo (ou de que a publicação depende) ainda não
+   * concluídas, com o título. Só leitura. Opcional: ausente = sem checagem.
+   */
+  etapasPendentesParaPublicar?(): Promise<string[] | null>;
 }
 
 /** Retrato do estado recursal da licitação (consulta das pré-condições — E5). */

@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { VisorDosAutos, type PecaAberta } from "@/components/fase-interna/etapas/VisorDosAutos"
@@ -107,6 +108,8 @@ const COR: Record<string, { texto: string; cls: string }> = {
 
 export default function ParecerPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const busca = useSearchParams()
   const fase = (busca.get("fase") || "PREVIA").toUpperCase() === "EXTERNA" ? "EXTERNA" : "PREVIA"
   const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao()
@@ -211,6 +214,7 @@ export default function ParecerPage() {
 
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="parecer"
       titulo={fase === "EXTERNA" ? "Parecer jurídico da fase externa" : "Parecer jurídico prévio (fase interna)"}
@@ -234,10 +238,10 @@ export default function ParecerPage() {
       acoes={
         d.pode_emitir && d.disponivel ? (
           <>
-            <Button variant="outline" disabled={ocupado} onClick={() => { setErroAcao(null); setNovaDil({ tipo_alvo: aberta?.tipo ?? d.autos[0]?.tipo ?? "", descricao: "", item_roteiro: "", trecho: "" }) }}>
+            <Button variant="outline" disabled={ocupado || !perm.pode} onClick={() => { setErroAcao(null); setNovaDil({ tipo_alvo: aberta?.tipo ?? d.autos[0]?.tipo ?? "", descricao: "", item_roteiro: "", trecho: "" }) }}>
               <MessageSquareWarning className="w-4 h-4 mr-1" /> Devolver com diligência
             </Button>
-            <Button disabled={ocupado || !!bloqueioAssinatura} onClick={emitir} title={bloqueioAssinatura ?? "Monta o parecer do roteiro e assina com o seu usuário"}>
+            <Button disabled={ocupado || !!bloqueioAssinatura || !perm.pode} onClick={emitir} title={bloqueioAssinatura ?? perm.motivo ?? "Monta o parecer do roteiro e assina com o seu usuário"}>
               {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <PenLine className="w-4 h-4 mr-1" />} Assinar parecer
             </Button>
           </>
@@ -400,7 +404,7 @@ export default function ParecerPage() {
                       </Button>
                     )}
                     {x.status === "ABERTA" && d.pode_emitir && (
-                      <Button size="sm" variant="ghost" className="h-7" disabled={ocupado} onClick={() => chamar("POST", `parecer/diligencias/${x.id}/cancelar`, { motivo: "Cancelada pela Procuradoria" }, "Diligência cancelada.")}>
+                      <Button size="sm" variant="ghost" className="h-7" disabled={ocupado || !perm.pode} onClick={() => chamar("POST", `parecer/diligencias/${x.id}/cancelar`, { motivo: "Cancelada pela Procuradoria" }, "Diligência cancelada.")}>
                         Cancelar
                       </Button>
                     )}
@@ -430,8 +434,8 @@ export default function ParecerPage() {
               <Label htmlFor="ress">Ressalvas</Label>
               <Textarea id="ress" rows={2} value={ressalvas} onChange={(e) => setRessalvas(e.target.value)} placeholder="Condições para o prosseguimento (favorável com ressalvas)." />
               <div className="flex gap-2 flex-wrap">
-                <Button variant="outline" size="sm" disabled={ocupado} onClick={salvarTexto}>Salvar rascunho</Button>
-                <Button size="sm" disabled={ocupado || !!bloqueioAssinatura} onClick={emitir} title={bloqueioAssinatura ?? undefined}><PenLine className="w-4 h-4 mr-1" /> Assinar parecer</Button>
+                <Button variant="outline" size="sm" disabled={ocupado || !perm.pode} onClick={salvarTexto}>Salvar rascunho</Button>
+                <Button size="sm" disabled={ocupado || !!bloqueioAssinatura || !perm.pode} onClick={emitir} title={bloqueioAssinatura ?? perm.motivo ?? undefined}><PenLine className="w-4 h-4 mr-1" /> Assinar parecer</Button>
               </div>
               <p className="text-xs text-gray-600">O texto do parecer é montado a partir deste roteiro. Cada diligência vira tarefa do responsável pela peça e o processo volta à Procuradoria quando sanada.</p>
             </section>

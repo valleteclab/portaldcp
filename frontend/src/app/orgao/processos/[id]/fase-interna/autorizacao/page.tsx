@@ -22,6 +22,7 @@ import { API_URL, authFetch } from "@/lib/api"
 import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
 import { Button } from "@/components/ui/button"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
@@ -174,6 +175,8 @@ function DecisaoNoCelular({
 
 export default function AutorizacaoPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const { confirmar, pedirTexto, dialogo } = useDialogoConfirmacao()
   const [d, setD] = useState<AutorizacaoTela | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -267,13 +270,14 @@ export default function AutorizacaoPage() {
 
   const sit = SITUACAO[d.situacao]
   const aguardando = d.situacao === "AGUARDANDO_ASSINATURAS"
-  const podeGerar = d.licitacao.fase_interna && !aguardando
+  const podeGerar = d.licitacao.fase_interna && !aguardando && perm.pode
   // Depois de autorizado o despacho não é regerado (só pelo fluxo explícito de nova autorização)
   const podeRegerar = podeGerar && (d.regerar ? d.regerar.permitido : d.situacao !== "AUTORIZADA")
   const decisao = d.assinaturas.sou_signatario || d.pode_devolver
 
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="autorizacao"
       titulo="Autorização da autoridade"
@@ -291,7 +295,7 @@ export default function AutorizacaoPage() {
               {ocupado === "gerar" ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />} {d.peca && !d.peca.anexada ? "Regerar despacho" : "Gerar despacho"}
             </Button>
             {d.regerar?.nova_autorizacao && (
-              <Button variant="outline" onClick={novaAutorizacao} disabled={!!ocupado} title="Cria um despacho novo, que volta para a assinatura da autoridade">
+              <Button variant="outline" onClick={novaAutorizacao} disabled={!!ocupado || !perm.pode} title="Cria um despacho novo, que volta para a assinatura da autoridade">
                 <Undo2 className="w-4 h-4 mr-1" /> Nova autorização…
               </Button>
             )}

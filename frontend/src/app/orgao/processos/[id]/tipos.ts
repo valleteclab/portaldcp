@@ -111,7 +111,7 @@ export interface LicitacaoProcesso {
   fundamento_legal?: string | null
   unidade_compradora?: string | null
   agente_contratacao?: string | null
-  autoridade?: { nome: string; cargo: string | null; origem: "HOMOLOGACAO" | "CADASTRO" } | null
+  autoridade?: { nome: string; cargo: string | null; origem: "HOMOLOGACAO" | "CONFIGURACAO" | "CADASTRO" } | null
   sem_pca?: boolean
   preparacao_automatica?: {
     status: "EXECUTANDO" | "CONCLUIDA" | "ERRO"
@@ -145,11 +145,13 @@ export interface ProcessoCompleto {
   }
   atos_disponiveis?: AtoDisponivel[]
   acoes_menu?: AcaoDoMenu[]
+  /** Quem está vendo conduz o processo / é a autoridade: excluir (quem conduz) e revogar/anular (quem conduz ou a autoridade — art. 71). */
+  permissoes_processo?: { excluir: boolean; revogar_anular: boolean; conduz?: boolean; autoridade?: boolean }
 }
 
 /** GET /licitacoes/:id/conferencia-publicacao */
 export interface ItemConferencia {
-  chave: "DOCUMENTOS" | "AUTORIZACAO" | "AVISO" | "EDITAL" | "ITENS" | "PCA" | "ME_EPP" | "CONFORMIDADE" | "OUTRAS"
+  chave: "DOCUMENTOS" | "AUTORIZACAO" | "ETAPAS" | "CONTROLE_INTERNO" | "AVISO" | "EDITAL" | "ITENS" | "PCA" | "ME_EPP" | "CONFORMIDADE" | "OUTRAS"
   rotulo: string
   fundamento: string
   estado: "OK" | "PENDENTE" | "ALERTA"

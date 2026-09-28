@@ -184,9 +184,12 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
         .set(bearer(orgao.token))
         .send(corpoDivulgacao(fimPropostasSugerido()));
       expect(soDfd.status).toBe(400);
-      expect(soDfd.body.message).not.toMatch(/Formaliza/);
-      expect(soDfd.body.message).toMatch(/Estimativa de despesa/);
-      expect(soDfd.body.message).toMatch(/Autoriza/);
+      const [art72] = String(soDfd.body.message).split(' | ');
+      expect(art72).not.toMatch(/Formaliza/);
+      expect(art72).toMatch(/Estimativa de despesa/);
+      expect(art72).toMatch(/Autoriza/);
+      // Trava das etapas do fluxo (homologação multiusuário, E3): as etapas seguintes ainda não concluídas
+      expect(soDfd.body.message).toMatch(/Etapa do fluxo não concluída/);
 
       const depois = await buscarLicitacao(ctx, outra);
       expect(depois.fase).toBe(FaseLicitacao.APROVACAO_INTERNA);

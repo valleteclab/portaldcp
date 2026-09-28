@@ -56,9 +56,10 @@ describe('colunas do quadro — a partir das etapas da fase interna e das fases'
     expect(coluna(ok('DFD'))).toBe('PLANEJAMENTO'); // ETP e TR disponíveis
     expect(coluna(ok('DFD', 'ETP', 'AR', 'TR'))).toBe('PESQUISA');
     expect(coluna(ok('DFD', 'ETP', 'AR', 'TR', 'PP'))).toBe('RESERVA');
-    expect(coluna(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO'))).toBe('AUTORIZACAO');
-    expect(coluna(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'AA', 'DP'))).toBe('MINUTAS_PARECER');
-    expect(coluna(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'AA', 'DP', 'RAG', 'MC', 'JC', 'PJ'))).toBe('PUBLICACAO');
+    // Ordem da contratação direta (decisão do dono, 27/09): minutas → parecer → autorização (art. 53, §4º)
+    expect(coluna(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO'))).toBe('MINUTAS_PARECER');
+    expect(coluna(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'RAG', 'MC', 'JC', 'PJ'))).toBe('AUTORIZACAO');
+    expect(coluna(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'RAG', 'MC', 'JC', 'PJ', 'AA', 'DP'))).toBe('PUBLICACAO');
   });
 
   it('cada etapa da Entrega 2 tem coluna; ETP e TR no Planejamento; controle interno com o parecer', () => {

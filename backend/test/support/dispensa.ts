@@ -20,6 +20,7 @@ import {
   abrirSessaoAgora,
   confirmarDivulgacao,
   criarLicitacao,
+  cumprirEtapasAnteriores,
   gerarAvisoDispensa,
   enviarProposta,
   ItemEntrada,
@@ -153,12 +154,17 @@ export async function criarDocumentoInstrucao(
   tipo: TipoDocumentoFaseInterna,
   titulo: string,
 ): Promise<void> {
+  // Homologação multiusuário: a peça só é feita com a etapa dela podendo começar — as anteriores
+  // são cumpridas antes, na ordem do fluxo ("se for o caso" = "não se aplica")
+  await cumprirEtapasAnteriores(ctx, lic, tipo);
   const r = await ctx
     .http()
     .post(`/api/fase-interna/${lic.id}/documento`)
     .set(bearer(lic.orgao.token))
     .send({ tipo, titulo, descricao: `${titulo} — documento de teste E2E` });
   exigirStatus(r, 201, `criar documento ${tipo}`);
+  // A autorização fecha a etapa dela (designação "não se aplica"): nada mais segura a publicação
+  if (tipo === TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA) await cumprirEtapasAnteriores(ctx, lic, 'PUBLICACAO');
 }
 
 /**

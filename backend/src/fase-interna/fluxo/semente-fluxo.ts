@@ -27,7 +27,17 @@ interface PadraoEtapa {
   dispensavel_por_ato?: boolean;
 }
 
-/** Contratação direta (art. 72; autos da Câmara de LEM). */
+/**
+ * Contratação direta (art. 72; autos da Câmara de LEM) — ORDEM DO MAPA
+ * APROVADO PELO DONO (§4 do plano; homologação multiusuário, 27/09/2026):
+ * … → reserva → relatório e minutas (agente) → parecer (jurídico) → controle
+ * interno (opcional) → AUTORIZAÇÃO (autoridade, art. 72, VIII) → publicação.
+ * Base: art. 72, VI e VII (razão da escolha e justificativa do preço antes da
+ * autorização), art. 53, §4º (controle prévio de legalidade da contratação
+ * direta pelo jurídico) e Portaria 089/2024 (Jurídico → Controle Interno →
+ * Presidência). Vale para a dispensa e para a inexigibilidade (decisão do
+ * dono, 27/09/2026).
+ */
 const DIRETA: Record<P, PadraoEtapa> = {
   DFD: { ordem: 10, papel: Papel.REQUISITANTE, prazo: null, obrigatoria: true, ligada: true, depende_de: [] },
   AUTORIZACAO_INICIO: { ordem: 15, papel: Papel.AUTORIDADE, prazo: 3, obrigatoria: false, ligada: false, depende_de: [P.DFD] },
@@ -36,13 +46,43 @@ const DIRETA: Record<P, PadraoEtapa> = {
   PESQUISA: { ordem: 40, papel: Papel.COMPRAS, prazo: 30, obrigatoria: true, ligada: true, depende_de: [P.DFD, P.AUTORIZACAO_INICIO] },
   INDICACAO_MODALIDADE: { ordem: 45, papel: Papel.AGENTE_CONTRATACAO, prazo: 3, obrigatoria: false, ligada: false, depende_de: [P.PESQUISA] },
   RESERVA: { ordem: 50, papel: Papel.CONTABILIDADE, prazo: 3, obrigatoria: true, ligada: true, depende_de: [P.PESQUISA, P.INDICACAO_MODALIDADE] },
-  AUTORIZACAO: { ordem: 60, papel: Papel.AUTORIDADE, prazo: 3, obrigatoria: true, ligada: true, depende_de: [P.DFD, P.ETP, P.TR, P.PESQUISA, P.RESERVA] },
-  MINUTAS: { ordem: 70, papel: Papel.AGENTE_CONTRATACAO, prazo: 5, obrigatoria: true, ligada: true, depende_de: [P.AUTORIZACAO] },
+  MINUTAS: { ordem: 60, papel: Papel.AGENTE_CONTRATACAO, prazo: 5, obrigatoria: true, ligada: true, depende_de: [P.ETP, P.TR, P.RESERVA] },
   // Decisão 3 do dono (26/09/2026): parecer dispensável por ato do jurídico (art. 53, §5º)
-  PARECER: { ordem: 80, papel: Papel.JURIDICO, prazo: 5, obrigatoria: true, ligada: true, depende_de: [P.MINUTAS], dispensavel_por_ato: true },
-  CONTROLE_INTERNO: { ordem: 90, papel: Papel.CONTROLE_INTERNO, prazo: 3, obrigatoria: false, ligada: false, depende_de: [P.PARECER] },
-  PUBLICACAO: { ordem: 100, papel: Papel.AGENTE_CONTRATACAO, prazo: 5, obrigatoria: true, ligada: true, depende_de: [P.PARECER, P.CONTROLE_INTERNO] },
+  PARECER: { ordem: 70, papel: Papel.JURIDICO, prazo: 5, obrigatoria: true, ligada: true, depende_de: [P.MINUTAS], dispensavel_por_ato: true },
+  CONTROLE_INTERNO: { ordem: 80, papel: Papel.CONTROLE_INTERNO, prazo: 3, obrigatoria: false, ligada: false, depende_de: [P.PARECER] },
+  AUTORIZACAO: { ordem: 90, papel: Papel.AUTORIDADE, prazo: 3, obrigatoria: true, ligada: true, depende_de: [P.DFD, P.ETP, P.TR, P.PESQUISA, P.RESERVA, P.PARECER, P.CONTROLE_INTERNO] },
+  PUBLICACAO: { ordem: 100, papel: Papel.AGENTE_CONTRATACAO, prazo: 5, obrigatoria: true, ligada: true, depende_de: [P.AUTORIZACAO, P.PARECER, P.CONTROLE_INTERNO] },
 };
+
+/**
+ * Ordem ANTERIOR da contratação direta (semente da F1, até 27/09/2026):
+ * autorização ANTES das minutas e do parecer. Só para a migração de boot
+ * reconhecer o modelo que ninguém editou (`ordemAnteriorDaDireta`).
+ */
+export const DEPENDENCIAS_DIRETA_ANTERIOR: Partial<Record<P, { ordem: number; depende_de: P[] }>> = {
+  AUTORIZACAO: { ordem: 60, depende_de: [P.DFD, P.ETP, P.TR, P.PESQUISA, P.RESERVA] },
+  MINUTAS: { ordem: 70, depende_de: [P.AUTORIZACAO] },
+  PARECER: { ordem: 80, depende_de: [P.MINUTAS] },
+  CONTROLE_INTERNO: { ordem: 90, depende_de: [P.PARECER] },
+  PUBLICACAO: { ordem: 100, depende_de: [P.PARECER, P.CONTROLE_INTERNO] },
+};
+
+/** As etapas do modelo estão EXATAMENTE na ordem anterior da contratação direta (nada editado nelas)? */
+export function ordemAnteriorDaDireta(etapas: Array<{ codigo: string; ordem: number; depende_de: string[] }>): boolean {
+  const iguais = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
+  return Object.entries(DEPENDENCIAS_DIRETA_ANTERIOR).every(([codigo, v]) => {
+    const e = etapas.find((x) => x.codigo === codigo);
+    return !!e && e.ordem === v!.ordem && iguais(e.depende_de, v!.depende_de);
+  });
+}
+
+/** Aplica a ordem nova da contratação direta (só dependências e ordem sugerida; o resto do órgão fica). */
+export function comOrdemNovaDaDireta<T extends { codigo: string; ordem: number; depende_de: string[] }>(etapas: T[]): T[] {
+  return etapas.map((e) => {
+    const p = (DIRETA as Record<string, PadraoEtapa>)[e.codigo];
+    return p && e.codigo in DEPENDENCIAS_DIRETA_ANTERIOR ? { ...e, ordem: p.ordem, depende_de: [...p.depende_de] } : e;
+  });
+}
 
 /** Rito completo (art. 18 e 53): o parecer vem antes da autorização da abertura. */
 const RITO: Record<P, PadraoEtapa> = {
@@ -94,6 +134,7 @@ export function modeloSemente(tipo: TipoProcessoFluxo): ModeloFluxo {
       'Modelo da Câmara Municipal de LEM (Portaria 089/2024) com os ajustes da Lei 14.133/2021. Autorização de início, indicação da modalidade e controle interno vêm desligados (opcionais).',
     versao: 1,
     aprovacao_demanda: { exigida: true, etapa: P.DFD, aprovador: { tipo: 'PERMISSAO', valor: null }, aceita_peca_externa: true },
+    exigir_posse_pecas: true,
     etapas: etapasSemente(tipo),
   };
 }

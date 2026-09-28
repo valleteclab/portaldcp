@@ -56,12 +56,16 @@ export interface PlanoRevisao {
   resolver: Array<{ id: string; motivo: string }>;
 }
 
+/** JSON com as chaves em ordem (o jsonb do Postgres devolve as chaves reordenadas: a comparação não pode depender disso). */
+const canonico = (v: unknown): string =>
+  JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
+
 const mesmoConteudo = (e: AchadoExistente, a: AchadoCalculado) =>
   e.severidade === a.severidade &&
   e.titulo === a.titulo &&
   e.mensagem === a.mensagem &&
   !!e.exige_justificativa === !!a.exige_justificativa &&
-  JSON.stringify(e.evidencias ?? []) === JSON.stringify(a.evidencias ?? []);
+  canonico(e.evidencias ?? []) === canonico(a.evidencias ?? []);
 
 export function planejarRevisao(existentes: AchadoExistente[], avaliacoes: AvaliacaoRegra[]): PlanoRevisao {
   const plano: PlanoRevisao = { criar: [], atualizar: [], reabrir: [], resolver: [] };

@@ -51,6 +51,7 @@ import { textoDoAlerta } from '../demandas/dfd/consolidacao-dfd';
 import { AuditLogService } from '../fase-interna/audit-log.service';
 import { AcaoLogFaseInterna } from '../fase-interna/entities/log-fase-interna.entity';
 import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
+import { ATOS_DE_EXTINCAO, PapelNoProcesso, exigirExtincao, exigirQuemConduz, papelNoProcesso } from './permissao-atos-processo';
 
 // Formata Date para string ISO local (sem conversão UTC)
 // Garante que 21:00 em Brasília seja retornado como "2025-12-10T21:00:00"
@@ -1169,7 +1170,20 @@ export class LicitacoesService {
    * demanda/PCA → fase interna (documentos) → seleção → contratos → atas.
    * Alimenta a tela /orgao/processos/[id].
    */
-  async processoCompleto(id: string): Promise<any> {
+  /** Quem conduz / é a autoridade do processo (atos de exclusão e extinção — homologação multiusuário). */
+  papelNoProcesso(ator: Ator, licitacaoId: string): Promise<PapelNoProcesso> {
+    return papelNoProcesso(this.dataSource, ator, licitacaoId);
+  }
+
+  exigirQuemConduz(ator: Ator, licitacaoId: string, acao: string): Promise<void> {
+    return exigirQuemConduz(this.dataSource, ator, licitacaoId, acao);
+  }
+
+  exigirExtincao(ator: Ator, licitacaoId: string): Promise<void> {
+    return exigirExtincao(this.dataSource, ator, licitacaoId);
+  }
+
+  async processoCompleto(id: string, ator?: Ator): Promise<any> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id },
       relations: ['item_pca', 'demanda'],
@@ -1353,8 +1367,18 @@ export class LicitacoesService {
       checklist,
       // E1: atos que o cockpit pode oferecer agora (com pendências de cada um)
       atos_disponiveis: await this.transicoes.atosDisponiveis(licitacao),
-      // Etapa B: menu "Mais ações" (disponíveis e bloqueadas, com o motivo)
-      acoes_menu: await this.transicoes.acoesDoMenu(licitacao),
+      // Etapa B: menu "Mais ações" (disponíveis e bloqueadas, com o motivo).
+      // Homologação multiusuário: revogar/anular só para quem conduz ou a
+      // autoridade (art. 71); excluir só para quem conduz — os demais nem veem.
+      ...(await (async () => {
+        const papel = ator ? await this.papelNoProcesso(ator, id) : { conduz: true, autoridade: true };
+        const extinguir = papel.conduz || papel.autoridade;
+        const menu = await this.transicoes.acoesDoMenu(licitacao);
+        return {
+          acoes_menu: extinguir ? menu : menu.filter((a: any) => !ATOS_DE_EXTINCAO.includes(a.ato)),
+          permissoes_processo: { excluir: papel.conduz, revogar_anular: extinguir, conduz: papel.conduz, autoridade: papel.autoridade },
+        };
+      })()),
     };
   }
 
@@ -1363,9 +1387,32 @@ export class LicitacoesService {
    * antes disso, a autoridade padrão do órgão (cadastro de autoridades; sem
    * cadastro, o responsável do órgão) — a mesma regra da formalização (E6).
    */
-  private async autoridadeDoProcesso(l: Licitacao): Promise<{ nome: string; cargo: string | null; origem: 'HOMOLOGACAO' | 'CADASTRO' } | null> {
+  private async autoridadeDoProcesso(l: Licitacao): Promise<{ nome: string; cargo: string | null; origem: 'HOMOLOGACAO' | 'CONFIGURACAO' | 'CADASTRO' } | null> {
     if (l.homologacao_autoridade_nome) {
       return { nome: l.homologacao_autoridade_nome, cargo: l.homologacao_autoridade_cargo ?? null, origem: 'HOMOLOGACAO' };
+    }
+    // Homologação multiusuário (27/09/2026): antes da homologação, a autoridade
+    // do processo é quem ASSINA A AUTORIZAÇÃO na configuração da fase interna
+    // (signatários da autorização; cargo = o papel informado ali, ou o nome da
+    // autoridade da configuração) — só depois o cadastro de autoridades e o
+    // responsável do órgão. Antes aparecia o responsável do cadastro do órgão
+    // (ex.: "Prefeito") embora o signatário configurado fosse outro.
+    try {
+      const [cfg] = await this.dataSource.query(
+        `SELECT signatarios_autorizacao, autoridade_rotulo FROM configuracoes_fase_interna WHERE orgao_id::text = $1`,
+        [l.orgao_id],
+      );
+      const signatarios: Array<{ usuario_id?: string; papel?: string }> = Array.isArray(cfg?.signatarios_autorizacao) ? cfg.signatarios_autorizacao : [];
+      for (const sig of signatarios) {
+        if (!sig?.usuario_id) continue;
+        const [u] = await this.dataSource.query(
+          `SELECT nome, cargo FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2 AND ativo = true`,
+          [sig.usuario_id, l.orgao_id],
+        );
+        if (u?.nome) return { nome: u.nome, cargo: String(sig.papel ?? '').trim() || cfg?.autoridade_rotulo || u.cargo || null, origem: 'CONFIGURACAO' };
+      }
+    } catch {
+      /* sem configuração: segue para o cadastro */
     }
     try {
       const cadastro = await this.dataSource.query(

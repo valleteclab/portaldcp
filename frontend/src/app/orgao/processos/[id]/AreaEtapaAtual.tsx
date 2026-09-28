@@ -120,7 +120,7 @@ export function AreaEtapaAtual({
           {dispensa && <ConsumoLimiteDispensa licitacaoId={id} atualizacao={dados} />}
           {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} fluxo={fluxo} interna={interna && ativa} onAtualizado={onAtualizado} />}
           {interna && (
-            <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} />
+            <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} permissoes={fluxo?.dados?.permissoes_trabalho ?? null} />
           )}
           {interna && (
             <div id="cotas-me-epp">

@@ -35,6 +35,7 @@ import {
   criarUsuarioOrgao,
   gerarCnpj,
   pdfDeTeste,
+  cumprirEtapasAnteriores,
 } from './support';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
@@ -159,15 +160,22 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
     });
 
     it('peça do editor (justificativa): rascunho não conta; "Gerar documento" emite; peças com ato próprio recusam o genérico', async () => {
+      // A justificativa é das minutas: depois do ETP, do TR e da reserva (ordem do fluxo — homologação multiusuário)
+      await cumprirEtapasAnteriores(ctx, lic, 'MINUTAS', { token: agente.token });
       await http()
         .patch(`/api/fase-interna/${lic.id}/documentos/JC/secao/justificativa`)
         .set(bearer(agente.token))
         .send({ html: '<p>Contratação direta de pequeno valor (art. 75, II).</p>' })
         .expect(200);
       expect(await statusDa(lic, 'JC')).toBe('EM_ELABORACAO');
-      for (const tipo of ['PP', 'DO', 'AA', 'PJ']) {
+      for (const tipo of ['PP', 'DO']) {
         const r = await http().post(`/api/fase-interna/${lic.id}/documentos/${tipo}/emitir`).set(bearer(agente.token));
         expect(r.status).toBe(400);
+      }
+      // autorização e parecer ainda nem podem começar (ordem do fluxo): recusados antes (403)
+      for (const tipo of ['AA', 'PJ']) {
+        const r = await http().post(`/api/fase-interna/${lic.id}/documentos/${tipo}/emitir`).set(bearer(agente.token));
+        expect(r.status).toBe(403);
       }
       const e = await http().post(`/api/fase-interna/${lic.id}/documentos/JC/emitir`).set(bearer(agente.token)).expect(201);
       expect(e.body.emitido).toMatchObject({ impressao: expect.any(String), por_id: agente.id });
@@ -266,6 +274,12 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.INEXIGIBILIDADE, { extras: { pregoeiro_id: agente.id } });
       for (const t of ['DFD', 'PP']) expect((await anexar(lic, t)).status).toBe(201);
       for (const t of ['ETP', 'AR', 'TR', 'DO']) expect((await naoSeAplica(lic, t)).status).toBe(201);
+      // Mesma ordem da dispensa (decisão do dono, 27/09/2026): relatório/minutas e parecer ANTES da autorização
+      const antes = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });
+      expect(antes.status).toBe(403);
+      expect(antes.body.message).toMatch(/Parecer jurídico/); // o parecer, por sua vez, espera o relatório e as minutas
+      // relatório e justificativa "não se aplica", parecer idem: a autorização pode começar — e o portão B cobra VI e VII
+      for (const t of ['RAG', 'ME', 'MC', 'JC', 'PJ']) expect([t, (await naoSeAplica(lic, t)).status]).toEqual([t, 201]);
       const barrado = await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] });
       expect(barrado.status).toBe(400);
       expect(barrado.body.portao).toBe('B');
@@ -273,9 +287,7 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
       expect(txt).toMatch(/A72-VI: Art\. 72, VI — Razão da escolha do contratado: falta a razão da escolha do contratado/);
       expect(txt).toMatch(/A72-VII: .*justificativa do preço \(art\. 23, §4º\)/);
       expect(txt).toMatch(/inexigibilidade/);
-      // "não se aplica" não supre os incisos VI e VII
-      expect((await naoSeAplica(lic, 'JC')).status).toBe(201);
-      expect((await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] })).status).toBe(400);
+      // "não se aplica" não supre os incisos VI e VII (acima); o relatório anexado supre
       expect((await anexar(lic, 'RAG', agente.token, 'Relatorio do agente: fornecedor exclusivo; preco conforme contratacoes anteriores')).status).toBe(201);
       await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] }).expect(201);
     });
@@ -288,7 +300,8 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
     beforeAll(async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       for (const t of ['DFD', 'PP']) expect((await anexar(lic, t)).status).toBe(201);
-      for (const t of ['ETP', 'AR', 'TR', 'DO']) expect((await naoSeAplica(lic, t)).status).toBe(201);
+      // As etapas anteriores à autorização (ETP, TR, reserva, minutas e parecer — ordem do fluxo)
+      await cumprirEtapasAnteriores(ctx, lic, 'AUTORIZACAO', { token: agente.token });
       await http().post(`/api/fase-interna/${lic.id}/autorizacao/gerar`).set(bearer(agente.token)).send({}).expect(201);
       await http().post(`/api/fase-interna/${lic.id}/autorizacao/enviar`).set(bearer(agente.token)).send({ signatarios: [{ usuario_id: presidente.id, papel: 'Presidente' }] }).expect(201);
       const r = await http().post(`/api/fase-interna/${lic.id}/autorizacao/assinar`).set(bearer(presidente.token)).send({}).expect(201);
@@ -336,6 +349,7 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
   describe('F. isolamento do "Gerar documento" (…/documentos/:tipo/emitir)', () => {
     it('outro órgão 403, fornecedor 403, anônimo 401 — e nada é emitido', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      await cumprirEtapasAnteriores(ctx, lic, 'MINUTAS');
       await http().patch(`/api/fase-interna/${lic.id}/documentos/JC/secao/justificativa`).set(bearer(A.token)).send({ html: '<p>Rascunho</p>' }).expect(200);
       const url = `/api/fase-interna/${lic.id}/documentos/JC/emitir`;
       expect((await http().post(url).set(bearer(B.token))).status).toBe(403);

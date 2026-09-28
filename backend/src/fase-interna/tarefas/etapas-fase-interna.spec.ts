@@ -55,9 +55,10 @@ const passo = (etapas: ReturnType<typeof etapasDaFaseInterna>, p: P) => passosDa
 describe('etapasDaFaseInterna — contratação direta (art. 72)', () => {
   it('processo novo: só a demanda está disponível; o resto aguarda a dependência', () => {
     const etapas = etapasDaFaseInterna(direta, instrucaoDireta(), semCI);
+    // Mapa do dono (§4 do plano): … reserva → minutas e parecer → autorização → publicação (art. 53, §4º)
     expect(etapas.map((e) => e.etapa)).toEqual([
       E.DEMANDA, E.ETP_RISCOS, E.TERMO_REFERENCIA, E.PESQUISA_PRECOS, E.RESERVA_ORCAMENTARIA,
-      E.AUTORIZACAO, E.MINUTAS_PARECER, E.CONFORMIDADE_PUBLICACAO,
+      E.MINUTAS_PARECER, E.AUTORIZACAO, E.CONFORMIDADE_PUBLICACAO,
     ]);
     expect(etapas.map((e) => e.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     expect(passo(etapas, P.DFD).situacao).toBe('DISPONIVEL');
@@ -75,12 +76,14 @@ describe('etapasDaFaseInterna — contratação direta (art. 72)', () => {
     expect(etapaAtual(etapas)?.etapa).toBe(E.ETP_RISCOS);
   });
 
-  it('autorização (portão B) depende de demanda, estudo, TR, pesquisa e reserva', () => {
+  it('autorização (portão B) depende de demanda, estudo, TR, pesquisa, reserva e do parecer (art. 53, §4º)', () => {
     const quase = etapasDaFaseInterna(direta, instrucaoDireta(ok('DFD', 'ETP', 'AR', 'TR', 'PP')), semCI);
     expect(passo(quase, P.AUTORIZACAO).situacao).toBe('AGUARDANDO');
-    expect(passo(quase, P.AUTORIZACAO).pendencias).toEqual([P.RESERVA]);
+    expect(passo(quase, P.AUTORIZACAO).pendencias).toEqual([P.RESERVA, P.PARECER]);
     expect(passo(quase, P.AUTORIZACAO).portao).toBe('B_ART72');
-    const tudo = etapasDaFaseInterna(direta, instrucaoDireta(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO')), semCI);
+    const semParecer = etapasDaFaseInterna(direta, instrucaoDireta(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'RAG', 'MC', 'JC')), semCI);
+    expect(passo(semParecer, P.AUTORIZACAO).pendencias).toEqual([P.PARECER]);
+    const tudo = etapasDaFaseInterna(direta, instrucaoDireta(ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'RAG', 'MC', 'JC', 'PJ')), semCI);
     expect(passo(tudo, P.AUTORIZACAO).situacao).toBe('DISPONIVEL');
   });
 
@@ -105,12 +108,13 @@ describe('etapasDaFaseInterna — contratação direta (art. 72)', () => {
     expect(passo(etapas, P.DFD).situacao).toBe('DISPONIVEL');
   });
 
-  it('minutas depois da autorização; o parecer exige as minutas', () => {
-    const base = ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'AA', 'DP');
+  it('minutas depois da reserva (e antes da autorização); o parecer exige as minutas', () => {
+    const base = ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO');
     const semMinutas = etapasDaFaseInterna(direta, instrucaoDireta(base), semCI);
     expect(passo(semMinutas, P.MINUTAS).situacao).toBe('DISPONIVEL');
     expect(passo(semMinutas, P.PARECER).situacao).toBe('AGUARDANDO');
     expect(passo(semMinutas, P.PARECER).portao).toBe('MINUTAS_ANTES_DO_PARECER');
+    expect(passo(semMinutas, P.AUTORIZACAO).situacao).toBe('AGUARDANDO');
     const comMinutas = etapasDaFaseInterna(direta, instrucaoDireta({ ...base, RAG: 'OK', MC: 'OK', JC: 'OK' }), semCI);
     expect(passo(comMinutas, P.PARECER).situacao).toBe('DISPONIVEL');
     expect(comMinutas.find((e) => e.etapa === E.MINUTAS_PARECER)!.situacao).toBe('EM_ANDAMENTO');
@@ -120,7 +124,7 @@ describe('etapasDaFaseInterna — contratação direta (art. 72)', () => {
     const tudo = ok('DFD', 'ETP', 'AR', 'TR', 'PP', 'DO', 'AA', 'DP', 'RAG', 'MC', 'JC', 'PJ');
     const extras = [{ tipo: 'MCI', titulo: 'Controle interno' }];
     const etapas = etapasDaFaseInterna(direta, instrucaoDireta(tudo, extras), comCI);
-    expect(etapas.map((e) => e.etapa).slice(-2)).toEqual([E.CONTROLE_INTERNO, E.CONFORMIDADE_PUBLICACAO]);
+    expect(etapas.map((e) => e.etapa).slice(-3)).toEqual([E.CONTROLE_INTERNO, E.AUTORIZACAO, E.CONFORMIDADE_PUBLICACAO]);
     expect(passo(etapas, P.CONTROLE_INTERNO).situacao).toBe('DISPONIVEL');
     expect(passo(etapas, P.PUBLICACAO).situacao).toBe('AGUARDANDO');
     expect(passo(etapas, P.PUBLICACAO).pendencias).toEqual([P.CONTROLE_INTERNO]);

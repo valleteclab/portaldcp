@@ -21,6 +21,7 @@ import { dependentesAfetados, type PassoFluxo } from "@/lib/fase-interna/visao-f
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
 import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
+import { AvisoSomenteLeitura, PERMISSAO_LIVRE, PermissaoEtapaContext, permissaoDoPasso, type PermissaoTrabalho, type PermissoesTrabalho } from "@/lib/fase-interna/permissao-etapa"
 
 interface LicitacaoCabecalho {
   id: string
@@ -32,6 +33,8 @@ interface LicitacaoCabecalho {
 
 interface EtapasResposta {
   etapas: Array<{ etapa: string; situacao: string; passos: Array<PassoFluxo & { pode_reabrir?: boolean }> }>
+  /** Isolamento das peças: quem está vendo pode trabalhar em cada etapa? */
+  permissoes_trabalho?: PermissoesTrabalho
 }
 
 const ROTULO_SIT: Record<string, string> = {
@@ -58,6 +61,7 @@ export function EtapaShell({
   subtitulo,
   acoes,
   atualizacao,
+  onPermissao,
   children,
 }: {
   licitacaoId: string
@@ -67,6 +71,12 @@ export function EtapaShell({
   acoes?: React.ReactNode
   /** Muda quando a tela grava algo: recarrega a situação das etapas. */
   atualizacao?: unknown
+  /**
+   * Isolamento das peças: a página recebe a permissão de quem está vendo
+   * nesta etapa (as ações de escrita dela ficam desabilitadas sem ela). Os
+   * componentes dentro da moldura leem pelo contexto (`usePermissaoEtapa`).
+   */
+  onPermissao?: (p: PermissaoTrabalho) => void
   children: React.ReactNode
 }) {
   const [lic, setLic] = useState<LicitacaoCabecalho | null>(null)
@@ -74,7 +84,9 @@ export function EtapaShell({
   const [passos, setPassos] = useState<Array<PassoFluxo & { pode_reabrir?: boolean }>>([])
   const [voltando, setVoltando] = useState(false)
   const { pedirTexto, dialogo } = useDialogoConfirmacao()
+  const [permissao, setPermissao] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const ultima = useRef(criarUltimaCarga())
+  const passoDaTela = ETAPAS_DA_BARRA.find((e) => e.tela === tela)?.passo ?? null
 
   useEffect(() => {
     authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
@@ -93,14 +105,18 @@ export function EtapaShell({
       for (const e of j.etapas || []) for (const p of e.passos || []) mapa[p.passo] = p.situacao
       setSituacoes(mapa)
       setPassos((j.etapas || []).flatMap((e) => e.passos || []))
+      setPermissao(permissaoDoPasso(j.permissoes_trabalho, passoDaTela))
       avisarTarefasAtualizadas()
     } catch {
       /* barra sem situação */
     }
-  }, [licitacaoId])
+  }, [licitacaoId, passoDaTela])
   useEffect(() => {
     carregarEtapas()
   }, [carregarEtapas, atualizacao])
+  useEffect(() => {
+    onPermissao?.(permissao)
+  }, [permissao, onPermissao])
   // A tela gravou algo (atualizacao mudou): avisa os demais quadros da página (peças, fluxo)
   const primeira = useRef(true)
   useEffect(() => {
@@ -114,7 +130,6 @@ export function EtapaShell({
   useEffect(() => aoAtualizarFaseInterna(licitacaoId, carregarEtapas), [licitacaoId, carregarEtapas])
 
   // VOLTAR ESTA ETAPA (reabrir com motivo) — o servidor diz quem pode (pode_reabrir) e confere de novo
-  const passoDaTela = ETAPAS_DA_BARRA.find((e) => e.tela === tela)?.passo ?? null
   const esta = passoDaTela ? passos.find((p) => p.passo === passoDaTela) ?? null : null
   const voltar = async () => {
     if (!esta) return
@@ -230,7 +245,9 @@ export function EtapaShell({
         </p>
       )}
 
-      {children}
+      <AvisoSomenteLeitura permissao={permissao} />
+
+      <PermissaoEtapaContext.Provider value={permissao}>{children}</PermissaoEtapaContext.Provider>
     </div>
   )
 }

@@ -12,11 +12,18 @@
  *     desapronta. A tarefa de assinatura da versão substituída é cancelada.
  *  C. Diligência pela tela da peça: lista, quem pode sanar, exige versão
  *     nova (ou "não há o que alterar"); outro órgão 404.
- *  D. Próximo destino: depois da autorização (sem agente designado) → o
- *     setor do agente; depois das minutas → o Jurídico, mesmo com o agente
- *     também tendo o papel Jurídico.
+ *  D. Próximo destino: depois das minutas → o Jurídico, mesmo com o agente
+ *     também tendo o papel Jurídico; depois da autorização (sem agente
+ *     designado) → o setor do agente, para a publicação (ordem da contratação
+ *     direta: minutas → parecer → autorização → publicação — art. 53, §4º e
+ *     art. 72, VIII).
  *  E. "Desfazer não se aplica" de etapa concluída = voltar: motivo
  *     obrigatório, só quem conduz ou o responsável, dependentes "a revisar".
+ *
+ * As peças seguem a ORDEM DO FLUXO e, no modo por setor, a POSSE do processo
+ * (frente A — isolamento das peças por etapa): a demanda aprovada antes do
+ * TR, o processo em Compras para o TR, no Jurídico para a diligência; com a
+ * diligência aberta, quem responde pela peça a corrige sem a posse.
  */
 import {
   AppE2E,
@@ -27,6 +34,7 @@ import {
   criarLicitacao,
   criarOrgao,
   criarUsuarioOrgao,
+  cumprirEtapasAnteriores,
   pdfDeTeste,
 } from './support';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
@@ -64,6 +72,15 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
     http().put(`/api/fase-interna/configuracao/usuarios/${u.id}`).set(bearer(A.token)).send({ papeis: lista, setor_id: setorId }).expect(200);
   const instrucao = async (lic: { id: string }) => (await http().get(`/api/fase-interna/${lic.id}/instrucao`).set(bearer(A.token)).expect(200)).body;
   const itemDe = (inst: any, tipo: string) => inst.itens.find((i: any) => i.tipo === tipo);
+  /** Leva o processo ao setor (o envio automático depois da aprovação da demanda pode já tê-lo levado). */
+  const levarPara = async (lic: { id: string }, setorId: string, despacho: string) => {
+    await esperar();
+    const com = (await http().get(`/api/fase-interna/${lic.id}/tramitacao/com-quem-esta`).set(bearer(A.token)).expect(200)).body;
+    if (com?.setor?.id === setorId && ['PENDENTE', 'RECEBIDA'].includes(com?.status)) return;
+    const r = await http().post(`/api/fase-interna/${lic.id}/tramitar`).set(bearer(A.token)).send({ para_setor_id: setorId, despacho });
+    expect({ status: r.status, erro: r.status === 201 ? null : r.body?.message }).toEqual({ status: 201, erro: null });
+    await esperar();
+  };
 
   beforeAll(async () => {
     ctx = await criarApp();
@@ -104,6 +121,9 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
 
     beforeAll(async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      // a demanda aprovada antes do TR; o processo em Compras (modo por setor: a posse para trabalhar na peça)
+      await cumprirEtapasAnteriores(ctx, lic, 'TR');
+      await levarPara(lic, setor.compras, 'A Compras, para o termo de referência.');
       await http()
         .patch(`/api/fase-interna/${lic.id}/documentos/TR/secao/objeto`)
         .set(bearer(carlos.token))
@@ -231,6 +251,9 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
     });
 
     it('C. diligência na tela da peça: quem pode sanar, exige versão nova (ou "não há o que alterar"); outro órgão 404', async () => {
+      // o parecer começa depois das minutas (art. 53): as etapas anteriores cumpridas e o processo no Jurídico
+      await cumprirEtapasAnteriores(ctx, lic, 'PARECER');
+      await levarPara(lic, setor.juridico, 'Ao Jurídico, para o parecer.');
       await http()
         .post(`/api/fase-interna/${lic.id}/parecer/diligencias`)
         .set(bearer(julia.token))
@@ -248,7 +271,7 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
       expect((await http().post(url).set(bearer(carlos.token)).send({ retorno: 'PECA', sem_alteracao: true, resposta: 'curta' })).status).toBe(400);
       expect((await http().post(url).set(bearer(paulo.token)).send({ retorno: 'PECA', sem_alteracao: true, resposta: 'Não há o que alterar no TR.' })).status).toBe(403);
       expect([403, 404]).toContain((await http().post(url).set(bearer(deB.token)).send({ retorno: 'PECA' })).status);
-      // versão nova (anexada) → sanar pela tela da peça
+      // versão nova (anexada) → sanar pela tela da peça (com a diligência aberta, Carlos corrige o TR sem a posse)
       expect((await anexar(lic, 'TR', carlos.token)).status).toBe(201);
       const depois = (await http().get(`/api/fase-interna/${lic.id}/diligencias?tipo=TR`).set(bearer(carlos.token)).expect(200)).body;
       expect(depois.diligencias[0].versao_nova_pronta).toBe(true);
@@ -261,7 +284,7 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
   });
 
   // ==========================================================================
-  describe('D–E. próximo destino (depois da autorização e para o Jurídico) e desfazer "não se aplica"', () => {
+  describe('D–E. próximo destino (para o Jurídico e depois da autorização) e desfazer "não se aplica"', () => {
     let lic: LicitacaoFixture;
     const tramitar = (para: string, despacho: string) =>
       http().post(`/api/fase-interna/${lic.id}/tramitar`).set(bearer(A.token)).send({ para_setor_id: para, despacho });
@@ -273,23 +296,15 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
     beforeAll(async () => {
       // sem agente designado (o condutor não resolve o papel do agente)
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
-      for (const t of ['DFD', 'TR', 'PP', 'DO']) expect((await anexar(lic, t, A.token)).status).toBe(201);
-      const inst = await instrucao(lic);
-      for (const i of inst.itens) {
-        if (['DFD', 'TR', 'PP', 'DO', 'AA', 'PJ', 'RAG', 'ME', 'MC', 'JC'].includes(i.tipo) || i.status === 'OK') continue;
-        if (i.pode_nao_se_aplicar) expect((await naoSeAplica(lic, i.tipo, A.token)).status).toBe(201);
-      }
-      expect((await anexar(lic, 'AA', A.token)).status).toBe(201);
+      // na ordem do fluxo: a demanda (aprovada), depois TR, pesquisa e reserva; o resto das etapas
+      // de que as minutas dependem "não se aplica" (o login do órgão trabalha fora da posse, com registro)
+      expect((await anexar(lic, 'DFD', A.token)).status).toBe(201);
+      await cumprirEtapasAnteriores(ctx, lic, 'TR');
+      for (const t of ['TR', 'PP', 'DO']) expect((await anexar(lic, t, A.token)).status).toBe(201);
+      await cumprirEtapasAnteriores(ctx, lic, 'MINUTAS');
+      // designação do agente (documento do órgão, fora da ordem das etapas): não se aplica nesta contratação
+      expect((await naoSeAplica(lic, 'DP', A.token)).status).toBe(201);
       await esperar();
-    });
-
-    it('D. depois da autorização: sugere o setor do agente (Licitações) — o suporte sem setor com o mesmo papel não tira a sugestão', async () => {
-      await tramitar(setor.presidencia, 'À Presidência para a autorização.').expect(201);
-      const s = await sugestao(paulo.token);
-      const principal = s.destinos.find((d: any) => d.principal);
-      expect(principal).toMatchObject({ setor_id: setor.licitacoes });
-      expect(principal.etapas.map(([c]: [string]) => c)).toContain('MINUTAS');
-      expect(s.despacho_sugerido).toMatch(/Licitações/);
     });
 
     it('D. depois das minutas: sugere o Jurídico (7b), mesmo com o agente também tendo o papel Jurídico', async () => {
@@ -306,6 +321,18 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
       expect(principal.etapas.map(([c]: [string]) => c)).toEqual(['PARECER']);
       expect(s.despacho_sugerido).toMatch(/Jurídico/);
       expect(s.etapas_sem_destino).toEqual([]);
+    });
+
+    it('D. depois da autorização: sugere o setor do agente (Licitações), para a publicação — o suporte sem setor com o mesmo papel não tira a sugestão', async () => {
+      // parecer antes da autorização (art. 53, §4º); a autorização é a última da instrução (art. 72, VIII)
+      expect((await anexar(lic, 'PJ', A.token)).status).toBe(201);
+      await tramitar(setor.presidencia, 'À Presidência para a autorização.').expect(201);
+      expect((await anexar(lic, 'AA', A.token)).status).toBe(201);
+      const s = await sugestao(paulo.token);
+      const principal = s.destinos.find((d: any) => d.principal);
+      expect(principal).toMatchObject({ setor_id: setor.licitacoes });
+      expect(principal.etapas.map(([c]: [string]) => c)).toContain('PUBLICACAO');
+      expect(s.despacho_sugerido).toMatch(/Licitações/);
     });
 
     it('E. desfazer "não se aplica" de etapa concluída: motivo obrigatório; só quem conduz ou o responsável; dependentes "a revisar"', async () => {

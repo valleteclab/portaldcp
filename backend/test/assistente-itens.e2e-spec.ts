@@ -25,6 +25,7 @@ import {
   LicitacaoFixture,
   OrgaoFixture,
   pncpMock,
+  cumprirEtapasAnteriores,
 } from './support';
 import {
   corpoDivulgacao,
@@ -279,6 +280,8 @@ describe('Itens obrigatórios na publicação + assistente', () => {
     });
 
     it('agente (fonte PNCP mockada) coleta e aprova cotação para o item', async () => {
+      // A pesquisa só anda com a demanda aprovada (ordem do fluxo — homologação multiusuário)
+      await cumprirEtapasAnteriores(ctx, lic, 'PESQUISA');
       pncpMock.limpar();
       pncpMock.responder('GET', /\/api\/consulta\/v1\/contratacoes\/publicacao/, {
         status: 200,

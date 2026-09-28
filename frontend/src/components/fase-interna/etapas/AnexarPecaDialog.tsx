@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog"
 import { Loader2 } from "lucide-react"
 import { CamposMetadadosPeca, erroDaData, metadadosVazios, type MetadadosPeca } from "./CamposMetadadosPeca"
+import { usePermissaoEtapa } from "@/lib/fase-interna/permissao-etapa"
 
 /**
  * "ANEXAR PDF" — peça feita fora do sistema (decisão 1 do dono: setores
@@ -25,12 +26,17 @@ export function AnexarPecaDialog({
   peca,
   onFechar,
   onAnexado,
+  bloqueio,
 }: {
   licitacaoId: string
   peca: { tipo: string; titulo: string; jaTem: boolean } | null
   onFechar: () => void
   onAnexado: () => void
+  /** Motivo por que quem está vendo não pode anexar (isolamento das peças); sem ele, o da etapa da tela. */
+  bloqueio?: string | null
 }) {
+  const permissao = usePermissaoEtapa()
+  const motivoBloqueio = bloqueio ?? (permissao.pode ? null : permissao.motivo ?? "Você não pode alterar as peças desta etapa agora.")
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [meta, setMeta] = useState<MetadadosPeca>(metadadosVazios())
   const [enviando, setEnviando] = useState(false)
@@ -78,6 +84,11 @@ export function AnexarPecaDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          {motivoBloqueio && (
+            <p className="text-sm rounded border border-slate-300 bg-slate-50 px-2 py-1.5 text-slate-800" role="alert">
+              Somente leitura: {motivoBloqueio}
+            </p>
+          )}
           <div className="space-y-1">
             <Label htmlFor="anexo-arquivo">Arquivo (PDF) *</Label>
             <Input id="anexo-arquivo" type="file" accept="application/pdf,.pdf" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
@@ -87,7 +98,7 @@ export function AnexarPecaDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => { limpar(); onFechar() }} disabled={enviando}>Cancelar</Button>
-          <Button onClick={enviar} disabled={enviando}>
+          <Button onClick={enviar} disabled={enviando || !!motivoBloqueio}>
             {enviando && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
             Anexar
           </Button>

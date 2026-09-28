@@ -29,6 +29,7 @@ import { ExtincaoService } from './extincao.service';
 import { avaliarPrazosDePublicacao, exigeNaturezaDoObjeto, naturezaEfetiva } from './regras-publicacao';
 import { RetificacaoService } from './retificacao.service';
 import { DivulgacaoService } from './divulgacao.service';
+import { exigirExtincao } from '../licitacoes/permissao-atos-processo';
 
 const UPLOAD_EDITAL = FileInterceptor('arquivo', {
   storage: memoryStorage(),
@@ -301,6 +302,7 @@ export class PublicacaoController {
   async abrirIntencao(@Param('id') id: string, @Body() body: { tipo: string; motivo: string; prazo_dias_uteis?: number }, @AtorAtual() ator: Ator) {
     this.validarId(id);
     await this.acesso.assertOrgaoDaLicitacao(ator, id);
+    await exigirExtincao(this.dataSource, ator, id);
     return this.extincao.abrirIntencao(id, body ?? ({} as any), atorTransicaoDe(ator));
   }
 
@@ -309,6 +311,7 @@ export class PublicacaoController {
   async cancelarIntencao(@Param('id') id: string, @Body() body: { motivo: string }, @AtorAtual() ator: Ator) {
     this.validarId(id);
     await this.acesso.assertOrgaoDaLicitacao(ator, id);
+    await exigirExtincao(this.dataSource, ator, id);
     return this.extincao.cancelarIntencao(id, body?.motivo, atorTransicaoDe(ator));
   }
 

@@ -8,6 +8,7 @@ import { ControleInternoTelaService } from './controle-interno-tela.service';
 import { MinutasTelaService } from './minutas-tela.service';
 import { MinutasSubscriber } from './minutas.subscriber';
 import { ParecerTelaService } from './parecer-tela.service';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
 
 /**
  * TELAS DA ETAPA 6 E 7 (Entrega 3B): autorização (também no celular),
@@ -19,7 +20,7 @@ import { ParecerTelaService } from './parecer-tela.service';
  * INTERNO se manifesta (403 para os demais).
  */
 @Controller('fase-interna')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class TelasAnaliseDecisaoController {
   constructor(
     private readonly autorizacao: AutorizacaoTelaService,
@@ -46,12 +47,14 @@ export class TelasAnaliseDecisaoController {
    * Gera (ou regera) o despacho pelo modelo. Depois de autorizado: 409, salvo
    * `{ nova_autorizacao: true, motivo }` (versão nova, de novo à autoridade).
    */
+  @TrabalhoNaEtapa({ passo: 'AUTORIZACAO', acao: 'gerar o despacho de autorização' })
   @Post(':licitacaoId/autorizacao/gerar')
   async gerarAutorizacao(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.autorizacao.gerar(id, ator, await this.autor(ator), body ?? {});
   }
 
   /** Envia à autoridade: { signatarios?: [{ usuario_id, papel }] } — sem lista, os da configuração. */
+  @TrabalhoNaEtapa({ passo: 'AUTORIZACAO', acao: 'enviar a autorização para assinatura' })
   @Post(':licitacaoId/autorizacao/enviar')
   async enviarAutorizacao(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.autorizacao.enviar(id, body ?? {}, ator, await this.autor(ator));
@@ -64,6 +67,7 @@ export class TelasAnaliseDecisaoController {
   }
 
   /** "Devolver com observação": { motivo } → tarefa do agente. */
+  @TrabalhoNaEtapa({ passo: 'AUTORIZACAO', acao: 'devolver a autorização' })
   @Post(':licitacaoId/autorizacao/devolver')
   async devolverAutorizacao(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.autorizacao.devolver(id, body ?? {}, ator, await this.autor(ator));
@@ -78,12 +82,14 @@ export class TelasAnaliseDecisaoController {
   }
 
   /** :tipo = RAG | ME | MC | TODAS. */
+  @TrabalhoNaEtapa({ passo: 'MINUTAS', acao: 'gerar minuta' })
   @Post(':licitacaoId/minutas/:tipo/gerar')
   async gerarMinuta(@Param('licitacaoId') id: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
     return this.minutas.gerar(id, tipo, await this.autor(ator));
   }
 
   /** Sigilo do orçamento (art. 24): { sigiloso, justificativa }. */
+  @TrabalhoNaEtapa({ passo: 'MINUTAS', acao: 'sigilo do orçamento' })
   @Put(':licitacaoId/minutas/sigilo')
   async sigilo(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.minutas.salvarSigilo(id, body ?? {}, await this.autor(ator));
@@ -99,6 +105,7 @@ export class TelasAnaliseDecisaoController {
   }
 
   /** Rascunho: { fase, roteiro: { ITEM: { situacao, observacao } }, conclusao, fundamentacao, ressalvas }. */
+  @TrabalhoNaEtapa({ passo: 'PARECER', acao: 'salvar o parecer' })
   @Put(':licitacaoId/parecer')
   async salvarParecer(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.parecer.salvar(id, body ?? {}, ator, await this.autor(ator));
@@ -114,6 +121,7 @@ export class TelasAnaliseDecisaoController {
   }
 
   /** { fase, tipo_alvo, descricao, item_roteiro?, folha?, trecho? }. */
+  @TrabalhoNaEtapa({ passo: 'PARECER', acao: 'abrir diligência' })
   @Post(':licitacaoId/parecer/diligencias')
   async abrirDiligencia(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.parecer.abrirDiligencia(id, body ?? {}, ator, await this.autor(ator));
@@ -125,17 +133,20 @@ export class TelasAnaliseDecisaoController {
     return this.parecer.sanar(id, dil, body ?? {}, ator, await this.autor(ator));
   }
 
+  @TrabalhoNaEtapa({ passo: 'PARECER', acao: 'reabrir diligência' })
   @Post(':licitacaoId/parecer/diligencias/:diligenciaId/reabrir')
   async reabrir(@Param('licitacaoId') id: string, @Param('diligenciaId') dil: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.parecer.reabrir(id, dil, body ?? {}, ator, await this.autor(ator));
   }
 
+  @TrabalhoNaEtapa({ passo: 'PARECER', acao: 'cancelar diligência' })
   @Post(':licitacaoId/parecer/diligencias/:diligenciaId/cancelar')
   async cancelar(@Param('licitacaoId') id: string, @Param('diligenciaId') dil: string, @Body() body: any, @AtorAtual() ator: Ator) {
     return this.parecer.cancelar(id, dil, body ?? {}, ator, await this.autor(ator));
   }
 
   /** { fase, conclusao: FAVORAVEL | FAVORAVEL_COM_RESSALVAS | DESFAVORAVEL, fundamentacao?, ressalvas? } — emite e assina. */
+  @TrabalhoNaEtapa({ passo: 'PARECER', acao: 'emitir o parecer' })
   @Post(':licitacaoId/parecer/emitir')
   async emitirParecer(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator, @Ip() ip: string, @Headers('user-agent') ua: string) {
     return this.parecer.emitir(id, body ?? {}, ator, await this.autor(ator), { ip, userAgent: ua });
@@ -155,6 +166,7 @@ export class TelasAnaliseDecisaoController {
   }
 
   /** { conclusao: FAVORAVEL | COM_APONTAMENTOS, texto?, apontamentos? } — gera e assina. */
+  @TrabalhoNaEtapa({ passo: 'CONTROLE_INTERNO', acao: 'manifestação do controle interno' })
   @Post(':licitacaoId/controle-interno/manifestar')
   async manifestar(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator, @Ip() ip: string, @Headers('user-agent') ua: string) {
     return this.controleInterno.manifestar(id, body ?? {}, ator, await this.autor(ator), { ip, userAgent: ua });

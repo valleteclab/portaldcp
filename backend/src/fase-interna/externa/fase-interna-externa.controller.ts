@@ -9,6 +9,8 @@ import { DonoFaseInternaGuard } from '../dono-fase-interna.guard';
 import { ANEXO_MAX_BYTES } from '../pecas-fase-interna.service';
 import { MAX_ARQUIVOS_EXTERNOS } from './externa-regras';
 import { FaseInternaExternaService } from './fase-interna-externa.service';
+import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
+import { PermissaoEtapaService } from '../fluxo/permissao-etapa.service';
 
 const UPLOAD = FilesInterceptor('arquivos', MAX_ARQUIVOS_EXTERNOS, {
   storage: memoryStorage(),
@@ -26,10 +28,13 @@ const UPLOAD = FilesInterceptor('arquivos', MAX_ARQUIVOS_EXTERNOS, {
  * processo novo é SEMPRE o do token (admin da plataforma informa `orgao_id`).
  */
 @Controller('fase-interna')
-@UseGuards(DonoFaseInternaGuard)
+@UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 @RequireModule(ModuloSistema.LICITACOES)
 export class FaseInternaExternaController {
-  constructor(private readonly servico: FaseInternaExternaService) {}
+  constructor(
+    private readonly servico: FaseInternaExternaService,
+    private readonly permissao: PermissaoEtapaService,
+  ) {}
 
   /**
    * Checklist do art. 72 / art. 18 conforme os arquivos são classificados —
@@ -57,8 +62,16 @@ export class FaseInternaExternaController {
 
   /** Situação da fase interna feita fora do processo (etiqueta, quem/quando, pendências abertas). */
   @Get(':licitacaoId/externa')
-  async situacao(@Param('licitacaoId') licitacaoId: string) {
-    return this.servico.situacao(licitacaoId);
+  async situacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    const r: any = await this.servico.situacao(licitacaoId);
+    // Juntada em lote num processo existente: só quem conduz (homologação multiusuário)
+    if (r?.pode_juntar) {
+      r.pode_juntar = await this.permissao
+        .exigirCondutor(licitacaoId, ator, 'juntar em lote os documentos feitos fora')
+        .then(() => true)
+        .catch(() => false);
+    }
+    return r;
   }
 
   /** Checklist incremental da juntada num processo existente (considera o que ele já tem). */
@@ -71,6 +84,7 @@ export class FaseInternaExternaController {
    * "Juntar documentos feitos fora (vários PDFs)" num processo já criado.
    * Multipart: `classificacao` (JSON) e `arquivos`.
    */
+  @TrabalhoNaEtapa({ condutor: 'juntar em lote os documentos feitos fora' })
   @Post(':licitacaoId/externa/documentos')
   @UseInterceptors(UPLOAD)
   async juntar(

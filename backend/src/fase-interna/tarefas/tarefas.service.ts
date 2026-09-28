@@ -161,6 +161,17 @@ export class TarefasService {
   }
 
   /**
+   * ISOLAMENTO DAS PEÇAS (homologação multiusuário): quem pode trabalhar em
+   * cada etapa, para a tela (`pode_trabalhar` + `motivo`). Registrado pelo
+   * PermissaoEtapaService (que depende deste serviço — sem ciclo de injeção).
+   */
+  private avaliadorDePermissoes: ((licitacaoId: string, ator: Ator) => Promise<Record<string, { pode_trabalhar: boolean; motivo: string | null; codigo: string }>>) | null = null;
+
+  registrarAvaliadorDePermissoes(fn: (licitacaoId: string, ator: Ator) => Promise<Record<string, { pode_trabalhar: boolean; motivo: string | null; codigo: string }>>) {
+    this.avaliadorDePermissoes = fn;
+  }
+
+  /**
    * Espera a sincronização em curso/agendada DESTE processo (ex.: antes de um
    * envio manual da tramitação, para a posse inicial não correr em paralelo).
    * Nunca chamar de dentro da própria fila do processo.
@@ -634,6 +645,61 @@ export class TarefasService {
     const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
     if (!lic?.orgao_id) return null;
     return (await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id)) ?? (await this.criadorDoProcesso(licitacaoId, lic.orgao_id));
+  }
+
+  /** Agente designado (usuário ativo do órgão) e, sem ele, quem criou o processo. */
+  async agenteECriador(licitacaoId: string): Promise<{ agente: string | null; criador: string | null; orgao_id: string | null }> {
+    const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, pregoeiro_id::text AS pregoeiro_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic?.orgao_id) return { agente: null, criador: null, orgao_id: null };
+    const agente = await this.usuarioAtivoDoOrgao(lic.pregoeiro_id, lic.orgao_id);
+    return { agente, criador: agente ? null : await this.criadorDoProcesso(licitacaoId, lic.orgao_id), orgao_id: lic.orgao_id };
+  }
+
+  /**
+   * A etapa PODE COMEÇAR agora (dependências concluídas e a demanda aprovada)?
+   * Só leitura — pode rodar dentro da fila do processo (tarefas dos achados da
+   * conformidade: não nasce tarefa de etapa que ainda não pode começar).
+   * Etapa fora das etapas ativas do processo: só a aprovação da demanda conta.
+   */
+  async podeIniciarPasso(licitacaoId: string, passo: string): Promise<boolean> {
+    const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, fase::text AS fase, situacao::text AS situacao FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic?.orgao_id) return true;
+    if (!FASES_INTERNAS.includes(lic.fase)) return true;
+    const p = passosDasEtapas(await this.etapasCalculadas(licitacaoId, lic)).find((x) => x.passo === passo);
+    if (p) return p.pode_iniciar;
+    const fluxo = await this.modeloDoProcesso(licitacaoId, lic.orgao_id);
+    const ap = fluxo.modelo.aprovacao_demanda;
+    return !(ap?.exigida && fluxo.estado.demanda_aprovada === false && passo !== ap.etapa);
+  }
+
+  /**
+   * TRAVA DO PUBLICAR (homologação multiusuário — E3): etapas do modelo do
+   * processo que ainda seguram a publicação — as obrigatórias e as de que a
+   * etapa de publicação depende, não concluídas (títulos com o motivo). Etapa
+   * reaberta ou "a revisar" fica com a FLUXO-01 (não se repete). Só leitura:
+   * roda dentro da transação do ato PUBLICAR.
+   */
+  async etapasPendentesParaPublicar(licitacaoId: string): Promise<string[]> {
+    const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, fase::text AS fase, situacao::text AS situacao FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic?.orgao_id || !FASES_INTERNAS.includes(lic.fase)) return [];
+    const passos = passosDasEtapas(await this.etapasCalculadas(licitacaoId, lic));
+    const pub = passos.find((p) => p.passo === PassoFaseInterna.PUBLICACAO);
+    const exigidas = new Set<string>(pub?.pendencias ?? []);
+    const saida: string[] = [];
+    for (const p of passos) {
+      if (p.passo === PassoFaseInterna.PUBLICACAO || p.situacao === 'CONCLUIDO' || p.situacao === 'NAO_REALIZADO') continue;
+      if (!p.obrigatoria && !exigidas.has(p.passo)) continue;
+      if (p.reaberta || p.situacao === 'A_REVISAR') continue; // FLUXO-01
+      const motivo = p.aguardando_aprovacao
+        ? 'aguardando a aprovação da demanda'
+        : p.situacao === 'EM_ANDAMENTO'
+          ? 'em andamento'
+          : p.pendencias.length
+            ? 'aguardando as etapas anteriores'
+            : 'não iniciada';
+      saida.push(`${p.titulo}${p.fundamento ? ` (${p.fundamento})` : ''} — ${motivo}`);
+    }
+    return saida;
   }
 
   /**
@@ -1542,6 +1608,15 @@ export class TarefasService {
     };
 
     const conduzAqui = ator ? await this.podeConduzirProcesso(ator, licitacaoId) : false;
+    // Isolamento das peças: quem pode trabalhar em cada etapa (tela: esconde/desabilita a escrita)
+    let permissoes: Record<string, { pode_trabalhar: boolean; motivo: string | null; codigo: string }> = {};
+    if (ator && this.avaliadorDePermissoes) {
+      try {
+        permissoes = await this.avaliadorDePermissoes(licitacaoId, ator);
+      } catch (e: any) {
+        this.logger.warn(`Permissões das etapas do processo ${licitacaoId} indisponíveis: ${e?.message ?? e}`);
+      }
+    }
     const saida: any[] = [];
     for (const e of etapas) {
       const passos: any[] = [];
@@ -1563,6 +1638,8 @@ export class TarefasService {
           tarefa: tarefa ? this.paraTela(tarefa, perfilNeutro, agora) : null,
           responsavel_previsto: { ...previsto, rotulo: await nomeResp(previsto) },
           prazo_dias_uteis: prazos[p.passo] ?? null,
+          pode_trabalhar: permissoes[p.passo]?.pode_trabalhar ?? true,
+          motivo_trabalho: permissoes[p.passo]?.motivo ?? null,
         });
       }
       saida.push({ ...e, passos });
@@ -1594,6 +1671,10 @@ export class TarefasService {
     const conduz = ator ? await this.podeConduzirProcesso(ator, licitacaoId) : false;
     const aprovada = fluxo.estado.demanda_aprovada !== false;
     const interna = FASES_INTERNAS.includes(lic.fase);
+    // "Aprovar a demanda" só com a demanda FORMALIZADA (DFD pronto) — antes, o botão fica desabilitado com o motivo
+    const passoDemanda = passosDasEtapas(etapas).find((x) => x.passo === ap.etapa);
+    const dfdPronto = !!passoDemanda && passoDemanda.pecas.length > 0 && passoDemanda.pecas.every((x) => x.pronta);
+    const ehAprovador = !!ator && interna && !!ap.exigida && !aprovada && (await this.podeAprovarDemanda(ator, licitacaoId, fluxo.modelo));
     const parecer = fluxo.modelo.etapas.find((e) => e.codigo === PassoFaseInterna.PARECER);
     return {
       modo: config.modo,
@@ -1617,7 +1698,11 @@ export class TarefasService {
         etapa: ap.etapa,
         registro: f?.aprovacao_demanda ?? null,
         aprovador: { ...ap.aprovador, rotulo: this.modeloFluxo.rotuloAprovador(ap.aprovador, nomesAprovador) },
-        pode_aprovar: !!ator && interna && !!ap.exigida && !aprovada && (await this.podeAprovarDemanda(ator, licitacaoId, fluxo.modelo)),
+        pode_aprovar: ehAprovador && dfdPronto,
+        /** Quem aprova vê o botão; sem o DFD pronto, desabilitado com o motivo. */
+        eh_aprovador: ehAprovador,
+        dfd_pronto: dfdPronto,
+        motivo_bloqueio: ehAprovador && !dfdPronto ? 'A demanda ainda não foi formalizada — o DFD precisa estar pronto (feito, anexado ou assinado) para ser aprovado.' : null,
       },
       parecer: {
         dispensavel_por_ato: !!parecer?.dispensavel_por_ato && fluxo.modelo.tipo_processo !== 'LICITACAO',
@@ -1625,6 +1710,8 @@ export class TarefasService {
       },
       desenho: niveisDoGrafo(fluxo.modelo.etapas.filter((e) => etapas.some((x) => x.passos.some((p) => p.passo === e.codigo)))),
       permissoes: { conduzir: conduz && interna, reabrir: conduz && interna, dispensar_parecer: conduz && interna },
+      /** Isolamento das peças: quem está vendo pode trabalhar em cada etapa do modelo? (todas as etapas, inclusive as sem peça na instrução) */
+      permissoes_trabalho: permissoes,
     };
   }
 

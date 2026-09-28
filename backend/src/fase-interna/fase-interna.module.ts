@@ -40,6 +40,7 @@ import { ConformidadeController } from './conformidade/conformidade.controller';
 import { EtapaModeloFluxo, FluxoProcessoFaseInterna, ModeloFluxoFaseInterna, PlanejamentoFluxoOrgao, RequisitoLegalFluxo, TravaAtoFluxo } from './fluxo/modelo-fluxo.entities';
 import { PlanejamentoFluxoService } from './fluxo/planejamento-fluxo.service';
 import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
+import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { FluxoProcessoController, ModeloFluxoController } from './fluxo/modelo-fluxo.controller';
 import { MigracaoModeloFluxoBootService } from './fluxo/migracao-modelo-fluxo-boot.service';
@@ -175,6 +176,8 @@ import {
     // outra rotina de boot juntar algo (espelho de documentos, sincronização das tarefas)
     MigracaoAutosCronologicosBootService,
     ModeloFluxoService,
+    // Isolamento das peças por etapa (homologação multiusuário): ponto único do TrabalhoNaEtapaGuard
+    PermissaoEtapaService,
     PlanejamentoFluxoService,
     FluxoProcessoService,
     IntegracaoFluxoService,
@@ -228,6 +231,7 @@ import {
   ],
   exports: [
     FaseInternaService,
+    PermissaoEtapaService,
     PecasFaseInternaService,
     // Entrada "fase interna feita fora" (LicitacoesModule — cria o processo)
     JuntadaPecasService,

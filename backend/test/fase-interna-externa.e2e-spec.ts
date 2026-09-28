@@ -401,7 +401,8 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
     });
 
     it('processo divulgado: a juntada é recusada (409)', async () => {
-      const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      // o agente conduz o processo (a juntada em lote é de quem conduz — homologação multiusuário)
+      const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       await sql(`UPDATE licitacoes SET fase = 'PUBLICADO' WHERE id = $1`, [lic.id]);
       const r = await juntar(lic.id, agente.token, [{ nome: 'dfd.pdf', tipo: 'DFD' }], classificacao([{ nome: 'dfd.pdf', tipo: 'DFD' }], { nao_se_aplica: [] }));
       expect(r.status).toBe(409);

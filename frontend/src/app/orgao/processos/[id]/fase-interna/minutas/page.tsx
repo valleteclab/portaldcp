@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtDia, fmtMoeda, rotaDaTela } from "@/lib/fase-interna/telas"
@@ -75,6 +76,8 @@ interface MinutasTela {
 
 export default function MinutasPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const { confirmar, dialogo } = useDialogoConfirmacao()
   const [d, setD] = useState<MinutasTela | null>(null)
   const [aba, setAba] = useState<TipoMinuta>("RAG")
@@ -165,17 +168,18 @@ export default function MinutasPage() {
   }
   const dp = d.dados_do_processo
   const atual = d.pecas[aba]
-  const somenteLeitura = !d.licitacao.fase_interna || !!atual.peca?.nao_se_aplica || !!atual.peca?.anexada
+  const somenteLeitura = !d.licitacao.fase_interna || !!atual.peca?.nao_se_aplica || !!atual.peca?.anexada || !perm.pode
 
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="minutas"
       titulo="Relatório do agente e minutas"
       subtitulo={<span>Art. 72 da Lei 14.133/2021 · as peças leem os dados do processo {d.licitacao.numero_processo}</span>}
       atualizacao={atualizacao}
       acoes={
-        <Button onClick={() => gerar("TODAS")} disabled={ocupado || !d.licitacao.fase_interna} title="Gera o relatório do agente, a minuta do aviso e a minuta do contrato pelo modelo">
+        <Button onClick={() => gerar("TODAS")} disabled={ocupado || !d.licitacao.fase_interna || !perm.pode} title="Gera o relatório do agente, a minuta do aviso e a minuta do contrato pelo modelo">
           {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />} Gerar as três pelo modelo
         </Button>
       }
@@ -209,10 +213,10 @@ export default function MinutasPage() {
         </div>
         <div className="flex items-center gap-4 text-sm flex-wrap">
           <label className="flex items-center gap-2">
-            <input type="radio" name="sigilo" checked={!sigiloso} onChange={() => setSigiloso(false)} disabled={!d.licitacao.fase_interna} /> Público
+            <input type="radio" name="sigilo" checked={!sigiloso} onChange={() => setSigiloso(false)} disabled={!d.licitacao.fase_interna || !perm.pode} /> Público
           </label>
           <label className="flex items-center gap-2">
-            <input type="radio" name="sigilo" checked={sigiloso} onChange={() => setSigiloso(true)} disabled={!d.licitacao.fase_interna} /> Sigiloso até o julgamento
+            <input type="radio" name="sigilo" checked={sigiloso} onChange={() => setSigiloso(true)} disabled={!d.licitacao.fase_interna || !perm.pode} /> Sigiloso até o julgamento
           </label>
         </div>
         {sigiloso && (
@@ -221,7 +225,7 @@ export default function MinutasPage() {
             <Textarea id="just-sigilo" rows={2} value={justificativa} onChange={(e) => setJustificativa(e.target.value)} placeholder="Ex.: evitar a ancoragem dos preços na disputa, com divulgação após o julgamento (art. 24)." />
           </div>
         )}
-        <Button size="sm" variant="outline" onClick={salvarSigilo} disabled={ocupado || !d.licitacao.fase_interna}>
+        <Button size="sm" variant="outline" onClick={salvarSigilo} disabled={ocupado || !d.licitacao.fase_interna || !perm.pode}>
           Salvar a decisão
         </Button>
       </section>
@@ -270,7 +274,7 @@ export default function MinutasPage() {
             </div>
           )}
           {!atual.peca && (
-            <Button variant="outline" onClick={() => gerar(a.tipo)} disabled={ocupado || !d.licitacao.fase_interna}>
+            <Button variant="outline" onClick={() => gerar(a.tipo)} disabled={ocupado || !d.licitacao.fase_interna || !perm.pode}>
               <FileText className="w-4 h-4 mr-1" /> Gerar {a.titulo.toLowerCase()} pelo modelo
             </Button>
           )}

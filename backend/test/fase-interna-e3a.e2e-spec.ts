@@ -29,6 +29,7 @@ import {
   criarUsuarioOrgao,
   gerarCnpj,
   pdfDeTeste,
+  cumprirEtapasAnteriores,
 } from './support';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
@@ -390,6 +391,8 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
     let lic: LicitacaoFixture;
     beforeAll(async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
+      // Homologação multiusuário: o ETP só depois da demanda (aprovada) — ordem do fluxo
+      await cumprirEtapasAnteriores(ctx, lic, 'ETP');
     });
 
     it('marca "similar ou superior ao ARION" → ATENÇÃO; justificativa do art. 41, I resolve; texto aceito fica como do usuário', async () => {
@@ -507,6 +510,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       expect(deB.body.some((d: any) => d.id === dotacaoA)).toBe(false);
       await http().put(`/api/orcamento/dotacoes/${dotacaoA}`).set(bearer(B.token)).send({ saldo: 1 }).expect(403);
       const licB = await criarLicitacao(ctx, B, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      await cumprirEtapasAnteriores(ctx, licB, 'RESERVA'); // a reserva só depois da pesquisa (ordem do fluxo)
       await http().put(`/api/fase-interna/${licB.id}/reserva`).set(bearer(B.token)).send({ dotacao_id: dotacaoA }).expect(400);
       // o próprio órgão altera
       await http().put(`/api/orcamento/dotacoes/${dotacaoA}`).set(bearer(A.token)).send({ saldo: 5000 }).expect(200);

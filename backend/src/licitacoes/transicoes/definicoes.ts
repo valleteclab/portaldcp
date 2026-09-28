@@ -99,6 +99,30 @@ export const instrucaoCompleta: Precondicao = async (ctx) => {
   return instrucao.pendentes.map((p) => `Documento obrigatório da fase interna pendente: ${p}`);
 };
 
+/** Começo das pendências da trava das etapas do fluxo (a conferência de pré-publicação as agrupa numa linha). */
+export const PREFIXO_ETAPAS_DO_FLUXO = 'Etapa do fluxo não concluída';
+
+/**
+ * TRAVA DA LEI — PUBLICAR SÓ COM AS ETAPAS DO FLUXO CONCLUÍDAS (homologação
+ * multiusuário, 27/09/2026 — E3: "Gerar aviso e divulgar" liberado logo
+ * depois da autorização, sem minutas nem parecer). Na contratação direta a
+ * instrução do art. 72 cobra só DFD, estimativa e autorização como
+ * obrigatórias ("se for o caso" para o resto); o MODELO DE FLUXO do processo
+ * é que diz quais etapas são obrigatórias e em que ordem (minutas, parecer —
+ * ou a dispensa dele por ato, art. 53, §5º —, controle interno quando ligado,
+ * autorização). A etapa PUBLICACAO só pode iniciar com todas as dependências
+ * concluídas: cada etapa obrigatória (ou de que a publicação depende) não
+ * concluída vira uma pendência. Etapa reaberta ou "a revisar" já é cobrada
+ * pela FLUXO-01 (portão C) — não se repete. No rito completo a sequência é a
+ * das fases (arts. 18 e 53 — `documentosDaEtapaProntos`).
+ */
+export const etapasDoFluxoConcluidas: Precondicao = async (ctx) => {
+  if (!ehContratacaoDireta(ctx) || !ctx.consultas.etapasPendentesParaPublicar) return null;
+  const pend = await ctx.consultas.etapasPendentesParaPublicar();
+  if (!pend?.length) return null;
+  return pend.map((p) => `${PREFIXO_ETAPAS_DO_FLUXO}: ${p}`);
+};
+
 /**
  * ITENS (todas as modalidades): concluir a fase interna e publicar exigem
  * pelo menos um item ativo com quantidade e valor unitário estimado > 0 —
@@ -770,7 +794,7 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48, portaoCConformidade],
+  precondicoes: [instrucaoCompleta, etapasDoFluxoConcluidas, haItensComValorEstimado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48, portaoCConformidade],
   efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
   // o edital anexado vira o documento divulgado (E7a); na dispensa, o aviso
   // de contratação direta é (re)gerado com o cronograma publicado e guardado
@@ -1353,7 +1377,7 @@ const PUBLICAR_CREDENCIAMENTO: DefinicaoAto = {
   principal: true,
   // Sem prazo mínimo do art. 55 (não é modalidade de licitação); inscrições
   // abertas durante toda a vigência (art. 79 par. único I).
-  precondicoes: [instrucaoCompleta, haItensComValorEstimado, editalAnexado, editalCredenciamentoConfigurado, portaoCConformidade],
+  precondicoes: [instrucaoCompleta, etapasDoFluxoConcluidas, haItensComValorEstimado, editalAnexado, editalCredenciamentoConfigurado, portaoCConformidade],
   efeitosPersistidos: [gravarVigenciaCredenciamento, async (lic, m) => marcarEditalPublicadoSql(m, lic.id)],
   mensagemForaDaFase: () => 'Conclua a instrução (fase interna) antes de publicar o edital de credenciamento',
 };

@@ -20,6 +20,7 @@ import { API_URL, authFetch } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { BaseEditavelAviso } from "@/components/fase-interna/etapas/BaseEditavelAviso"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { AssistenteEtp, type AnaliseEtp } from "@/components/fase-interna/etapas/AssistenteEtp"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
@@ -49,6 +50,8 @@ interface EtpTela extends AnaliseEtp {
 
 export default function EtpPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const [d, setD] = useState<EtpTela | null>(null)
   const [documento, setDocumento] = useState<any>(null)
   /** Versão vigente (pode ser o PDF anexado) — o editor mostra a base (última feita aqui). */
@@ -136,7 +139,7 @@ export default function EtpPage() {
   }
 
   const naoSeAplica = !!d.etp.peca?.nao_se_aplica
-  const somenteLeitura = !d.licitacao.fase_interna || naoSeAplica
+  const somenteLeitura = !d.licitacao.fase_interna || naoSeAplica || !perm.pode
   const bloqueios = d.marca.filter((m) => m.severidade === "BLOQUEIO").length
   const recarregarTudo = () => {
     carregarAnalise()
@@ -157,6 +160,7 @@ export default function EtpPage() {
 
   return (
     <EtapaShell
+      onPermissao={setPerm}
       licitacaoId={id}
       tela="etp"
       titulo="Estudo Técnico Preliminar"

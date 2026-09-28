@@ -170,8 +170,14 @@ export interface PassoCalculado {
   depende_de: PassoFaseInterna[];
   /** Dependências ainda não cumpridas. */
   pendencias: PassoFaseInterna[];
-  /** Pode iniciar (todas as dependências cumpridas)? Etapas independentes correm em paralelo. */
+  /**
+   * Pode iniciar? Todas as dependências cumpridas E — antes de tudo — a
+   * demanda aprovada (só a etapa da demanda anda antes da aprovação; pedido do
+   * dono, 26/09/2026). Etapas independentes correm em paralelo.
+   */
   pode_iniciar: boolean;
+  /** Etapa que espera a aprovação da demanda (qualquer uma, menos a da própria demanda). */
+  aguardando_demanda: boolean;
   /** Primeira peça ainda não pronta (destino do botão da tarefa). */
   peca_pendente: string | null;
   portao: Portao | null;
@@ -307,6 +313,9 @@ export function etapasDaFaseInterna(
     const reaberta = reabertas[codigo] ?? null;
     const revisar = aRevisar[codigo] ?? null;
     let aguardandoAprovacao = false;
+    // Antes da aprovação da demanda, só a etapa da demanda anda
+    const aguardandoDemanda = faltaAprovacao && codigo !== aprovacao.etapa;
+    const livre = pendencias.length === 0 && !aguardandoDemanda;
 
     let situacao: SituacaoPasso;
     if (def.conclusao === 'DIVULGACAO') {
@@ -318,16 +327,16 @@ export function etapasDaFaseInterna(
             ? 'CONCLUIDO'
             : reaberta
               ? 'EM_ANDAMENTO'
-              : pendencias.length
-                ? 'AGUARDANDO'
-                : 'DISPONIVEL';
+              : livre
+                ? 'DISPONIVEL'
+                : 'AGUARDANDO';
     } else if (def.conclusao === 'REGISTRO') {
       const registrado = !!registros[codigo] && !reaberta;
       if (registrado) situacao = revisar ? 'A_REVISAR' : 'CONCLUIDO';
       else if (cancelado && faseInterna) situacao = 'CANCELADO';
       else if (divulgado) situacao = 'NAO_REALIZADO';
       else if (reaberta) situacao = 'EM_ANDAMENTO';
-      else situacao = pendencias.length ? 'AGUARDANDO' : 'DISPONIVEL';
+      else situacao = livre ? 'DISPONIVEL' : 'AGUARDANDO';
     } else {
       // Portão A: com LIM-01 aberto a pesquisa não conclui, mesmo com a peça pronta
       const barrado = (bloqueios[codigo] ?? []).length > 0 && !divulgado && !cancelado;
@@ -338,7 +347,7 @@ export function etapasDaFaseInterna(
       else if (cancelado && faseInterna) situacao = 'CANCELADO';
       else if (divulgado) situacao = 'NAO_REALIZADO';
       else if (comecou || aguardandoAprovacao || reaberta) situacao = 'EM_ANDAMENTO';
-      else situacao = pendencias.length ? 'AGUARDANDO' : 'DISPONIVEL';
+      else situacao = livre ? 'DISPONIVEL' : 'AGUARDANDO';
     }
 
     calculados.set(codigo, {
@@ -349,7 +358,8 @@ export function etapasDaFaseInterna(
       pecas: lista,
       depende_de: depende,
       pendencias,
-      pode_iniciar: pendencias.length === 0,
+      pode_iniciar: livre,
+      aguardando_demanda: aguardandoDemanda,
       peca_pendente: lista.find((x) => !x.pronta)?.tipo ?? null,
       portao: (def.portao as Portao) ?? null,
       bloqueio_portao: bloqueios[codigo] ?? [],

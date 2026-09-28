@@ -32,6 +32,16 @@ describe('Motor — revisão idempotente', () => {
     expect(planoVazio(r2.plano)).toBe(true);
   });
 
+  it('evidências gravadas no jsonb (chaves reordenadas pelo Postgres) não contam como mudança', () => {
+    const av = avaliarRegras(montarContexto(pa139Real()));
+    const r1 = aplicar([], av);
+    const reordenada = r1.tabela.map((a: any) => ({
+      ...a,
+      evidencias: (a.evidencias ?? []).map((e: any) => Object.fromEntries(Object.entries(e).sort(([x], [y]) => y.length - x.length))),
+    }));
+    expect(planoVazio(aplicar(reordenada, avaliarRegras(montarContexto(pa139Real()))).plano)).toBe(true);
+  });
+
   it('o achado que deixa de ocorrer vira RESOLVIDO (com o motivo); o que reaparece é REABERTO', () => {
     const { tabela } = aplicar([], avaliarRegras(montarContexto(pa139Real())));
     const corrigido = aplicar(tabela, avaliarRegras(montarContexto(pa139Corrigido())));
@@ -84,8 +94,8 @@ describe('Motor — portões', () => {
   const real = () => avaliarRegras(montarContexto(pa139Real()));
 
   it('portão A só olha o limite (LIM-01); B, o limite e o art. 72; C, tudo menos o art. 72 I/II/IV', () => {
-    expect(regrasDoPortao('A').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02']);
-    expect(regrasDoPortao('B').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
+    expect(regrasDoPortao('A').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'LIM-03']);
+    expect(regrasDoPortao('B').map((r) => r.codigo)).toEqual(['LIM-01', 'LIM-02', 'LIM-03', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
     expect(regrasDoPortao('C').map((r) => r.codigo)).not.toContain('A72-I');
     expect(regrasDoPortao('C').map((r) => r.codigo)).not.toContain('A72-VII');
   });

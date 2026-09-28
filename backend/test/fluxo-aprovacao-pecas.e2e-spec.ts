@@ -28,6 +28,7 @@ import {
   criarOrgao,
   criarUsuarioOrgao,
   pdfDeTeste,
+  cumprirEtapasAnteriores,
 } from './support';
 import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
@@ -64,8 +65,27 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
     return et.etapas.flatMap((e: any) => e.passos).find((p: any) => p.passo === codigo);
   };
   const caixa = async (token: string) => (await http().get('/api/fase-interna/aprovacoes/caixa').set(bearer(token)).expect(200)).body as any[];
-  const emitir = (l: { id: string }, tipo: string, texto: string, token = agente.token) =>
-    http().post(`/api/fase-interna/${l.id}/documento`).set(bearer(token)).send({ tipo, titulo: tipo, descricao: texto });
+  /** Emite a peça — depois das etapas anteriores (ordem do fluxo — homologação multiusuário), cumpridas pelo órgão. */
+  const emitir = (l: { id: string }, tipo: string, texto: string, token = agente.token) => {
+    const resposta: Promise<any> = (async () => {
+      if (tipo !== 'DFD') await cumprirEtapasAnteriores(ctx, { id: l.id, orgao: A }, tipo);
+      const r = await http().post(`/api/fase-interna/${l.id}/documento`).set(bearer(token)).send({ tipo, titulo: tipo, descricao: texto });
+      // A peça pode ir ao fluxo pela avaliação em segundo plano (fila do processo): relê a situação gravada
+      await tarefas().aguardarPendentes();
+      if (r.status === 201 && r.body?.id) {
+        const [doc] = await sql(`SELECT status::text AS status FROM documentos_fase_interna WHERE id = $1`, [r.body.id]);
+        if (doc) r.body.status = doc.status;
+      }
+      return r;
+    })();
+    return Object.assign(resposta, {
+      expect: (status: number) =>
+        resposta.then((r: any) => {
+          expect(r.status).toBe(status);
+          return r;
+        }),
+    });
+  };
   const decidir = (etapaId: string, acao: 'aprovar' | 'reprovar', token: string | null, corpo: any = {}) => {
     const r = http().put(`/api/fase-interna/aprovacoes/etapa/${etapaId}/${acao}`);
     return (token ? r.set(bearer(token)) : r).send(corpo);
@@ -89,7 +109,7 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
     [{ id: setorB }] = await sql(`INSERT INTO setores (orgao_id, codigo, nome) VALUES ($1, 'RB', 'Setor de B') RETURNING id::text AS id`, [B.id]);
     await sql(`UPDATE usuarios SET setor_id = $2 WHERE id = $1`, [chefe.id, setorReq]);
     await sql(`UPDATE usuarios SET cargo = 'Diretora Administrativa' WHERE id = $1`, [diretor.id]);
-    lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+    lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
   });
 
   afterAll(async () => {
@@ -262,7 +282,9 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
         })
         .expect(201);
       await ligarAprovacaoInterna('DFD');
-      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      // quem faz o DFD responde por ele (papel Requisitante — homologação multiusuário)
+      await http().put(`/api/fase-interna/configuracao/usuarios/${apoio.id}`).set(bearer(A.token)).send({ papeis: ['REQUISITANTE'], setor_id: null }).expect(200);
+      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       const dfd = (await emitir(l, 'DFD', 'Demanda: material de escritório', apoio.token).expect(201)).body;
       expect(dfd.status).toBe('AGUARDANDO_APROVACAO');
       const e1 = (await caixa(chefe.token)).find((x) => x.documento_id === dfd.id);
@@ -286,12 +308,16 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
       expect(doc.assinaturas.map((a: any) => [a.assinante_nome, a.assinante_cargo])).toEqual([['Dora Diretora', 'Diretora Administrativa']]);
       expect((await instrucao(l, 'DFD')).status).toBe('OK');
     });
+
+    afterAll(async () => {
+      await ligarAprovacaoInterna('DFD', false);
+    });
   });
 
   // ==========================================================================
   describe('E. sem aprovação interna nada muda; ligada sem fluxo = aprovação única', () => {
     it('licitação (modelo sem aprovação interna no TR): o TR emitido fica pronto, sem ir para o fluxo — mesmo com fluxo do TR cadastrado', async () => {
-      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO);
+      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO, { extras: { pregoeiro_id: agente.id } });
       const r = (await emitir(l, 'TR', 'TR do pregão').expect(201)).body;
       expect(r.status).toBe('EM_ELABORACAO');
       const linha = await instrucao(l, 'TR');
@@ -300,7 +326,8 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
     });
 
     it('anexar feito fora na etapa com aprovação interna: a peça anexada também passa pela conferência', async () => {
-      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
+      await cumprirEtapasAnteriores(ctx, l, 'TR');
       const r = await http()
         .post(`/api/fase-interna/${l.id}/documentos/TR/anexo`)
         .set(bearer(agente.token))
@@ -315,7 +342,7 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
 
     it('aprovação interna ligada SEM fluxo para a peça: aviso na etapa; aprovação única por quem conduz (login/ADMIN do órgão)', async () => {
       await ligarAprovacaoInterna('ETP');
-      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       const etp = (await emitir(l, 'ETP', 'Estudo técnico preliminar').expect(201)).body;
       const linha = await instrucao(l, 'ETP');
       expect(linha).toMatchObject({ status: 'EM_APROVACAO', aprovacao_interna: true, sem_fluxo_aprovacao: true, fluxo_aprovacao: null });
@@ -341,7 +368,7 @@ describe('Fluxo de aprovação das peças nas telas das etapas', () => {
     let docA: string;
 
     beforeAll(async () => {
-      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      const l = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       docA = (await emitir(l, 'TR', 'TR para isolamento').expect(201)).body.id;
       [{ id: etapaAberta }] = await sql(`SELECT id::text AS id FROM aprovacoes_documento WHERE documento_id = $1 AND status = 'EM_ANALISE'`, [docA]);
     });

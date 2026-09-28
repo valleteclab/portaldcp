@@ -89,13 +89,24 @@ export function limiteDispensa(
  * (mesmo ramo de atividade) na mesma UNIDADE GESTORA. O ramo é a CLASSE do
  * código CATMAT (bens) ou CATSER (serviços) + a unidade gestora (unidade
  * compradora do processo). Item sem classe conhecida cai no ramo do próprio
- * código (conservador); sem código, no ramo "SEM_CODIGO" do tipo.
+ * código (conservador); a classe do CATÁLOGO PRÓPRIO do órgão, quando houver,
+ * vale como ramo.
+ *
+ * Item SEM código e sem classe (homologação multiusuário, 27/09/2026 — E6):
+ * não dá para afirmar o ramo de atividade ("objetos de mesma natureza", art.
+ * 75, §1º), então ele NÃO entra num ramo coletivo com os itens sem código de
+ * outras dispensas (antes, R$ 300 de papel somavam com R$ 77 mil de 11
+ * dispensas diversas e davam 119% do limite). Conta só dentro do próprio
+ * processo (`sem_classificacao`), e o processo recebe uma ATENÇÃO para
+ * classificar os itens (LIM-03).
  */
 export interface Ramo {
   /** "MATERIAL:7510", "SERVICO:0859", "MATERIAL:COD:446820", "SERVICO:SEM_CODIGO". */
   classe: string;
   /** Unidade gestora (código da unidade compradora); '' = a do órgão. */
   unidade_gestora: string;
+  /** Item sem código nem classe: o ramo não é conhecido — soma só no próprio processo. */
+  sem_classificacao?: boolean;
 }
 
 export function ramoDoItem(item: {
@@ -109,7 +120,9 @@ export function ramoDoItem(item: {
   const classe = String(item.classe ?? '').trim();
   const codigo = String(item.codigo_catmat || item.codigo_catser || item.codigo_catalogo || '').trim();
   const sufixo = classe ? classe : codigo ? `COD:${codigo}` : 'SEM_CODIGO';
-  return { classe: `${tipo}:${sufixo}`, unidade_gestora: String(unidadeGestora ?? '').trim() };
+  const ramo: Ramo = { classe: `${tipo}:${sufixo}`, unidade_gestora: String(unidadeGestora ?? '').trim() };
+  if (sufixo === 'SEM_CODIGO') ramo.sem_classificacao = true;
+  return ramo;
 }
 
 export const mesmoRamo = (a: Ramo, b: Ramo) => a.classe === b.classe && a.unidade_gestora === b.unidade_gestora;
@@ -142,10 +155,13 @@ export function consumoDoLimite(
   exercicio: number,
   ramo: Ramo,
   inciso?: IncisoLimiteDispensa,
+  /** Processo em análise: o ramo "sem classificação" soma só os itens dele (E6). */
+  licitacaoId?: string,
 ): ConsumoDoLimite {
   const porProcesso = new Map<string, number>();
   for (const r of registros) {
     if (r.orgao_id !== orgaoId || r.exercicio !== exercicio || !mesmoRamo(r.ramo, ramo)) continue;
+    if ((ramo.sem_classificacao || r.ramo.sem_classificacao) && (!licitacaoId || r.licitacao_id !== licitacaoId)) continue;
     if (inciso && r.inciso !== inciso) continue;
     const v = Number(r.valor) || 0;
     porProcesso.set(r.licitacao_id, (porProcesso.get(r.licitacao_id) ?? 0) + v);

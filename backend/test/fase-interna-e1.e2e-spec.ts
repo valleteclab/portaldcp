@@ -29,6 +29,7 @@ import {
   gerarAvisoDispensa,
   levarAteFase,
   pdfDeTeste,
+  cumprirEtapasAnteriores,
 } from './support';
 import { TarefasService } from '../src/fase-interna/tarefas/tarefas.service';
 import { corpoDivulgacao, criarDocumentoInstrucao, fimPropostasSugerido, vincularOrgaoPncp } from './support/dispensa';
@@ -91,16 +92,22 @@ describe('Fase interna — Entrega 1 (base)', () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
       await levarAteFase(ctx, lic, FaseLicitacao.APROVACAO_INTERNA);
       await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'DFD');
-      await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Despacho de autorização');
-      await gerarAvisoDispensa(ctx, lic);
     });
 
-    it('sem a estimativa de despesa, a publicação é recusada (única pendência)', async () => {
+    it('sem a estimativa de despesa, a autorização não pode começar (ordem do fluxo) e a publicação é recusada', async () => {
+      // Homologação multiusuário: a autorização depende da pesquisa (art. 72, II e VIII) — nem o órgão a faz antes
+      const aa = await http()
+        .post(`/api/fase-interna/${lic.id}/documento`)
+        .set(bearer(A.token))
+        .send({ tipo: 'AA', titulo: 'Despacho de autorização', descricao: 'Autorizo.' });
+      expect(aa.status).toBe(403);
+      expect(aa.body.codigo).toBe('AGUARDANDO_ETAPAS');
+      expect(aa.body.message).toMatch(/Pesquisa de preços/);
       const r = await http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(A.token)).send(corpoDivulgacao(fimPropostasSugerido()));
       expect(r.status).toBe(400);
       expect(JSON.stringify(r.body)).toMatch(/Estimativa de despesa/);
       const inst = await instrucao(lic);
-      expect(inst.pendentes).toHaveLength(1);
+      expect(inst.pendentes).toHaveLength(2); // estimativa e autorização
     });
 
     it('recusa arquivo que não é PDF, data futura e falta de data (nada gravado)', async () => {
@@ -130,9 +137,9 @@ describe('Fase interna — Entrega 1 (base)', () => {
     });
 
     it('anexo válido: IMPORTADO/ARQUIVO, SHA-256, data da peça + data do envio, folhas, e conta no checklist', async () => {
-      // DFD e despacho gerados antes já estão juntados: o anexo recebe a folha seguinte
+      // o DFD gerado antes já está juntado (a autorização vem depois — ordem do fluxo): o anexo recebe a folha seguinte
       antes = await ultimaFolhaJuntada(lic);
-      expect(antes).toBeGreaterThanOrEqual(2);
+      expect(antes).toBeGreaterThanOrEqual(1);
       const pdf = pdfDeTeste('Mapa de precos feito fora');
       const r = await anexar(lic, 'PP', A.token, { data_documento: '2026-01-15', numero_peca: 'Mapa 012/2026', observacao: 'Pesquisa feita pelo Setor de Compras' }, pdf, 'mapa.pdf');
       expect(r.status).toBe(201);
@@ -157,7 +164,8 @@ describe('Fase interna — Entrega 1 (base)', () => {
       const pp = itemDe(inst, 'PP');
       expect(pp.status).toBe('OK');
       expect(pp.peca).toMatchObject({ anexada: true, numero_peca: 'Mapa 012/2026', folha_inicial: antes + 1, versao: 1 });
-      expect(inst.pode_divulgar).toBe(true);
+      // só falta a autorização (ela vem depois das etapas anteriores — ordem do fluxo)
+      expect(inst.pendentes).toEqual([expect.stringMatching(/Autorização/)]);
       expect(pp.pode_nao_se_aplicar).toBe(false); // obrigatória no art. 72
       expect(itemDe(inst, 'ETP').pode_nao_se_aplicar).toBe(true);
     });
@@ -187,6 +195,9 @@ describe('Fase interna — Entrega 1 (base)', () => {
     });
 
     it('com a peça anexada, a publicação passa', async () => {
+      // As demais etapas na ordem do fluxo (a autorização por último) e o aviso
+      await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Despacho de autorização');
+      await gerarAvisoDispensa(ctx, lic);
       const r = await http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(A.token)).send(corpoDivulgacao(fimPropostasSugerido()));
       expect(r.status).toBe(200);
       expect([FaseLicitacao.AGUARDANDO_DIVULGACAO, FaseLicitacao.PUBLICADO]).toContain(r.body.fase);
@@ -227,7 +238,15 @@ describe('Fase interna — Entrega 1 (base)', () => {
       expect(bom.body.fundamento_legal).toBe('ART75_VIII');
     });
 
+    it('E6 (homologação multiusuário): itens SEM código não somam num ramo coletivo — contam só no próprio processo', async () => {
+      const r = (await http().get(`/api/fase-interna/${l1.id}/consumo-limite`).set(bearer(C.token)).expect(200)).body;
+      expect(r.maior).toMatchObject({ total: 2000, deste_processo: 2000, outros_processos: 0, quantidade_processos: 1, sem_classificacao: true });
+      expect(r.maior.ramo).toEqual({ classe: 'MATERIAL:SEM_CODIGO', unidade_gestora: '', sem_classificacao: true });
+    });
+
     it('consumo: soma as dispensas por valor do órgão no exercício e no ramo (fora: outro órgão e outra hipótese)', async () => {
+      // Itens classificados no catálogo (mesma classe = mesmo ramo de atividade — art. 75, §1º)
+      await sql(`UPDATE itens_licitacao SET classe_catalogo = '7510' WHERE licitacao_id IN (SELECT id FROM licitacoes WHERE orgao_id IN ($1, $2))`, [C.id, A.id]);
       const r = (await http().get(`/api/fase-interna/${l1.id}/consumo-limite`).set(bearer(C.token)).expect(200)).body;
       const lim = limiteDispensa(exercicio(), 'II')!;
       expect(r).toMatchObject({ aplicavel: true, inciso: 'II', exercicio: exercicio(), fundamento: 'ART75_II' });
@@ -235,7 +254,7 @@ describe('Fase interna — Entrega 1 (base)', () => {
       // l1 + l2 (2 × R$ 2.000); a de emergência (art. 75, VIII) e a do órgão B não entram
       expect(r.maior).toMatchObject({ total: 4000, deste_processo: 2000, outros_processos: 2000, quantidade_processos: 2 });
       expect(r.maior.percentual).toBe(Math.floor((4000 / lim.valor) * 1000) / 10);
-      expect(r.maior.ramo).toEqual({ classe: 'MATERIAL:SEM_CODIGO', unidade_gestora: '' });
+      expect(r.maior.ramo).toEqual({ classe: 'MATERIAL:7510', unidade_gestora: '' });
 
       const emerg = (await http().get(`/api/fase-interna/${lEmergencia.id}/consumo-limite`).set(bearer(C.token)).expect(200)).body;
       expect(emerg.aplicavel).toBe(false);
@@ -296,6 +315,8 @@ describe('Fase interna — Entrega 1 (base)', () => {
   describe('D. migrações de boot idempotentes', () => {
     it('fundamento legal: lê o amparo da peça JC; rodar 2x não muda nada', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      // A justificativa (JC) é das minutas: as etapas anteriores primeiro (ordem do fluxo)
+      await cumprirEtapasAnteriores(ctx, lic, 'JC');
       await http()
         .patch(`/api/fase-interna/${lic.id}/documentos/JC/secao/amparo_legal`)
         .set(bearer(A.token))
@@ -332,6 +353,15 @@ describe('Fase interna — Entrega 1 (base)', () => {
 
     it('anexo pela aba Documentos conta como a peça (espelho), e o espelho de boot é idempotente', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      // Homologação multiusuário: a aba Documentos segue a regra das etapas — a pesquisa só depois da demanda
+      const cedo = await http()
+        .post(`/api/documentos/licitacao/${lic.id}`)
+        .set(bearer(A.token))
+        .field('tipo', 'PESQUISA_PRECOS')
+        .field('titulo', 'Pesquisa antes da demanda')
+        .attach('arquivo', pdfDeTeste('Pesquisa cedo'), { filename: 'pp.pdf', contentType: 'application/pdf' });
+      expect(cedo.status).toBe(403);
+      await cumprirEtapasAnteriores(ctx, lic, 'PP');
       const up = await http()
         .post(`/api/documentos/licitacao/${lic.id}`)
         .set(bearer(A.token))
@@ -427,13 +457,9 @@ describe('Fase interna — Entrega 1 (base)', () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
       mesa = [];
       for (const p of papeis) mesa.push(await criarUsuarioOrgao(ctx, A, { role: RoleUsuario.ADMIN, nome: `Vereador ${p}` }));
+      // Portão B (Entrega 4): o despacho só vai para assinatura com o art. 72, I, II e IV completos —
+      // e (homologação multiusuário) só é feito depois das etapas anteriores, na ordem do fluxo
       await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Despacho da Mesa Diretora');
-      // Portão B (Entrega 4): o despacho só vai para assinatura com o art. 72, I, II e IV completos
-      await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'DFD');
-      await criarDocumentoInstrucao(ctx, lic, TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Estimativa de despesa');
-      for (const t of ['ETP', 'AR', 'TR', 'DO']) {
-        await http().post(`/api/fase-interna/${lic.id}/instrucao/${t}/nao-se-aplica`).set(bearer(A.token)).send({ justificativa: 'Não se aplica a esta contratação direta (art. 72).' }).expect(201);
-      }
     });
 
     it('signatário de outro órgão é recusado; isolamento do envio (403/403/401) e da consulta (404/403/401)', async () => {

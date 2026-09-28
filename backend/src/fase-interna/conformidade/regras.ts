@@ -124,12 +124,15 @@ export const LIM_01: Regra = {
         regra: 'LIM-01',
         chave: `ramo:${r.ramo.classe}|${r.ramo.unidade_gestora}`,
         severidade: 'BLOQUEIO' as const,
-        titulo: 'Limite da dispensa ultrapassado no ramo (fracionamento)',
-        mensagem:
-          `Soma das dispensas do órgão em ${l.exercicio} no ramo ${rotuloRamo(r.ramo.classe, r.ramo.unidade_gestora)}: ${BRL(r.total)} ` +
-          `(${r.quantidade_processos} processo(s), este incluído — deste: ${BRL(r.deste_processo)}; dos demais: ${BRL(r.outros_processos)}), ` +
-          `acima do limite do ${l.fundamento_referencia ?? `art. 75, ${l.inciso}`} de ${BRL(lim.valor)} (${lim.ato_normativo}${lim.provisorio ? ', provisório' : ''}). ` +
-          'O fracionamento é vedado (art. 75, §1º): reveja o objeto e as quantidades ou adote a licitação.',
+        titulo: r.sem_classificacao ? 'Limite da dispensa ultrapassado por este processo' : 'Limite da dispensa ultrapassado no ramo (fracionamento)',
+        mensagem: r.sem_classificacao
+          ? // Sem classificação o ramo não é conhecido: só o próprio processo conta (E6) — e ele sozinho passa o limite
+            `Os itens sem código CATMAT/CATSER deste processo somam ${BRL(r.deste_processo)}, acima do limite do ${l.fundamento_referencia ?? `art. 75, ${l.inciso}`} ` +
+            `de ${BRL(lim.valor)} (${lim.ato_normativo}${lim.provisorio ? ', provisório' : ''}). Reveja o objeto e as quantidades ou adote a licitação.`
+          : `Soma das dispensas do órgão em ${l.exercicio} no ramo ${rotuloRamo(r.ramo.classe, r.ramo.unidade_gestora)}: ${BRL(r.total)} ` +
+            `(${r.quantidade_processos} processo(s), este incluído — deste: ${BRL(r.deste_processo)}; dos demais: ${BRL(r.outros_processos)}), ` +
+            `acima do limite do ${l.fundamento_referencia ?? `art. 75, ${l.inciso}`} de ${BRL(lim.valor)} (${lim.ato_normativo}${lim.provisorio ? ', provisório' : ''}). ` +
+            'O fracionamento é vedado (art. 75, §1º): reveja o objeto e as quantidades ou adote a licitação.',
         evidencias: evidenciasDaPesquisa(ctx),
         tipo_peca_responsavel: 'PP',
         acao: 'CORRIGIR_PECA' as const,
@@ -148,7 +151,7 @@ export const LIM_02: Regra = {
     const l = ctx.limite!;
     const lim = l.limite!;
     return l.ramos
-      .filter((r) => !r.excede && r.percentual > 80)
+      .filter((r) => !r.excede && r.percentual > 80 && !r.sem_classificacao)
       .map((r) => ({
         regra: 'LIM-02',
         chave: `ramo:${r.ramo.classe}|${r.ramo.unidade_gestora}`,
@@ -162,6 +165,44 @@ export const LIM_02: Regra = {
         tipo_peca_responsavel: 'PP',
         acao: 'JUSTIFICAR' as const,
       }));
+  },
+};
+
+/**
+ * LIM-03 (homologação multiusuário, 27/09/2026 — E6): itens SEM código
+ * CATMAT/CATSER (nem classe do catálogo próprio) não permitem afirmar o ramo
+ * de atividade ("objetos de mesma natureza", art. 75, §1º). Eles não entram
+ * mais num ramo coletivo com as outras dispensas (antes: R$ 300 de papel viraram
+ * 119% do limite) — e o processo recebe esta ATENÇÃO para classificar os
+ * itens. Não trava o ato (o controle do fracionamento fica incompleto até a
+ * classificação), nem exige justificativa.
+ */
+export const LIM_03: Regra = {
+  codigo: 'LIM-03',
+  descricao: 'Itens sem classificação CATMAT/CATSER: o controle do limite no ramo (art. 75, §1º) fica incompleto',
+  severidade: 'ATENCAO',
+  etapa: 'PESQUISA',
+  portao: 'A',
+  aplicavel: limiteNaoAplicavel,
+  avaliar(ctx) {
+    const l = ctx.limite!;
+    const semClasse = l.ramos.filter((r) => r.sem_classificacao);
+    if (!semClasse.length) return [];
+    const valor = semClasse.reduce((s, r) => s + r.deste_processo, 0);
+    return [
+      {
+        regra: 'LIM-03',
+        chave: 'itens-sem-classificacao',
+        severidade: 'ATENCAO' as const,
+        titulo: 'Itens sem classificação no catálogo',
+        mensagem:
+          `Há itens sem código CATMAT/CATSER (${BRL(valor)} neste processo): classifique os itens pelo catálogo para o controle do limite do art. 75, §1º. ` +
+          'Sem a classificação não dá para somar as dispensas do mesmo ramo de atividade no exercício — por isso esses itens contam só neste processo.',
+        evidencias: evidenciasDaPesquisa(ctx),
+        tipo_peca_responsavel: 'PP',
+        acao: 'CORRIGIR_PECA' as const,
+      },
+    ];
   },
 };
 
@@ -998,6 +1039,7 @@ export const FLUXO_01: Regra = {
 export const REGRAS: Regra[] = [
   LIM_01,
   LIM_02,
+  LIM_03,
   A72_I,
   A72_II,
   A72_III,

@@ -76,7 +76,7 @@ interface TelaModelo {
   tipo: Tipo
   rotulo_tipo: string
   proprio: boolean
-  modelo: { id: string | null; nome: string; descricao: string | null; versao: number; aprovacao_demanda: AprovacaoDemanda; etapas: EtapaModelo[] }
+  modelo: { id: string | null; nome: string; descricao: string | null; versao: number; aprovacao_demanda: AprovacaoDemanda; exigir_posse_pecas?: boolean; etapas: EtapaModelo[] }
   validacao: { ok: boolean; erros: ErroModelo[]; avisos: ErroModelo[] }
   desenho: Array<{ nivel: number; etapas: string[] }>
   requisitos: Requisito[]
@@ -111,9 +111,10 @@ async function lerErro(r: Response): Promise<{ texto: string; erros: ErroModelo[
 }
 
 /** O que o "Salvar modelo" envia (só os campos editáveis). */
-function corpoDo(etapas: EtapaModelo[], aprovacao: AprovacaoDemanda) {
+function corpoDo(etapas: EtapaModelo[], aprovacao: AprovacaoDemanda, exigirPosse: boolean) {
   return {
     aprovacao_demanda: { exigida: aprovacao.exigida, aceita_peca_externa: aprovacao.aceita_peca_externa, aprovador: aprovacao.aprovador },
+    exigir_posse_pecas: exigirPosse,
     etapas: etapas.map((e) => ({
       codigo: e.codigo,
       titulo: e.titulo,
@@ -137,6 +138,7 @@ export default function ModeloFluxoPage() {
   const [tela, setTela] = useState<TelaModelo | null>(null)
   const [etapas, setEtapas] = useState<EtapaModelo[]>([])
   const [aprovacao, setAprovacao] = useState<AprovacaoDemanda | null>(null)
+  const [exigirPosse, setExigirPosse] = useState(true)
   const [gravado, setGravado] = useState("")
   const [validando, setValidando] = useState(false)
   const [salvando, setSalvando] = useState(false)
@@ -149,7 +151,8 @@ export default function ModeloFluxoPage() {
     if (marcarGravado) {
       setEtapas(t.modelo.etapas)
       setAprovacao(t.modelo.aprovacao_demanda)
-      setGravado(JSON.stringify(corpoDo(t.modelo.etapas, t.modelo.aprovacao_demanda)))
+      setExigirPosse(t.modelo.exigir_posse_pecas !== false)
+      setGravado(JSON.stringify(corpoDo(t.modelo.etapas, t.modelo.aprovacao_demanda, t.modelo.exigir_posse_pecas !== false)))
     }
   }, [])
 
@@ -181,7 +184,7 @@ export default function ModeloFluxoPage() {
     carregar(tipo)
   }, [carregar, tipo])
 
-  const corpo = useMemo(() => (aprovacao ? corpoDo(etapas, aprovacao) : null), [etapas, aprovacao])
+  const corpo = useMemo(() => (aprovacao ? corpoDo(etapas, aprovacao, exigirPosse) : null), [etapas, aprovacao, exigirPosse])
   const alterado = !!corpo && !!gravado && JSON.stringify(corpo) !== gravado
 
   // Validação ao vivo (sem gravar): o servidor aplica a lista, valida pela lei e devolve o desenho
@@ -452,6 +455,14 @@ export default function ModeloFluxoPage() {
                 onChange={(e) => setAprovacao({ ...aprovacao, aceita_peca_externa: e.target.checked })}
               />
               <span>DFD juntada feita fora (assinada no papel) já traz a aprovação — não pede de novo</span>
+            </label>
+            <label className="flex gap-2 items-start text-sm border-t pt-3">
+              <input type="checkbox" className="mt-1" checked={exigirPosse} onChange={(e) => setExigirPosse(e.target.checked)} />
+              <span>
+                <b>Exigir a posse para trabalhar nas peças</b> (modo por setor): só quem está com o processo — o setor ou a pessoa para quem ele foi
+                enviado — gera, anexa ou altera as peças da própria etapa. No modo simples não se aplica. O administrador do órgão pode agir fora da
+                vez, com registro no histórico.
+              </span>
             </label>
           </fieldset>
         </CardContent>

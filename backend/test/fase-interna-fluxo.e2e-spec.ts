@@ -179,7 +179,7 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       await http().put('/api/fluxo-fase-interna/requisitos/RL-CD-AUTORIZACAO').set(bearer(ctx.tokenAdmin())).send({ mensagem: 'Falta a autorização da autoridade competente' }).expect(200);
       const travas = (await http().get('/api/fluxo-fase-interna/travas').set(bearer(agenteA.token)).expect(200)).body;
       expect(travas.map((t: any) => t.ato)).toEqual(['CONCLUIR_PESQUISA', 'AUTORIZAR', 'PUBLICAR']);
-      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
+      expect(travas[1].regras.map((r: any) => r.regra)).toEqual(['LIM-01', 'LIM-02', 'LIM-03', 'A72-I', 'A72-II', 'A72-IV', 'A72-VI', 'A72-VII']);
       expect((await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(A.token)).send({ ativa: false })).status).toBe(403);
       await http().put('/api/fluxo-fase-interna/travas/AUTORIZAR/A72-I').set(bearer(ctx.tokenAdmin())).send({ severidade: 'BLOQUEIO' }).expect(200);
       const sis = (await modelo(ctx.tokenAdmin(), 'DISPENSA', '?sistema=true').expect(200)).body;
@@ -421,6 +421,8 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       const G = await criarOrgao(ctx, { nome: 'Câmara F1 G (legado)' });
       const req = await criarUsuarioOrgao(ctx, G, { role: RoleUsuario.EQUIPE_APOIO, nome: 'Req G' });
       await http().put('/api/fase-interna/configuracao').set(bearer(G.token)).send({ modo: 'POR_SETOR' }).expect(200);
+      // o requisitante responde pelo DFD (por setor, só quem responde pela etapa trabalha na peça)
+      await http().put(`/api/fase-interna/configuracao/usuarios/${req.id}`).set(bearer(G.token)).send({ papeis: ['REQUISITANTE'], setor_id: null }).expect(200);
       const lic = await criarLicitacao(ctx, G, ModalidadeLicitacao.DISPENSA_ELETRONICA);
       await tarefas().aguardarPendentes();
       // "de antes da F1": sem fluxo gravado e criado antes do marco (a semente do modelo do sistema)

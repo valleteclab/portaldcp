@@ -44,6 +44,14 @@ export class ModeloFluxoFaseInterna {
   @Column({ type: 'jsonb' })
   aprovacao_demanda: Record<string, any>;
 
+  /**
+   * No modo POR_SETOR, exigir que o processo ESTEJA COM quem trabalha nas
+   * peças (posse da tramitação). Padrão ligado — as linhas existentes ganham
+   * o valor pelo `default` da coluna (synchronize), sem migração manual.
+   */
+  @Column({ type: 'boolean', default: true })
+  exigir_posse_pecas: boolean;
+
   /** Modelo de que este foi copiado (o do sistema). */
   @Column({ type: 'uuid', nullable: true })
   origem_modelo_id: string | null;

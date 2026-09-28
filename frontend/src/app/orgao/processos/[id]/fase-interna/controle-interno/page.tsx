@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
+import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { erroDaApi, fmtDia } from "@/lib/fase-interna/telas"
@@ -34,6 +35,8 @@ interface ControleTela {
 
 export default function ControleInternoPage() {
   const { id } = useParams() as { id: string }
+  // Isolamento das peças: a permissão de quem vê nesta etapa (EtapaShell)
+  const [perm, setPerm] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const [d, setD] = useState<ControleTela | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
@@ -98,7 +101,8 @@ export default function ControleInternoPage() {
   }
 
   return (
-    <EtapaShell licitacaoId={id} tela="controle-interno" titulo="Controle interno" subtitulo="Art. 169, II da Lei 14.133/2021 — regulamento do órgão" atualizacao={atualizacao}>
+    <EtapaShell
+      onPermissao={setPerm} licitacaoId={id} tela="controle-interno" titulo="Controle interno" subtitulo="Art. 169, II da Lei 14.133/2021 — regulamento do órgão" atualizacao={atualizacao}>
       {erroAcao && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
           <b>Não foi possível concluir:</b> {erroAcao}
@@ -164,7 +168,7 @@ export default function ControleInternoPage() {
                   <Textarea id="apont" rows={3} value={apontamentos} onChange={(e) => setApontamentos(e.target.value)} />
                 </>
               )}
-              <Button onClick={manifestar} disabled={ocupado || d.licitacao.fase_interna === false}>
+              <Button onClick={manifestar} disabled={ocupado || d.licitacao.fase_interna === false || !perm.pode} title={perm.motivo ?? undefined}>
                 {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <PenLine className="w-4 h-4 mr-1" />} Assinar manifestação
               </Button>
             </section>

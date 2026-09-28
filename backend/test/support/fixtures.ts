@@ -468,24 +468,93 @@ export async function ajustarCronograma(
 
 const CONTRATACAO_DIRETA = [ModalidadeLicitacao.DISPENSA_ELETRONICA, ModalidadeLicitacao.INEXIGIBILIDADE];
 
+/** Peças que a lei não deixa marcar "não se aplica" na contratação direta: feitas no sistema pelo teste. */
+const TITULO_PECA_E2E: Record<string, string> = {
+  DFD: 'Formalização da demanda (DFD)',
+  PP: 'Estimativa de despesa',
+  AA: 'Autorização da autoridade competente',
+};
+
 /**
- * Instrução mínima do art. 72 (DFD, estimativa de despesa, autorização) —
- * gate de publicação da contratação direta. Via POST /api/fase-interna/:id/documento.
+ * CUMPRE AS ETAPAS ANTERIORES de uma etapa (código do modelo, ex.
+ * 'AUTORIZACAO' / 'PUBLICACAO', ou o tipo da peça, ex. 'AA') NA ORDEM DO FLUXO
+ * (homologação multiusuário, 27/09/2026): o sistema só deixa trabalhar numa
+ * etapa que PODE COMEÇAR — demanda aprovada (o login do órgão aprova ao fazer o
+ * DFD) e dependências do modelo concluídas. As peças obrigatórias (DFD,
+ * estimativa, autorização, e todas no rito completo) são feitas no sistema; as
+ * "se for o caso" da contratação direta, marcadas "não se aplica" com
+ * justificativa. Tudo pela API, com o login do órgão (quem conduz).
+ * `incluirAlvo`: cumpre também as peças da própria etapa.
+ */
+export async function cumprirEtapasAnteriores(
+  ctx: AppE2E,
+  lic: { id: string; orgao: { token: string } },
+  alvo: string,
+  opts: { incluirAlvo?: boolean; token?: string } = {},
+): Promise<void> {
+  const token = opts.token ?? lic.orgao.token;
+  for (let volta = 0; volta < 30; volta++) {
+    const et = await ctx.http().get(`/api/fase-interna/${lic.id}/etapas`).set(bearer(token));
+    esperarStatus(et, 200, 'etapas do processo');
+    const passos: any[] = (et.body?.etapas ?? []).flatMap((e: any) => e.passos ?? []);
+    const doAlvo = passos.find((p) => p.passo === alvo || (p.pecas ?? []).some((x: any) => x.tipo === alvo));
+    if (!doAlvo) return;
+    const cumpre = (p: any) => p.situacao === 'CONCLUIDO' || p.situacao === 'NAO_REALIZADO';
+    // Dependências (transitivas) ainda pendentes
+    const pendentes = new Set<string>();
+    const fila = [...(doAlvo.aguardando_demanda ? ['DFD'] : []), ...(doAlvo.pendencias ?? [])];
+    while (fila.length) {
+      const c = fila.shift()!;
+      if (pendentes.has(c)) continue;
+      pendentes.add(c);
+      const p = passos.find((x) => x.passo === c);
+      if (p) fila.push(...(p.pendencias ?? []), ...(p.aguardando_demanda ? ['DFD'] : []));
+    }
+    if (opts.incluirAlvo && !cumpre(doAlvo)) pendentes.add(doAlvo.passo);
+    // A demanda pronta e ainda não aprovada: o login do órgão aprova
+    const dfd = passos.find((p) => p.passo === 'DFD');
+    if (dfd?.aguardando_aprovacao && et.body?.aprovacao_demanda?.pode_aprovar) {
+      const ap = await ctx.http().post(`/api/fase-interna/${lic.id}/demanda/aprovar`).set(bearer(token)).send({});
+      esperarStatus(ap, 201, 'aprovar a demanda');
+      continue;
+    }
+    // Próximas: as pendentes que já podem começar
+    const agora = passos.filter((p) => pendentes.has(p.passo) && !cumpre(p) && p.pode_iniciar && !p.aguardando_aprovacao);
+    if (!agora.length) return;
+    const instr = await ctx.http().get(`/api/fase-interna/${lic.id}/instrucao`).set(bearer(token));
+    esperarStatus(instr, 200, 'instrução do processo');
+    const linha = (tipo: string) => (instr.body?.itens ?? []).find((i: any) => i.tipo === tipo);
+    // Peça em aprovação ou em assinatura espera a decisão de outra pessoa: o teste resolve
+    const aFazer = (p: any) => (p.pecas ?? []).filter((x: any) => !x.pronta && !['EM_APROVACAO', 'EM_ASSINATURA'].includes(x.status));
+    if (!agora.some((p) => aFazer(p).length)) return;
+    for (const p of agora) {
+      for (const peca of aFazer(p)) {
+        const l = linha(peca.tipo);
+        const r = l?.pode_nao_se_aplicar && !TITULO_PECA_E2E[peca.tipo]
+          ? await ctx
+              .http()
+              .post(`/api/fase-interna/${lic.id}/instrucao/${peca.tipo}/nao-se-aplica`)
+              .set(bearer(token))
+              .send({ justificativa: `Peça "se for o caso" dispensada nesta contratação de teste E2E (${peca.tipo}).` })
+          : await ctx
+              .http()
+              .post(`/api/fase-interna/${lic.id}/documento`)
+              .set(bearer(token))
+              .send({ tipo: peca.tipo, titulo: TITULO_PECA_E2E[peca.tipo] ?? peca.titulo ?? peca.tipo, descricao: `${peca.titulo ?? peca.tipo} — documento de teste E2E` });
+        esperarStatus(r, 201, `cumprir ${peca.tipo} (etapa ${p.passo})`);
+      }
+    }
+  }
+}
+
+/**
+ * Instrução do art. 72 NA ORDEM DO FLUXO: DFD, estimativa e autorização feitas
+ * no sistema; as peças "se for o caso" (ETP, riscos, TR, reserva, relatório e
+ * minutas, parecer, designação) "não se aplica" — cada uma quando a etapa dela
+ * pode começar. A publicação exige todas as etapas concluídas (E3).
  */
 export async function prepararInstrucaoContratacaoDireta(ctx: AppE2E, lic: LicitacaoFixture): Promise<void> {
-  const docs: Array<[TipoDocumentoFaseInterna, string]> = [
-    [TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'Formalização da demanda (DFD)'],
-    [TipoDocumentoFaseInterna.PESQUISA_PRECOS, 'Estimativa de despesa'],
-    [TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA, 'Autorização da autoridade competente'],
-  ];
-  for (const [tipo, titulo] of docs) {
-    const r = await ctx
-      .http()
-      .post(`/api/fase-interna/${lic.id}/documento`)
-      .set(bearer(lic.orgao.token))
-      .send({ tipo, titulo, descricao: `${titulo} — documento de teste E2E` });
-    esperarStatus(r, 201, `criar documento ${tipo}`);
-  }
+  await cumprirEtapasAnteriores(ctx, lic, 'PUBLICACAO');
 }
 
 /**
@@ -499,7 +568,9 @@ export async function prepararDocumentosEtapa(
   lic: LicitacaoFixture,
   etapa: FaseLicitacao,
 ): Promise<void> {
-  for (const tipo of DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[etapa] ?? []) {
+  // Na ordem do fluxo: a reserva (dotação) antes da autorização (art. 18 — a autorização depende dela)
+  const ordem = (t: TipoDocumentoFaseInterna) => (t === TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA ? 0 : 1);
+  for (const tipo of [...(DOCUMENTOS_OBRIGATORIOS_POR_ETAPA[etapa] ?? [])].sort((a, b) => ordem(a) - ordem(b))) {
     const r = await ctx
       .http()
       .post(`/api/fase-interna/${lic.id}/documento`)
