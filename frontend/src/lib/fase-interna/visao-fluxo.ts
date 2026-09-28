@@ -66,6 +66,8 @@ export interface PassoFluxo {
   reaberta?: MarcaFluxo | null
   a_revisar?: MarcaFluxo | null
   registro?: MarcaFluxo | null
+  /** Pode voltar (reabrir) esta etapa: quem conduz o processo ou o responsável por ela. */
+  pode_reabrir?: boolean
 }
 
 export interface GrupoFluxo {
@@ -233,7 +235,7 @@ export function acoesDoPasso(p: PassoFluxo, ctx: { interna: boolean; permissoes?
       concluir = { tipo: "REGISTRO", rotulo: "Registrar o despacho", pedido: "Despacho desta etapa (vai para o histórico do processo)" }
     }
   }
-  const voltar = vivo && !!ctx.permissoes?.reabrir && (p.situacao === "CONCLUIDO" || p.situacao === "A_REVISAR") && p.conclusao !== "DIVULGACAO"
+  const voltar = vivo && (p.pode_reabrir ?? !!ctx.permissoes?.reabrir) && (p.situacao === "CONCLUIDO" || p.situacao === "A_REVISAR") && p.conclusao !== "DIVULGACAO"
   return {
     abrir: p.conclusao !== "REGISTRO",
     concluir,
@@ -359,11 +361,17 @@ export interface SugestaoEnvio {
     /** Pares [código, nome] das etapas que o destino faz. */
     etapas: Array<[string, string]>
     principal: boolean
+    /** Destino antecipado: vale depois de concluir estas etapas de quem está com o processo. */
+    depois_de?: Array<[string, string]> | null
   }>
   despacho_sugerido: string
   finalidade: string | null
   pode_enviar: boolean
   motivo_bloqueio?: string
+  /** Etapas que ainda estão com quem tem o processo. */
+  pendentes_do_detentor?: Array<[string, string]>
+  /** Etapas disponíveis sem setor/pessoa definidos no modelo (envio manual). */
+  etapas_sem_destino?: Array<[string, string]>
 }
 
 export interface OpcaoDestino {
@@ -374,6 +382,7 @@ export interface OpcaoDestino {
   etapas: Array<[string, string]>
   principal: boolean
   origem: "SUGESTAO" | "SETOR"
+  depois_de?: Array<[string, string]> | null
 }
 
 /**
@@ -394,6 +403,7 @@ export function opcoesDeDestino(sugestao: SugestaoEnvio | null, setores: Array<{
       etapas: d.etapas ?? [],
       principal: !!d.principal,
       origem: "SUGESTAO",
+      depois_de: d.depois_de ?? null,
     })
   }
   for (const s of setores) {

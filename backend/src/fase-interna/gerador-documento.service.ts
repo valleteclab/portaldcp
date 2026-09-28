@@ -570,7 +570,12 @@ export class GeradorDocumentoService {
         pdf.restore();
       }
       pdf.y = yIni + altura;
+      // O texto de cada célula move o cursor horizontal para a coluna dela: sem voltar à
+      // margem, o que vem depois da tabela saía espremido na última coluna (homologação:
+      // "PDF do TR com as seções 2+ numa coluna estreita")
+      pdf.x = startX;
     }
+    pdf.x = startX;
     pdf.moveDown(0.5);
   }
 

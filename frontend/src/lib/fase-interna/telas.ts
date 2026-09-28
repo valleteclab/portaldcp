@@ -156,3 +156,26 @@ export async function erroDaApi(res: Response): Promise<string> {
 
 /** Texto puro de um HTML (contagem de preenchimento). */
 export const textoPuro = (html?: string | null) => String(html || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim()
+
+/**
+ * VERSÃO VIGENTE × BASE EDITÁVEL da peça (homologação E5: as seções do TR v1
+ * sumiam depois de anexar a v2). `lista` = GET /documentos/:tipo (versões,
+ * mais nova primeiro). A vigente é a versão atual; a base do editor é ela
+ * mesma quando feita no sistema, ou — com a vigente ANEXADA — a última versão
+ * feita no sistema com conteúdo (continua como base para gerar de novo; não
+ * conta como peça pronta).
+ */
+export function vigenteEBaseDoEditor(lista: any[] | null | undefined): { vigente: any | null; base: any | null; baseAnterior: boolean } {
+  const versoes = Array.isArray(lista) ? lista : []
+  const vigente = versoes.find((x) => x?.versao_atual) ?? versoes[0] ?? null
+  if (!vigente) return { vigente: null, base: null, baseAnterior: false }
+  if (vigente.origem === "INTERNO") return { vigente, base: vigente, baseAnterior: false }
+  const temConteudo = (d: any) =>
+    !!d &&
+    typeof d === "object" &&
+    Object.entries(d).some(([k, v]) => !k.startsWith("_") && k !== "nao_se_aplica" && k !== "justificativa_nao_se_aplica" && typeof v === "string" && v.replace(/<[^>]+>/g, "").trim().length > 0)
+  const base = [...versoes]
+    .sort((a, b) => (b.versao ?? 0) - (a.versao ?? 0))
+    .find((x) => x.origem === "INTERNO" && !x.dados_estruturados?.nao_se_aplica && temConteudo(x.dados_estruturados))
+  return base ? { vigente, base, baseAnterior: true } : { vigente, base: vigente, baseAnterior: false }
+}

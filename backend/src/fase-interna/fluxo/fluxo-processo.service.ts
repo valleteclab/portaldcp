@@ -78,10 +78,12 @@ export class FluxoProcessoService {
   // VOLTAR (reabrir etapa)
   // ==========================================================================
 
-  async reabrir(licitacaoId: string, codigo: string, body: any, ator: Ator) {
+  async reabrir(licitacaoId: string, codigo: string, body: any, ator: Ator, opcoes: { permissaoConferida?: boolean } = {}) {
     const lic = await this.processo(licitacaoId);
-    if (!(await this.tarefas.podeConduzirProcesso(ator, licitacaoId))) {
-      throw new ForbiddenException('Só quem conduz o processo (agente de contratação, administrador do órgão ou o login do órgão) reabre uma etapa.');
+    // Quem conduz o processo ou o responsável pela etapa no modelo (homologação: o "Voltar"
+    // fica na própria tela da etapa — quem fez a peça pode voltá-la, com motivo)
+    if (!opcoes.permissaoConferida && !(await this.podeReabrir(ator, licitacaoId, codigo))) {
+      throw new ForbiddenException('Só quem conduz o processo (agente de contratação, administrador do órgão ou o login do órgão) ou o responsável pela etapa reabre uma etapa.');
     }
     const motivo = this.motivo(body?.motivo, 'o motivo da reabertura');
     const passo = await this.passo(licitacaoId, lic, codigo);
@@ -121,6 +123,51 @@ export class FluxoProcessoService {
     );
     await this.tarefas.agendar(licitacaoId);
     return this.tarefas.etapasDoProcesso(licitacaoId, ator);
+  }
+
+  /** Pode voltar (reabrir) esta etapa: quem conduz o processo ou (modo por setor) o responsável pela etapa no modelo. */
+  async podeReabrir(ator: Ator, licitacaoId: string, codigo: string): Promise<boolean> {
+    if (await this.tarefas.podeConduzirProcesso(ator, licitacaoId)) return true;
+    const ctx = await this.modeloFluxo.contextoDoProcesso(licitacaoId).catch(() => null);
+    const etapa = ctx?.modelo.etapas.find((e) => e.codigo === codigo);
+    if (!ctx || !etapa) return false;
+    // Modo SIMPLES: uma pessoa conduz tudo — só ela (e o administrador) volta etapa
+    if ((await this.tarefas.configuracao(ctx.orgao_id)).modo !== 'POR_SETOR') return false;
+    return this.ehResponsavel(ator, ctx.orgao_id, etapa.responsavel);
+  }
+
+  /**
+   * "DESFAZER NÃO SE APLICA" (homologação, passo 6: reabria sem motivo e sem
+   * marcar as dependentes). Se a etapa da peça está concluída (ou a revisar),
+   * desfazer é VOLTAR a etapa: exige o motivo (400 sem ele), a mesma
+   * permissão da reabertura (403) e deixa as dependentes concluídas "a
+   * revisar". Etapa ainda não concluída: nada a reabrir (o desfazer segue).
+   */
+  async reabrirParaDesfazerNaoSeAplica(licitacaoId: string, tipo: string, motivo: unknown, ator: Ator): Promise<void> {
+    const lic = await this.processo(licitacaoId);
+    const [doc] = await this.ds.query(
+      `SELECT id, aprovador_id FROM documentos_fase_interna WHERE licitacao_id::text = $1 AND tipo::text = $2 AND versao_atual = true
+          AND (dados_estruturados->>'nao_se_aplica')::boolean IS TRUE LIMIT 1`,
+      [licitacaoId, tipo],
+    );
+    if (!doc) return;
+    const ctx = await this.contexto(licitacaoId);
+    const etapa = ctx.modelo.etapas.find((e) => e.tipos_peca.includes(tipo));
+    if (!etapa) return;
+    const passo = passosDasEtapas(await this.tarefas.etapasCalculadas(licitacaoId, lic)).find((p) => p.passo === etapa.codigo);
+    if (!passo || (passo.situacao !== 'CONCLUIDO' && passo.situacao !== 'A_REVISAR')) return;
+    const texto = String(motivo ?? '').trim();
+    if (texto.length < 10) {
+      throw new BadRequestException(
+        `Desfazer o "não se aplica" reabre a etapa "${passo.titulo}", que está concluída: informe o motivo (pelo menos 10 caracteres). As etapas que dependem dela ficam "a revisar".`,
+      );
+    }
+    // Quem marcou o "não se aplica" também desfaz a própria marcação (além de quem conduz e do responsável)
+    const marcouEle = !!ator.usuarioId && !!doc.aprovador_id && String(doc.aprovador_id) === ator.usuarioId;
+    if (!marcouEle && !(await this.podeReabrir(ator, licitacaoId, etapa.codigo))) {
+      throw new ForbiddenException('Só quem conduz o processo, o responsável pela etapa ou quem marcou o "não se aplica" o desfaz depois de a etapa concluir.');
+    }
+    await this.reabrir(licitacaoId, etapa.codigo, { motivo: `Desfeito o "não se aplica": ${texto}` }, ator, { permissaoConferida: true });
   }
 
   // ==========================================================================

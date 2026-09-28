@@ -19,7 +19,9 @@ import { Button } from "@/components/ui/button"
 import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
-import { erroDaApi, fmtMoeda, rotaDaTela } from "@/lib/fase-interna/telas"
+import { BaseEditavelAviso } from "@/components/fase-interna/etapas/BaseEditavelAviso"
+import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
+import { erroDaApi, fmtMoeda, rotaDaTela, vigenteEBaseDoEditor } from "@/lib/fase-interna/telas"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
   ssr: false,
@@ -41,12 +43,17 @@ interface TrTela {
   fundamento_legal: { codigo: string | null; texto: string | null }
   dotacao: { status: string; texto: string } | null
   derivaveis: Array<{ secao_id: string; origem: string }>
+  /** Seções obrigatórias (art. 6º, XXIII) sem texto e que o sistema não completa sozinho. */
+  obrigatorias_faltando?: Array<{ id: string; titulo: string }>
 }
 
 export default function TrPage() {
   const { id } = useParams() as { id: string }
   const [d, setD] = useState<TrTela | null>(null)
   const [documento, setDocumento] = useState<any>(undefined)
+  /** Versão vigente (pode ser o PDF anexado) — o editor mostra a base (última feita aqui). */
+  const [vigente, setVigente] = useState<any>(null)
+  const { confirmar, dialogo } = useDialogoConfirmacao()
   const [licitacao, setLicitacao] = useState<any>(null)
   const [editorChave, setEditorChave] = useState(0)
   const [erro, setErro] = useState<string | null>(null)
@@ -63,7 +70,10 @@ export default function TrPage() {
       if (!r.ok) throw new Error(await erroDaApi(r))
       setD(await r.json())
       const lista = docRes.ok ? await docRes.json() : []
-      setDocumento(Array.isArray(lista) ? lista.find((x: any) => x.versao_atual) ?? lista[0] ?? null : lista)
+      // E5: com o TR anexado, o editor mostra a última versão feita aqui (base para gerar de novo)
+      const vb = vigenteEBaseDoEditor(Array.isArray(lista) ? lista : [])
+      setVigente(vb.vigente)
+      setDocumento(vb.base)
       if (licRes.ok) setLicitacao(await licRes.json())
       setEditorChave((n) => n + 1)
     } catch (e) {
@@ -75,6 +85,24 @@ export default function TrPage() {
   }, [carregar])
 
   const gerar = async () => {
+    // Antes de gerar: o que falta (as seções obrigatórias vazias saem como "não preenchida")
+    const faltando = d?.obrigatorias_faltando ?? []
+    const anexada = !!vigente && vigente.origem !== "INTERNO"
+    if (faltando.length || anexada) {
+      const ok = await confirmar({
+        titulo: "Gerar o TR (PDF)",
+        mensagem: [
+          anexada ? `A versão vigente é o PDF anexado (versão ${vigente.versao}). Gerar cria a versão ${Number(vigente.versao) + 1} a partir das seções abaixo; o anexo fica no histórico.` : "",
+          faltando.length
+            ? `Seções obrigatórias ainda vazias (art. 6º, XXIII): ${faltando.map((f) => f.titulo).join("; ")}. Elas sairão como "Seção não preenchida" — o TR gerado conta como pronto assim mesmo.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+        confirmarRotulo: faltando.length ? "Gerar mesmo assim" : "Gerar",
+      })
+      if (!ok) return
+    }
     setGerando(true)
     try {
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/documentos/TR/gerar`, { method: "POST" })
@@ -119,6 +147,7 @@ export default function TrPage() {
       tela="tr"
       titulo="Termo de Referência"
       subtitulo={<span>Art. 6º, XXIII, alíneas a–j, e art. 40 da Lei 14.133/2021{d.tr.peca ? ` · versão ${d.tr.peca.versao}` : ""}</span>}
+
       atualizacao={atualizacao}
       acoes={
         <Button onClick={gerar} disabled={gerando || somenteLeitura} title="Completa as seções vazias a partir do ETP, do fundamento legal e da reserva, e gera o PDF pelo modelo">
@@ -126,6 +155,7 @@ export default function TrPage() {
         </Button>
       }
     >
+      {dialogo}
       <CaminhosDaPeca licitacaoId={id} tipo="TR" titulo="Termo de referência" fazerAqui="redigir e gerar o TR (derivado do ETP)" atualizacao={atualizacao} onAtualizado={() => { carregar(); setAtualizacao((n) => n + 1) }} />
       {!naoSeAplica && (
         <RascunhoIaFaixa
@@ -211,6 +241,20 @@ export default function TrPage() {
         </p>
       </section>
 
+      {!naoSeAplica && !!d.obrigatorias_faltando?.length && (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-950" aria-label="O que falta no TR">
+          <p className="font-medium">Faltam {d.obrigatorias_faltando.length} seção(ões) obrigatória(s) do TR (art. 6º, XXIII):</p>
+          <ul className="list-disc ml-5 text-xs mt-1 space-y-0.5">
+            {d.obrigatorias_faltando.map((f) => (
+              <li key={f.id}>
+                <a className="underline" href={`#secao-${f.id}`}>{f.titulo}</a>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs mt-1">As demais o &quot;Gerar TR&quot; completa a partir do ETP, do fundamento legal e da reserva. Gerado, o TR conta como pronto.</p>
+        </section>
+      )}
+      {!naoSeAplica && <BaseEditavelAviso vigente={vigente} base={documento} titulo="o TR" />}
       {naoSeAplica ? (
         <div className="rounded-lg border bg-slate-50 p-4 text-sm text-gray-700">O TR foi marcado como <b>não se aplica</b>. Para elaborá-lo, desfaça a marcação acima.</div>
       ) : (

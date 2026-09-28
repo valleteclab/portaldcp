@@ -67,6 +67,8 @@ import { TramitacaoService } from './tramitacao.service';
 import { TramitacaoPrazosScheduler } from './tramitacao-prazos.scheduler';
 import { AprovacaoService } from './aprovacao.service';
 import { AprovacaoPecasService } from './aprovacao-pecas.service';
+import { AssinaturasInternasService } from './assinaturas-internas.service';
+import { AssinaturasInternasController } from './assinaturas-internas.controller';
 import { ProcessoEletronicoController } from './processo-eletronico.controller';
 import { Setor } from '../orgaos/entities/setor.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
@@ -166,6 +168,7 @@ import {
     FluxoProcessoController,
     IntegracaoFluxoController,
     RascunhoIaController,
+    AssinaturasInternasController,
   ],
   providers: [
     // Primeira migração do módulo: as folhas dos autos são decididas antes de qualquer
@@ -205,6 +208,7 @@ import {
     TramitacaoPrazosScheduler,
     AprovacaoService,
     AprovacaoPecasService,
+    AssinaturasInternasService,
     DerivacaoService,
     AuditLogService,
     DocumentoEstruturadoService,

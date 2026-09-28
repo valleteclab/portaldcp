@@ -354,6 +354,61 @@ export class ParecerTelaService {
   }
 
   /**
+   * DILIGÊNCIAS DA PEÇA (homologação: a tarefa "Diligência do parecer — TR"
+   * levava ao TR, mas o banner e o "Sanar" só existiam na tela do Parecer).
+   * As diligências abertas (e as últimas sanadas) sobre a peça do tipo, com
+   * quem abriu, se já há versão nova pronta e se o usuário do JWT pode sanar.
+   */
+  async diligenciasDaPeca(licitacaoId: string, tipoParam: unknown, ator: Ator) {
+    const tipo = String(tipoParam ?? '').toUpperCase().slice(0, 10);
+    const lic = await this.minutas.licitacao(licitacaoId);
+    const lista = await this.diligenciaRepo.find({ where: { licitacao_id: licitacaoId, tipo_alvo: tipo }, order: { created_at: 'ASC' } });
+    if (!lista.length) return { tipo, diligencias: [] };
+    const atual = await this.minutas.docAtual(licitacaoId, tipo);
+    const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    const linha = instrucao.itens.find((i) => i.tipo === tipo);
+    const pronta = !!atual && (linha ? ['OK', 'NAO_SE_APLICA'].includes(linha.status) : pecaContaComoPronta(atual as any));
+    const saida: any[] = [];
+    for (const d of lista) {
+      if (d.status === 'CANCELADA') continue;
+      const podeSanarAqui = d.status === 'ABERTA' ? await this.quemSana(licitacaoId, lic.orgao_id, d, ator) : false;
+      const corrigida = !!atual && atual.id !== d.documento_alvo_id && pronta;
+      saida.push({
+        id: d.id,
+        status: d.status,
+        descricao: d.descricao,
+        trecho: d.trecho,
+        folha: d.folha,
+        item_roteiro: d.item_roteiro,
+        aberta_por_nome: d.aberta_por_nome,
+        created_at: d.created_at,
+        versao_alvo: d.versao_alvo,
+        versao_atual: atual?.versao ?? null,
+        /** Já há versão nova PRONTA da peça (gerada, anexada ou assinada) depois da diligência. */
+        versao_nova_pronta: corrigida,
+        pode_sanar: podeSanarAqui,
+        resposta: d.resposta,
+        sanada_por_nome: d.sanada_por_nome,
+        sanada_em: d.sanada_em,
+      });
+    }
+    // Sanadas: só as mais recentes (o histórico completo fica na tela do parecer)
+    const abertas = saida.filter((x) => x.status === 'ABERTA');
+    const sanadas = saida.filter((x) => x.status === 'SANADA').slice(-3);
+    return { tipo, diligencias: [...abertas, ...sanadas] };
+  }
+
+  /** Mesma regra do `exigirQuemSana`, sem lançar (para a tela mostrar ou não o "Sanar"). */
+  private async quemSana(licitacaoId: string, orgaoId: string, d: Diligencia, ator: Ator): Promise<boolean> {
+    try {
+      await this.exigirQuemSana(licitacaoId, orgaoId, d, ator);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Quem pode SANAR: o responsável pela tarefa da diligência (usuário, papel ou
    * setor), o agente do processo, o administrador do órgão ou o login do órgão.
    */
@@ -410,6 +465,8 @@ export class ParecerTelaService {
       // o do passo PARECER (Procuradoria no modo por setor)
     });
     await this.log(licitacaoId, atual?.id, AcaoLogFaseInterna.PROCESSO_TRAMITADO, `Diligência sanada por ${autor.nome ?? 'responsável'} — processo de volta à Procuradoria`, { diligencia_id: d.id, corrigida: r.corrigida, versao: atual?.versao ?? null }, autor);
+    // Sanar pela tela da peça (quem não é da Procuradoria): devolve só a situação das diligências da peça
+    if (body?.retorno === 'PECA') return this.diligenciasDaPeca(licitacaoId, d.tipo_alvo, ator);
     return this.obter(licitacaoId, analise.fase, ator);
   }
 

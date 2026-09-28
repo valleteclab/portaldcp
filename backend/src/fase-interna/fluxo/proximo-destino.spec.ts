@@ -132,9 +132,22 @@ describe('sugerirEnvio — o próximo destino sai das etapas e da posse (nada em
     PARECER: dest(S_JUR, null, 'Jurídico'),
   };
 
-  it('detentor com etapa a fazer: ela aparece como pendente; as de outros setores viram destinos', () => {
+  it('detentor com etapa a fazer: ela aparece como pendente; a etapa seguinte (só depende dela) já aparece como destino "depois de concluir"', () => {
     const s = sugerirEnvio([passo('DFD', 'CONCLUIDO'), passo('PESQUISA', 'EM_ANDAMENTO'), passo('RESERVA', 'AGUARDANDO', ['PESQUISA'])], destinos, { setor_id: S_COMPRAS, usuario_id: null });
     expect(s.pendentes_do_detentor).toEqual([['PESQUISA', 'Pesquisa de preços']]);
+    expect(s.destinos).toEqual([
+      { ...dest(S_CONTAB, null, 'Contabilidade'), etapas: [['RESERVA', 'Reserva orçamentária']], principal: true, depois_de: [['PESQUISA', 'Pesquisa de preços']] },
+    ]);
+    // a antecipação nunca vira envio automático nem tarefa "Enviar"
+    expect(acaoNaConclusao('SIMPLES', ['DFD'], s, { setor_id: S_COMPRAS, usuario_id: null }).tipo).toBe('NADA');
+  });
+
+  it('etapa seguinte que também espera outro setor não é antecipada', () => {
+    const s = sugerirEnvio(
+      [passo('DFD', 'CONCLUIDO'), passo('PESQUISA', 'EM_ANDAMENTO'), passo('PARECER', 'AGUARDANDO', ['PESQUISA', 'RESERVA']), passo('RESERVA', 'AGUARDANDO', ['DFD_X'])],
+      destinos,
+      { setor_id: S_COMPRAS, usuario_id: null },
+    );
     expect(s.destinos).toEqual([]);
   });
 

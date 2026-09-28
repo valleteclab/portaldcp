@@ -36,7 +36,7 @@ import {
   TITULO_DOCUMENTO,
   linhasDoChecklist,
 } from './documentos-obrigatorios';
-import { pecaContaComoPronta, registroDeEmissao } from './peca-regras';
+import { conteudoEditavel, mesmoTextoDaSecao, pecaContaComoPronta, registroDeEmissao } from './peca-regras';
 import { fluxoEhGenerico, fluxoParaTipo, rotuloAguardando } from './aprovacao-pecas-regras';
 import {
   RiscoIdentificado,
@@ -228,6 +228,8 @@ export class FaseInternaService {
         folha_final: number | null;
         tem_arquivo: boolean;
         documento_orgao_id: string | null;
+        registrada_por: string | null;
+        registrada_em: Date | string | null;
       };
     }>;
     pode_divulgar: boolean;
@@ -388,6 +390,9 @@ export class FaseInternaService {
               folha_final: doc.folha_final ?? null,
               tem_arquivo: Boolean(doc.caminho_arquivo || doc.arquivo_pdf_path),
               documento_orgao_id: doc.documento_orgao_id ?? null,
+              // Quem anexou/gerou esta versão e quando (homologação: a tela não dizia que foi o Caio)
+              registrada_por: doc.criado_por_nome ?? doc.dados_estruturados?._emitido?.por_nome ?? null,
+              registrada_em: doc.origem !== OrigemDocumento.INTERNO ? doc.data_importacao ?? doc.created_at ?? null : doc.dados_estruturados?._emitido?.em ?? doc.data_geracao_arquivo ?? null,
             }
           : undefined,
       };
@@ -868,21 +873,42 @@ export class FaseInternaService {
       documento.status === StatusDocumento.ASSINADO ||
       documento.status === StatusDocumento.AGUARDANDO_ASSINATURA;
     if (!finalizada || documento.dados_estruturados?.nao_se_aplica) return documento;
+    // Homologação E5: a versão nova parte do CONTEÚDO da última versão feita no sistema (a
+    // própria, se foi feita aqui; senão a anterior ao anexo) — as seções não somem
+    const base = await this.baseEditavel(documento);
     documento.versao_atual = false;
     documento.status = StatusDocumento.SUBSTITUIDO;
     await this.documentoRepository.save(documento);
+    const dados = conteudoEditavel(base?.dados_estruturados);
     return this.documentoRepository.create({
       licitacao_id: documento.licitacao_id,
       tipo: documento.tipo,
-      titulo: documento.titulo,
+      titulo: documento.origem === OrigemDocumento.INTERNO ? documento.titulo : TITULO_DOCUMENTO[documento.tipo] ?? documento.titulo,
       status: StatusDocumento.EM_ELABORACAO,
       origem: OrigemDocumento.INTERNO,
       versao: (documento.versao || 1) + 1,
       versao_atual: true,
       versao_anterior_id: documento.id,
       obrigatorio: documento.obrigatorio,
-      dados_estruturados: {},
+      dados_estruturados: dados,
+      descricao: Object.keys(dados).length ? (base?.descricao ?? null) : null,
+    } as any) as unknown as DocumentoFaseInterna;
+  }
+
+  /**
+   * BASE EDITÁVEL da peça (homologação E5): a última versão FEITA NO SISTEMA
+   * com conteúdo — a própria versão, se foi feita aqui; se a atual foi
+   * anexada (PDF feito fora), a versão interna mais recente. É o que a tela
+   * mostra para gerar de novo; não conta como peça pronta (a vigente é o anexo).
+   */
+  async baseEditavel(documento: Pick<DocumentoFaseInterna, 'licitacao_id' | 'tipo' | 'origem' | 'dados_estruturados' | 'versao'> & { id?: string }) {
+    if (documento.origem === OrigemDocumento.INTERNO && Object.keys(conteudoEditavel(documento.dados_estruturados)).length) return documento as DocumentoFaseInterna;
+    const anteriores = await this.documentoRepository.find({
+      where: { licitacao_id: documento.licitacao_id, tipo: documento.tipo, origem: OrigemDocumento.INTERNO },
+      order: { versao: 'DESC' },
+      take: 20,
     });
+    return anteriores.find((d) => !d.dados_estruturados?.nao_se_aplica && Object.keys(conteudoEditavel(d.dados_estruturados)).length) ?? null;
   }
 
   /**
@@ -939,6 +965,11 @@ export class FaseInternaService {
     let documento = await this.documentoRepository.findOne({
       where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
     });
+    // Homologação (TR "Rascunho" depois de gerar): salvar a seção com o MESMO texto não é
+    // edição — não abre versão nova nem tira a peça emitida de "pronta"
+    if (documento && !documento.dados_estruturados?.nao_se_aplica && mesmoTextoDaSecao(documento.dados_estruturados?.[secaoId], html)) {
+      return { ok: true, secaoId, documento_id: documento.id };
+    }
 
     documento = await this.novaVersaoSeFinalizada(documento);
     if (!documento) {
@@ -2560,3 +2591,4 @@ export class FaseInternaService {
     }
   }
 }
+
