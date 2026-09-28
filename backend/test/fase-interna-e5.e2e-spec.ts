@@ -157,7 +157,8 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
     let lic: LicitacaoFixture;
 
     it('o agente escolhe "com lances" num órgão cujo padrão é "sem lances": vale a escolha; quem escolheu vai para o histórico', async () => {
-      lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA);
+      // A escolha da disputa é ato de quem conduz o processo: a agente é designada
+      lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agenteA.id } });
       expect((await processo(lic, A.token)).licitacao.modo_disputa_dispensa).toMatchObject({ com_lances: false, fonte: 'SUGERIDO' });
       expect((await http().put(`/api/fase-interna/${lic.id}/modo-disputa`).set(bearer(agenteA.token)).send({ com_lances: 'sim' })).status).toBe(400);
       const r = await http().put(`/api/fase-interna/${lic.id}/modo-disputa`).set(bearer(agenteA.token)).send({ com_lances: true });
@@ -201,7 +202,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       expect(r.body.message).toMatch(/congelada na publicação/);
       expect((await processo(lic, A.token)).licitacao.modo_disputa_dispensa).toMatchObject({ com_lances: true, congelado: true, editavel: false });
       // outra modalidade: 400
-      const pregao = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO);
+      const pregao = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO, { extras: { pregoeiro_id: agenteA.id } });
       expect((await http().put(`/api/fase-interna/${pregao.id}/modo-disputa`).set(bearer(agenteA.token)).send({ com_lances: false })).status).toBe(400);
     });
   });
