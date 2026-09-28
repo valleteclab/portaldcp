@@ -111,6 +111,9 @@ Recomendação de sequência: fechar os furos de permissão e as três lacunas d
 
 ## 5. Sequência sugerida
 
+> **Rodada 1 executada em 28/09/2026** (PR #535): B1, B2, B3 (permissões intra-órgão), B5 (marcas do fluxo por delta atômico), L1 (PARECER-01), L2 (art. 72, IV sem "não se aplica") e L4 (prazo do §3º completo). Os demais itens seguem como plano.
+
+
 | Rodada | Escopo | Por quê primeiro |
 |---|---|---|
 | 1 (dias) | B1, B2, B3 (permissões); L1, L2, L4 (parecer desfavorável, art. 72 IV, prazo do §3º); B5 (marcas jsonb atômicas) | Risco jurídico e de auditoria imediato; correções pequenas e localizadas, com e2e no padrão já existente. |
