@@ -10,6 +10,7 @@ import { CriterioJulgamento, ModalidadeLicitacao, TipoContratacao } from '../../
 import { atorTransicaoDe } from '../../licitacoes/transicoes/transicoes.tipos';
 import { DemandasService } from '../demandas.service';
 import { DfdConsolidadoService } from './dfd-consolidado.service';
+import { PendenciaDfdService } from '../../fase-interna/fluxo/pendencia-dfd.service';
 
 /**
  * DFD CONSOLIDADO (unidade de planejamento) — `/api/dfds-consolidados`.
@@ -28,6 +29,7 @@ export class DfdConsolidadoController {
     private readonly demandas: DemandasService,
     private readonly licitacoes: LicitacoesService,
     private readonly acesso: AcessoLicitacaoService,
+    private readonly pendencia: PendenciaDfdService,
   ) {}
 
   /** Órgão do token (o admin da plataforma informa ?orgao_id=). */
@@ -65,6 +67,15 @@ export class DfdConsolidadoController {
   @Get('permissoes')
   permissoes(@AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string) {
     return this.dfds.permissoes(ator, this.orgao(ator, orgaoId));
+  }
+
+  /**
+   * Menu "DFD consolidado (N)": demandas aprovadas livres (sem DFD e sem
+   * processo) do órgão do token — o número só para quem monta o DFD.
+   */
+  @Get('pendencia')
+  pendenciaDoMenu(@AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string) {
+    return this.pendencia.resumo(ator, this.orgao(ator, orgaoId));
   }
 
   /** Demandas aprovadas do exercício, livres (sem DFD e sem processo). */
