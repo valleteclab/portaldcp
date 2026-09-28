@@ -64,11 +64,20 @@ const instrucao = (prontos: Set<string>, emAndamento: Set<string> = new Set()) =
     .map((tipo) => ({ tipo, titulo: tipo, obrigatorio: true, status: prontos.has(tipo) ? 'OK' : emAndamento.has(tipo) ? 'EM_ELABORACAO' : 'PENDENTE' }));
 
 /** Semente com o papel do ETP/TR = Compras (como no teste do órgão). */
-function modeloCamara(ordem: 'SEMENTE' | 'PARECER_ANTES'): ModeloFluxo {
+function modeloCamara(ordem: 'SEMENTE' | 'PARECER_ANTES' | 'ATUAL'): ModeloFluxo {
   const m = modeloSemente('DISPENSA');
   const etapas: EtapaDoModelo[] = m.etapas.map((e) => {
     const x = { ...e, responsavel: { ...e.responsavel } };
     if (e.codigo === 'ETP' || e.codigo === 'TR') x.responsavel.papel = 'COMPRAS';
+    // Ordem ANTERIOR da semente (autorização antes das minutas): desde a homologação multiusuário a semente
+    // da contratação direta é minutas → parecer → autorização (art. 53, §4º) — reconstruída aqui para o teste
+    if (ordem === 'SEMENTE') {
+      if (e.codigo === 'AUTORIZACAO') Object.assign(x, { ordem: 60, depende_de: ['DFD', 'ETP', 'TR', 'PESQUISA', 'RESERVA'] });
+      if (e.codigo === 'MINUTAS') Object.assign(x, { ordem: 70, depende_de: ['AUTORIZACAO'] });
+      if (e.codigo === 'PARECER') Object.assign(x, { ordem: 80, depende_de: ['MINUTAS'] });
+      if (e.codigo === 'CONTROLE_INTERNO') Object.assign(x, { ordem: 90, depende_de: ['PARECER'] });
+      if (e.codigo === 'PUBLICACAO') Object.assign(x, { depende_de: ['PARECER', 'CONTROLE_INTERNO'] });
+    }
     if (ordem === 'PARECER_ANTES') {
       if (e.codigo === 'MINUTAS') Object.assign(x, { ordem: 55, depende_de: ['DFD', 'ETP', 'TR', 'PESQUISA', 'RESERVA'] });
       if (e.codigo === 'PARECER') Object.assign(x, { ordem: 58, depende_de: ['MINUTAS'] });
@@ -126,10 +135,14 @@ function percorrer(m: ModeloFluxo, ctx: ContextoDestino) {
 }
 
 describe('próximo destino — modelo "Câmara — Portaria 089" inteiro (ordem vinda dos dados)', () => {
-  it('ordem da semente (autorização antes das minutas): sugere Presidência → Licitações → Jurídico → Licitações', () => {
+  it('ordem anterior da semente (autorização antes das minutas): sugere Presidência → Licitações → Jurídico → Licitações', () => {
     const caminho = percorrer(modeloCamara('SEMENTE'), ctxBase());
     expect(caminho.map((c) => NOME[c.para])).toEqual(['Compras', 'Contabilidade', 'Presidência', 'Licitações', 'Jurídico', 'Licitações']);
     expect(caminho.map((c) => c.etapas)).toEqual([['ETP', 'TR', 'PESQUISA'], ['RESERVA'], ['AUTORIZACAO'], ['MINUTAS'], ['PARECER'], ['PUBLICACAO']]);
+  });
+
+  it('semente atual (homologação multiusuário — art. 53, §4º) = o caminho com o parecer antes da autorização', () => {
+    expect(percorrer(modeloCamara('ATUAL'), ctxBase())).toEqual(percorrer(modeloCamara('PARECER_ANTES'), ctxBase()));
   });
 
   it('parecer ANTES da autorização (reordenação): Licitações → Jurídico → Presidência → Licitações', () => {

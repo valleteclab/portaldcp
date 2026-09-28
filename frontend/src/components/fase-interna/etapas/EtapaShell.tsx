@@ -130,7 +130,6 @@ export function EtapaShell({
   useEffect(() => aoAtualizarFaseInterna(licitacaoId, carregarEtapas), [licitacaoId, carregarEtapas])
 
   // VOLTAR ESTA ETAPA (reabrir com motivo) — o servidor diz quem pode (pode_reabrir) e confere de novo
-  const passoDaTela = ETAPAS_DA_BARRA.find((e) => e.tela === tela)?.passo ?? null
   const esta = passoDaTela ? passos.find((p) => p.passo === passoDaTela) ?? null : null
   const voltar = async () => {
     if (!esta) return
