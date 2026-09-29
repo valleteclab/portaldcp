@@ -19,7 +19,8 @@
 import { FaseLicitacao } from '../../licitacoes/entities/licitacao.entity';
 import { CATALOGO_ETAPAS, FASE_MAQUINA_DA_ETAPA, TITULO_ETAPA } from '../fluxo/catalogo-fluxo';
 import { EtapaFaseInterna, PapelFaseInterna, PassoFaseInterna } from '../fluxo/codigos';
-import { ConclusaoEtapa, EtapaDoModelo, ModeloFluxo, dependenciasEfetivas, dependentesDe, ordemTopologica } from '../fluxo/modelo-fluxo';
+import { ConclusaoEtapa, EtapaDoModelo, ModeloFluxo, dependenciasEfetivas, dependentesDe, dependeTransitivamente, ordemTopologica } from '../fluxo/modelo-fluxo';
+import { DadosCondicao, Resposta, avaliarCondicao, descreverCondicao, etapasVivas } from '../fluxo/motor-grafo';
 import { dependenciasPadrao, etapasSemente } from '../fluxo/semente-fluxo';
 
 export { EtapaFaseInterna, PapelFaseInterna, PassoFaseInterna, ROTULO_PAPEL } from '../fluxo/codigos';
@@ -106,6 +107,8 @@ export interface ProcessoParaEtapas {
   contratacao_direta: boolean;
   fase: string;
   situacao?: string | null;
+  /** Construtor de fluxo: os dados que as condições avaliam (valor estimado, tipo, modalidade, fundamento). */
+  dados?: DadosCondicao | null;
 }
 
 /** Linha da instrução (`FaseInternaService.getInstrucao().itens`). */
@@ -133,6 +136,27 @@ export interface MarcaEtapa {
   despacho?: { id: string; folha_inicial: number | null; folha_final: number | null; url: string } | null;
 }
 
+/** Resposta de uma condição do fluxo (construtor de fluxo). */
+export interface DecisaoCondicao {
+  resposta: Resposta;
+  /** true = o sistema avaliou a expressão com os dados do processo. */
+  automatica: boolean;
+  em?: string | null;
+  por_id?: string | null;
+  por_nome?: string | null;
+  /** "valor total estimado > R$ 50.000,00" e o valor lido. */
+  descricao?: string | null;
+  /** Só no cálculo: já gravada no estado do fluxo? (a sincronização grava as que o sistema acabou de avaliar). */
+  registrada?: boolean;
+}
+
+/** Devolução em curso (construtor de fluxo): a etapa corrige e o processo volta direto para `de`. */
+export interface RetornoEtapa extends MarcaEtapa {
+  /** Código da aprovação que devolveu. */
+  de: string;
+  de_titulo?: string | null;
+}
+
 /**
  * ESTADO DO FLUXO DO PROCESSO (F1 — tabela `fluxos_processo_fase_interna`):
  *  - demanda_aprovada: sem ela, a etapa da demanda não conclui e as demais aguardam;
@@ -146,6 +170,10 @@ export interface EstadoFluxoParaEtapas {
   reabertas?: Record<string, MarcaEtapa>;
   a_revisar?: Record<string, MarcaEtapa>;
   registros?: Record<string, MarcaEtapa>;
+  /** Construtor de fluxo: respostas das condições (código da condição → decisão). */
+  decisoes?: Record<string, DecisaoCondicao>;
+  /** Construtor de fluxo: devoluções em curso (etapa que corrige → quem devolveu). */
+  retornos?: Record<string, RetornoEtapa>;
 }
 
 /** Pendências de portão por passo: ex.: { PESQUISA: ['LIM-01 …'] }. */
@@ -197,6 +225,13 @@ export interface PassoCalculado {
   reaberta: MarcaEtapa | null;
   a_revisar: MarcaEtapa | null;
   registro: MarcaEtapa | null;
+  // --- Construtor de fluxo (presentes só quando o modelo veio do grafo) ---
+  /** etapa | aprovacao | condicao. */
+  tipo_no?: string;
+  /** Condição: a resposta (do sistema ou de quem conduz). */
+  decisao?: DecisaoCondicao | null;
+  /** Etapa devolvida por uma aprovação: quando concluir, o processo volta direto para ela. */
+  retorno?: RetornoEtapa | null;
 }
 
 export interface EtapaCalculada {
@@ -255,6 +290,28 @@ export function etapasDaFaseInterna(
   bloqueios: BloqueiosDePortao = {},
   estado: EstadoFluxoParaEtapas = {},
 ): EtapaCalculada[] {
+  // Construtor de fluxo: a condição que o processo alcança é avaliada pelo
+  // sistema na hora (com os dados do processo) — e a resposta pode abrir
+  // outra condição adiante; recalcula até estabilizar (no máximo uma vez por condição)
+  const decisoes: Record<string, DecisaoCondicao> = {};
+  for (const [c, d] of Object.entries(estado.decisoes ?? {})) if (d?.resposta) decisoes[c] = { ...d, registrada: true };
+  let r = calcularEtapas(processo, pecas, modelo, bloqueios, estado, decisoes);
+  const condicoes = modelo.etapas.filter((e) => e.conclusao === 'CONDICAO').length;
+  for (let i = 0; i < condicoes && r.automaticas.length; i++) {
+    for (const a of r.automaticas) decisoes[a.codigo] = a.decisao;
+    r = calcularEtapas(processo, pecas, modelo, bloqueios, estado, decisoes);
+  }
+  return r.etapas;
+}
+
+function calcularEtapas(
+  processo: ProcessoParaEtapas,
+  pecas: PecaParaEtapas[],
+  modelo: ModeloParaEtapas,
+  bloqueios: BloqueiosDePortao,
+  estado: EstadoFluxoParaEtapas,
+  decisoes: Record<string, DecisaoCondicao>,
+): { etapas: EtapaCalculada[]; automaticas: Array<{ codigo: string; decisao: DecisaoCondicao }> } {
   const faseInterna = FASES_INTERNAS.has(processo.fase);
   // Entrega 5: PUBLICAR leva a AGUARDANDO_DIVULGACAO — a publicação só conclui
   // com a CONFIRMAÇÃO do PNCP (ou do diário oficial, sem PNCP).
@@ -266,13 +323,24 @@ export function etapasDaFaseInterna(
   const reabertas = vivo ? estado.reabertas ?? {} : {};
   const aRevisar = vivo ? estado.a_revisar ?? {} : {};
   const registros = estado.registros ?? {};
+  const retornos = vivo ? estado.retornos ?? {} : {};
   const aprovacao = modelo.aprovacao_demanda;
   const faltaAprovacao = vivo && !!aprovacao?.exigida && estado.demanda_aprovada === false;
+
+  // Construtor de fluxo: etapa que o processo não alcança mais (saída não
+  // escolhida de uma condição; correção sem devolução) sai como a desligada
+  const vivas = etapasVivas(
+    modelo.etapas,
+    Object.fromEntries(Object.entries(decisoes).map(([c, d]) => [c, d.resposta])),
+    { retornos, registros, reabertas },
+  );
+  const doGrafo = !!vivas;
+  let etapasModelo = vivas ? modelo.etapas.map((e) => (vivas.has(e.codigo) ? e : { ...e, ligada: false })) : modelo.etapas;
 
   // Peças por passo (na ordem da instrução); peça de etapa desligada não entra
   const pecasPorPasso = new Map<string, PecaDoPasso[]>();
   for (const p of pecas) {
-    const e = modelo.etapas.find((x) => x.tipos_peca.includes(p.tipo));
+    const e = etapasModelo.find((x) => x.tipos_peca.includes(p.tipo));
     if (!e || !e.ligada) continue;
     const lista = pecasPorPasso.get(e.codigo) ?? [];
     lista.push({
@@ -289,7 +357,6 @@ export function etapasDaFaseInterna(
   // Opcional ligada DEPOIS que o processo nasceu: só entra se nenhuma etapa
   // que depende dela começou (o caminho já percorrido não muda)
   const comecou = (c: string) => (pecasPorPasso.get(c) ?? []).some((x) => x.pronta || STATUS_EM_ANDAMENTO.has(x.status)) || !!registros[c];
-  let etapasModelo = modelo.etapas;
   const tardias = etapasModelo.filter((e) => e.ligada && e.entrou_depois && !comecou(e.codigo));
   if (tardias.length) {
     const fora = new Set(tardias.filter((e) => dependentesDe(etapasModelo, e.codigo).some(comecou)).map((e) => e.codigo));
@@ -301,8 +368,20 @@ export function etapasDaFaseInterna(
 
   const ativa = (e: EtapaDoModelo) => e.ligada && (e.conclusao !== 'PECAS' || (pecasPorPasso.get(e.codigo) ?? []).length > 0);
   const efetivas = dependenciasEfetivas(etapasModelo);
-  const passosAtivos = ordemTopologica(etapasModelo.filter(ativa).map((e) => ({ ...e, depende_de: efetivas.get(e.codigo) ?? [] })));
+  // Devolução em curso: quem devolveu espera a etapa devolvida concluir de novo (e vem depois dela na ordem)
+  const devolvidasPor = new Map<string, string[]>();
+  for (const [t, m] of Object.entries(retornos)) if (m?.de) devolvidasPor.set(m.de, [...(devolvidasPor.get(m.de) ?? []), t]);
+  const comDeps = etapasModelo.filter(ativa).map((e) => ({ ...e, depende_de: efetivas.get(e.codigo) ?? [] }));
+  const passosAtivos = devolvidasPor.size
+    ? ordemTopologica(
+        comDeps.map((e) => ({
+          ...e,
+          depende_de: [...e.depende_de, ...(devolvidasPor.get(e.codigo) ?? []).filter((t) => t !== e.codigo && !dependeTransitivamente(etapasModelo, t, e.codigo))],
+        })),
+      ).map((o) => comDeps.find((x) => x.codigo === o.codigo)!)
+    : ordemTopologica(comDeps);
   const ativos = new Set(passosAtivos.map((e) => e.codigo));
+  const automaticas: Array<{ codigo: string; decisao: DecisaoCondicao }> = [];
 
   const calculados = new Map<string, PassoCalculado>();
   for (const def of passosAtivos) {
@@ -310,6 +389,9 @@ export function etapasDaFaseInterna(
     const lista = pecasPorPasso.get(codigo) ?? [];
     const depende = def.depende_de.filter((d) => ativos.has(d)) as PassoFaseInterna[];
     const pendencias = depende.filter((d) => !CUMPRE_DEPENDENCIA.has(calculados.get(d)?.situacao as SituacaoPasso));
+    for (const t of devolvidasPor.get(codigo) ?? []) {
+      if (t !== codigo && ativos.has(t) && !pendencias.includes(t as PassoFaseInterna) && !CUMPRE_DEPENDENCIA.has(calculados.get(t)?.situacao as SituacaoPasso)) pendencias.push(t as PassoFaseInterna);
+    }
     const reaberta = reabertas[codigo] ?? null;
     const revisar = aRevisar[codigo] ?? null;
     let aguardandoAprovacao = false;
@@ -330,6 +412,25 @@ export function etapasDaFaseInterna(
               : livre
                 ? 'DISPONIVEL'
                 : 'AGUARDANDO';
+    } else if (def.conclusao === 'CONDICAO') {
+      // Construtor de fluxo: conclui com a resposta (do sistema, ao chegar, ou de quem conduz)
+      const d = decisoes[codigo];
+      if (d && !reaberta) situacao = revisar ? 'A_REVISAR' : 'CONCLUIDO';
+      else if (cancelado && faseInterna) situacao = 'CANCELADO';
+      else if (divulgado) situacao = 'NAO_REALIZADO';
+      else situacao = livre ? 'DISPONIVEL' : 'AGUARDANDO';
+      if (!d && livre && vivo && !reaberta) {
+        const r = avaliarCondicao(def.condicao, processo.dados);
+        if (r) {
+          const campo = def.condicao?.campo;
+          const valor = campo && campo !== 'manual' ? processo.dados?.[campo] : null;
+          const lido = valor === null || valor === undefined ? '' : ` (no processo: ${typeof valor === 'number' ? valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : valor})`;
+          automaticas.push({
+            codigo,
+            decisao: { resposta: r, automatica: true, registrada: false, por_nome: 'Sistema', descricao: `${descreverCondicao(def.condicao)}${lido}` },
+          });
+        }
+      }
     } else if (def.conclusao === 'REGISTRO') {
       const registrado = !!registros[codigo] && !reaberta;
       if (registrado) situacao = revisar ? 'A_REVISAR' : 'CONCLUIDO';
@@ -375,6 +476,13 @@ export function etapasDaFaseInterna(
       reaberta,
       a_revisar: situacao === 'A_REVISAR' ? revisar : null,
       registro: registros[codigo] ?? null,
+      ...(doGrafo
+        ? {
+            tipo_no: def.tipo_no ?? 'etapa',
+            decisao: def.conclusao === 'CONDICAO' ? decisoes[codigo] ?? null : null,
+            retorno: retornos[codigo] ?? null,
+          }
+        : {}),
     });
   }
 
@@ -400,7 +508,7 @@ export function etapasDaFaseInterna(
       passos,
     });
   }
-  return etapas;
+  return { etapas, automaticas };
 }
 
 export function situacaoDaEtapa(passos: SituacaoPasso[]): SituacaoEtapa {

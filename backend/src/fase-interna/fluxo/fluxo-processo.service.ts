@@ -9,9 +9,10 @@ import { DespachoEtapaService } from '../despacho-etapa.service';
 import { TipoDocumentoFaseInterna } from '../entities/documento-fase-interna.entity';
 import { AcaoLogFaseInterna } from '../entities/log-fase-interna.entity';
 import { FaseInternaService } from '../fase-interna.service';
-import { MarcaEtapa, PassoCalculado, passosDasEtapas } from '../tarefas/etapas-fase-interna';
+import { DecisaoCondicao, MarcaEtapa, PassoCalculado, RetornoEtapa, passosDasEtapas } from '../tarefas/etapas-fase-interna';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { dependentesDe } from './modelo-fluxo';
+import { alvosDaDevolucao } from './motor-grafo';
 import { DeltaMarcas, ModeloFluxoService } from './modelo-fluxo.service';
 
 const dataBr = (iso: string) => iso.split('-').reverse().join('/');
@@ -106,9 +107,11 @@ export class FluxoProcessoService {
       aRevisarPor[dep] = { em, por_id: autor.id, por_nome: autor.nome, origem: codigo, motivo: `"${passo.titulo}" foi reaberta: ${motivo}` };
       marcadas.push(dep);
     }
-    // Só o delta desta reabertura vai ao banco (atômico): outra marca posta ao mesmo tempo não se perde
+    // Só o delta desta reabertura vai ao banco (atômico): outra marca posta ao mesmo tempo não se perde.
+    // Condição (construtor de fluxo): voltar é desfazer a resposta — o sistema avalia de novo (ou pergunta)
+    const condicao = passo.conclusao === 'CONDICAO';
     await this.modeloFluxo.aplicarMarcas(ctx.fluxo.id, {
-      reabertas: { por: { [codigo]: reaberta } },
+      ...(condicao ? { decisoes: { remover: [codigo] } } : { reabertas: { por: { [codigo]: reaberta } } }),
       a_revisar: { por: aRevisarPor, remover: [codigo] },
       registros: { remover: [codigo] },
     });
@@ -187,6 +190,7 @@ export class FluxoProcessoService {
     const conduz = await this.tarefas.podeConduzirProcesso(ator, licitacaoId);
     const responsavel = !conduz && etapaModelo ? await this.ehResponsavel(ator, ctx.orgao_id, etapaModelo.responsavel) : false;
     if (!conduz && !responsavel) throw new ForbiddenException('Só quem conduz o processo ou o responsável pela etapa conclui a etapa.');
+    if (passo.conclusao === 'CONDICAO') return this.responderCondicao(licitacaoId, passo, body, ator);
     const texto = this.motivo(body?.texto ?? body?.despacho, passo.conclusao === 'REGISTRO' ? 'o despacho' : 'o que foi revisto');
     const autor = await this.tarefas.autor(ator);
     const em = new Date().toISOString();
@@ -227,6 +231,100 @@ export class FluxoProcessoService {
     await this.log(licitacaoId, acao, `${descricao}${despacho ? ` (despacho nos autos, fl. ${despacho.folha_inicial})` : ''}`, { etapa: codigo, texto, despacho }, autor);
     // F4a: despacho registrado a partir do texto sugerido pela IA (aceito) → registra quem revisou
     if (passo.conclusao === 'REGISTRO' && despacho) await this.revisaoIa.registrarNaEmissao(licitacaoId, 'REGISTRO', { etapa: codigo, autor, ato: 'registrado' });
+    await this.tarefas.agendar(licitacaoId);
+    return this.tarefas.etapasDoProcesso(licitacaoId, ator);
+  }
+
+  // ==========================================================================
+  // CONSTRUTOR DE FLUXO: condição respondida por quem conduz; devolução
+  // ==========================================================================
+
+  /**
+   * CONDIÇÃO MANUAL (ou automática sem o dado ainda): quem conduz (ou o
+   * responsável) responde { resposta: 'sim' | 'nao', texto? }. Só a saída da
+   * resposta segue; a outra sai do processo. Fica no histórico.
+   */
+  private async responderCondicao(licitacaoId: string, passo: PassoCalculado, body: any, ator: Ator) {
+    const r = String(body?.resposta ?? '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[^a-z]/g, '');
+    if (r !== 'sim' && r !== 'nao') throw new BadRequestException('Responda a pergunta: { "resposta": "sim" } ou { "resposta": "nao" }.');
+    if (passo.decisao) throw new ConflictException(`"${passo.titulo}" já foi respondida (${passo.decisao.resposta === 'sim' ? 'sim' : 'não'}). Para mudar, volte a etapa com o motivo.`);
+    if (passo.pendencias.length || passo.situacao !== 'DISPONIVEL') throw new ConflictException('O processo ainda não chegou a esta pergunta: as etapas anteriores não terminaram.');
+    const ctx = await this.contexto(licitacaoId);
+    const autor = await this.tarefas.autor(ator);
+    const texto = String(body?.texto ?? body?.justificativa ?? '').trim().slice(0, 2000) || null;
+    const decisao: DecisaoCondicao = { resposta: r, automatica: false, em: new Date().toISOString(), por_id: autor.id, por_nome: autor.nome, descricao: texto };
+    await this.modeloFluxo.aplicarMarcas(ctx.fluxo.id, { decisoes: { por: { [passo.passo]: decisao } } });
+    await this.log(
+      licitacaoId,
+      AcaoLogFaseInterna.CONDICAO_RESPONDIDA,
+      `Condição "${passo.titulo}" respondida por ${autor.nome ?? 'usuário'}: ${r === 'sim' ? 'sim' : 'não'}${texto ? ` — ${texto}` : ''}`,
+      { etapa: passo.passo, resposta: r, automatica: false, texto },
+      autor,
+    );
+    await this.tarefas.agendar(licitacaoId);
+    return this.tarefas.etapasDoProcesso(licitacaoId, ator);
+  }
+
+  /**
+   * DEVOLVER (aprovação do fluxo desenhado): { motivo, para?: códigos }. A
+   * etapa devolvida volta a andamento (reaberta, sem marcar o que está no
+   * meio "a revisar"); quando ela conclui de novo, o processo volta DIRETO
+   * para quem devolveu. Sem `para`: as setas "devolve" da aprovação; sem
+   * elas, as etapas imediatamente anteriores. O despacho da devolução vai
+   * aos autos (folha), como o das etapas de registro.
+   */
+  async devolver(licitacaoId: string, codigo: string, body: any, ator: Ator) {
+    const lic = await this.processo(licitacaoId);
+    const passo = await this.passo(licitacaoId, lic, codigo);
+    const ctx = await this.contexto(licitacaoId);
+    const etapaModelo = ctx.modelo.etapas.find((e) => e.codigo === codigo);
+    if (!etapaModelo || etapaModelo.tipo_no !== 'aprovacao') throw new ConflictException('Só uma aprovação do fluxo devolve (esta etapa não é uma aprovação no modelo do processo).');
+    const conduz = await this.tarefas.podeConduzirProcesso(ator, licitacaoId);
+    const responsavel = !conduz ? await this.ehResponsavel(ator, ctx.orgao_id, etapaModelo.responsavel) : false;
+    if (!conduz && !responsavel) throw new ForbiddenException('Só quem conduz o processo ou o responsável pela aprovação devolve.');
+    if (passo.situacao !== 'DISPONIVEL' && passo.situacao !== 'EM_ANDAMENTO') {
+      throw new ConflictException('Só se devolve uma aprovação que está com alguém agora (disponível ou em andamento).');
+    }
+    const motivo = this.motivo(body?.motivo, 'o motivo da devolução');
+    const permitidos = alvosDaDevolucao(ctx.modelo.etapas, codigo);
+    const pedidos: string[] = Array.isArray(body?.para) ? body.para.map((x: unknown) => String(x)) : [];
+    const fora = pedidos.filter((c) => !permitidos.includes(c));
+    if (fora.length) throw new BadRequestException(`Esta aprovação não devolve para: ${fora.join(', ')}. Pode devolver para: ${permitidos.join(', ') || 'nenhuma etapa'}.`);
+    const alvos = pedidos.length ? pedidos : permitidos;
+    if (!alvos.length) throw new ConflictException('Esta aprovação não tem para onde devolver.');
+    const passos = passosDasEtapas(await this.tarefas.etapasCalculadas(licitacaoId, lic));
+    const autor = await this.tarefas.autor(ator);
+    const em = new Date().toISOString();
+    const titulo = (c: string) => ctx.modelo.etapas.find((e) => e.codigo === c)?.titulo ?? c;
+    const reabertas: Record<string, MarcaEtapa> = {};
+    const retornos: Record<string, RetornoEtapa> = {};
+    for (const t of alvos) {
+      const p = passos.find((x) => x.passo === t);
+      if (p && (p.situacao === 'CONCLUIDO' || p.situacao === 'A_REVISAR')) {
+        reabertas[t] = { em, por_id: autor.id, por_nome: autor.nome, motivo: `Devolvida por "${passo.titulo}": ${motivo}`, origem: codigo };
+      }
+      retornos[t] = { em, por_id: autor.id, por_nome: autor.nome, motivo, de: codigo, de_titulo: passo.titulo };
+    }
+    const texto = `Devolva-se a ${alvos.map(titulo).join(', ')} para correção: ${motivo}`;
+    const d = await this.despachos.registrar(licitacaoId, { etapa: codigo, titulo_etapa: passo.titulo, texto, autor });
+    const despacho = { id: d.id, folha_inicial: d.folha_inicial, folha_final: d.folha_final, url: d.url };
+    for (const t of Object.keys(retornos)) retornos[t].despacho = despacho;
+    await this.modeloFluxo.aplicarMarcas(ctx.fluxo.id, {
+      reabertas: { por: reabertas },
+      registros: { remover: Object.keys(reabertas) },
+      retornos: { por: retornos },
+    });
+    await this.log(
+      licitacaoId,
+      AcaoLogFaseInterna.ETAPA_DEVOLVIDA,
+      `"${passo.titulo}" devolvida por ${autor.nome ?? 'usuário'} a ${alvos.map(titulo).join(', ')}: ${motivo} — ao concluir, volta direto para "${passo.titulo}"${despacho.folha_inicial ? ` (despacho nos autos, fl. ${despacho.folha_inicial})` : ''}`,
+      { etapa: codigo, para: alvos, motivo, despacho },
+      autor,
+    );
     await this.tarefas.agendar(licitacaoId);
     return this.tarefas.etapasDoProcesso(licitacaoId, ator);
   }

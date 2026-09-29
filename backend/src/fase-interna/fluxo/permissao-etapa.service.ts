@@ -227,7 +227,9 @@ export class PermissaoEtapaService implements OnModuleInit {
         exigir_posse: ctx.modo === 'POR_SETOR' && ctx.modelo.exigir_posse_pecas !== false,
         posse: ctx.posse,
         chefe_da_posse: ctx.posse?.chefe ?? null,
-        diligencia_aberta: etapa.tipos_peca.some((t) => ctx.diligencias.includes(t)),
+        // Diligência aberta do parecer sobre a peça — ou etapa DEVOLVIDA por uma aprovação do fluxo
+        // desenhado (construtor de fluxo): quem responde por ela corrige sem precisar da posse
+        diligencia_aberta: etapa.tipos_peca.some((t) => ctx.diligencias.includes(t)) || !!calc?.retorno,
       },
       perfil,
     );

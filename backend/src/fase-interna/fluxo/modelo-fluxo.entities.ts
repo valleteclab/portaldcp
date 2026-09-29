@@ -56,6 +56,14 @@ export class ModeloFluxoFaseInterna {
   @Column({ type: 'uuid', nullable: true })
   origem_modelo_id: string | null;
 
+  /**
+   * CONSTRUTOR DE FLUXO: o GRAFO da versão ativa (nós e arestas —
+   * `grafo-fluxo.ts`). As etapas (`modelos_fluxo_etapas`) são a projeção
+   * dele. Nulo = modelo anterior ao construtor (convertido no boot).
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  grafo: Record<string, any> | null;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   atualizado_por_id: string | null;
 
@@ -298,11 +306,120 @@ export class FluxoProcessoFaseInterna {
   @Column({ type: 'jsonb', nullable: true })
   registros: Record<string, any> | null;
 
+  /** Construtor de fluxo: respostas das condições ({ código: { resposta, automatica, em, por_nome, descricao } }). */
+  @Column({ type: 'jsonb', nullable: true })
+  decisoes: Record<string, any> | null;
+
+  /** Construtor de fluxo: devoluções em curso ({ etapa que corrige: { de, em, por_nome, motivo } }). */
+  @Column({ type: 'jsonb', nullable: true })
+  retornos: Record<string, any> | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
+}
+
+/**
+ * CONSTRUTOR DE FLUXO — RASCUNHO do modelo (um por órgão e tipo; `orgao_id`
+ * nulo = o do sistema). O órgão edita o rascunho à vontade (a conferência
+ * aponta o que falta); só o "Ativar" valida e publica a nova versão.
+ */
+@Entity('rascunhos_modelo_fluxo')
+@Index('uq_rascunho_fluxo_orgao_tipo', ['orgao_id', 'tipo_processo'], { unique: true, where: 'orgao_id IS NOT NULL' })
+@Index('uq_rascunho_fluxo_sistema_tipo', ['tipo_processo'], { unique: true, where: 'orgao_id IS NULL' })
+export class RascunhoModeloFluxo {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => Orgao, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'orgao_id' })
+  orgao: Orgao | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  orgao_id: string | null;
+
+  /** DISPENSA | INEXIGIBILIDADE | LICITACAO. */
+  @Column({ type: 'varchar', length: 20 })
+  tipo_processo: string;
+
+  /** { nome, descricao, aprovacao_demanda, exigir_posse_pecas, grafo }. */
+  @Column({ type: 'jsonb' })
+  dados: Record<string, any>;
+
+  /** Versão ativa sobre a qual o rascunho foi começado. */
+  @Column({ type: 'int', nullable: true })
+  base_versao: number | null;
+
+  /** De onde veio: EDICAO | MODELO_PRONTO:<código> | RESTAURAR | IA. */
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  origem: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  atualizado_por_id: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  atualizado_por_nome: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
+
+  @UpdateDateColumn({ type: 'timestamptz' })
+  updated_at: Date;
+}
+
+/**
+ * CONSTRUTOR DE FLUXO — HISTÓRICO DE VERSÕES do modelo: cada versão ativada
+ * (pelo construtor, pela tela antiga, pelo restaurar ou pela migração), com
+ * o grafo, quem ativou e quando. Processos guardam a versão em que nasceram.
+ */
+@Entity('versoes_modelo_fluxo')
+@Index('uq_versao_modelo_fluxo', ['modelo_id', 'versao'], { unique: true })
+export class VersaoModeloFluxo {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @ManyToOne(() => ModeloFluxoFaseInterna, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'modelo_id' })
+  modelo: ModeloFluxoFaseInterna;
+
+  @Column({ type: 'uuid' })
+  modelo_id: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  orgao_id: string | null;
+
+  @Column({ type: 'varchar', length: 20 })
+  tipo_processo: string;
+
+  @Column({ type: 'int' })
+  versao: number;
+
+  @Column({ type: 'varchar', length: 200 })
+  nome: string;
+
+  @Column({ type: 'jsonb' })
+  grafo: Record<string, any>;
+
+  @Column({ type: 'jsonb' })
+  aprovacao_demanda: Record<string, any>;
+
+  @Column({ type: 'boolean', default: true })
+  exigir_posse_pecas: boolean;
+
+  /** CONSTRUTOR | TELA_ANTIGA | RESTAURAR | MIGRACAO | CONFIGURACAO. */
+  @Column({ type: 'varchar', length: 30 })
+  origem: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  ativado_por_id: string | null;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  ativado_por_nome: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  ativado_em: Date;
 }
 
 /**
