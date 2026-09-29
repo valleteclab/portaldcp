@@ -545,10 +545,10 @@ export default function ConfiguracoesPage() {
             size="sm"
             className="gap-1.5"
             onClick={() => router.push('/orgao/configuracoes/fluxo')}
-            title="Etapas da fase interna, dependências, responsáveis, prazos, etapas opcionais e o desenho do fluxo — validado pela Lei 14.133"
+            title="Desenhe o caminho da fase interna com caixas e setas (etapas, aprovações, perguntas e devoluções) — conferido pela Lei 14.133"
           >
             <GitBranch className="h-4 w-4" />
-            Modelo de fluxo
+            Desenhar o fluxo
           </Button>
           <Button
             variant="outline"

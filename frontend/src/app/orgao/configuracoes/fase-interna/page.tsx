@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, RotateCcw, Save } from "lucide-react"
+import { AlertTriangle, ArrowLeft, CheckCircle2, GitBranch, Loader2, RotateCcw, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -354,6 +354,11 @@ export default function ConfiguracaoFaseInternaPage() {
           {cfg.modelo_fluxo ? ` (${cfg.modelo_fluxo.nome}, versão ${cfg.modelo_fluxo.versao}${cfg.modelo_fluxo.proprio ? "" : " — padrão do sistema"})` : ""}. Os prazos e
           responsáveis abaixo são os da dispensa e gravam no mesmo modelo.
         </p>
+        <Button asChild size="sm" className="mt-3">
+          <Link href="/orgao/configuracoes/fluxo">
+            <GitBranch aria-hidden="true" /> Desenhar o fluxo
+          </Link>
+        </Button>
         {!admin && <p className="text-sm text-amber-800 mt-2">Somente o administrador do órgão altera esta configuração.</p>}
         {admin && (
           <p className="text-sm text-slate-600 mt-2">
