@@ -146,6 +146,12 @@ Cada etapa mostra a situação (com a mesma cor da barra de etapas), o responsá
 - **Voltar** — reabre uma etapa já concluída. Pede um **motivo obrigatório** e mostra, antes de confirmar, **quais etapas dependentes ficam "a revisar"** (nenhuma peça é apagada) e que a trava da lei volta a valer para elas até serem confirmadas de novo. Só quem conduz o processo pode voltar uma etapa.
 - Quando uma etapa volta, as que dependiam dela e já estavam concluídas ficam marcadas **"A revisar: …"**. A marca some sozinha quando a peça é alterada, ou quando alguém clica em **Confirmar a revisão**.
 
+**Fluxo desenhado pelo órgão** (parte [01](01-configuracao-do-orgao.md#desenhar-o-fluxo-configurações--fluxo)). Quando o processo segue um fluxo desenhado, o quadro mostra também:
+
+- **Pergunta** (condição): se o sistema responde sozinho (ex.: "valor acima de R$ 50 mil?"), a caixa mostra a resposta — "Sim — respondida pelo sistema: valor total estimado > R$ 50.000,00 (no processo: 60.000,00)". Se a pergunta é **manual**, ou o processo ainda não tem o dado, quem conduz vê **"Pergunta: … — Sim / Não"**. Só o caminho da resposta segue; as etapas do outro caminho saem do processo. Para mudar a resposta, use **Voltar** na pergunta, com o motivo.
+- **Aprovação criada pelo órgão** (ex.: "Secretário de Finanças aprova"): o responsável tem **Aprovar** (despacho curto, que vai aos autos) e **Devolver** (motivo obrigatório). A etapa devolvida volta para correção com o aviso "Devolvida por …"; corrigida, o processo volta **direto** para a aprovação.
+- **Etapa criada pelo órgão sem peça**: conclui com **Concluir com despacho**.
+
 ## Aprovação da demanda
 
 O início do processo de compra é a **aprovação da demanda**, feita por quem o órgão designou (na maioria dos casos, quem tem a permissão de aprovar demandas — configurável em [Configurações › Fluxo](01-configuracao-do-orgao.md#configurar-o-fluxo-configurações-›-fluxo)). Enquanto a demanda não for aprovada, a Demanda/DFD fica **"aguardando aprovação"**, e as etapas seguintes (Estudo Técnico, Termo de Referência, Pesquisa) ficam **"Aguardando: Demanda"** — não é possível adiantar o processo antes da aprovação.
