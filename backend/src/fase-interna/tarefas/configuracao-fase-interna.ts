@@ -169,6 +169,9 @@ function normalizarPrazo(v: unknown): number | null {
  * de erros. `setoresDoOrgao`: ids dos setores do órgão (setor de outro órgão
  * é recusado).
  */
+/** Código de etapa criada pelo órgão (U_…) ou de condição (C_…) no construtor de fluxo. */
+const ETAPA_DO_DESENHO = /^[UC]_[A-Z0-9_]{1,38}$/;
+
 export function validarConfiguracao(
   corpo: any,
   setoresDoOrgao: string[],
@@ -182,6 +185,8 @@ export function validarConfiguracao(
 
   for (const [passo, r] of Object.entries((corpo?.responsaveis ?? {}) as Record<string, any>)) {
     if (!PASSOS.includes(passo as PassoFaseInterna)) {
+      // Etapa criada pelo órgão / condição (construtor de fluxo): editada no desenho, não aqui
+      if (ETAPA_DO_DESENHO.test(passo)) continue;
       erros.push(`Etapa desconhecida: ${passo}.`);
       continue;
     }
@@ -194,6 +199,7 @@ export function validarConfiguracao(
   }
   for (const [passo, v] of Object.entries((corpo?.prazos ?? {}) as Record<string, any>)) {
     if (!PASSOS.includes(passo as PassoFaseInterna)) {
+      if (ETAPA_DO_DESENHO.test(passo)) continue;
       erros.push(`Etapa desconhecida: ${passo}.`);
       continue;
     }

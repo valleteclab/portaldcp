@@ -313,7 +313,11 @@ export class ModeloFluxoService {
   }
 
   modeloDoSistema(tipo: TipoProcessoFluxo): Promise<ModeloFluxo> {
-    return this.carregar({ orgao_id: null, tipo }).then((m) => m ?? modeloSemente(tipo));
+    return this.carregar({ orgao_id: null, tipo }).then((m) => {
+      if (m) return m;
+      const s = modeloSemente(tipo);
+      return { ...s, grafo: grafoDeEtapas(s.etapas) };
+    });
   }
 
   modeloProprio(orgaoId: string, tipo: TipoProcessoFluxo): Promise<ModeloFluxo | null> {

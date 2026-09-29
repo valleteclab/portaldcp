@@ -273,6 +273,16 @@ Branch `claude/homolog-multi-isolamento-pecas`. Relatório: `docs/fase interna/r
 - **Aprovar a demanda** desabilitado antes do DFD, com o motivo. A Central continua **sem listar** o processo antes do DFD (é a fila do que pode ser decidido agora; a tela do processo diz o que falta).
 - **Mais ações.** Excluir: só quem conduz; revogar/anular (e a intenção): quem conduz ou a autoridade (art. 71). **Autoridade do processo**: o signatário da autorização da configuração, antes do cadastro do órgão.
 
+## 18. Construtor de fluxo — o motor (28/09/2026)
+
+Branch `claude/construtor-fluxo-motor`. Detalhes em `docs/licitacao/PLANO-CONSTRUTOR-FLUXO.md`.
+
+- O modelo vira um **desenho (grafo)**: início, etapa, aprovação, condição e fim, ligados por setas normal, sim, não e devolve. As etapas do modelo passam a ser a **projeção** do desenho, e o motor de sempre (etapas, tarefas, posse, sugestão de envio, travas, permissão) continua lendo delas.
+- **Etapa criada pelo órgão** (sem peça, por exemplo "Secretário de Finanças aprova") conclui por despacho, que vai aos autos. **Condição** avaliada pelo sistema ao chegar (valor estimado, tipo, modalidade, fundamento) ou respondida por quem conduz. **Devolve**: a aprovação devolve e, corrigida a etapa, o processo volta direto a ela.
+- **Rascunho × versão ativa**, histórico de versões, modelos prontos, "Testar" no servidor com a mesma regra e "Montar com IA", que gera só rascunho.
+- A §5 ("edição por lista, não BPMN livre") fica superada **com a trava da lei no desenho**: a conferência recusa ativar o que a lei não permite, ramo a ramo.
+- Compatibilidade: a migração de boot dá a cada modelo e a cada retrato de processo o grafo equivalente, sem mudar as etapas. A tela antiga continua funcionando sobre o grafo até a PR 2.
+
 ---
 
 ## Anexo A — Levantamento técnico (26/09/2026)

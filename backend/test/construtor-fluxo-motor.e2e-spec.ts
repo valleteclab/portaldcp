@@ -521,6 +521,16 @@ describe('Construtor de fluxo — motor (PR 1)', () => {
       expect((await tela(ctx.tokenAdmin())).status).toBe(400);
     });
 
+    it('modelo do SISTEMA: só o admin da plataforma tem rascunho nele (o do órgão não aparece lá)', async () => {
+      const sis = (await tela(ctx.tokenAdmin(), 'DISPENSA', '?sistema=true').expect(200)).body;
+      expect(sis).toMatchObject({ sistema: true, rascunho: null });
+      expect((await put(adminA.token, { grafo: sis.ativo.grafo }, 'DISPENSA', '?sistema=true')).status).toBe(403);
+      const r = (await put(ctx.tokenAdmin(), { grafo: sis.ativo.grafo, nome: 'Câmara — Portaria 089 (revisão)' }, 'DISPENSA', '?sistema=true').expect(200)).body;
+      expect(r).toMatchObject({ sistema: true, rascunho: { nome: 'Câmara — Portaria 089 (revisão)' }, conferencia: { ok: true } });
+      expect((await tela(adminB.token).expect(200)).body.rascunho).toBeNull();
+      await http().delete(`${C}/DISPENSA/rascunho?sistema=true`).set(bearer(ctx.tokenAdmin())).expect(200);
+    });
+
     it('restaurar o padrão vai para o RASCUNHO; descartar o rascunho volta à versão ativa', async () => {
       const r = (await post(adminA.token, 'restaurar').expect(201)).body;
       expect(r.rascunho).toMatchObject({ origem: 'RESTAURAR', nome: 'Câmara — Portaria 089' });

@@ -321,8 +321,9 @@ export class TarefasService {
       setores,
       papeis: Object.entries(ROTULO_PAPEL).map(([codigo, rotulo]) => ({ codigo, rotulo })),
       // Etapas do modelo de fluxo (as ligadas; o controle interno a tela filtra)
+      // Só as etapas do sistema: as criadas pelo órgão e as condições se editam no construtor de fluxo
       passos: modelo.etapas
-        .filter((e) => e.ligada || e.codigo === PassoFaseInterna.CONTROLE_INTERNO)
+        .filter((e) => (e.ligada || e.codigo === PassoFaseInterna.CONTROLE_INTERNO) && !/^[UC]_/.test(e.codigo))
         .map((e) => ({
           passo: e.codigo,
           etapa: e.grupo,
