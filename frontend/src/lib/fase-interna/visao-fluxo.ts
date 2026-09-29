@@ -15,7 +15,7 @@
 
 export type SituacaoPasso = "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "A_REVISAR" | "CONCLUIDO" | "NAO_REALIZADO" | "CANCELADO"
 export type SituacaoGrupo = "AGUARDANDO" | "DISPONIVEL" | "EM_ANDAMENTO" | "A_REVISAR" | "CONCLUIDA" | "NAO_REALIZADA" | "CANCELADA"
-export type ConclusaoEtapa = "PECAS" | "DIVULGACAO" | "REGISTRO"
+export type ConclusaoEtapa = "PECAS" | "DIVULGACAO" | "REGISTRO" | "CONDICAO"
 
 export interface MarcaFluxo {
   em?: string | null
@@ -73,6 +73,30 @@ export interface PassoFluxo {
   registro?: MarcaFluxo | null
   /** Pode voltar (reabrir) esta etapa: quem conduz o processo ou o responsável por ela. */
   pode_reabrir?: boolean
+  // --- Construtor de fluxo (só quando o modelo do processo veio do desenho) ---
+  /** etapa | aprovacao | condicao. */
+  tipo_no?: string
+  /** Condição: a resposta dada (pelo sistema, ao chegar, ou por quem conduz). */
+  decisao?: DecisaoCondicao | null
+  /** Etapa devolvida por uma aprovação: ao concluir, o processo volta direto para quem devolveu. */
+  retorno?: RetornoDevolucao | null
+}
+
+export interface DecisaoCondicao {
+  resposta: "sim" | "nao"
+  automatica?: boolean
+  em?: string | null
+  por_nome?: string | null
+  descricao?: string | null
+}
+
+export interface RetornoDevolucao {
+  em?: string | null
+  por_nome?: string | null
+  motivo?: string | null
+  /** Código da aprovação que devolveu. */
+  de?: string
+  de_titulo?: string | null
 }
 
 export interface GrupoFluxo {
@@ -221,6 +245,19 @@ export interface AcoesDoPasso {
   aguardando: string[]
   /** Pode iniciar (todas as dependências cumpridas)? */
   podeIniciar: boolean
+  /** Condição do fluxo desenhado esperando a resposta de quem conduz (Sim / Não). */
+  responder: boolean
+  /** Aprovação do fluxo desenhado com alguém agora: pode devolver para correção. */
+  devolver: boolean
+}
+
+const ehEtapaDoOrgao = (codigo: string) => /^U_/.test(codigo)
+
+/** Texto da resposta de uma condição: "Sim — respondida pelo sistema (valor … )". */
+export function textoDaDecisao(d: DecisaoCondicao): string {
+  const r = d.resposta === "sim" ? "Sim" : "Não"
+  if (d.automatica) return `${r} — respondida pelo sistema${d.descricao ? `: ${d.descricao}` : ""}`
+  return `${r} — respondida${d.por_nome ? ` por ${d.por_nome}` : ""}${d.descricao ? `: ${d.descricao}` : ""}`
 }
 
 /**
@@ -234,25 +271,49 @@ export function acoesDoPasso(p: PassoFluxo, ctx: { interna: boolean; permissoes?
   const aguardando = podeIniciar || !["AGUARDANDO", "DISPONIVEL"].includes(p.situacao) ? [] : p.pendencias.map((d) => titulos.get(d) ?? d)
   const vivo = ctx.interna && p.situacao !== "CANCELADO" && p.situacao !== "NAO_REALIZADO"
   let concluir: AcaoConcluir | null = null
+  // Condição do fluxo desenhado: conclui com a resposta (Sim / Não), nunca com despacho
+  if (p.conclusao === "CONDICAO") {
+    const voltarCondicao = vivo && (p.pode_reabrir ?? !!ctx.permissoes?.reabrir) && (p.situacao === "CONCLUIDO" || p.situacao === "A_REVISAR")
+    return {
+      abrir: false,
+      concluir: null,
+      voltar: voltarCondicao,
+      aguardando,
+      podeIniciar,
+      responder: vivo && !p.decisao && p.situacao === "DISPONIVEL" && podeIniciar,
+      devolver: false,
+    }
+  }
+  const aprovacao = p.tipo_no === "aprovacao"
+  const registroDisponivel =
+    aprovacao
+      ? { tipo: "REGISTRO" as const, rotulo: "Aprovar", pedido: "Despacho da aprovação (vai aos autos)" }
+      : ehEtapaDoOrgao(p.passo)
+        ? { tipo: "REGISTRO" as const, rotulo: "Concluir com despacho", pedido: "Despacho desta etapa (vai aos autos)" }
+        : { tipo: "REGISTRO" as const, rotulo: "Registrar o despacho", pedido: "Despacho desta etapa (vai para o histórico do processo)" }
   if (vivo) {
     if (p.reaberta && p.situacao !== "CONCLUIDO") {
       concluir =
         p.conclusao === "REGISTRO"
-          ? { tipo: "REGISTRO", rotulo: "Registrar o despacho", pedido: "Despacho desta etapa (vai para o histórico do processo)" }
+          ? registroDisponivel
           : { tipo: "REVISAO", rotulo: "Concluir a revisão", pedido: "O que foi revisto (vai para o histórico do processo)" }
     } else if (p.situacao === "A_REVISAR") {
       concluir = { tipo: "REVISAO", rotulo: "Confirmar a revisão", pedido: "O que foi conferido — a etapa continua valendo (vai para o histórico)" }
     } else if (p.conclusao === "REGISTRO" && p.situacao === "DISPONIVEL" && podeIniciar) {
-      concluir = { tipo: "REGISTRO", rotulo: "Registrar o despacho", pedido: "Despacho desta etapa (vai para o histórico do processo)" }
+      concluir = registroDisponivel
     }
   }
   const voltar = vivo && (p.pode_reabrir ?? !!ctx.permissoes?.reabrir) && (p.situacao === "CONCLUIDO" || p.situacao === "A_REVISAR") && p.conclusao !== "DIVULGACAO"
+  // Aprovação desenhada pelo órgão (conclui por despacho): também devolve para correção
+  const devolver = vivo && aprovacao && p.conclusao === "REGISTRO" && (p.situacao === "DISPONIVEL" || p.situacao === "EM_ANDAMENTO") && podeIniciar
   return {
     abrir: p.conclusao !== "REGISTRO",
     concluir,
     voltar,
     aguardando,
     podeIniciar,
+    responder: false,
+    devolver,
   }
 }
 

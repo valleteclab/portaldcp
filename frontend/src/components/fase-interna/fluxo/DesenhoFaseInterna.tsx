@@ -18,7 +18,7 @@ import { rotaDaTela, telaDoPasso, fmtDia } from "@/lib/fase-interna/telas"
 import { rotuloPrazo } from "@/lib/tarefas"
 import { TRAVAS_DA_LEI, textoDaTrava } from "@/lib/fase-interna/travas"
 import {
-  acoesDoPasso, colunasDoDesenho, textoDaSituacao, SITUACAO_DO_PASSO, todosOsPassos,
+  acoesDoPasso, colunasDoDesenho, textoDaDecisao, textoDaSituacao, SITUACAO_DO_PASSO, todosOsPassos,
   type AcaoConcluir, type EtapasFluxoResposta, type PassoFluxo, type TomSituacao,
 } from "@/lib/fase-interna/visao-fluxo"
 import { AjudaTravaDaLei } from "./AjudaTravaDaLei"
@@ -57,6 +57,10 @@ export interface AcoesDoDesenho {
   onVoltar: (p: PassoFluxo) => void
   onIrParaPeca: (tipo: string | null) => void
   onDispensarParecer: () => void
+  /** Construtor de fluxo: responder a pergunta (condição manual). */
+  onResponder?: (p: PassoFluxo, resposta: "sim" | "nao") => void
+  /** Construtor de fluxo: a aprovação devolve para correção (motivo obrigatório). */
+  onDevolver?: (p: PassoFluxo) => void
 }
 
 export function DesenhoFaseInterna({
@@ -191,6 +195,26 @@ function CartaoEtapa({
           <p className="text-amber-900">Voltou{p.reaberta.por_nome ? ` (${p.reaberta.por_nome})` : ""}: {p.reaberta.motivo}</p>
         )}
         {p.a_revisar && <p className="text-amber-900">A revisar: {p.a_revisar.motivo}</p>}
+        {p.retorno && p.situacao !== "CONCLUIDO" && (
+          <p className="text-amber-900">
+            Devolvida por &quot;{p.retorno.de_titulo ?? p.retorno.de}&quot;{p.retorno.por_nome ? ` (${p.retorno.por_nome})` : ""}: {p.retorno.motivo}. Corrigida, volta direto
+            para &quot;{p.retorno.de_titulo ?? p.retorno.de}&quot;.
+          </p>
+        )}
+        {p.conclusao === "CONDICAO" && p.decisao && <p className="text-green-900">{textoDaDecisao(p.decisao)}</p>}
+        {a.responder && (
+          <div className="rounded border border-blue-200 bg-blue-50 px-1.5 py-1 text-blue-950">
+            <p className="font-medium">Pergunta: {p.titulo}</p>
+            <div className="mt-1 flex gap-1">
+              <Button size="sm" className="h-7 px-3 text-[11px]" disabled={ocupado || !acoes.onResponder} onClick={() => acoes.onResponder?.(p, "sim")}>
+                Sim
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 px-3 text-[11px]" disabled={ocupado || !acoes.onResponder} onClick={() => acoes.onResponder?.(p, "nao")}>
+                Não
+              </Button>
+            </div>
+          </div>
+        )}
         {p.conclusao === "REGISTRO" && p.registro?.texto && p.situacao === "CONCLUIDO" && (
           <p className="text-green-900">Despacho: {p.registro.texto}{p.registro.por_nome ? ` (${p.registro.por_nome})` : ""}</p>
         )}
@@ -228,6 +252,11 @@ function CartaoEtapa({
           {a.concluir && (
             <Button size="sm" className="h-7 px-2 text-[11px]" disabled={ocupado} onClick={() => acoes.onConcluir(p, a.concluir!)}>
               {a.concluir.rotulo}
+            </Button>
+          )}
+          {a.devolver && acoes.onDevolver && (
+            <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] text-amber-900" disabled={ocupado} onClick={() => acoes.onDevolver?.(p)}>
+              <Undo2 className="w-3 h-3 mr-1" aria-hidden="true" /> Devolver
             </Button>
           )}
           {podeDispensar && (

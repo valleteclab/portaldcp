@@ -14,6 +14,7 @@ import {
   rotuloDaFolha,
   rotuloDoDestino,
   situacaoDoPrazo,
+  textoDaDecisao,
   textoDaSituacao,
 } from "./visao-fluxo.ts"
 import { textoDaTrava } from "./travas.ts"
@@ -104,6 +105,35 @@ test("reaberta: situação diz 'Reaberta' e a ação é concluir a revisão", ()
   assert.match(textoDaSituacao(p), /Reaberta/)
   assert.equal(acoesDoPasso(p, { interna: true }).concluir?.rotulo, "Concluir a revisão")
   assert.match(textoDaSituacao(passo("DFD", { situacao: "EM_ANDAMENTO", aguardando_aprovacao: true })), /aprovação da demanda/)
+})
+
+test("construtor: condição manual pede Sim/Não a quem conduz; respondida não pede mais", () => {
+  const q = passo("C_Q_VALOR", { titulo: "Valor acima de R$ 50 mil?", conclusao: "CONDICAO", tipo_no: "condicao", situacao: "DISPONIVEL" })
+  const a = acoesDoPasso(q, { interna: true })
+  assert.equal(a.responder, true)
+  assert.equal(a.concluir, null, "a condição nunca conclui com despacho")
+  assert.equal(a.abrir, false)
+  assert.equal(acoesDoPasso({ ...q, situacao: "AGUARDANDO", pendencias: ["PARECER"], pode_iniciar: false }, { interna: true }).responder, false)
+  const respondida = { ...q, situacao: "CONCLUIDO", decisao: { resposta: "sim", automatica: true, descricao: "valor total estimado > R$ 50.000,00" } }
+  assert.equal(acoesDoPasso(respondida, { interna: true }).responder, false)
+  assert.equal(acoesDoPasso(respondida, { interna: true, permissoes: { conduzir: true, reabrir: true } }).voltar, true, "voltar refaz a pergunta")
+  assert.equal(textoDaDecisao(respondida.decisao), "Sim — respondida pelo sistema: valor total estimado > R$ 50.000,00")
+  assert.equal(textoDaDecisao({ resposta: "nao", por_nome: "Ana" }), "Não — respondida por Ana")
+})
+
+test("construtor: aprovação do órgão tem Aprovar e Devolver; etapa do órgão, 'Concluir com despacho'", () => {
+  const fin = passo("U_FIN", { titulo: "Secretário de Finanças aprova", conclusao: "REGISTRO", tipo_no: "aprovacao", situacao: "DISPONIVEL" })
+  const a = acoesDoPasso(fin, { interna: true })
+  assert.equal(a.concluir?.rotulo, "Aprovar")
+  assert.equal(a.devolver, true)
+  assert.equal(acoesDoPasso({ ...fin, situacao: "AGUARDANDO", pendencias: ["PESQUISA"], pode_iniciar: false }, { interna: true }).devolver, false)
+  assert.equal(acoesDoPasso({ ...fin, situacao: "CONCLUIDO" }, { interna: true }).devolver, false)
+  assert.equal(acoesDoPasso(fin, { interna: false }).devolver, false)
+  const etapa = passo("U_CONFERIR", { conclusao: "REGISTRO", tipo_no: "etapa", situacao: "DISPONIVEL" })
+  assert.equal(acoesDoPasso(etapa, { interna: true }).concluir?.rotulo, "Concluir com despacho")
+  assert.equal(acoesDoPasso(etapa, { interna: true }).devolver, false)
+  const parecer = passo("PARECER", { tipo_no: "aprovacao", situacao: "EM_ANDAMENTO" })
+  assert.equal(acoesDoPasso(parecer, { interna: true }).devolver, false, "aprovação com peça do sistema devolve pelo caminho de sempre")
 })
 
 test("dependentes afetados pelo voltar: transitivos, só os concluídos ou a revisar", () => {
