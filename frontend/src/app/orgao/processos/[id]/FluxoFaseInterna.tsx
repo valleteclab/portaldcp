@@ -163,7 +163,12 @@ export function FluxoFaseInterna({
           : "Confirme que a etapa foi conferida depois da etapa que voltou. Ela volta a contar como concluída.",
       valorInicial: textoSugerido || undefined,
       rotulo: a.pedido,
-      placeholder: a.tipo === "REGISTRO" ? "Ex.: Autorizo o início do processo de contratação." : "Ex.: Conferido — o TR continua compatível com o ETP revisto.",
+      placeholder:
+        a.tipo !== "REGISTRO"
+          ? "Ex.: Conferido — o TR continua compatível com o ETP revisto."
+          : a.rotulo === "Aprovar"
+            ? "Ex.: De acordo. Aprovo o prosseguimento da contratação."
+            : "Ex.: Autorizo o início do processo de contratação.",
       obrigatorio: true,
       minimo: 10,
       confirmarRotulo: a.rotulo,
@@ -199,6 +204,35 @@ export function FluxoFaseInterna({
     })
     if (motivo === null) return
     await acao(`etapas/${p.passo}/reabrir`, { motivo }, `Etapa "${p.titulo}" reaberta.`)
+  }
+
+  // Construtor de fluxo: a pergunta que quem conduz responde (condição manual, ou sem o dado no processo)
+  const responder = async (p: PassoFluxo, resposta: "sim" | "nao") => {
+    const texto = await pedirTexto({
+      titulo: `Responder "${resposta === "sim" ? "Sim" : "Não"}" — ${p.titulo}`,
+      mensagem: `Só o caminho do "${resposta === "sim" ? "sim" : "não"}" segue; as etapas do outro caminho saem deste processo. A resposta fica no histórico. Para mudar depois, volte a pergunta com o motivo.`,
+      rotulo: "Observação (opcional)",
+      confirmarRotulo: resposta === "sim" ? "Responder Sim" : "Responder Não",
+    })
+    if (texto === null) return
+    await acao(`etapas/${p.passo}/concluir`, { resposta, ...(texto ? { texto } : {}) }, `Respondido: ${resposta === "sim" ? "sim" : "não"}.`)
+  }
+
+  // Construtor de fluxo: a aprovação devolve para correção; corrigida, a etapa volta direto para ela
+  const devolver = async (p: PassoFluxo) => {
+    const motivo = await pedirTexto({
+      titulo: `Devolver — ${p.titulo}`,
+      mensagem:
+        "A etapa anterior volta para correção (nenhuma peça é apagada). Quando for corrigida, o processo volta direto para esta aprovação. O despacho da devolução vai aos autos.",
+      rotulo: "Motivo da devolução (vai aos autos)",
+      placeholder: "Ex.: Refazer a pesquisa com três cotações.",
+      obrigatorio: true,
+      minimo: 10,
+      confirmarRotulo: "Devolver",
+      destrutivo: true,
+    })
+    if (motivo === null) return
+    await acao(`etapas/${p.passo}/devolver`, { motivo }, `"${p.titulo}" devolvida para correção.`)
   }
 
   const irParaPeca = (tipo: string | null) => {
@@ -332,7 +366,14 @@ export function FluxoFaseInterna({
         dados={dados}
         interna={interna}
         ocupado={ocupado}
-        acoes={{ onConcluir: concluir, onVoltar: voltar, onIrParaPeca: irParaPeca, onDispensarParecer: () => setDispensando(true) }}
+        acoes={{
+          onConcluir: concluir,
+          onVoltar: voltar,
+          onIrParaPeca: irParaPeca,
+          onDispensarParecer: () => setDispensando(true),
+          onResponder: responder,
+          onDevolver: devolver,
+        }}
       />
 
       {dados.historico.length > 0 && (

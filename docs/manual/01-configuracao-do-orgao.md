@@ -156,22 +156,32 @@ Em **Configurações** › **Fase interna e tarefas** o administrador do órgão
 
 Na aba **Setores**, cada setor pode ter um **chefe** (um dos usuários do órgão). O chefe não precisa estar diretamente na tarefa: quando um processo **chega ao setor** (pela tramitação), tanto quem tem o papel do setor quanto o **chefe** são avisados e podem **receber** o processo em nome do setor. Sem chefe cadastrado, só quem tem o papel do setor recebe o aviso e a tarefa.
 
-### Configurar o fluxo (Configurações › Fluxo)
+### Desenhar o fluxo (Configurações › Fluxo)
 
-Em **Configurações › Fluxo** (`/orgao/configuracoes/fluxo`) o administrador desenha, **por tipo de processo** (Dispensa, Inexigibilidade, Licitação), o caminho que a fase interna percorre — é a evolução do quadro "Responsável e prazo por etapa" acima, agora com a **ordem, as dependências entre etapas e o desenho** visíveis:
+Em **Configurações › Fluxo** (`/orgao/configuracoes/fluxo`, ou o botão **Desenhar o fluxo** em "Fase interna e tarefas") o administrador desenha, **por tipo de processo** (abas Dispensa, Inexigibilidade, Licitação), o caminho que a fase interna percorre, com **caixas e setas**. Os demais usuários veem o desenho e podem testar, mas não alteram.
 
-- Escolha o **tipo** no topo (Dispensa, Inexigibilidade ou Licitação). Cada tipo tem o seu modelo.
-- Para cada etapa: **quem faz** (um papel, um setor ou uma pessoa), o **prazo em dias úteis**, se a etapa está **ligada** (só as opcionais podem ser desligadas — ex.: "autorização de início" e "indicação da modalidade", que a lei não exige), se a **IA prepara o rascunho** quando o processo chega, se pede **aprovação interna** antes de enviar adiante, se é **dispensável por ato** (só no Parecer, art. 53, §5º) e **de quais outras etapas ela depende**.
-- **Antes do processo: demandas e DFD** (quadro no alto da tela, vale para todos os tipos de processo):
-  - **Quem aprova a demanda** (o pedido do setor, na Central de Aprovações): por padrão, quem tem a permissão "aprovar demandas" (e o login do órgão); pode ser um papel, um setor ou uma pessoa.
-  - **Quem monta o DFD e abre o processo** (a unidade de planejamento): por padrão, o papel **Planejamento**; o administrador do órgão sempre pode.
-  - **2ª aprovação do DFD consolidado**: desligada por padrão. Ligada, escolha quem aprova (papel, setor, pessoa ou "aprovar demandas"); o processo só abre depois dela.
-  - **Restaurar padrão** volta às regras do sistema.
-- **A aprovação da demanda** (dentro do processo): escolha quem aprova — por padrão, quem tem a permissão "pode aprovar demandas", mas pode ser um papel, um setor ou uma pessoa específica. Enquanto ninguém aprovar, o processo não avança para as etapas seguintes (veja "Aprovação da demanda", na parte [02](02-fase-interna-e-criacao.md#aprovação-da-demanda)).
-- O quadro mostra o **desenho** do fluxo (colunas por nível de dependência — etapas na mesma coluna podem andar ao mesmo tempo).
-- **Salvar modelo** valida pela Lei 14.133 antes de gravar: uma etapa obrigatória não pode ser desligada, a autorização não pode vir antes da pesquisa e da reserva, e ciclos nas dependências são recusados — o erro sempre cita o artigo (ex.: "Falta a autorização da autoridade competente, art. 72, VIII"). Um aviso (não bloqueia) aparece quando a mesma pessoa está em duas funções que deveriam se controlar (ex.: quem faz a pesquisa também autoriza — art. 7º, §1º).
-- **Restaurar modelo padrão** aplica de volta o modelo pronto **"Câmara — Portaria 089"**, perdendo os ajustes que o órgão tiver feito naquele tipo.
-- Processos **já em andamento não mudam de caminho** quando o modelo é editado depois: cada processo guarda o retrato (o "instantâneo") do modelo no momento em que nasceu. Só quem faz, o prazo, a IA e o liga/desliga das etapas opcionais seguem o modelo mais recente.
+**Criar.** Na paleta à esquerda, arraste para o desenho (ou clique para adicionar):
+
+- **Etapa** — um setor faz. Em **Peças que produz**, escolha uma etapa do sistema (DFD, ETP, TR, pesquisa, reserva, minutas, parecer…: a tela da etapa e as travas da lei vêm junto) ou **Nenhuma** — é uma etapa do órgão, que conclui com um despacho curto nos autos.
+- **Aprovação** — alguém aprova ou **devolve** para correção (ex.: "Secretário de Finanças aprova").
+- **Condição** — uma pergunta com saída **sim** e **não**. O sistema responde sozinho pelo **valor estimado** (acima de, a partir de, abaixo de, até, entre — em R$), pelo **tipo de contratação**, pela **modalidade** ou pelo **fundamento legal**; ou é **manual**: quem conduz o processo responde.
+- **Fim** — onde termina.
+
+Clique numa caixa para editar, no painel à direita: nome, **quem faz / quem aprova** (setor, papel ou pessoa), **prazo em dias úteis**, peças, **IA prepara o rascunho**, **aprovação interna** da peça e, no parecer, **dispensável por ato** (art. 53, §5º). Sem nada selecionado, o painel mostra as **Regras do fluxo** (nome, aprovação da demanda e posse para trabalhar nas peças).
+
+**Ligar.** Puxe a **bolinha azul** da caixa até outra (ou use **Ligar a** no painel). Da condição, a primeira seta vira **sim** e a segunda **não**. Da aprovação para uma caixa que vem antes, a seta vira **devolve** (tracejada, laranja). Clique numa seta para trocar o tipo. **Delete** apaga a caixa ou a seta selecionada.
+
+**Conferir.** A **Conferência**, à direita, acompanha o desenho enquanto você mexe: o que falta na estrutura (início, fim, caixa sem saída, condição sem "sim"/"não", etapa sem quem faz) e os **requisitos da lei**, cada um com ✓ ou ✗ e o artigo — inclusive **ramo a ramo** (ex.: "Quando 'Tem cotação?' = não, o processo pula a pesquisa de preços"). Clique num erro para ir à caixa.
+
+**Testar.** O botão **Testar** percorre o desenho com um exemplo (valor estimado e tipo), pela **mesma regra** do processo de verdade, sem gravar nada: cartões "Está com Compras — **Concluir**", "**Aprovar** / **Devolver**", "**Sim** / **Não**", as caixas com alguém agora em azul, as feitas em verde, e o registro "O que aconteceu".
+
+**Rascunho e ativação.** Tudo o que você muda vai para o **rascunho**, que salva sozinho ("Rascunho salvo às 14:05"). O topo diz sempre onde você está: "Você está editando o rascunho; a versão ativa é a 3". **Ativar** mostra a conferência e pede confirmação; só ativa se não houver erro. Depois: **"Versão 4 ativa — processos novos seguem este fluxo; os em andamento continuam no fluxo em que começaram."** **Versões** mostra o histórico (quem ativou e quando) e permite carregar uma versão antiga no rascunho.
+
+**Começar de** carrega no rascunho um modelo pronto ("Câmara — Portaria 089", "… com controle interno", "Prefeitura — Finanças aprova acima de R$ 50 mil"), o **modelo padrão do sistema**, um desenho em branco ou, para desistir, **a versão ativa** (descarta o rascunho). **Montar com IA** transforma uma descrição em texto num rascunho, já conferido; nada é ativado sozinho (sem IA configurada, aparece "IA indisponível").
+
+**Antes do processo** (no fim da tela, vale para todos os tipos): **quem aprova a demanda** do setor, **quem monta o DFD consolidado e abre o processo** (padrão: papel Planejamento) e a **2ª aprovação do DFD consolidado** (desligada por padrão).
+
+No processo, as caixas criadas pelo órgão aparecem no quadro **Fluxo da fase interna** (parte [02](02-fase-interna-e-criacao.md#visão-da-fase-interna-avançar-voltar-etapas-em-paralelo)).
 
 ## 9. Orçamento (dotações e leis)
 
