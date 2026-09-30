@@ -73,7 +73,9 @@ export function centavosParaReaisTrunc2(centavos: number): number {
 export function truncarMoedaReais2Casas(v: number): number {
   const x = Number(v);
   if (!Number.isFinite(x)) return 0;
-  return (x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 1e-9) / 100;
+  const valorEmCentavos = Math.abs(x) * 100;
+  const toleranciaFloat = Number.EPSILON * valorEmCentavos * 2;
+  return (x < 0 ? -1 : 1) * Math.floor(valorEmCentavos + toleranciaFloat) / 100;
 }
 
 export function valorPorFrequenciaItemCronograma(ic: Pick<ItemCronograma, 'quantidade' | 'valor_unitario' | 'valor_mensal' | 'unidade_medida'>): number {
