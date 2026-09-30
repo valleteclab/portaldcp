@@ -311,7 +311,9 @@ const STATUS_MEDICAO: Record<
 function truncar2Casas(v: number): number {
   const x = Number(v);
   if (!Number.isFinite(x)) return 0;
-  return ((x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 1e-9)) / 100;
+  const valorEmCentavos = Math.abs(x) * 100;
+  const toleranciaFloat = Number.EPSILON * valorEmCentavos * 2;
+  return ((x < 0 ? -1 : 1) * Math.floor(valorEmCentavos + toleranciaFloat)) / 100;
 }
 
 /** Produto q × vl truncado em 2 casas decimais (centavos inteiros, sem float drift). */
