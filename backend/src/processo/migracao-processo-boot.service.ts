@@ -76,10 +76,12 @@ export class MigracaoProcessoBootService implements OnApplicationBootstrap {
         WHERE l.orgao_id IS NOT NULL AND l.numero_processo IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM processos p WHERE p.referencia_tipo = $2::varchar AND p.referencia_id = l.id)
         ORDER BY l.created_at ASC
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
       [TipoProcesso.CONTRATACAO, REFERENCIA_LICITACAO, encerram],
     );
-    return Number(Array.isArray(r) ? r[1] ?? 0 : 0);
+    // INSERT: o TypeORM devolve as linhas do RETURNING (o par [linhas, afetadas] é só de UPDATE/DELETE)
+    return Array.isArray(r) ? r.length : 0;
   }
 
   /** `processo_id` das linhas sem ligação, tabela a tabela. */
