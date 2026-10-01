@@ -149,10 +149,23 @@ export function definicaoAditivo(): DefinicaoTipoProcesso {
   };
 }
 
+/**
+ * Processo de RENOVACAO: mesma mecânica do aditivo (nasce ligado ao contrato;
+ * o resultado é o termo cadastrado). A renovação, no cadastro atual, é um termo
+ * com `renovacao_ciclo = true`; o vínculo só aceita esse termo.
+ */
+export function definicaoRenovacao(): DefinicaoTipoProcesso {
+  return {
+    ...definicaoAditivo(),
+    tipo: TipoProcesso.RENOVACAO,
+    rotulo: 'Renovação de contrato',
+    descricao: 'Renovação/prorrogação do contrato: processo ligado ao contrato, cujo resultado é o termo de renovação cadastrado.',
+  };
+}
+
 /** Lista fixa dos esqueletos (o registro em dados nasce daqui). */
 export function esqueletosFuturos(): DefinicaoTipoProcesso[] {
   return [
-    esqueletoDeTipo(TipoProcesso.RENOVACAO, 'Renovação de contrato', 'Prorrogação de vigência de contrato — próxima etapa.', 'CONTRATO'),
     esqueletoDeTipo(TipoProcesso.PAGAMENTO, 'Pagamento', 'Liquidação e pagamento de medição/nota — próxima etapa.', 'MEDICAO'),
   ];
 }

@@ -1,5 +1,5 @@
 import { TipoProcesso } from './entities/processo.entity';
-import { normalizarFiltrosListagem, situacaoDoProcessoPelaLicitacao, textoDeAutuacao, tipoProcessoValido, validarAberturaDireta } from './processo-regras';
+import { erroTermoParaProcesso, normalizarFiltrosListagem, situacaoDoProcessoPelaLicitacao, textoDeAutuacao, tipoProcessoValido, validarAberturaDireta } from './processo-regras';
 import { ORDEM_TIPOS, definicaoAvulso, esqueletoDeTipo, esqueletosFuturos } from './tipos/tipo-processo';
 
 describe('processo-regras', () => {
@@ -55,6 +55,18 @@ describe('processo-regras', () => {
       limite: 500,
     });
     expect(normalizarFiltrosListagem({ tipo: 'X', situacao: 'Y', limit: '-3' })).toEqual({ tipo: null, situacao: null, busca: null, contrato_id: null, limite: 100 });
+  });
+
+  it('RENOVACAO abre ligada a contrato e só aceita termo de renovação de ciclo', () => {
+    const contrato = '3f2b8c1e-5d4a-4c6b-9e7f-0a1b2c3d4e5f';
+    const tipos = [TipoProcesso.AVULSO, TipoProcesso.ADITIVO, TipoProcesso.RENOVACAO];
+    expect(validarAberturaDireta({ tipo: 'RENOVACAO', objeto: 'Renovação por 12 meses' }, tipos)).toMatchObject({ erro: expect.stringMatching(/contrato/i) });
+    expect(validarAberturaDireta({ tipo: 'RENOVACAO', objeto: 'Renovação por 12 meses', contrato_id: contrato }, tipos)).toMatchObject({ dados: { tipo: 'RENOVACAO', contrato_id: contrato } });
+    expect(erroTermoParaProcesso(TipoProcesso.RENOVACAO, true)).toBeNull();
+    expect(erroTermoParaProcesso(TipoProcesso.RENOVACAO, false)).toMatch(/renovação/);
+    expect(erroTermoParaProcesso(TipoProcesso.RENOVACAO, undefined)).toMatch(/renovação/);
+    expect(erroTermoParaProcesso(TipoProcesso.ADITIVO, undefined)).toBeNull();
+    expect(erroTermoParaProcesso(TipoProcesso.AVULSO, true)).toMatch(/não é de termo/);
   });
 
   it('texto de autuação', () => {

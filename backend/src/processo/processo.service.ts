@@ -5,7 +5,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
 import { Processo, REFERENCIA_LICITACAO, REFERENCIA_TERMO_ADITIVO, ReferenciaProcesso, SituacaoProcesso, TipoProcesso } from './entities/processo.entity';
-import { normalizarFiltrosListagem, situacaoDoProcessoPelaLicitacao } from './processo-regras';
+import { erroTermoParaProcesso, normalizarFiltrosListagem, situacaoDoProcessoPelaLicitacao } from './processo-regras';
 
 /** Quem abre o processo (do JWT ou do ator do histórico — nunca do corpo). */
 export interface AutorAbertura {
@@ -247,16 +247,17 @@ export class ProcessoService {
 
   /**
    * Confere, ANTES de cadastrar o termo, que o processo informado pode receber
-   * o resultado: é de ADITIVO, do mesmo órgão e do mesmo contrato, está aberto
+   * o resultado: é de ADITIVO ou RENOVACAO, do mesmo órgão e do mesmo contrato, está aberto
    * e ainda não tem resultado. Falha aqui não deixa termo criado pela metade.
    */
-  async validarVinculoTermo(orgaoId: string, processoId: string, contratoId: string): Promise<Processo> {
+  async validarVinculoTermo(orgaoId: string, processoId: string, contratoId: string, renovacaoCiclo?: unknown): Promise<Processo> {
     const p = ehUuid(processoId) ? await this.repo.findOne({ where: { id: processoId } }) : null;
     if (!p || p.orgao_id !== orgaoId) throw new NotFoundException('Processo não encontrado');
-    if (p.tipo !== TipoProcesso.ADITIVO) throw new BadRequestException('O processo informado não é de termo aditivo.');
+    const erroTipo = erroTermoParaProcesso(p.tipo, renovacaoCiclo);
+    if (erroTipo) throw new BadRequestException(erroTipo);
     if (p.contrato_id !== contratoId) throw new BadRequestException('O processo informado é de outro contrato.');
     if (p.situacao === 'ENCERRADO') throw new BadRequestException('O processo informado já está encerrado.');
-    if (p.referencia_id) throw new ConflictException('O processo informado já tem um termo aditivo como resultado.');
+    if (p.referencia_id) throw new ConflictException('O processo informado já tem um termo como resultado.');
     return p;
   }
 
