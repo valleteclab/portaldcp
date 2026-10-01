@@ -239,6 +239,24 @@ export async function chamarProcessos<T>(caminho: string, opcoes?: { metodo?: st
 
 export const textoDoErro = (e: unknown, padrao = "Não foi possível concluir a operação.") => (e instanceof Error && e.message ? e.message : padrao)
 
+export interface ModeloDaPeca {
+  processo_id: string
+  etapa: string | null
+  titulo: string
+  html: string
+  ia_disponivel: boolean
+}
+
+export interface RascunhoDaPeca {
+  processo_id: string
+  titulo: string
+  html: string
+  ia_modelo: string
+  lacunas: number
+}
+
+export const temLacuna = (html: string) => /<mark>[\s\S]*?<\/mark>/i.test(html)
+
 /** Anexa um arquivo feito fora do sistema (`POST /api/uploads`, pasta `processo`) e devolve a URL para `arquivo_url`. */
 export async function enviarArquivoDoProcesso(arquivo: File): Promise<{ url: string; nome: string }> {
   const form = new FormData()
