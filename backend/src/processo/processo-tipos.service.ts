@@ -44,10 +44,10 @@ export class ProcessoTiposService {
       if (!d) continue;
       const r = await this.repo.query(
         `INSERT INTO tipos_processo (codigo, rotulo, descricao, referencia_tipo, implementado, abertura_direta, ativo, ordem)
-         VALUES ($1, $2, $3, $4, $5, $6, true, $7) ON CONFLICT (codigo) DO NOTHING`,
+         VALUES ($1, $2, $3, $4, $5, $6, true, $7) ON CONFLICT (codigo) DO NOTHING RETURNING codigo`,
         [d.tipo, d.rotulo, d.descricao, d.referencia_tipo, d.implementado, d.abertura_direta, i],
       );
-      inseridos += Number(Array.isArray(r) ? r[1] ?? 0 : 0);
+      inseridos += Array.isArray(r) ? r.length : 0;
     }
     return inseridos;
   }
