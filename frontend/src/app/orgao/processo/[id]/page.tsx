@@ -200,6 +200,7 @@ export default function TelaDoProcessoPage() {
           ) : null}
           <BlocoEnviar
             processoId={processo.id}
+            etapaChave={etapaAtual?.chave ?? null}
             posse={posse}
             ehAvulso={ehAvulso}
             onTramitou={() => carregar(true)}

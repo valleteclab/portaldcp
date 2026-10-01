@@ -342,12 +342,14 @@ export function BlocoAguardando({ posse, encerrado, motivo }: { posse: ComQuemEs
 
 export function BlocoEnviar({
   processoId,
+  etapaChave,
   posse,
   ehAvulso,
   onTramitou,
   onEncerrou,
 }: {
   processoId: string
+  etapaChave: string | null
   posse: ComQuemEsta | null
   ehAvulso: boolean
   onTramitou: () => void
@@ -374,7 +376,7 @@ export function BlocoEnviar({
     return () => {
       vivo = false
     }
-  }, [processoId])
+  }, [processoId, etapaChave])
 
   const usuariosPorSetor = useMemo(() => destinos?.usuarios ?? [], [destinos])
 
@@ -452,7 +454,7 @@ export function BlocoEnviar({
           ) : null}
           {destinos?.sugerido ? (
             <div className={s.dica}>
-              Sugerido para a próxima etapa: {destinos.sugerido.setor_nome}. {destinos.sugerido.motivo}
+              Sugerido: {destinos.sugerido.setor_nome}. {destinos.sugerido.motivo}
             </div>
           ) : null}
           <label className={s.rotulo} htmlFor="destino-processo">
