@@ -67,6 +67,7 @@ import { RascunhoIaController } from './ia-rascunho/rascunho-ia.controller';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { ParametrosLicitacaoModule } from '../parametros-licitacao/parametros-licitacao.module';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
+import { ProcessoModule } from '../processo/processo.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
 import { ModeloDocumento } from './entities/modelo-documento.entity';
 import { TramitacaoProcesso } from './entities/tramitacao-processo.entity';
@@ -123,6 +124,7 @@ import {
     PortalAssinaturasModule,
     ParametrosLicitacaoModule,
     NumeroProcessoModule,
+    ProcessoModule,
     TypeOrmModule.forFeature([
       DocumentoFaseInterna,
       DocumentoOrgao,

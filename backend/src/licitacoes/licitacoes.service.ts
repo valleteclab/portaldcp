@@ -28,6 +28,8 @@ import { TransicoesService } from './transicoes/transicoes.service';
 import { AtoLicitacao, AtorTransicao, atorSistema } from './transicoes/transicoes.tipos';
 import { MAPA_SITUACAO_LEGADA } from './transicoes/migracao-situacao';
 import { LicitacaoTransicao } from './transicoes/licitacao-transicao.entity';
+import { ProcessoService } from '../processo/processo.service';
+import { REFERENCIA_LICITACAO } from '../processo/entities/processo.entity';
 import { ehFaseInterna, ROTULO_FASE } from './transicoes/fases';
 import { camposDoEditalAlterados, mesmoValor, normalizarNaturezaObjeto } from '../publicacao/regras-publicacao';
 import { motivoModoCriterioInvalido } from '../disputa/modos-disputa';
@@ -112,6 +114,8 @@ export class LicitacoesService {
     private readonly resultado: ResultadoService,
     // DFD consolidado (unidade de planejamento): o processo nasce do DFD (N demandas)
     private readonly dfds: DfdConsolidadoService,
+    // Processo eletrônico: a licitação é o primeiro TIPO de processo — nasce com a autuação, na mesma transação
+    private readonly processos: ProcessoService,
     private readonly auditLog: AuditLogService,
     // Gerador único do nº do processo administrativo (sequencial por órgão/ano)
     private readonly numeros: NumeroProcessoService,
@@ -239,12 +243,24 @@ export class LicitacoesService {
     Object.assign(licitacao, beneficioMpe);
 
     const salva = await this.licitacaoRepository.manager.transaction(async (m) => {
-      licitacao.numero_processo = await this.numeros.numeroParaCriacao(createDto.orgao_id, numeroDigitado, m);
+      // PROCESSO ELETRÔNICO: a autuação nasce primeiro (consome o nº do gerador único
+      // ou confere o digitado); a licitação recebe o MESMO número e é ligada ao processo.
+      const processo = await this.processos.abrirContratacao(m, {
+        orgaoId: createDto.orgao_id,
+        numeroDigitado,
+        objeto: createDto.objeto,
+        abertoPor: { tipo: ator.tipo, id: ator.id },
+        origem: opcoes.fase_interna_externa ? 'FEITA_FORA' : opcoes.dfd_consolidado ? 'DFD' : opcoes.demanda_id ? 'DEMANDA' : 'ASSISTENTE',
+      });
+      licitacao.numero_processo = processo.numero;
+      let gravada: Licitacao;
       try {
-        return await m.getRepository(Licitacao).save(licitacao);
+        gravada = await m.getRepository(Licitacao).save(licitacao);
       } catch (e) {
         throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
       }
+      await this.processos.vincularReferencia(m, processo.id, REFERENCIA_LICITACAO, gravada.id);
+      return gravada;
     });
     if (opcoes.dfd_consolidado) await this.dfds.vincularProcesso(opcoes.dfd_consolidado.id, salva.id, opcoes.dfd_consolidado.ator, salva.numero_processo);
     await this.transicoes.registrarCriacao(salva, ator, undefined, opcoes.registro);
@@ -437,12 +453,23 @@ export class LicitacoesService {
         data_abertura_processo: new Date(),
       });
       licitacaoSalva = await this.licitacaoRepository.manager.transaction(async (m) => {
-        licitacao.numero_processo = await this.numeros.numeroParaCriacao(dfd.orgao_id, numeroDigitado, m);
+        // PROCESSO ELETRÔNICO: autuação primeiro (mesmo número), licitação ligada em seguida
+        const processo = await this.processos.abrirContratacao(m, {
+          orgaoId: dfd.orgao_id,
+          numeroDigitado,
+          objeto,
+          abertoPor: atorAcesso ? ProcessoService.autorDoAtor(atorAcesso) : { tipo: ator.tipo, id: ator.id },
+          origem: 'DFD',
+        });
+        licitacao.numero_processo = processo.numero;
+        let gravada: Licitacao;
         try {
-          return await m.getRepository(Licitacao).save(licitacao);
+          gravada = await m.getRepository(Licitacao).save(licitacao);
         } catch (e) {
           throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
         }
+        await this.processos.vincularReferencia(m, processo.id, REFERENCIA_LICITACAO, gravada.id);
+        return gravada;
       });
     } catch (e) {
       await this.dfds.liberarReserva(dfdId, anterior);
@@ -728,12 +755,17 @@ export class LicitacoesService {
         dadosLicitacao.numero_processo = novo;
       }
     }
+    const numeroMudou = dadosLicitacao.numero_processo !== undefined;
+    const objetoMudou = dadosLicitacao.objeto !== undefined && dadosLicitacao.objeto !== licitacao.objeto;
     Object.assign(licitacao, dadosLicitacao);
     try {
       await this.licitacaoRepository.save(licitacao);
     } catch (e) {
       throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
     }
+    // Processo eletrônico: a autuação acompanha o nº e o objeto da licitação
+    if (numeroMudou) await this.processos.atualizarNumeroDaLicitacao(licitacao.id, licitacao.numero_processo);
+    if (objetoMudou) await this.processos.atualizarObjetoDaLicitacao(licitacao.id, licitacao.objeto);
 
     // Função auxiliar para validar UUID
     const isValidUUID = (str: string): boolean => {
@@ -1945,6 +1977,8 @@ export class LicitacoesService {
       await manager.delete(LicitacaoTransicao, { licitacao_id: id });
       await manager.delete(ItemLicitacao, { licitacao_id: id });
       await manager.delete(LoteLicitacao, { licitacao_id: id });
+      // Processo eletrônico: a autuação sai junto (libera o número no órgão)
+      await this.processos.aoExcluirLicitacao(id, manager);
       await manager.delete(Licitacao, id);
     });
   }

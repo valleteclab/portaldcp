@@ -76,6 +76,8 @@ import {
 import { estadoEditalCredenciamentoSql } from './credenciamento.sql';
 import { aplicarEstadoCompraPncp } from '../pncp/estado-compra-pncp';
 import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
+import { ProcessoService } from '../processo/processo.service';
+import { REFERENCIA_LICITACAO } from '../processo/entities/processo.entity';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ehUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
@@ -151,6 +153,8 @@ export class CredenciamentoService {
     private readonly contratos: ContratosService,
     // Gerador único do nº do processo administrativo (por órgão/ano)
     private readonly numeros: NumeroProcessoService,
+    // Processo eletrônico: o credenciamento é um processo de CONTRATACAO
+    private readonly processos: ProcessoService,
     @Optional() private readonly notificacoes?: NotificacoesService,
   ) {}
 
@@ -319,8 +323,16 @@ export class CredenciamentoService {
         [orgaoId, ano],
       );
       const seq = Number(n) + 1;
-      // Nº do processo administrativo: digitado (único no órgão → 409) ou o gerador único (órgão/ano)
-      const numeroProcesso = await this.numeros.numeroParaCriacao(orgaoId, dados.numero_processo, m);
+      // PROCESSO ELETRÔNICO: a autuação nasce primeiro — nº digitado (único no
+      // órgão → 409) ou o gerador único (órgão/ano); a licitação recebe o mesmo número.
+      const processo = await this.processos.abrirContratacao(m, {
+        orgaoId,
+        numeroDigitado: dados.numero_processo,
+        objeto,
+        abertoPor: { tipo: ator.tipo, id: ator.id },
+        origem: 'CREDENCIAMENTO',
+      });
+      const numeroProcesso = processo.numero;
       const lic = await m.save(
         m.create(Licitacao, {
           numero_processo: numeroProcesso,
@@ -340,6 +352,7 @@ export class CredenciamentoService {
           observacoes: dados.observacoes ?? null,
         } as any),
       );
+      await this.processos.vincularReferencia(m, processo.id, REFERENCIA_LICITACAO, lic.id);
       await m.save(m.create(ConfiguracaoCredenciamento, { licitacao_id: lic.id, ...cfg, origem: null }));
       if (dados.itens?.length) {
         const total = await this.gravarItens(m, lic.id, dados.itens);

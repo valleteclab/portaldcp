@@ -264,6 +264,11 @@ export class FluxoProcessoFaseInterna {
   @Column({ type: 'uuid', unique: true })
   licitacao_id: string;
 
+  /** PROCESSO ELETRÔNICO (`processos.id`). Nulo nesta etapa (migração de boot); `licitacao_id` continua por compatibilidade. */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  processo_id: string | null;
+
   @Column({ type: 'uuid' })
   orgao_id: string;
 

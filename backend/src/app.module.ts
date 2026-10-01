@@ -61,6 +61,7 @@ import { ExtModule } from './ext/ext.module';
 import { McpModule } from './mcp/mcp.module';
 import { ParametrosLicitacaoModule } from './parametros-licitacao/parametros-licitacao.module';
 import { NumeroProcessoModule } from './numero-processo/numero-processo.module';
+import { ProcessoModule } from './processo/processo.module';
 import { FeriadosModule } from './feriados/feriados.module';
 import { PublicacaoModule } from './publicacao/publicacao.module';
 import { LeilaoModule } from './leilao/leilao.module';
@@ -175,6 +176,7 @@ import { PainelTvModule } from './painel-tv/painel-tv.module';
     McpModule,
     ParametrosLicitacaoModule,
     NumeroProcessoModule,
+    ProcessoModule,
     FeriadosModule, // calendário de feriados (E7a)
     PublicacaoModule, // publicação, prazos, retificação (E7a)
     LeilaoModule, // leilão (E7c — art. 31)

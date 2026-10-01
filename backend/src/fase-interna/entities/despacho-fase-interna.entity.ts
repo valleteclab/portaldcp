@@ -23,6 +23,11 @@ export class DespachoFaseInterna {
   @Column({ type: 'uuid' })
   licitacao_id: string;
 
+  /** PROCESSO ELETRÔNICO (`processos.id`). Nulo nesta etapa (migração de boot); `licitacao_id` continua por compatibilidade. */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  processo_id: string | null;
+
   /** Órgão dono (isolamento — é o da licitação). */
   @Column({ type: 'uuid' })
   orgao_id: string;

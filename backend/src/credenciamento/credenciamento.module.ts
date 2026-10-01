@@ -5,6 +5,7 @@ import { HabilitacaoModule } from '../habilitacao/habilitacao.module';
 import { ContratosModule } from '../contratos/contratos.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
+import { ProcessoModule } from '../processo/processo.module';
 import { CredenciamentoController } from './credenciamento.controller';
 import { CredenciamentoService } from './credenciamento.service';
 import { MigracaoCredenciamentoBootService } from './migracao-credenciamento-boot.service';
@@ -28,6 +29,7 @@ import {
     ContratosModule,
     NotificacoesModule,
     NumeroProcessoModule,
+    ProcessoModule,
   ],
   controllers: [CredenciamentoController],
   providers: [CredenciamentoService, MigracaoCredenciamentoBootService],

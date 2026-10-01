@@ -35,6 +35,15 @@ export class TramitacaoProcesso {
   @Column()
   licitacao_id: string;
 
+  /**
+   * PROCESSO ELETRÔNICO (`processos.id`). Nulo nesta etapa (preenchido pela
+   * migração de boot); `licitacao_id` continua por compatibilidade — ver
+   * docs/processo/PLANO-PROCESSO-ELETRONICO.md.
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  processo_id: string | null;
+
   /** Ordem cronológica dentro do processo (1, 2, 3…) */
   @Column({ type: 'int' })
   sequencia: number;
