@@ -5,6 +5,8 @@ import { DataSource } from 'typeorm';
 import type { Ator } from '../auth/acesso/ator';
 import { Processo, TipoProcesso } from './entities/processo.entity';
 import { ProcessoService } from './processo.service';
+import { ProcessoTramitacaoService } from './processo-tramitacao.service';
+import { temTramitacaoPropria } from './processo-tramitacao-regras';
 
 /**
  * ADAPTADORES do processo para as capacidades genéricas que hoje vivem na
@@ -20,8 +22,9 @@ import { ProcessoService } from './processo.service';
  * Tudo é LEITURA: o mesmo dado que as rotas `/fase-interna/:licitacaoId/...`
  * devolvem, só que endereçado pelo processo. Os serviços da fase interna são
  * resolvidos pelo ModuleRef (o FaseInternaModule importa este módulo; sem
- * ciclo). Processo sem licitação (AVULSO) devolve estruturas vazias com
- * `disponivel: false` — tramitar/juntar no avulso fica para a próxima etapa.
+ * ciclo). Processo sem licitação: ADITIVO/RENOVACAO/AVULSO delegam para a
+ * tramitação própria (`ProcessoTramitacaoService`); os demais (PAGAMENTO,
+ * esqueleto) devolvem estruturas vazias com `disponivel: false`.
  */
 @Injectable()
 export class ProcessoConteudoService {
@@ -29,6 +32,7 @@ export class ProcessoConteudoService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly moduleRef: ModuleRef,
     private readonly processos: ProcessoService,
+    private readonly tramitacaoPropria: ProcessoTramitacaoService,
   ) {}
 
   private servico<T>(caminho: string, nome: string): T | null {
@@ -54,6 +58,7 @@ export class ProcessoConteudoService {
   }
 
   async autos(p: Processo) {
+    if (temTramitacaoPropria(p.tipo)) return this.tramitacaoPropria.autos(p);
     const licId = this.licitacaoIdOuNull(p);
     if (!licId) return { ...this.indisponivel(p, 'Autos'), regime: 'CRONOLOGICO', juntadas: [] };
     const juntadas = this.servico<any>('../fase-interna/juntada-autos.service', 'JuntadaAutosService');
@@ -67,7 +72,8 @@ export class ProcessoConteudoService {
     };
   }
 
-  async tramitacao(p: Processo) {
+  async tramitacao(p: Processo, ator?: Ator) {
+    if (temTramitacaoPropria(p.tipo)) return this.tramitacaoPropria.tramitacao(p, ator);
     const licId = this.licitacaoIdOuNull(p);
     if (!licId) return { ...this.indisponivel(p, 'Tramitação'), com_quem_esta: null, atual: null, movimentacoes: [], linha_do_tempo: [] };
     const tram = this.servico<any>('../fase-interna/tramitacao.service', 'TramitacaoService');
@@ -82,6 +88,7 @@ export class ProcessoConteudoService {
   }
 
   async fluxo(p: Processo, ator: Ator) {
+    if (temTramitacaoPropria(p.tipo)) return this.tramitacaoPropria.fluxo(p);
     const licId = this.licitacaoIdOuNull(p);
     if (!licId) return { ...this.indisponivel(p, 'Fluxo'), tem_fluxo: false, retrato: null, etapas: null };
     const [retrato] = await this.ds.query(
@@ -96,6 +103,7 @@ export class ProcessoConteudoService {
   }
 
   async tarefas(p: Processo) {
+    if (temTramitacaoPropria(p.tipo)) return this.tramitacaoPropria.tarefas(p);
     const licId = this.licitacaoIdOuNull(p);
     if (!licId) return { ...this.indisponivel(p, 'Tarefas'), tarefas: [] };
     const tarefas = await this.ds.query(
@@ -110,6 +118,7 @@ export class ProcessoConteudoService {
 
   /** Peças (versão atual) — origem INTERNO (feita no sistema) ou ARQUIVO (anexada). */
   async documentos(p: Processo) {
+    if (temTramitacaoPropria(p.tipo)) return this.tramitacaoPropria.documentos(p);
     const licId = this.licitacaoIdOuNull(p);
     if (!licId) return { ...this.indisponivel(p, 'Documentos'), documentos: [] };
     const documentos = await this.ds.query(

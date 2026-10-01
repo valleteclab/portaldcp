@@ -4,6 +4,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { ProcessoConteudoService } from './processo-conteudo.service';
 import { ProcessoTiposService } from './processo-tipos.service';
 import { ProcessoService } from './processo.service';
+import { ProcessoTramitacaoService } from './processo-tramitacao.service';
 import { validarAberturaDireta } from './processo-regras';
 
 /**
@@ -23,6 +24,7 @@ export class ProcessosController {
     private readonly processos: ProcessoService,
     private readonly conteudo: ProcessoConteudoService,
     private readonly tipos: ProcessoTiposService,
+    private readonly tramite: ProcessoTramitacaoService,
   ) {}
 
   /** Tipos de processo (registro em dados + catálogo de documentos e campos de condição de cada um). */
@@ -64,6 +66,7 @@ export class ProcessosController {
       abertoPor: ProcessoService.autorDoAtor(ator),
       origem: r.dados.contrato_id ? 'CONTRATO' : 'AVULSO',
     });
+    await this.tramite.iniciarPosse(p, ator);
     return this.conteudo.visao(p);
   }
 
@@ -88,7 +91,7 @@ export class ProcessosController {
   /** Tramitação: com quem está, movimentação atual, todas as movimentações e a linha do tempo. */
   @Get(':id/tramitacao')
   async tramitacao(@AtorAtual() ator: Ator, @Param('id') id: string) {
-    return this.conteudo.tramitacao(await this.processos.obter(ator, id));
+    return this.conteudo.tramitacao(await this.processos.obter(ator, id), ator);
   }
 
   /** Fluxo: retrato (modelo, versão, marcas) e etapas calculadas — o mesmo de `/fase-interna/:id/etapas`. */
@@ -108,9 +111,42 @@ export class ProcessosController {
     return this.conteudo.documentos(await this.processos.obter(ator, id));
   }
 
-  /** Encerra um processo sem conteúdo (AVULSO). Corpo: { motivo? }. */
+  /** Setores e pessoas do órgão para escolher o destino + sugestão para a etapa atual (ADITIVO, RENOVACAO, AVULSO). */
+  @Get(':id/destinos')
+  destinos(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.tramite.destinos(ator, id);
+  }
+
+  /** Envia o processo adiante. Corpo: { para_setor_id?, para_usuario_id?, despacho }. Só quem está com ele. */
+  @Post(':id/enviar')
+  enviar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.tramite.enviar(ator, id, body);
+  }
+
+  /** Recebe o processo que chegou para o setor/pessoa. */
+  @Post(':id/receber')
+  receber(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.tramite.receber(ator, id);
+  }
+
+  /** Devolve a quem enviou. Corpo: { despacho }. */
+  @Post(':id/devolver')
+  devolver(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.tramite.devolver(ator, id, body);
+  }
+
+  /**
+   * Junta uma peça aos autos. Corpo: { titulo, texto?, arquivo_url?, arquivo_nome?, paginas?, etapa?, tipo_peca? }.
+   * Com `etapa` (a atual), a peça conclui a etapa. Arquivo: enviar antes por POST /uploads.
+   */
+  @Post(':id/pecas')
+  juntar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.tramite.juntar(ator, id, body);
+  }
+
+  /** Encerra um processo sem conteúdo. Corpo: { motivo? }. Só quem está com ele (ou o administrador do órgão). */
   @Post(':id/encerrar')
   async encerrar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
-    return this.conteudo.visao(await this.processos.encerrar(ator, id, body?.motivo ?? null));
+    return this.conteudo.visao(await this.tramite.encerrar(ator, id, body?.motivo ?? null));
   }
 }

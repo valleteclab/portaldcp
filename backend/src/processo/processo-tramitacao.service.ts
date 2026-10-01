@@ -1,0 +1,514 @@
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager } from 'typeorm';
+import type { Ator } from '../auth/acesso/ator';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { escolherDestinatarios, PerfilTramitacao } from '../fase-interna/tramitacao-regras';
+import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { Processo } from './entities/processo.entity';
+import { ProcessoMovimentacao, ProcessoPeca } from './entities/processo-tramitacao.entity';
+import { calcularEtapas, EtapaCalculada, etapaAtual, etapasPadraoDe, sugerirSetor } from './tipos/etapas-padrao';
+import {
+  montarLinhaDoTempo,
+  podeAtuar,
+  situacaoDaPosse,
+  temTramitacaoPropria,
+  textoDoDestino,
+  validarDespacho,
+  validarDestino,
+  validarPeca,
+  folhasDaPeca,
+} from './processo-tramitacao-regras';
+import { ProcessoService } from './processo.service';
+import { textoDeAutuacao } from './processo-regras';
+
+interface Perfil extends PerfilTramitacao {
+  orgao_id: string;
+}
+
+interface Destino {
+  para_setor_id: string | null;
+  para_setor_nome: string | null;
+  para_usuario_id: string | null;
+  para_usuario_nome: string | null;
+}
+
+/**
+ * TRAMITAÇÃO GENÉRICA DO PROCESSO ELETRÔNICO — para os tipos que não têm
+ * licitação (ADITIVO, RENOVACAO, AVULSO): posse ("está com"), enviar,
+ * receber, devolver, juntar peça aos autos, etapas padrão e linha do tempo.
+ *
+ * Isolamento: o órgão é sempre o do token (processo de outro órgão → 404);
+ * quem age vem do JWT + cadastro (nunca do corpo); setor/pessoa de destino
+ * precisam ser do mesmo órgão. A CONTRATAÇÃO continua nas rotas da fase interna.
+ */
+@Injectable()
+export class ProcessoTramitacaoService {
+  private readonly logger = new Logger(ProcessoTramitacaoService.name);
+
+  constructor(
+    @InjectDataSource() private readonly ds: DataSource,
+    private readonly processos: ProcessoService,
+    private readonly notificacoes: NotificacoesService,
+  ) {}
+
+  // ==========================================================================
+  // Apoio
+  // ==========================================================================
+
+  /** Processo do órgão do ator, de um tipo com tramitação própria; senão 404/400. */
+  async carregar(ator: Ator, id: string): Promise<Processo> {
+    const p = await this.processos.obter(ator, id);
+    if (!temTramitacaoPropria(p.tipo)) {
+      throw new BadRequestException('A tramitação deste processo segue pelas rotas da licitação.');
+    }
+    return p;
+  }
+
+  private exigirAberto(p: Processo) {
+    if (p.situacao === 'ENCERRADO') throw new ConflictException('O processo está encerrado.');
+  }
+
+  async perfil(ator: Ator, orgaoId: string): Promise<Perfil> {
+    if (ator.admin) {
+      return { usuario_id: null, nome: 'Administrador da plataforma', cargo: null, setor_id: null, admin_orgao: true, orgao_id: orgaoId };
+    }
+    if (ator.orgaoId !== orgaoId) throw new NotFoundException('Processo não encontrado');
+    if (ator.tipo === 'ORGAO') {
+      const [o] = await this.ds.query(`SELECT nome FROM orgaos WHERE id::text = $1`, [orgaoId]);
+      return { usuario_id: null, nome: o?.nome || 'Órgão', cargo: null, setor_id: null, admin_orgao: true, orgao_id: orgaoId };
+    }
+    const [u] =
+      ator.usuarioId && ehUuid(ator.usuarioId)
+        ? await this.ds.query(
+            `SELECT id::text AS id, nome, cargo, setor_id::text AS setor_id, role::text AS role, orgao_id::text AS orgao_id, ativo
+               FROM usuarios WHERE id::text = $1`,
+            [ator.usuarioId],
+          )
+        : [];
+    if (!u || u.orgao_id !== orgaoId || u.ativo === false) throw new ForbiddenException('Usuário sem acesso a este processo');
+    return { usuario_id: u.id, nome: u.nome || 'Usuário', cargo: u.cargo || null, setor_id: u.setor_id || null, admin_orgao: u.role === 'ADMIN', orgao_id: orgaoId };
+  }
+
+  private async chefeDoSetor(setorId: string | null | undefined): Promise<string | null> {
+    if (!setorId || !ehUuid(setorId)) return null;
+    const [s] = await this.ds.query(`SELECT chefe_usuario_id::text AS chefe FROM setores WHERE id::text = $1`, [setorId]);
+    return s?.chefe ?? null;
+  }
+
+  private async nomeDoSetor(setorId: string | null | undefined): Promise<string | null> {
+    if (!setorId || !ehUuid(setorId)) return null;
+    const [s] = await this.ds.query(`SELECT nome FROM setores WHERE id::text = $1`, [setorId]);
+    return s?.nome ?? null;
+  }
+
+  /** Posse atual (a última movimentação), lida na própria transação quando houver. */
+  private async atual(p: { id: string }, m?: EntityManager): Promise<ProcessoMovimentacao | null> {
+    const [r] = await (m ?? this.ds.manager).query(
+      `SELECT * FROM processo_movimentacoes WHERE processo_id = $1::uuid ORDER BY sequencia DESC LIMIT 1`,
+      [p.id],
+    );
+    return r ?? null;
+  }
+
+  /** Destino do envio: setor e/ou pessoa DO MESMO ÓRGÃO (pessoa ativa); a pessoa traz o seu setor. */
+  private async resolverDestino(orgaoId: string, d: { para_setor_id?: unknown; para_usuario_id?: unknown }): Promise<Destino> {
+    let setorId = String(d.para_setor_id ?? '').trim() || null;
+    const usuarioId = String(d.para_usuario_id ?? '').trim() || null;
+    let usuarioNome: string | null = null;
+    if (usuarioId) {
+      if (!ehUuid(usuarioId)) throw new BadRequestException('Pessoa de destino inválida.');
+      const [u] = await this.ds.query(`SELECT nome, setor_id::text AS setor_id, orgao_id::text AS orgao_id, ativo FROM usuarios WHERE id::text = $1`, [usuarioId]);
+      if (!u || u.orgao_id !== orgaoId || u.ativo === false) throw new BadRequestException('A pessoa de destino não pertence ao órgão.');
+      usuarioNome = u.nome;
+      if (!setorId) setorId = u.setor_id ?? null;
+    }
+    let setorNome: string | null = null;
+    if (setorId) {
+      if (!(await this.processos.setorEhDoOrgao(orgaoId, setorId))) throw new BadRequestException('O setor de destino não pertence ao órgão.');
+      setorNome = await this.nomeDoSetor(setorId);
+    }
+    return { para_setor_id: setorId, para_setor_nome: setorNome, para_usuario_id: usuarioId, para_usuario_nome: usuarioNome };
+  }
+
+  /** Trava a linha do processo na transação (serializa envios, recebimentos e juntadas). */
+  private async travar(m: EntityManager, processoId: string) {
+    await m.query(`SELECT id FROM processos WHERE id = $1::uuid FOR UPDATE`, [processoId]);
+  }
+
+  // ==========================================================================
+  // Posse inicial
+  // ==========================================================================
+
+  /**
+   * Quem abriu fica com o processo (já recebido): usuário → ele e a sua
+   * lotação (ou o setor de origem informado); login do órgão → o setor de
+   * origem, se houver. Idempotente.
+   */
+  async iniciarPosse(p: Processo, ator: Ator): Promise<void> {
+    if (!temTramitacaoPropria(p.tipo)) return;
+    const perfil = await this.perfil(ator, p.orgao_id);
+    await this.ds.transaction(async (m) => {
+      await this.travar(m, p.id);
+      if (await this.atual(p, m)) return;
+      const setorId = p.setor_origem_id ?? perfil.setor_id ?? null;
+      const setorNome = await this.nomeDoSetor(setorId);
+      const repo = m.getRepository(ProcessoMovimentacao);
+      await repo.save(
+        repo.create({
+          processo_id: p.id,
+          orgao_id: p.orgao_id,
+          sequencia: 1,
+          tipo: 'ABERTURA',
+          de_setor_id: null,
+          de_setor_nome: null,
+          de_usuario_id: null,
+          de_usuario_nome: perfil.nome,
+          para_setor_id: setorId,
+          para_setor_nome: setorNome,
+          para_usuario_id: perfil.usuario_id,
+          para_usuario_nome: perfil.usuario_id ? perfil.nome : null,
+          despacho: 'Processo autuado.',
+          recebida_em: new Date(),
+          recebida_por_id: perfil.usuario_id,
+          recebida_por_nome: perfil.nome,
+        }),
+      );
+    });
+  }
+
+  // ==========================================================================
+  // Ações
+  // ==========================================================================
+
+  async enviar(ator: Ator, id: string, body: any) {
+    const p = await this.carregar(ator, id);
+    this.exigirAberto(p);
+    const erro = validarDestino(body ?? {});
+    if (erro) throw new BadRequestException(erro);
+    const perfil = await this.perfil(ator, p.orgao_id);
+    const destino = await this.resolverDestino(p.orgao_id, body);
+    const despacho = String(body.despacho).trim();
+    const mov = await this.ds.transaction(async (m) => {
+      await this.travar(m, p.id);
+      const atual = await this.atual(p, m);
+      if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
+        throw new ForbiddenException(`Só quem está com o processo (${atual ? textoDoDestino(atual) : 'ninguém'}) ou o administrador do órgão pode enviá-lo adiante.`);
+      }
+      if (atual && !atual.recebida_em && !perfil.admin_orgao) throw new ConflictException('Receba o processo antes de enviá-lo adiante.');
+      const repo = m.getRepository(ProcessoMovimentacao);
+      return repo.save(
+        repo.create({
+          processo_id: p.id,
+          orgao_id: p.orgao_id,
+          sequencia: (atual?.sequencia ?? 0) + 1,
+          tipo: 'ENVIO',
+          de_setor_id: perfil.setor_id ?? atual?.para_setor_id ?? null,
+          de_setor_nome: (await this.nomeDoSetor(perfil.setor_id ?? atual?.para_setor_id)) ?? null,
+          de_usuario_id: perfil.usuario_id,
+          de_usuario_nome: perfil.nome,
+          ...destino,
+          despacho,
+          recebida_em: null,
+          recebida_por_id: null,
+          recebida_por_nome: null,
+        }),
+      );
+    });
+    await this.avisarChegada(p, mov, perfil.usuario_id);
+    return this.tramitacao(p, ator);
+  }
+
+  async receber(ator: Ator, id: string) {
+    const p = await this.carregar(ator, id);
+    this.exigirAberto(p);
+    const perfil = await this.perfil(ator, p.orgao_id);
+    await this.ds.transaction(async (m) => {
+      await this.travar(m, p.id);
+      const atual = await this.atual(p, m);
+      if (!atual) throw new ConflictException('O processo ainda não foi tramitado.');
+      if (atual.recebida_em) throw new ConflictException('O processo já foi recebido.');
+      if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual.para_setor_id))) {
+        throw new ForbiddenException(`Só quem recebe o processo (${textoDoDestino(atual)}) ou o administrador do órgão pode recebê-lo.`);
+      }
+      await m.query(
+        `UPDATE processo_movimentacoes SET recebida_em = now(), recebida_por_id = $2::uuid, recebida_por_nome = $3::varchar WHERE id = $1::uuid`,
+        [atual.id, perfil.usuario_id, perfil.nome],
+      );
+    });
+    return this.tramitacao(p, ator);
+  }
+
+  /** Devolve a quem enviou (o remetente da movimentação atual). */
+  async devolver(ator: Ator, id: string, body: any) {
+    const p = await this.carregar(ator, id);
+    this.exigirAberto(p);
+    const erro = validarDespacho(body?.despacho);
+    if (erro) throw new BadRequestException(erro);
+    const perfil = await this.perfil(ator, p.orgao_id);
+    const mov = await this.ds.transaction(async (m) => {
+      await this.travar(m, p.id);
+      const atual = await this.atual(p, m);
+      if (!atual || atual.tipo === 'ABERTURA' || (!atual.de_setor_id && !atual.de_usuario_id)) {
+        throw new ConflictException('Não há para quem devolver: o processo ainda não foi enviado por ninguém.');
+      }
+      if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual.para_setor_id))) {
+        throw new ForbiddenException(`Só quem está com o processo (${textoDoDestino(atual)}) ou o administrador do órgão pode devolvê-lo.`);
+      }
+      const repo = m.getRepository(ProcessoMovimentacao);
+      return repo.save(
+        repo.create({
+          processo_id: p.id,
+          orgao_id: p.orgao_id,
+          sequencia: atual.sequencia + 1,
+          tipo: 'DEVOLUCAO',
+          de_setor_id: atual.para_setor_id,
+          de_setor_nome: atual.para_setor_nome,
+          de_usuario_id: perfil.usuario_id,
+          de_usuario_nome: perfil.nome,
+          para_setor_id: atual.de_setor_id,
+          para_setor_nome: atual.de_setor_nome,
+          para_usuario_id: atual.de_usuario_id,
+          para_usuario_nome: atual.de_usuario_nome,
+          despacho: String(body.despacho).trim(),
+          recebida_em: null,
+          recebida_por_id: null,
+          recebida_por_nome: null,
+        }),
+      );
+    });
+    await this.avisarChegada(p, mov, perfil.usuario_id);
+    return this.tramitacao(p, ator);
+  }
+
+  /**
+   * Junta uma peça aos autos (texto feito no sistema e/ou arquivo anexado),
+   * com folhas na ordem de juntada. Só quem está com o processo. Com `etapa`,
+   * a peça conclui a etapa ATUAL do processo.
+   */
+  async juntar(ator: Ator, id: string, body: any) {
+    const p = await this.carregar(ator, id);
+    this.exigirAberto(p);
+    const v = validarPeca(body ?? {});
+    if ('erro' in v) throw new BadRequestException(v.erro);
+    const perfil = await this.perfil(ator, p.orgao_id);
+    const chaveEtapa = String(body?.etapa ?? '').trim() || null;
+    const peca = await this.ds.transaction(async (m) => {
+      await this.travar(m, p.id);
+      const atual = await this.atual(p, m);
+      if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
+        throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode juntar peças aos autos.');
+      }
+      if (atual && !atual.recebida_em && !perfil.admin_orgao) throw new ConflictException('Receba o processo antes de juntar peças.');
+      let tipoPeca: string | null = String(body?.tipo_peca ?? '').trim().slice(0, 40) || null;
+      if (chaveEtapa) {
+        const etapas = await this.etapasDoProcesso(p, m);
+        const alvo = etapas.find((e) => e.chave === chaveEtapa);
+        if (!alvo || alvo.resultado) throw new BadRequestException('Etapa inválida para juntar peça.');
+        if (alvo.estado !== 'ATUAL') throw new BadRequestException('Esta não é a etapa atual do processo.');
+        tipoPeca = tipoPeca ?? alvo.tipo_peca;
+      }
+      const [u] = await m.query(
+        `SELECT COALESCE(MAX(numero_peca), 0) AS n, COALESCE(MAX(folha_final), 0) AS f FROM processo_pecas WHERE processo_id = $1::uuid`,
+        [p.id],
+      );
+      const folhas = folhasDaPeca(Number(u.f), v.dados.paginas);
+      const repo = m.getRepository(ProcessoPeca);
+      return repo.save(
+        repo.create({
+          processo_id: p.id,
+          orgao_id: p.orgao_id,
+          numero_peca: Number(u.n) + 1,
+          etapa: chaveEtapa,
+          tipo_peca: tipoPeca,
+          titulo: v.dados.titulo,
+          texto: v.dados.texto,
+          arquivo_url: v.dados.arquivo_url,
+          arquivo_nome: v.dados.arquivo_nome,
+          ...folhas,
+          criado_por_id: perfil.usuario_id ?? ator.id,
+          criado_por_nome: perfil.nome,
+        }),
+      );
+    });
+    return { peca, ...(await this.fluxo(p)) };
+  }
+
+  /** Encerra o processo sem conteúdo; só quem está com ele (ou o administrador do órgão). */
+  async encerrar(ator: Ator, id: string, motivo: string | null) {
+    const p = await this.processos.obter(ator, id);
+    if (temTramitacaoPropria(p.tipo) && p.situacao !== 'ENCERRADO') {
+      const perfil = await this.perfil(ator, p.orgao_id);
+      const atual = await this.atual(p);
+      if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
+        throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode encerrá-lo.');
+      }
+    }
+    return this.processos.encerrar(ator, id, motivo);
+  }
+
+  // ==========================================================================
+  // Leituras (mesmo formato das rotas genéricas do processo)
+  // ==========================================================================
+
+  private async movimentacoes(p: Processo): Promise<ProcessoMovimentacao[]> {
+    return this.ds.query(`SELECT * FROM processo_movimentacoes WHERE processo_id = $1::uuid ORDER BY sequencia ASC`, [p.id]);
+  }
+
+  private async pecas(p: Processo, m?: EntityManager): Promise<ProcessoPeca[]> {
+    return (m ?? this.ds.manager).query(`SELECT * FROM processo_pecas WHERE processo_id = $1::uuid ORDER BY numero_peca ASC`, [p.id]);
+  }
+
+  async tramitacao(p: Processo, ator?: Ator) {
+    const [movs, pecas] = await Promise.all([this.movimentacoes(p), this.pecas(p)]);
+    const atual = movs.length ? movs[movs.length - 1] : null;
+    let podeAgir = false;
+    let podeReceber = false;
+    if (ator && atual && p.situacao === 'ABERTO') {
+      try {
+        const perfil = await this.perfil(ator, p.orgao_id);
+        const autorizado = podeAtuar(perfil, atual, await this.chefeDoSetor(atual.para_setor_id));
+        podeReceber = autorizado && !atual.recebida_em;
+        podeAgir = autorizado && (!!atual.recebida_em || perfil.admin_orgao);
+      } catch {
+        /* sem perfil → só leitura */
+      }
+    }
+    return {
+      processo_id: p.id,
+      disponivel: true,
+      situacao_posse: situacaoDaPosse(atual),
+      com_quem_esta: atual
+        ? {
+            setor_id: atual.para_setor_id,
+            setor_nome: atual.para_setor_nome,
+            usuario_id: atual.para_usuario_id,
+            usuario_nome: atual.para_usuario_nome,
+            texto: textoDoDestino(atual),
+            recebida: !!atual.recebida_em,
+            desde: atual.recebida_em ?? atual.created_at,
+            enviado_por: atual.tipo === 'ABERTURA' ? null : atual.de_usuario_nome,
+            despacho: atual.tipo === 'ABERTURA' ? null : atual.despacho,
+          }
+        : null,
+      pode_agir: podeAgir,
+      pode_receber: podeReceber,
+      atual,
+      movimentacoes: movs,
+      linha_do_tempo: montarLinhaDoTempo(movs, pecas, p.situacao === 'ENCERRADO' && p.encerrado_em ? { em: p.encerrado_em, motivo: p.motivo_encerramento } : null),
+    };
+  }
+
+  async autos(p: Processo) {
+    const pecas = await this.pecas(p);
+    const [u] = await this.ds.query(`SELECT nome FROM setores WHERE id::text = $1`, [p.setor_origem_id ?? '']);
+    return {
+      processo_id: p.id,
+      disponivel: true,
+      regime: 'CRONOLOGICO',
+      autuacao: textoDeAutuacao({ numero: p.numero, objeto: p.objeto, aberto_por_nome: p.aberto_por_nome, setor_nome: u?.nome ?? null }),
+      total_folhas: pecas.length ? pecas[pecas.length - 1].folha_final : 0,
+      juntadas: pecas,
+    };
+  }
+
+  async documentos(p: Processo) {
+    return { processo_id: p.id, disponivel: true, documentos: await this.pecas(p) };
+  }
+
+  private async etapasDoProcesso(p: Processo, m?: EntityManager): Promise<EtapaCalculada[]> {
+    if (!etapasPadraoDe(p.tipo).length) return [];
+    const pecas = await this.pecas(p, m);
+    const chaves = new Set(pecas.map((x) => x.etapa).filter((x): x is string => !!x));
+    return calcularEtapas(p.tipo, chaves, !!p.referencia_id, p.situacao === 'ENCERRADO');
+  }
+
+  /** Etapas padrão do tipo (ADITIVO/RENOVACAO) com o estado de cada uma; AVULSO não tem etapas. */
+  async fluxo(p: Processo) {
+    const etapas = await this.etapasDoProcesso(p);
+    return { processo_id: p.id, disponivel: true, tem_fluxo: etapas.length > 0, fluxo_padrao: true, retrato: null, etapas, etapa_atual: etapaAtual(etapas) };
+  }
+
+  /** Tarefas derivadas das etapas (a pendente é a "vez" de quem está com o processo). */
+  async tarefas(p: Processo) {
+    const etapas = await this.etapasDoProcesso(p);
+    return {
+      processo_id: p.id,
+      disponivel: true,
+      tarefas: etapas.map((e) => ({
+        chave: e.chave,
+        titulo: e.resultado ? `Cadastrar o ${e.rotulo.toLowerCase()}` : e.rotulo,
+        tipo: e.resultado ? 'RESULTADO' : 'PECA',
+        tipo_peca: e.tipo_peca,
+        titulo_peca: e.titulo_peca,
+        status: e.estado === 'CONCLUIDA' ? 'CONCLUIDA' : e.estado === 'ATUAL' ? 'PENDENTE' : 'AGUARDANDO',
+        ordem: e.ordem,
+      })),
+    };
+  }
+
+  /** Setores e pessoas do órgão para escolher o destino, com a sugestão para a etapa atual. */
+  async destinos(ator: Ator, id: string) {
+    const p = await this.carregar(ator, id);
+    const [setores, usuarios] = await Promise.all([
+      this.ds.query(`SELECT id::text AS id, nome, chefe_usuario_id::text AS chefe_usuario_id FROM setores WHERE orgao_id::text = $1 ORDER BY nome ASC`, [p.orgao_id]),
+      this.ds.query(`SELECT id::text AS id, nome, cargo, setor_id::text AS setor_id FROM usuarios WHERE orgao_id::text = $1 AND ativo = true ORDER BY nome ASC LIMIT 500`, [p.orgao_id]),
+    ]);
+    const etapa = etapaAtual(await this.etapasDoProcesso(p));
+    const achado = etapa ? sugerirSetor(etapa.setor_palavras, setores) : null;
+    return {
+      processo_id: p.id,
+      setores,
+      usuarios,
+      sugerido: achado ? { setor_id: achado.id, setor_nome: achado.nome, motivo: `Costuma fazer a etapa “${etapa!.rotulo}”.` } : null,
+    };
+  }
+
+  // ==========================================================================
+  // Avisos
+  // ==========================================================================
+
+  private async avisarChegada(p: Processo, mov: ProcessoMovimentacao, remetenteId: string | null) {
+    if (process.env.FASE_INTERNA_TRAMITACAO_NOTIFICAR === 'false') return;
+    try {
+      const chefe = await this.chefeDoSetor(mov.para_setor_id);
+      const candidatos: Array<{ id: string; email: string | null; telefone: string | null; setor_id: string | null }> = await this.ds.query(
+        `SELECT id::text AS id, email, telefone, setor_id::text AS setor_id FROM usuarios
+          WHERE orgao_id::text = $1 AND ativo = true
+            AND (id::text = $2 OR ($3::text IS NOT NULL AND setor_id::text = $3::text) OR id::text = $4)
+          LIMIT 60`,
+        [p.orgao_id, mov.para_usuario_id ?? '', mov.para_setor_id ?? null, chefe ?? ''],
+      );
+      const para = escolherDestinatarios(mov, candidatos, chefe, remetenteId);
+      if (!para.length) return;
+      const link = `/orgao/processo/${p.id}`;
+      const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://portaldcp.com.br';
+      const devolucao = mov.tipo === 'DEVOLUCAO';
+      const titulo = `Processo ${p.numero} ${devolucao ? 'devolvido' : 'enviado'} para ${mov.para_usuario_id ? 'você' : `o setor ${mov.para_setor_nome ?? ''}`.trim()}`;
+      const mensagem = `${mov.de_usuario_nome ? `${mov.de_usuario_nome}: ` : ''}${mov.despacho}`;
+      await this.notificacoes.criarParaMultiplos(
+        para.map((u) => ({ id: u.id, email: u.email ?? undefined, telefone: u.telefone ?? undefined })),
+        {
+          orgao_id: p.orgao_id,
+          tipo: TipoNotificacao.PROCESSO_TRAMITADO,
+          titulo,
+          mensagem,
+          prioridade: PrioridadeNotificacao.NORMAL,
+          entidade_tipo: 'PROCESSO',
+          entidade_id: p.id,
+          link,
+          enviar_email: true,
+          metadata: {
+            evento: 'CHEGADA',
+            movimentacao_id: mov.id,
+            whatsapp_text: `*${titulo}*\n${mensagem}\n\nAbra o processo para ver o despacho.`,
+            whatsapp_url: `${appUrl}${link}`,
+          },
+        },
+      );
+    } catch (e: any) {
+      this.logger.warn(`Aviso de chegada do processo ${p.id} não enviado: ${e?.message ?? e}`);
+    }
+  }
+}

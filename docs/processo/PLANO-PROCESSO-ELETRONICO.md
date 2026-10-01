@@ -271,3 +271,27 @@ A renovação, no cadastro atual, é um termo aditivo com `renovacao_ciclo = tru
 - `GET /api/processos/tipos`: RENOVACAO com `implementado=true` e `abertura_direta=true`.
 - Abrir RENOVACAO sem `contrato_id` → 400; com contrato de outro órgão → 404; com contrato do órgão → abre.
 - Cadastrar termo com esse `processo_id` sem `renovacao_ciclo` → 400, sem criar o termo; com `renovacao_ciclo: true` → criado e visível em `conteudo.termo` do processo.
+
+
+## 13. Etapa 4a — tramitação genérica (backend)
+
+**Decisão.** Os tipos sem licitação (ADITIVO, RENOVACAO, AVULSO) ganham tabelas próprias; a CONTRATACAO continua lendo as rotas da fase interna (unificar fica para depois). Nada nas 6 tabelas da fase interna muda. A tela (4b) e as peças geradas por IA (4c) vêm em PRs seguintes.
+
+**Tabelas novas (synchronize).**
+- `processo_movimentacoes`: uma linha por remessa (ABERTURA, ENVIO, DEVOLUCAO) com de/para (setor e pessoa), despacho e `recebida_em`. A última linha é a posse atual ("está com").
+- `processo_pecas`: peça dos autos (texto feito no sistema e/ou arquivo enviado por `POST /api/uploads`), com número, folhas na ordem de juntada e a `etapa` que ela conclui.
+
+**Regras.**
+- Ao abrir o processo, quem abriu fica com ele, já recebido.
+- Enviar/devolver/juntar/encerrar: só quem está com o processo (pessoa, lotado no setor, chefe do setor) ou o administrador do órgão. Enviar e juntar exigem ter recebido antes (o administrador do órgão dispensa).
+- Destino (setor/pessoa) sempre do mesmo órgão; despacho obrigatório. Quem enviou não é avisado do próprio envio; o setor avisa todos os ativos + chefe (interno, e-mail, WhatsApp; link `/orgao/processo/:id`).
+- Etapas padrão em código (`tipos/etapas-padrao.ts`): ADITIVO = Pedido → Reserva → Parecer → Autorização → Termo aditivo; RENOVACAO = Vantajosidade → Reserva → Parecer → Autorização → Termo de renovação. A etapa conclui quando uma peça é juntada com a chave dela (só a etapa ATUAL aceita); a última (resultado) conclui quando o termo é ligado ao processo. AVULSO não tem etapas.
+- Cada etapa traz palavras para sugerir o setor que costuma fazê-la (`GET :id/destinos` → `sugerido`).
+
+**Rotas novas** (`/api/processos`): `GET :id/destinos`, `POST :id/enviar`, `POST :id/receber`, `POST :id/devolver`, `POST :id/pecas`. `GET :id/tramitacao`, `/autos`, `/fluxo`, `/tarefas`, `/documentos` passam a responder com dados reais para esses três tipos (`tramitacao` traz também `pode_agir` e `pode_receber` para o usuário logado).
+
+**Roteiro de verificação (depois do deploy).**
+- Abrir um ADITIVO e conferir `GET :id/tramitacao`: `com_quem_esta` é quem abriu, `recebida: true`; `GET :id/fluxo` mostra PEDIDO como ATUAL.
+- `POST :id/pecas` com `etapa: 'RESERVA'` → 400 (não é a atual); com `etapa: 'PEDIDO'` → folha 1 e a etapa seguinte vira ATUAL.
+- `POST :id/enviar` para um setor do órgão; com setor de outro órgão → 400; por usuário de outro setor → 403; o destino recebe o aviso e `POST :id/receber` libera juntar peças.
+- `POST :id/devolver` volta para quem enviou. Processo de outro órgão → 404 em todas as rotas.
