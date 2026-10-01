@@ -193,6 +193,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/credenciamentos", label: "Credenciamentos", icon: Users, modulo: ModuloSistema.CREDENCIAMENTO },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
+    { href: "/orgao/processo", label: "Processo eletrônico", icon: FileText, modulos: [ModuloSistema.CONTRATOS, ModuloSistema.LICITACOES] },
     { href: "/orgao/medicoes-v2", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/agente-contratos", label: "Verif. Aditivos", icon: Bot, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/analisar-contrato", label: "Analisar Contrato", icon: FileSearch, modulo: ModuloSistema.IA_CONTRATOS },

@@ -1,0 +1,221 @@
+"use client"
+
+import { useCallback, useEffect, useState } from "react"
+import { useParams } from "next/navigation"
+import Link from "next/link"
+import {
+  chamarProcessos,
+  normalizarPosse,
+  rotuloDoTipo,
+  temTramitacaoPropria,
+  textoDoErro,
+  type Autos,
+  type ComQuemEsta,
+  type Fluxo,
+  type ProcessoVisao,
+  type Tramitacao,
+} from "@/lib/processo/processo"
+import {
+  BlocoAguardando,
+  BlocoEnviar,
+  BlocoEstaCom,
+  BlocoEtapas,
+  BlocoPecaAvulsa,
+  BlocoResultado,
+  BlocoSuaVez,
+  SecaoDetalhes,
+  SecaoLinhaDoTempo,
+  TemaProcesso,
+  estilos as s,
+} from "@/components/processo/BlocosProcesso"
+
+/**
+ * Tela do processo (genérica): mostra ONDE o processo está e o PRÓXIMO PASSO.
+ * Linha do tempo e detalhes ficam recolhidos. CONTRATACAO é só leitura (a licitação
+ * tem tela própria em /orgao/processos/[id]).
+ */
+export default function TelaDoProcessoPage() {
+  const params = useParams()
+  const id = params.id as string
+
+  const [processo, setProcesso] = useState<ProcessoVisao | null>(null)
+  const [tram, setTram] = useState<Tramitacao | null>(null)
+  const [posse, setPosse] = useState<ComQuemEsta | null>(null)
+  const [fluxo, setFluxo] = useState<Fluxo | null>(null)
+  const [autos, setAutos] = useState<Autos | null>(null)
+  const [carregando, setCarregando] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [recebendo, setRecebendo] = useState(false)
+  const [erroReceber, setErroReceber] = useState<string | null>(null)
+
+  const carregar = useCallback(
+    async (silencioso = false) => {
+      if (!silencioso) setCarregando(true)
+      setErro(null)
+      try {
+        const p = await chamarProcessos<ProcessoVisao>(`/${id}`, { padrao: "Não foi possível abrir o processo." })
+        setProcesso(p)
+        if (temTramitacaoPropria(p.tipo)) {
+          const [t, f, a] = await Promise.all([
+            chamarProcessos<Tramitacao>(`/${id}/tramitacao`),
+            chamarProcessos<Fluxo>(`/${id}/fluxo`),
+            chamarProcessos<Autos>(`/${id}/autos`),
+          ])
+          setTram(t)
+          setPosse(t.com_quem_esta ? normalizarPosse(t.com_quem_esta) : null)
+          setFluxo(f)
+          setAutos(a)
+        } else {
+          // CONTRATACAO (e demais): rotas legadas, só leitura da posse
+          const t = await chamarProcessos<{ com_quem_esta?: unknown }>(`/${id}/tramitacao`).catch(() => null)
+          setTram(null)
+          setPosse(normalizarPosse(t?.com_quem_esta))
+          setFluxo(null)
+          setAutos(null)
+        }
+      } catch (e) {
+        setErro(textoDoErro(e, "Não foi possível abrir o processo."))
+      } finally {
+        setCarregando(false)
+      }
+    },
+    [id],
+  )
+
+  useEffect(() => {
+    carregar()
+  }, [carregar])
+
+  async function receber() {
+    setRecebendo(true)
+    setErroReceber(null)
+    try {
+      await chamarProcessos(`/${id}/receber`, { metodo: "POST", padrao: "Não foi possível receber o processo." })
+      await carregar(true)
+    } catch (e) {
+      setErroReceber(textoDoErro(e, "Não foi possível receber o processo."))
+    } finally {
+      setRecebendo(false)
+    }
+  }
+
+  if (carregando && !processo) {
+    return (
+      <TemaProcesso>
+        <p className={s.vazio} role="status">
+          Carregando o processo...
+        </p>
+      </TemaProcesso>
+    )
+  }
+
+  if (erro || !processo) {
+    return (
+      <TemaProcesso>
+        <div className={s.cabecalho}>
+          <div className={s.trilha}>
+            <Link href="/orgao/processo">Processos</Link>
+          </div>
+        </div>
+        <div className={s.bloco}>
+          <div className={s.erro} role="alert">
+            {erro || "Processo não encontrado."}
+          </div>
+          <div className={s.acoes} style={{ marginTop: 12 }}>
+            <button type="button" className={`${s.botao} ${s.secundario}`} onClick={() => carregar()}>
+              Tentar de novo
+            </button>
+            <Link href="/orgao/processo" className={`${s.botao} ${s.secundario}`}>
+              Voltar para a lista
+            </Link>
+          </div>
+        </div>
+      </TemaProcesso>
+    )
+  }
+
+  const encerrado = processo.situacao === "ENCERRADO"
+  const propria = temTramitacaoPropria(processo.tipo)
+  const ehAvulso = processo.tipo === "AVULSO"
+  const temFluxo = !!fluxo?.disponivel && !!fluxo.tem_fluxo && !!fluxo.etapas?.length
+  const etapaAtual = temFluxo ? fluxo?.etapa_atual ?? null : null
+  const podeAgir = !!tram?.pode_agir && !encerrado
+  const podeReceber = !!tram?.pode_receber && !encerrado
+  const resultadoDeTermo = temFluxo && (processo.tipo === "ADITIVO" || processo.tipo === "RENOVACAO")
+
+  const linkTermo = processo.contrato_id ? `/orgao/contratos/${processo.contrato_id}?tab=termos&processo_id=${processo.id}` : null
+
+  const contrato = processo.conteudo?.contrato ?? null
+
+  return (
+    <TemaProcesso>
+      <header className={s.cabecalho}>
+        <div className={s.trilha}>
+          <Link href="/orgao/processo">Processos</Link> / {processo.numero}
+        </div>
+        <h1>{processo.objeto}</h1>
+        <div className={s.meta}>
+          <span className={s.tipo}>{rotuloDoTipo(processo.tipo)}</span>
+          <span>Processo nº {processo.numero}</span>
+          <span className={`${s.chip} ${encerrado ? s.chipOk : s.chipEspera}`}>{encerrado ? "Encerrado" : "Em andamento"}</span>
+          {processo.contrato_id ? (
+            <Link className={s.link} href={`/orgao/contratos/${processo.contrato_id}`}>
+              Contrato {contrato?.numero_contrato ?? "vinculado"}
+              {contrato?.fornecedor_razao_social ? ` · ${contrato.fornecedor_razao_social}` : ""}
+            </Link>
+          ) : null}
+        </div>
+      </header>
+
+      <BlocoEstaCom
+        posse={posse}
+        encerrado={encerrado}
+        podeReceber={podeReceber}
+        onReceber={receber}
+        recebendo={recebendo}
+        erro={erroReceber}
+      />
+
+      {!propria ? (
+        <section className={`${s.bloco} ${s.neutro}`}>
+          <div className={s.eyebrow}>Licitação</div>
+          <h2>Este processo é acompanhado na licitação</h2>
+          <p>As etapas, as peças e a tramitação deste processo ficam na tela da licitação.</p>
+          <div className={s.acoes} style={{ marginTop: 12 }}>
+            {processo.referencia_id ? (
+              <Link href={`/orgao/processos/${processo.referencia_id}`} className={`${s.botao} ${s.primario}`}>
+                Abrir a licitação
+              </Link>
+            ) : null}
+          </div>
+        </section>
+      ) : encerrado ? (
+        <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
+      ) : podeAgir ? (
+        <>
+          {temFluxo && etapaAtual ? (
+            <BlocoSuaVez key={etapaAtual.chave} processoId={processo.id} etapa={etapaAtual} linkTermo={linkTermo} onJuntada={() => carregar(true)} />
+          ) : ehAvulso ? (
+            <BlocoPecaAvulsa processoId={processo.id} onJuntada={() => carregar(true)} />
+          ) : null}
+          <BlocoEnviar
+            processoId={processo.id}
+            posse={posse}
+            ehAvulso={ehAvulso}
+            onTramitou={() => carregar(true)}
+            onEncerrou={() => carregar(true)}
+          />
+        </>
+      ) : (
+        <BlocoAguardando posse={posse} encerrado={false} motivo={null} />
+      )}
+
+      {propria ? <BlocoEtapas fluxo={fluxo} /> : null}
+
+      {resultadoDeTermo ? <BlocoResultado processo={processo} etapaAtual={etapaAtual} linkTermo={linkTermo} /> : null}
+
+      {propria ? <SecaoLinhaDoTempo eventos={tram?.linha_do_tempo ?? []} /> : null}
+      {propria ? <SecaoDetalhes processo={processo} autos={autos} /> : null}
+    </TemaProcesso>
+  )
+}
