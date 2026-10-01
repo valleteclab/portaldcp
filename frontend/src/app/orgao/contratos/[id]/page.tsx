@@ -67,6 +67,7 @@ import TabLicencas from '@/components/contratos/TabLicencas'
 import TabOrdensServico from '@/components/contratos/TabOrdensServico'
 import TabItensOrdemServico from '@/components/contratos/TabItensOrdemServico'
 import TabRequisicoes from '@/components/contratos/TabRequisicoes'
+import { ProcessosDoContrato } from '@/components/contratos/ProcessosDoContrato'
 import TabRelatorios from '@/components/contratos/TabRelatorios'
 import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
 import AplicarTabelaSinaproModal from '@/components/contratos/AplicarTabelaSinaproModal'
@@ -2322,6 +2323,8 @@ export default function DetalheContratoOrgaoPage() {
         </TabsContent>
 
         <TabsContent value="termos" className="space-y-6">
+          <ProcessosDoContrato contratoId={contrato.id} numeroContrato={contrato.numero_contrato} />
+
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Termos Aditivos e Apostilamentos</h3>
             <div className="flex gap-2">
