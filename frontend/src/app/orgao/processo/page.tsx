@@ -6,6 +6,14 @@ import Link from "next/link"
 import { chamarProcessos, dataHora, rotuloDoTipo, textoDoErro, type ProcessoResumo } from "@/lib/processo/processo"
 import { TemaProcesso, estilos as s } from "@/components/processo/BlocosProcesso"
 
+function textoEstaCom(p: ProcessoResumo): string {
+  if (p.situacao === "ENCERRADO") return "—"
+  const c = p.esta_com
+  if (!c) return "Sem tramitação"
+  const quem = [c.setor_nome, c.usuario_nome].filter(Boolean).join(" · ") || "Órgão"
+  return c.recebida ? quem : `${quem} (a receber)`
+}
+
 /** Lista de processos do órgão (módulo Processo eletrônico) + abertura de processo avulso. */
 export default function ListaProcessosPage() {
   const router = useRouter()
@@ -156,6 +164,7 @@ export default function ListaProcessosPage() {
                     <th>Assunto</th>
                     <th>Tipo</th>
                     <th>Situação</th>
+                    <th>Está com</th>
                     <th>Aberto em</th>
                   </tr>
                 </thead>
@@ -174,6 +183,7 @@ export default function ListaProcessosPage() {
                           {p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"}
                         </span>
                       </td>
+                      <td>{textoEstaCom(p)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{dataHora(p.aberto_em).slice(0, 10)}</td>
                     </tr>
                   ))}
@@ -187,6 +197,7 @@ export default function ListaProcessosPage() {
                   <span>{p.objeto}</span>
                   <span className={s.pecaMeta}>
                     {rotuloDoTipo(p.tipo)} · {p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"}
+                    {p.situacao !== "ENCERRADO" && p.esta_com ? ` · com ${textoEstaCom(p)}` : ""}
                   </span>
                 </Link>
               ))}

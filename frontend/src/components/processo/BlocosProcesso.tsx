@@ -219,23 +219,32 @@ export function FormularioPeca({
 export function BlocoSuaVez({
   processoId,
   etapa,
+  posse,
   linkTermo,
   onJuntada,
 }: {
   processoId: string
   etapa: Etapa
+  posse: ComQuemEsta | null
   /** Para etapa de resultado (cadastro do termo no contrato). */
   linkTermo: string | null
   onJuntada: () => void
 }) {
   const [aberto, setAberto] = useState(false)
   const ehResultado = !!etapa.resultado
+  const setorDaEtapa = etapa.setor_sugerido ?? null
+  const etapaDeOutroSetor = !!setorDaEtapa && !!posse?.setor_id && posse.setor_id !== setorDaEtapa.id
   return (
     <section className={`${s.bloco} ${s.vez}`} aria-labelledby="bloco-sua-vez">
       <div className={s.eyebrow} id="bloco-sua-vez">
         Sua vez
       </div>
       <h2>{ehResultado ? `Etapa atual: ${etapa.rotulo}` : `Falta fazer: ${etapa.rotulo}`}</h2>
+      {etapaDeOutroSetor ? (
+        <div className={s.dica}>
+          Esta etapa costuma ser feita por {setorDaEtapa.nome}. Se não é com você, envie o processo para lá (abaixo); se já tem a peça, junte-a aqui mesmo.
+        </div>
+      ) : null}
       <div className={s.tarefas}>
         <div className={s.tarefa}>
           <span className={s.marca} aria-hidden="true" />

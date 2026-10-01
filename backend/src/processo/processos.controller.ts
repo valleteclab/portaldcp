@@ -35,8 +35,8 @@ export class ProcessosController {
 
   /** Lista do órgão do token: `?tipo=`, `?situacao=ABERTO|ENCERRADO`, `?contrato_id=`, `?q=` (número ou objeto), `?limit=`. */
   @Get()
-  listar(@AtorAtual() ator: Ator, @Query() query: any) {
-    return this.processos.listar(ator, query ?? {});
+  async listar(@AtorAtual() ator: Ator, @Query() query: any) {
+    return this.conteudo.comPosse(await this.processos.listar(ator, query ?? {}));
   }
 
   /**

@@ -8,6 +8,12 @@ import { ProcessoService } from './processo.service';
 import { ProcessoTramitacaoService } from './processo-tramitacao.service';
 import { temTramitacaoPropria } from './processo-tramitacao-regras';
 
+export interface PosseResumida {
+  setor_nome: string | null;
+  usuario_nome: string | null;
+  recebida: boolean;
+}
+
 /**
  * ADAPTADORES do processo para as capacidades genéricas que hoje vivem na
  * fase interna da licitação (acoplamento por compatibilidade — ver
@@ -85,6 +91,36 @@ export class ProcessoConteudoService {
       tram.linhaDoTempo(licId),
     ]);
     return { processo_id: p.id, disponivel: true, licitacao_id: licId, com_quem_esta, atual, movimentacoes, linha_do_tempo };
+  }
+
+  /** "Está com" de vários processos do mesmo órgão em duas consultas (lista), sem uma chamada por linha. */
+  async comPosse(lista: Processo[]): Promise<Array<Processo & { esta_com: PosseResumida | null }>> {
+    if (!lista.length) return [];
+    const orgaoId = lista[0].orgao_id;
+    const posse = new Map<string, PosseResumida>();
+
+    const proprios = lista.filter((p) => temTramitacaoPropria(p.tipo)).map((p) => p.id);
+    if (proprios.length) {
+      const linhas: Array<{ processo_id: string; para_setor_nome: string | null; para_usuario_nome: string | null; recebida_em: Date | null }> = await this.ds.query(
+        `SELECT DISTINCT ON (processo_id) processo_id::text AS processo_id, para_setor_nome, para_usuario_nome, recebida_em
+           FROM processo_movimentacoes WHERE orgao_id::text = $1 AND processo_id::text = ANY($2::text[])
+          ORDER BY processo_id, sequencia DESC`,
+        [orgaoId, proprios],
+      );
+      for (const l of linhas) posse.set(l.processo_id, { setor_nome: l.para_setor_nome, usuario_nome: l.para_usuario_nome, recebida: !!l.recebida_em });
+    }
+
+    const comLicitacao = lista.filter((p) => this.licitacaoIdOuNull(p));
+    const tram = comLicitacao.length ? this.servico<any>('../fase-interna/tramitacao.service', 'TramitacaoService') : null;
+    if (tram) {
+      const porLic: Map<string, any> = await tram.comQuemEstaEmLote(orgaoId, comLicitacao.map((p) => p.referencia_id as string));
+      for (const p of comLicitacao) {
+        const c = porLic.get(p.referencia_id as string);
+        if (c && c.status !== 'SEM_TRAMITACAO') posse.set(p.id, { setor_nome: c.setor?.nome ?? null, usuario_nome: c.usuario?.nome ?? null, recebida: !!c.recebido_em });
+      }
+    }
+
+    return lista.map((p) => Object.assign(p, { esta_com: posse.get(p.id) ?? null }));
   }
 
   async fluxo(p: Processo, ator: Ator) {
