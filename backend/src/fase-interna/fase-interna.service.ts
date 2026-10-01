@@ -50,6 +50,8 @@ import {
   calcularEstatisticasItem,
 } from './types/pesquisa-precos.type';
 import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
+import { ProcessoService } from '../processo/processo.service';
+import { REFERENCIA_LICITACAO } from '../processo/entities/processo.entity';
 
 /** Id do risco da matriz (riscos antigos, sem id, usam "R-<número>"). */
 const idDoRisco = (r: { id?: string; numero?: number }) => r.id || `R-${r.numero}`;
@@ -79,6 +81,8 @@ export class FaseInternaService {
     private readonly transicoes: TransicoesService,
     // Gerador único do nº do processo administrativo (importação sem número)
     private readonly numeros: NumeroProcessoService,
+    // Processo eletrônico: a importação abre a autuação na mesma transação
+    private readonly processos: ProcessoService,
     @Optional() private readonly modeloFluxo?: ModeloFluxoService,
   ) {}
 
@@ -658,13 +662,22 @@ export class FaseInternaService {
     });
 
     await this.licitacaoRepository.manager.transaction(async (m) => {
-      // Nº digitado (único no órgão → 409) ou gerado — o mesmo gerador dos demais caminhos
-      licitacao.numero_processo = await this.numeros.numeroParaCriacao(dados.orgaoId, dados.numero_processo, m);
+      // PROCESSO ELETRÔNICO: a autuação nasce primeiro (nº digitado — único no
+      // órgão → 409 — ou gerado pelo gerador único); a licitação recebe o mesmo número.
+      const processo = await this.processos.abrirContratacao(m, {
+        orgaoId: dados.orgaoId,
+        numeroDigitado: dados.numero_processo,
+        objeto: dados.objeto,
+        abertoPor: { tipo: ator.tipo, id: ator.id },
+        origem: 'IMPORTACAO',
+      });
+      licitacao.numero_processo = processo.numero;
       try {
         await m.getRepository(Licitacao).save(licitacao);
       } catch (e) {
         throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
       }
+      await this.processos.vincularReferencia(m, processo.id, REFERENCIA_LICITACAO, licitacao.id);
     });
     await this.transicoes.registrarCriacao(licitacao, ator, undefined, {
       origem: 'importacao',

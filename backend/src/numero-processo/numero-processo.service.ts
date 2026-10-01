@@ -280,18 +280,33 @@ export class NumeroProcessoService implements OnApplicationBootstrap {
     return 'Órgão';
   }
 
+  /**
+   * O número já existe no órgão? Olha as DUAS autuações: `licitacoes`
+   * (compatibilidade) e `processos` (processo eletrônico — inclui os processos
+   * sem licitação, ex.: avulso). `ignorarId` é o id da licitação editada; o
+   * processo dela (referência LICITACAO) é ignorado junto.
+   */
   private async existeNoOrgao(exec: Executor, orgaoId: string | null, numero: string, ignorarId?: string): Promise<boolean> {
     const [r] = await exec.query(
-      `SELECT 1 FROM licitacoes
-        WHERE numero_processo = $1 AND orgao_id::text IS NOT DISTINCT FROM $2::text ${ignorarId ? 'AND id::text <> $3' : ''} LIMIT 1`,
+      `SELECT 1 WHERE EXISTS (
+          SELECT 1 FROM licitacoes
+           WHERE numero_processo = $1 AND orgao_id::text IS NOT DISTINCT FROM $2::text ${ignorarId ? 'AND id::text <> $3' : ''})
+        OR EXISTS (
+          SELECT 1 FROM processos
+           WHERE numero = $1 AND orgao_id::text IS NOT DISTINCT FROM $2::text
+             ${ignorarId ? `AND NOT (referencia_tipo = 'LICITACAO' AND referencia_id::text = $3)` : ''})`,
       ignorarId ? [numero, orgaoId, ignorarId] : [numero, orgaoId],
     );
     return !!r;
   }
 
-  /** Maior sequencial já usado pelo órgão no ano, entre os números no formato da máscara. */
+  /** Maior sequencial já usado pelo órgão no ano, entre os números no formato da máscara (licitações e processos). */
   private async maiorSequencialExistente(exec: Executor, orgaoId: string, ano: number, mascara: string): Promise<number> {
-    const numeros: Array<{ n: string }> = await exec.query(`SELECT numero_processo AS n FROM licitacoes WHERE orgao_id::text = $1`, [orgaoId]);
+    const numeros: Array<{ n: string }> = await exec.query(
+      `SELECT numero_processo AS n FROM licitacoes WHERE orgao_id::text = $1
+       UNION SELECT numero AS n FROM processos WHERE orgao_id::text = $1`,
+      [orgaoId],
+    );
     let maior = 0;
     for (const { n } of numeros) {
       const s = sequencialDoNumero(mascara, ano, n);

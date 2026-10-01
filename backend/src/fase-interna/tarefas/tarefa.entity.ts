@@ -41,6 +41,11 @@ export class Tarefa {
   @Column({ type: 'uuid' })
   licitacao_id: string;
 
+  /** PROCESSO ELETRÔNICO (`processos.id`). Nulo nesta etapa (migração de boot); `licitacao_id` continua por compatibilidade. */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  processo_id: string | null;
+
   /** Peça da tarefa (versão atual quando a tarefa nasceu), se houver. */
   @Column({ type: 'uuid', nullable: true })
   documento_id: string | null;

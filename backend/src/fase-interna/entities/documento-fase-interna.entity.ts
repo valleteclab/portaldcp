@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Licitacao } from '../../licitacoes/entities/licitacao.entity';
 
 /**
@@ -85,6 +85,11 @@ export class DocumentoFaseInterna {
 
   @Column()
   licitacao_id: string;
+
+  /** PROCESSO ELETRÔNICO (`processos.id`). Nulo nesta etapa (migração de boot); `licitacao_id` continua por compatibilidade. */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  processo_id: string | null;
 
   // === IDENTIFICACAO ===
   @Column({ type: 'enum', enum: TipoDocumentoFaseInterna })

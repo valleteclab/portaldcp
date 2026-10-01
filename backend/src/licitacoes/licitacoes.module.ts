@@ -30,6 +30,7 @@ import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-
 
 import { DfdModule } from '../demandas/dfd/dfd.module';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
+import { ProcessoModule } from '../processo/processo.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { NumeroProcessoModule } from '../numero-processo/numero-processo.module'
     DfdModule,
     // Gerador único do nº do processo administrativo (por órgão/ano)
     NumeroProcessoModule,
+    ProcessoModule,
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
   controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController],
