@@ -68,6 +68,7 @@ import TabOrdensServico from '@/components/contratos/TabOrdensServico'
 import TabItensOrdemServico from '@/components/contratos/TabItensOrdemServico'
 import TabRequisicoes from '@/components/contratos/TabRequisicoes'
 import { ProcessosDoContrato } from '@/components/contratos/ProcessosDoContrato'
+import { chamarProcessos, type ProcessoVisao } from '@/lib/processo/processo'
 import TabRelatorios from '@/components/contratos/TabRelatorios'
 import SimuladorPedidoModal from '@/components/contratos/SimuladorPedidoModal'
 import AplicarTabelaSinaproModal from '@/components/contratos/AplicarTabelaSinaproModal'
@@ -407,6 +408,7 @@ export default function DetalheContratoOrgaoPage() {
   const searchParams = useSearchParams()
   const id = params.id as string
 
+  const processoIdUrl = searchParams.get('processo_id')
   const tabUrl = searchParams.get('tab')
   const tabAtivo = tabUrl && TABS_VALIDOS.includes(tabUrl) ? tabUrl : 'detalhes'
 
@@ -562,6 +564,28 @@ export default function DetalheContratoOrgaoPage() {
   useEffect(() => {
     if (id) carregarDados()
   }, [id])
+
+  // Veio da tela do processo (aditivo/renovação): abre o cadastro do termo já ligado ao processo.
+  const [processoDoTermo, setProcessoDoTermo] = useState<{ id: string; numero: string; tipo: string } | null>(null)
+  useEffect(() => {
+    if (!processoIdUrl || !contrato) return
+    let cancelado = false
+    chamarProcessos<ProcessoVisao>(`/${processoIdUrl}`)
+      .then((p) => {
+        if (cancelado) return
+        if (p.contrato_id !== contrato.id || p.referencia_id || (p.tipo !== 'ADITIVO' && p.tipo !== 'RENOVACAO')) {
+          toast.error(p.referencia_id ? 'Este processo já tem um termo como resultado.' : 'Este processo não pode receber um termo deste contrato.')
+          return
+        }
+        setProcessoDoTermo({ id: p.id, numero: p.numero, tipo: p.tipo })
+        if (p.tipo === 'RENOVACAO') {
+          setNovoTermo((t) => ({ ...t, tipo: 'ADITIVO_PRAZO', renovacao_ciclo: true, valor_acrescimo: String(Number(contrato.valor_global) || '') }))
+        }
+        setModalTermo(true)
+      })
+      .catch((e) => { if (!cancelado) toast.error(e instanceof Error ? e.message : 'Não foi possível abrir o processo.') })
+    return () => { cancelado = true }
+  }, [processoIdUrl, contrato?.id])
 
   useEffect(() => {
     if (tabAtivo === 'empenhos' && !empenhosBuscados && id) {
@@ -744,12 +768,18 @@ export default function DetalheContratoOrgaoPage() {
         nova_data_vigencia_fim: novoTermo.nova_data_vigencia_fim || null,
         data_assinatura: novoTermo.data_assinatura,
         ajuste_itens: montarAjusteItensPayload(),
+        ...(processoDoTermo ? { processo_id: processoDoTermo.id } : {}),
       }
       const res = await authFetch(`${API_URL}/api/contratos/${id}/termos`, {
         method: 'POST',
         body: JSON.stringify(payload),
       })
       if (res.ok) {
+        if (processoDoTermo) {
+          toast.success('Termo cadastrado e ligado ao processo.')
+          router.push(`/orgao/processo/${processoDoTermo.id}`)
+          return
+        }
         setModalTermo(false)
         setAjusteItensForm(ajusteItensInicial)
         setNovoTermo({ tipo: 'ADITIVO_PRAZO', renovacao_ciclo: false, objeto: '', justificativa: '', valor_acrescimo: '', valor_supressao: '', modo_acrescimo: 'incremento', modo_supressao: 'incremento', novo_valor_global_acrescimo: '', novo_valor_global_supressao: '', percentual_acrescimo: '', percentual_supressao: '', nova_data_vigencia_fim: '', data_assinatura: '' })
@@ -3171,6 +3201,12 @@ export default function DetalheContratoOrgaoPage() {
             <DialogDescription>Adicione um termo aditivo ou apostilamento ao contrato</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {processoDoTermo && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-900">
+                Este termo será o resultado do processo <strong>{processoDoTermo.numero}</strong>
+                {processoDoTermo.tipo === 'RENOVACAO' ? ' (renovação de ciclo).' : '.'}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Tipo *</Label>
