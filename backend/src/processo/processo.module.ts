@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
 import { Processo, TipoProcessoRegistro } from './entities/processo.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
+import { IaModule } from '../ia/ia.module';
 import { ProcessoMovimentacao, ProcessoPeca } from './entities/processo-tramitacao.entity';
 import { ProcessoTramitacaoService } from './processo-tramitacao.service';
 import { MigracaoProcessoBootService } from './migracao-processo-boot.service';
@@ -20,7 +21,7 @@ import { ProcessosController } from './processos.controller';
  * a base, e a licitação é o primeiro tipo que se apoia nele.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Processo, TipoProcessoRegistro, ProcessoMovimentacao, ProcessoPeca]), NumeroProcessoModule, NotificacoesModule],
+  imports: [TypeOrmModule.forFeature([Processo, TipoProcessoRegistro, ProcessoMovimentacao, ProcessoPeca]), NumeroProcessoModule, NotificacoesModule, IaModule],
   controllers: [ProcessosController],
   providers: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, MigracaoProcessoBootService],
   exports: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, MigracaoProcessoBootService],

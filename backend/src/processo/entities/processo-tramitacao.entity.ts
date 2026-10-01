@@ -99,6 +99,17 @@ export class ProcessoPeca {
   @Column({ type: 'text', nullable: true })
   texto: string | null;
 
+  /** HTML da peça feita no editor (texto corrido fica em `texto`, para busca). */
+  @Column({ type: 'text', nullable: true })
+  texto_html: string | null;
+
+  /** EDITOR (escrita no sistema), IA (rascunho da IA revisado) ou ARQUIVO (anexada). */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  origem: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  ia_modelo: string | null;
+
   @Column({ type: 'varchar', length: 500, nullable: true })
   arquivo_url: string | null;
 
