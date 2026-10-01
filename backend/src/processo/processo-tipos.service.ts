@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TipoProcesso, TipoProcessoRegistro } from './entities/processo.entity';
 import { definicaoContratacao } from './tipos/tipo-contratacao';
-import { DefinicaoTipoProcesso, ORDEM_TIPOS, RequisitoDoTipo, definicaoAvulso, esqueletosFuturos } from './tipos/tipo-processo';
+import { DefinicaoTipoProcesso, ORDEM_TIPOS, RequisitoDoTipo, definicaoAditivo, definicaoAvulso, esqueletosFuturos } from './tipos/tipo-processo';
 
 /**
  * REGISTRO DOS TIPOS DE PROCESSO: o "como" (código) + o "quais/rótulo/ativo"
@@ -23,7 +23,7 @@ export class ProcessoTiposService {
     @InjectRepository(TipoProcessoRegistro) private readonly repo: Repository<TipoProcessoRegistro>,
     private readonly moduleRef: ModuleRef,
   ) {
-    const lista: DefinicaoTipoProcesso[] = [definicaoContratacao({ requisitos: () => this.requisitosDaContratacao() }), definicaoAvulso(), ...esqueletosFuturos()];
+    const lista: DefinicaoTipoProcesso[] = [definicaoContratacao({ requisitos: () => this.requisitosDaContratacao() }), definicaoAvulso(), definicaoAditivo(), ...esqueletosFuturos()];
     this.definicoes = new Map(lista.map((d) => [d.tipo, d]));
   }
 
@@ -48,6 +48,12 @@ export class ProcessoTiposService {
         [d.tipo, d.rotulo, d.descricao, d.referencia_tipo, d.implementado, d.abertura_direta, i],
       );
       inseridos += Array.isArray(r) ? r.length : 0;
+      // Fatos do código (não editáveis pelo admin): se o tipo passou a existir, o registro acompanha.
+      await this.repo.query(
+        `UPDATE tipos_processo SET implementado = $2::boolean, abertura_direta = $3::boolean, referencia_tipo = $4::varchar
+          WHERE codigo = $1::varchar AND (implementado <> $2::boolean OR abertura_direta <> $3::boolean OR referencia_tipo IS DISTINCT FROM $4::varchar)`,
+        [d.tipo, d.implementado, d.abertura_direta, d.referencia_tipo],
+      );
     }
     return inseridos;
   }

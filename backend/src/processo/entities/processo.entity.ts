@@ -23,8 +23,10 @@ export enum TipoProcesso {
 export type SituacaoProcesso = 'ABERTO' | 'ENCERRADO';
 
 /** Objeto de conteúdo apontado por `referencia_tipo`/`referencia_id`. */
-export type ReferenciaProcesso = 'LICITACAO';
+export type ReferenciaProcesso = 'LICITACAO' | 'TERMO_ADITIVO';
 export const REFERENCIA_LICITACAO: ReferenciaProcesso = 'LICITACAO';
+/** Resultado do processo de ADITIVO: o termo aditivo cadastrado (`termos_aditivos.id`). */
+export const REFERENCIA_TERMO_ADITIVO: ReferenciaProcesso = 'TERMO_ADITIVO';
 
 /**
  * PROCESSO ADMINISTRATIVO ELETRÔNICO (estilo SEI) — a autuação: número único
@@ -44,6 +46,7 @@ export const REFERENCIA_LICITACAO: ReferenciaProcesso = 'LICITACAO';
 @Unique('UQ_processos_orgao_numero', ['orgao_id', 'numero'])
 @Index('UQ_processos_referencia', ['referencia_tipo', 'referencia_id'], { unique: true, where: '"referencia_id" IS NOT NULL' })
 @Index('IDX_processos_orgao_tipo_situacao', ['orgao_id', 'tipo', 'situacao'])
+@Index('IDX_processos_contrato', ['contrato_id'])
 export class Processo {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -70,6 +73,10 @@ export class Processo {
 
   @Column({ type: 'uuid', nullable: true })
   referencia_id: string | null;
+
+  /** Contrato a que o processo se refere (ADITIVO, RENOVACAO): nasce com o processo; o resultado entra em `referencia_*`. */
+  @Column({ type: 'uuid', nullable: true })
+  contrato_id: string | null;
 
   /** Setor que autuou (lotação de quem abriu), quando conhecido. */
   @Column({ type: 'uuid', nullable: true })

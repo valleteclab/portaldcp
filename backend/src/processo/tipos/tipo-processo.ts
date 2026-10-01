@@ -126,10 +126,32 @@ export function definicaoAvulso(): DefinicaoTipoProcesso {
   };
 }
 
+/**
+ * Processo de ADITIVO: nasce ligado a um contrato (`processos.contrato_id`) e
+ * o resultado é o termo aditivo cadastrado (referência TERMO_ADITIVO). Nesta
+ * etapa só a autuação e a ligação com o termo; tramitação, peças e fluxo do
+ * aditivo entram com a tela do processo (as tabelas ainda exigem `licitacao_id`).
+ * O cadastro do aditivo e seus efeitos no contrato seguem como sempre.
+ */
+export function definicaoAditivo(): DefinicaoTipoProcesso {
+  return {
+    tipo: TipoProcesso.ADITIVO,
+    rotulo: 'Termo aditivo',
+    descricao: 'Aditivo de contrato (prazo, valor, objeto) ou apostilamento: processo ligado ao contrato, cujo resultado é o termo cadastrado.',
+    referencia_tipo: 'TERMO_ADITIVO',
+    implementado: true,
+    abertura_direta: true,
+    tem_fluxo: false,
+    catalogoDocumentos: () => [],
+    camposCondicao: () => [],
+    requisitosLegais: async () => [],
+    aoConcluirUltimaEtapa: async () => undefined,
+  };
+}
+
 /** Lista fixa dos esqueletos (o registro em dados nasce daqui). */
 export function esqueletosFuturos(): DefinicaoTipoProcesso[] {
   return [
-    esqueletoDeTipo(TipoProcesso.ADITIVO, 'Termo aditivo', 'Aditivo de contrato (acréscimo, supressão, reequilíbrio) — próxima etapa.', 'CONTRATO'),
     esqueletoDeTipo(TipoProcesso.RENOVACAO, 'Renovação de contrato', 'Prorrogação de vigência de contrato — próxima etapa.', 'CONTRATO'),
     esqueletoDeTipo(TipoProcesso.PAGAMENTO, 'Pagamento', 'Liquidação e pagamento de medição/nota — próxima etapa.', 'MEDICAO'),
   ];

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ProcessoConteudoService } from './processo-conteudo.service';
@@ -31,15 +31,15 @@ export class ProcessosController {
     return this.tipos.listar();
   }
 
-  /** Lista do órgão do token: `?tipo=`, `?situacao=ABERTO|ENCERRADO`, `?q=` (número ou objeto), `?limit=`. */
+  /** Lista do órgão do token: `?tipo=`, `?situacao=ABERTO|ENCERRADO`, `?contrato_id=`, `?q=` (número ou objeto), `?limit=`. */
   @Get()
   listar(@AtorAtual() ator: Ator, @Query() query: any) {
     return this.processos.listar(ator, query ?? {});
   }
 
   /**
-   * Abre um processo SEM objeto de conteúdo (nesta etapa: só AVULSO).
-   * Corpo: { tipo?: 'AVULSO', objeto, numero?, setor_origem_id? }.
+   * Abre um processo SEM objeto de conteúdo: AVULSO ou ADITIVO (este ligado a um contrato do órgão).
+   * Corpo: { tipo?: 'AVULSO' | 'ADITIVO', objeto, numero?, setor_origem_id?, contrato_id? (obrigatório no ADITIVO) }.
    * CONTRATACAO nasce pelo módulo de licitações → 400.
    */
   @Post()
@@ -51,21 +51,26 @@ export class ProcessosController {
     if (r.dados.setor_origem_id && !(await this.processos.setorEhDoOrgao(orgaoId, r.dados.setor_origem_id))) {
       throw new BadRequestException('Setor de origem não pertence ao órgão');
     }
+    if (r.dados.contrato_id && !(await this.processos.contratoEhDoOrgao(orgaoId, r.dados.contrato_id))) {
+      throw new NotFoundException('Contrato não encontrado');
+    }
     const p = await this.processos.abrir({
       orgaoId,
       tipo: r.dados.tipo,
+      contratoId: r.dados.contrato_id,
       objeto: r.dados.objeto,
       numero: r.dados.numero,
       setorOrigemId: r.dados.setor_origem_id,
       abertoPor: ProcessoService.autorDoAtor(ator),
-      origem: 'AVULSO',
+      origem: r.dados.contrato_id ? 'CONTRATO' : 'AVULSO',
     });
     return this.conteudo.visao(p);
   }
 
-  /** Processo pela referência de conteúdo (`/processos/referencia/LICITACAO/:id`). */
+  /** Processo pela referência de conteúdo (`/processos/referencia/LICITACAO/:id` ou `/TERMO_ADITIVO/:id`). */
   @Get('referencia/:tipo/:id')
   async porReferencia(@AtorAtual() ator: Ator, @Param('tipo') tipo: string, @Param('id') id: string) {
+    if (String(tipo).toUpperCase() === 'TERMO_ADITIVO') return this.conteudo.visao(await this.processos.porTermoAditivo(ator, id));
     return this.conteudo.visao(await this.processos.porReferencia(ator, tipo, id));
   }
 

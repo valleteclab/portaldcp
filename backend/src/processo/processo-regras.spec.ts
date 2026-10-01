@@ -21,9 +21,9 @@ describe('processo-regras', () => {
     const direta = [TipoProcesso.AVULSO];
     it('padrão é AVULSO; objeto obrigatório; número e setor opcionais', () => {
       const r = validarAberturaDireta({ objeto: '  Ofício circular sobre férias  ' }, direta);
-      expect(r).toEqual({ dados: { tipo: 'AVULSO', objeto: 'Ofício circular sobre férias', numero: null, setor_origem_id: null } });
+      expect(r).toEqual({ dados: { tipo: 'AVULSO', objeto: 'Ofício circular sobre férias', numero: null, setor_origem_id: null, contrato_id: null } });
       const r2 = validarAberturaDireta({ tipo: 'avulso', objeto: 'Objeto ok', numero: ' PA 1/2026 ', setor_origem_id: 'abc' }, direta);
-      expect(r2).toEqual({ dados: { tipo: 'AVULSO', objeto: 'Objeto ok', numero: 'PA 1/2026', setor_origem_id: 'abc' } });
+      expect(r2).toEqual({ dados: { tipo: 'AVULSO', objeto: 'Objeto ok', numero: 'PA 1/2026', setor_origem_id: 'abc', contrato_id: null } });
     });
     it('recusa objeto curto, tipo inválido e CONTRATACAO direta (nasce pela licitação)', () => {
       expect(validarAberturaDireta({ objeto: 'abc' }, direta)).toMatchObject({ erro: expect.stringMatching(/objeto/i) });
@@ -31,17 +31,30 @@ describe('processo-regras', () => {
       expect(validarAberturaDireta({ tipo: 'CONTRATACAO', objeto: 'Objeto ok' }, direta)).toMatchObject({ erro: expect.stringMatching(/licitações/) });
       expect(validarAberturaDireta({ tipo: 'ADITIVO', objeto: 'Objeto ok' }, direta)).toMatchObject({ erro: expect.stringMatching(/ainda não/) });
     });
+    it('ADITIVO exige contrato (uuid); AVULSO ignora contrato_id', () => {
+      const comAditivo = [TipoProcesso.AVULSO, TipoProcesso.ADITIVO];
+      const contrato = '3f2b8c1e-5d4a-4c6b-9e7f-0a1b2c3d4e5f';
+      expect(validarAberturaDireta({ tipo: 'ADITIVO', objeto: 'Prorrogação de prazo' }, comAditivo)).toMatchObject({ erro: expect.stringMatching(/contrato/i) });
+      expect(validarAberturaDireta({ tipo: 'ADITIVO', objeto: 'Prorrogação de prazo', contrato_id: 'xyz' }, comAditivo)).toMatchObject({ erro: expect.stringMatching(/contrato/i) });
+      expect(validarAberturaDireta({ tipo: 'aditivo', objeto: 'Prorrogação de prazo', contrato_id: ` ${contrato} ` }, comAditivo)).toEqual({
+        dados: { tipo: 'ADITIVO', objeto: 'Prorrogação de prazo', numero: null, setor_origem_id: null, contrato_id: contrato },
+      });
+      expect(validarAberturaDireta({ objeto: 'Ofício sobre férias', contrato_id: contrato }, comAditivo)).toMatchObject({ dados: { tipo: 'AVULSO', contrato_id: null } });
+    });
   });
 
   it('filtros da listagem: fora do domínio é ignorado; limite entre 1 e 500', () => {
-    expect(normalizarFiltrosListagem({})).toEqual({ tipo: null, situacao: null, busca: null, limite: 100 });
+    expect(normalizarFiltrosListagem({})).toEqual({ tipo: null, situacao: null, busca: null, contrato_id: null, limite: 100 });
+    expect(normalizarFiltrosListagem({ contrato_id: '3f2b8c1e-5d4a-4c6b-9e7f-0a1b2c3d4e5f' }).contrato_id).toBe('3f2b8c1e-5d4a-4c6b-9e7f-0a1b2c3d4e5f');
+    expect(normalizarFiltrosListagem({ contrato_id: 'x' }).contrato_id).toBeNull();
     expect(normalizarFiltrosListagem({ tipo: 'contratacao', situacao: 'aberto', q: ' 2026 ', limit: '9999' })).toEqual({
       tipo: 'CONTRATACAO',
       situacao: 'ABERTO',
       busca: '2026',
+      contrato_id: null,
       limite: 500,
     });
-    expect(normalizarFiltrosListagem({ tipo: 'X', situacao: 'Y', limit: '-3' })).toEqual({ tipo: null, situacao: null, busca: null, limite: 100 });
+    expect(normalizarFiltrosListagem({ tipo: 'X', situacao: 'Y', limit: '-3' })).toEqual({ tipo: null, situacao: null, busca: null, contrato_id: null, limite: 100 });
   });
 
   it('texto de autuação', () => {

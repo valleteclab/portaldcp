@@ -18,8 +18,14 @@ export function tipoProcessoValido(v: unknown): v is TipoProcesso {
   return typeof v === 'string' && (TIPOS_PROCESSO as ReadonlyArray<string>).includes(v);
 }
 
+/** Tipos de processo que nascem ligados a um contrato (exigem `contrato_id` na abertura). */
+export const TIPOS_COM_CONTRATO: ReadonlyArray<TipoProcesso> = [TipoProcesso.ADITIVO, TipoProcesso.RENOVACAO];
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface AberturaDireta {
   tipo: TipoProcesso;
+  contrato_id: string | null;
   objeto: string;
   numero: string | null;
   setor_origem_id: string | null;
@@ -55,11 +61,14 @@ export function validarAberturaDireta(
   const setor_origem_id = typeof setor === 'string' && setor.trim() ? setor.trim() : null;
   const numeroBruto = corpo?.numero ?? corpo?.numero_processo;
   const numero = typeof numeroBruto === 'string' && numeroBruto.trim() ? numeroBruto.trim() : null;
-  return { dados: { tipo, objeto, numero, setor_origem_id } };
+  const contratoBruto = typeof corpo?.contrato_id === 'string' ? corpo.contrato_id.trim() : '';
+  if (TIPOS_COM_CONTRATO.includes(tipo) && !UUID.test(contratoBruto)) return { erro: 'Informe o contrato (contrato_id) do processo.' };
+  const contrato_id = TIPOS_COM_CONTRATO.includes(tipo) ? contratoBruto : null;
+  return { dados: { tipo, contrato_id, objeto, numero, setor_origem_id } };
 }
 
 /** Filtros da listagem (`GET /processos`): valores fora do domínio são ignorados. */
-export function normalizarFiltrosListagem(q: any): { tipo: TipoProcesso | null; situacao: SituacaoProcesso | null; busca: string | null; limite: number } {
+export function normalizarFiltrosListagem(q: any): { tipo: TipoProcesso | null; situacao: SituacaoProcesso | null; busca: string | null; contrato_id: string | null; limite: number } {
   const tipo = String(q?.tipo ?? '').trim().toUpperCase();
   const situacao = String(q?.situacao ?? '').trim().toUpperCase();
   const busca = String(q?.q ?? q?.busca ?? '').trim();
@@ -69,6 +78,7 @@ export function normalizarFiltrosListagem(q: any): { tipo: TipoProcesso | null; 
     tipo: tipoProcessoValido(tipo) ? tipo : null,
     situacao: situacao === 'ABERTO' || situacao === 'ENCERRADO' ? situacao : null,
     busca: busca ? busca.slice(0, 200) : null,
+    contrato_id: UUID.test(String(q?.contrato_id ?? '').trim()) ? String(q.contrato_id).trim() : null,
     limite,
   };
 }

@@ -134,6 +134,16 @@ export class ProcessoConteudoService {
       );
       conteudo = lic ?? null;
     }
+    if (p.tipo === TipoProcesso.ADITIVO) {
+      const [contrato] = p.contrato_id
+        ? await this.ds.query(`SELECT id::text AS id, numero_contrato, objeto, fornecedor_razao_social FROM contratos WHERE id::text = $1`, [p.contrato_id])
+        : [];
+      const [termo] =
+        p.referencia_tipo === 'TERMO_ADITIVO' && p.referencia_id
+          ? await this.ds.query(`SELECT id::text AS id, numero_termo, tipo::text AS tipo, status::text AS status, objeto, data_assinatura FROM termos_aditivos WHERE id::text = $1`, [p.referencia_id])
+          : [];
+      conteudo = { contrato: contrato ?? null, termo: termo ?? null };
+    }
     return { ...p, conteudo };
   }
 
