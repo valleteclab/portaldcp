@@ -1,10 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
-import { Processo, REFERENCIA_LICITACAO, ReferenciaProcesso, SituacaoProcesso, TipoProcesso } from './entities/processo.entity';
+import { Processo, REFERENCIA_LICITACAO, REFERENCIA_TERMO_ADITIVO, ReferenciaProcesso, SituacaoProcesso, TipoProcesso } from './entities/processo.entity';
 import { normalizarFiltrosListagem, situacaoDoProcessoPelaLicitacao } from './processo-regras';
 
 /** Quem abre o processo (do JWT ou do ator do histórico — nunca do corpo). */
@@ -22,6 +22,8 @@ export interface DadosAbertura {
   /** Nº digitado (único no órgão → 409) ou vazio → o gerador único (órgão/ano). */
   numero?: unknown;
   referencia?: { tipo: ReferenciaProcesso; id: string } | null;
+  /** Contrato do processo (ADITIVO, RENOVACAO). */
+  contratoId?: string | null;
   setorOrigemId?: string | null;
   abertoPor?: AutorAbertura | null;
   origem?: string | null;
@@ -79,6 +81,7 @@ export class ProcessoService {
       situacao: 'ABERTO',
       referencia_tipo: dados.referencia?.tipo ?? null,
       referencia_id: dados.referencia?.id ?? null,
+      contrato_id: dados.contratoId ?? null,
       setor_origem_id: dados.setorOrigemId ?? autor.setor_id ?? null,
       aberto_por_id: autor.id,
       aberto_por_nome: autor.nome,
@@ -223,8 +226,58 @@ export class ProcessoService {
     const qb = this.repo.createQueryBuilder('p').where('p.orgao_id = :orgaoId', { orgaoId });
     if (f.tipo) qb.andWhere('p.tipo = :tipo', { tipo: f.tipo });
     if (f.situacao) qb.andWhere('p.situacao = :situacao', { situacao: f.situacao });
+    if (f.contrato_id) qb.andWhere('p.contrato_id = :contratoId', { contratoId: f.contrato_id });
     if (f.busca) qb.andWhere('(p.numero ILIKE :busca OR p.objeto ILIKE :busca)', { busca: `%${f.busca}%` });
     return qb.orderBy('p.aberto_em', 'DESC').addOrderBy('p.numero', 'DESC').limit(f.limite).getMany();
+  }
+
+  /** Processo pela referência de resultado do aditivo (TERMO_ADITIVO + id do termo); do órgão do ator ou 404. */
+  async porTermoAditivo(ator: Ator, termoId: string): Promise<Processo> {
+    const p = ehUuid(termoId) ? await this.repo.findOne({ where: { referencia_tipo: REFERENCIA_TERMO_ADITIVO, referencia_id: termoId } }) : null;
+    if (!p || (!ator.admin && p.orgao_id !== ator.orgaoId)) throw new NotFoundException('Processo não encontrado');
+    return p;
+  }
+
+  /** O contrato existe e é do órgão informado (não revela contrato de outro órgão). */
+  async contratoEhDoOrgao(orgaoId: string, contratoId: string): Promise<boolean> {
+    if (!ehUuid(contratoId)) return false;
+    const [c] = await this.ds.query(`SELECT orgao_id::text AS orgao_id FROM contratos WHERE id::text = $1`, [contratoId]);
+    return !!c && c.orgao_id === orgaoId;
+  }
+
+  /**
+   * Confere, ANTES de cadastrar o termo, que o processo informado pode receber
+   * o resultado: é de ADITIVO, do mesmo órgão e do mesmo contrato, está aberto
+   * e ainda não tem resultado. Falha aqui não deixa termo criado pela metade.
+   */
+  async validarVinculoTermo(orgaoId: string, processoId: string, contratoId: string): Promise<Processo> {
+    const p = ehUuid(processoId) ? await this.repo.findOne({ where: { id: processoId } }) : null;
+    if (!p || p.orgao_id !== orgaoId) throw new NotFoundException('Processo não encontrado');
+    if (p.tipo !== TipoProcesso.ADITIVO) throw new BadRequestException('O processo informado não é de termo aditivo.');
+    if (p.contrato_id !== contratoId) throw new BadRequestException('O processo informado é de outro contrato.');
+    if (p.situacao === 'ENCERRADO') throw new BadRequestException('O processo informado já está encerrado.');
+    if (p.referencia_id) throw new ConflictException('O processo informado já tem um termo aditivo como resultado.');
+    return p;
+  }
+
+  /** Grava o termo cadastrado como RESULTADO do processo (só se ainda estiver sem resultado). */
+  async vincularTermo(processoId: string, termoId: string): Promise<boolean> {
+    const r = await this.ds.query(
+      `UPDATE processos SET referencia_tipo = $2::varchar, referencia_id = $3::uuid, updated_at = now()
+        WHERE id = $1::uuid AND referencia_id IS NULL`,
+      [processoId, REFERENCIA_TERMO_ADITIVO, termoId],
+    );
+    const afetadas = Array.isArray(r) ? Number(r[1] ?? 0) : 0;
+    if (!afetadas) this.logger.warn(`Termo ${termoId} não foi ligado ao processo ${processoId} (já tinha resultado?)`);
+    return afetadas > 0;
+  }
+
+  /** Termo excluído: o processo continua aberto, sem resultado. */
+  async desvincularTermo(termoId: string): Promise<void> {
+    await this.ds.query(
+      `UPDATE processos SET referencia_tipo = NULL, referencia_id = NULL, updated_at = now() WHERE referencia_tipo = $2::varchar AND referencia_id::text = $1`,
+      [termoId, REFERENCIA_TERMO_ADITIVO],
+    );
   }
 
   /** Id da licitação de um processo de CONTRATACAO (400 nos demais tipos). */

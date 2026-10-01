@@ -24,6 +24,7 @@ import type { Response } from 'express';
 import { HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { ProcessoService } from '../processo/processo.service';
 import { ContratosService } from './contratos.service';
 import { Contrato, StatusContrato, TipoContrato } from './entities/contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
@@ -52,6 +53,7 @@ export class ContratosController {
   constructor(
     private readonly contratosService: ContratosService,
     private readonly acesso: AcessoLicitacaoService,
+    private readonly processos: ProcessoService,
     private readonly uploadService: UploadService,
     @InjectRepository(Usuario)
     private readonly usuarioRepository: Repository<Usuario>,
@@ -382,12 +384,17 @@ export class ContratosController {
   @Post(':contratoId/termos')
   async criarTermoAditivo(
     @Param('contratoId') contratoId: string,
-    @Body() dados: Partial<TermoAditivo>,
+    @Body() dados: Partial<TermoAditivo> & { processo_id?: string },
     @Req() request: { user: JwtPayload },
   ) {
     const contrato = await this.contratosService.findOne(contratoId);
     this.validarPropriedade(request.user, contrato.orgao_id);
-    return this.contratosService.criarTermoAditivo(contratoId, dados);
+    // Processo de aditivo (opcional): validado ANTES de cadastrar; o termo vira o resultado do processo.
+    const { processo_id: processoId, ...dadosTermo } = dados ?? ({} as typeof dados);
+    if (processoId) await this.processos.validarVinculoTermo(contrato.orgao_id, String(processoId), contratoId);
+    const termo = await this.contratosService.criarTermoAditivo(contratoId, dadosTermo);
+    if (processoId) await this.processos.vincularTermo(String(processoId), termo.id);
+    return termo;
   }
 
   @Get(':contratoId/termos')
@@ -470,7 +477,9 @@ export class ContratosController {
   ) {
     const contrato = await this.contratosService.findOne(contratoId);
     this.validarPropriedade(request.user, contrato.orgao_id);
-    return this.contratosService.excluirTermoAditivo(contratoId, termoId);
+    const resultado = await this.contratosService.excluirTermoAditivo(contratoId, termoId);
+    await this.processos.desvincularTermo(termoId);
+    return resultado;
   }
 
   // ============ DOCUMENTOS DO CONTRATO ============

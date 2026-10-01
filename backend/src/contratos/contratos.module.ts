@@ -86,6 +86,8 @@ import { MedicaoEquipe } from './entities/medicao-equipe.entity';
 import { MedicaoEquipeFuncionario } from './entities/medicao-equipe-funcionario.entity';
 import { MedicaoEquipeService } from './medicao-equipe.service';
 
+import { ProcessoModule } from '../processo/processo.module';
+
 @Module({
   imports: [
     MulterModule.register({
@@ -108,6 +110,7 @@ import { MedicaoEquipeService } from './medicao-equipe.service';
     SystemConfigModule,
     WhatsAppModule,
     PortalAssinaturasModule,
+    ProcessoModule,
   ],
   controllers: [ConciliacaoPagamentoController, ConferenciaExecucaoController, ModalidadesContratoController, FornecedorMedicaoController, MedicaoChatController, TabelaReferenciaController, PreOsFornecedorController, PreOsOrgaoController, ContratosController, ImportarContratoIaController, ImportarMedicaoIaController, PortalTransparenciaController, AssinaturaFiscalPublicaController, AtualizacoesController],
   providers: [ConciliacaoPagamentoService, ContratosService, MedicaoService, MedicaoEquipeService, MedicaoChatService, MedicaoChatAgentService, AtestacaoService, LicencaControleService, OrdemServicoContratoService, TabelaReferenciaService, ConciliacaoFatorService, ConciliacaoFatorScheduler, PreOsPublicidadeService, ImportarContratoIaService, ImportarMedicaoIaService, PortalTransparenciaService, FatorTransparenciaService, ConferenciaExecucaoService, XmlNfeParserService, AtualizacoesService],

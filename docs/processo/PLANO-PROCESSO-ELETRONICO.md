@@ -83,7 +83,7 @@ Coluna nova, `uuid` nulo, adicionada a cada uma (lista em `TABELAS_COM_PROCESSO_
 
 ### Referência de conteúdo
 
-O par `referencia_tipo` + `referencia_id` em `processos` é a ponte genérica para a tabela de conteúdo do tipo. Hoje só existe um valor de `referencia_tipo`: `'LICITACAO'` (constante `REFERENCIA_LICITACAO`, tipo `ReferenciaProcesso`). Quando o aditivo e a renovação ganharem processo próprio (§9), a referência deles será `'CONTRATO'` — já reservada em `esquetosFuturos()` (`tipos/tipo-processo.ts`), ainda sem tabela de conteúdo associada.
+O par `referencia_tipo` + `referencia_id` em `processos` é a ponte genérica para a tabela de conteúdo do tipo. Há dois valores de `referencia_tipo`: `'LICITACAO'` (CONTRATACAO) e `'TERMO_ADITIVO'` (ADITIVO, etapa 2; o id é o do termo cadastrado). A referência é o **resultado** do processo e é única (índice parcial). O **contrato** do processo de aditivo/renovação fica em coluna própria, `processos.contrato_id`: um contrato tem vários processos de aditivo, então o contrato não pode ser a referência única.
 
 ## 4. Como a licitação virou o 1º tipo
 
@@ -190,7 +190,7 @@ Esta etapa deliberadamente **não** desfez alguns laços entre o processo e a li
 ## 9. Próximas etapas, na ordem
 
 1. **Esta base** (concluída) — invisível ao usuário.
-2. **Processo de aditivo.** Precisa: tipo `ADITIVO` implementado (`implementado: true`), com `referencia_tipo = 'CONTRATO'`; abertura ligada ao contrato (não à licitação); o cadastro de aditivo atual passa a ser gravado como o **resultado** do processo (como `licitacoes` é hoje da CONTRATACAO); decidir se autos/tramitação do aditivo reaproveitam as mesmas 6 tabelas (com `processo_id` preenchido e `licitacao_id` nulo) ou precisam de tabela própria, já que aditivo não tem `licitacao_id`.
+2. **Processo de aditivo** (etapa 2 — backend, ver §11). Plano original: tipo `ADITIVO` implementado (`implementado: true`), com `referencia_tipo = 'CONTRATO'`; abertura ligada ao contrato (não à licitação); o cadastro de aditivo atual passa a ser gravado como o **resultado** do processo (como `licitacoes` é hoje da CONTRATACAO); decidir se autos/tramitação do aditivo reaproveitam as mesmas 6 tabelas (com `processo_id` preenchido e `licitacao_id` nulo) ou precisam de tabela própria, já que aditivo não tem `licitacao_id`.
 3. **Renovação.** Mesma mecânica do aditivo (`referencia_tipo = 'CONTRATO'`); decidir o que é específico da renovação (vigência, novo valor) versus o que reaproveita do aditivo.
 4. **Tela do processo**, sobre a base pronta. Protótipo aprovado "Processo Passo a Passo": **Está com → Sua vez → Etapas → Linha do tempo → Detalhes**. Precisa: as rotas de `/api/processos` já cobrem os dados (autos, tramitação, fluxo, tarefas); falta a composição na tela e, nessa mesma etapa, o construtor de fluxo (hoje específico da fase interna — PRs #538/#539, `docs/licitacao/PLANO-CONSTRUTOR-FLUXO.md`) vira **genérico por tipo de processo**, usando `camposCondicao()` e `catalogoDocumentos()` de cada `DefinicaoTipoProcesso` em vez de ler direto o catálogo da licitação.
 
@@ -236,3 +236,23 @@ SELECT orgao_id, numero, count(*) FROM processos GROUP BY orgao_id, numero HAVIN
 - Criar uma licitação nova pelo assistente, pelo DFD, por demanda, por "fase interna feita fora" e por credenciamento: cada uma deve aparecer em `GET /api/processos` com a `origem` correspondente (`ASSISTENTE`, `DFD`, `DEMANDA`, `FEITA_FORA`, `CREDENCIAMENTO`) e o mesmo número que a tela da licitação mostra.
 - Editar o número ou o objeto de uma licitação existente e confirmar que `GET /api/processos/:id` do processo dela reflete a mudança.
 - Excluir uma licitação na fase interna (quando permitido) e confirmar que o processo correspondente desaparece de `GET /api/processos`.
+
+
+## 11. Etapa 2 — processo de aditivo (backend, invisível)
+
+**Decisão sobre as tabelas.** Autos, tramitação e peças da fase interna dependem da licitação em cerca de 90 pontos (repositório, notificações, permissões). Adaptar isso para processo sem licitação é o trabalho genérico da etapa 4, junto com a tela. Por isso esta etapa só faz a autuação e a ligação com o resultado; `licitacao_id` segue obrigatório e nada nas 6 tabelas muda.
+
+**O que entra.**
+- `TipoProcesso.ADITIVO` implementado, com abertura direta. Corpo de `POST /api/processos`: `{ tipo: 'ADITIVO', contrato_id, objeto, numero?, setor_origem_id? }`. O contrato precisa ser do órgão do token (outro órgão → 404).
+- `processos.contrato_id` (coluna nova, nula nos demais tipos) e filtro `GET /api/processos?contrato_id=`.
+- O cadastro do aditivo (`POST /api/contratos/:contratoId/termos`) aceita `processo_id` opcional. O processo é validado ANTES de criar o termo (ADITIVO, mesmo órgão e contrato, aberto, sem resultado). Depois de criado, o termo vira o resultado do processo. Sem `processo_id` nada muda: o cadastro e todos os efeitos no contrato seguem como sempre.
+- Excluir o termo solta o resultado do processo; o processo continua aberto.
+- `GET /api/processos/referencia/TERMO_ADITIVO/:termoId` devolve o processo de um termo; a visão do processo de aditivo traz o resumo do contrato e do termo.
+- O registro `tipos_processo` passa a acompanhar o código nos campos `implementado`, `abertura_direta` e `referencia_tipo` (o boot atualiza o que já existia).
+
+**Roteiro de verificação (depois do deploy).**
+- `GET /api/processos/tipos`: ADITIVO com `implementado=true` e `abertura_direta=true`.
+- `POST /api/processos` com ADITIVO sem `contrato_id` → 400; com contrato de outro órgão → 404; com contrato do órgão → abre, com `contrato_id` preenchido.
+- `POST /api/contratos/:id/termos` com `processo_id` de outro contrato → 400, sem criar o termo; com o processo certo → termo criado e `GET /api/processos/:id` mostra o termo em `conteudo.termo`.
+- Repetir com o mesmo `processo_id` → 409 e nenhum termo novo.
+- Excluir o termo e conferir que o processo voltou a ficar sem resultado.
