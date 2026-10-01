@@ -133,7 +133,7 @@ export class ProcessoService {
     const repo = exec.getRepository(Processo);
     await exec.query(
       `INSERT INTO processos (orgao_id, tipo, numero, objeto, situacao, referencia_tipo, referencia_id, origem, aberto_em, encerrado_em)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, 'MIGRACAO', $8, CASE WHEN $5 = 'ENCERRADO' THEN now() ELSE NULL END)
+       VALUES ($1::uuid, $2::varchar, $3::varchar, $4::text, $5::varchar, $6::varchar, $7::uuid, 'MIGRACAO', $8, CASE WHEN $5::varchar = 'ENCERRADO' THEN now() ELSE NULL END)
        ON CONFLICT DO NOTHING`,
       [lic.orgao_id, TipoProcesso.CONTRATACAO, lic.numero_processo, lic.objeto ?? '(sem objeto)', situacaoDoProcessoPelaLicitacao(lic.situacao), REFERENCIA_LICITACAO, lic.id, lic.aberto_em],
     );

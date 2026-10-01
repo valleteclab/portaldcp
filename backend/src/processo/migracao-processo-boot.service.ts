@@ -68,13 +68,13 @@ export class MigracaoProcessoBootService implements OnApplicationBootstrap {
     const encerram = SITUACOES_LICITACAO_QUE_ENCERRAM as ReadonlyArray<string>;
     const r = await this.ds.query(
       `INSERT INTO processos (orgao_id, tipo, numero, objeto, situacao, referencia_tipo, referencia_id, origem, aberto_em, encerrado_em)
-       SELECT l.orgao_id::uuid, $1, l.numero_processo, COALESCE(NULLIF(l.objeto, ''), '(sem objeto)'),
+       SELECT l.orgao_id::uuid, $1::varchar, l.numero_processo, COALESCE(NULLIF(l.objeto, ''), '(sem objeto)'),
               CASE WHEN l.situacao::text = ANY($3::text[]) THEN 'ENCERRADO' ELSE 'ABERTO' END,
-              $2, l.id, 'MIGRACAO', COALESCE(l.data_abertura_processo, l.created_at, now()),
+              $2::varchar, l.id, 'MIGRACAO', COALESCE(l.data_abertura_processo, l.created_at, now()),
               CASE WHEN l.situacao::text = ANY($3::text[]) THEN COALESCE(l.updated_at, now()) ELSE NULL END
          FROM licitacoes l
         WHERE l.orgao_id IS NOT NULL AND l.numero_processo IS NOT NULL
-          AND NOT EXISTS (SELECT 1 FROM processos p WHERE p.referencia_tipo = $2 AND p.referencia_id = l.id)
+          AND NOT EXISTS (SELECT 1 FROM processos p WHERE p.referencia_tipo = $2::varchar AND p.referencia_id = l.id)
         ORDER BY l.created_at ASC
        ON CONFLICT DO NOTHING`,
       [TipoProcesso.CONTRATACAO, REFERENCIA_LICITACAO, encerram],
