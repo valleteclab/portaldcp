@@ -45,6 +45,8 @@ export interface ProcessoResumo {
   aberto_em: string
   encerrado_em: string | null
   motivo_encerramento: string | null
+  /** Só na listagem: com quem o processo está (null = sem tramitação). */
+  esta_com?: { setor_nome: string | null; usuario_nome: string | null; recebida: boolean } | null
 }
 
 export interface ConteudoContrato {
@@ -163,6 +165,7 @@ export interface Etapa {
   titulo_peca: string | null
   resultado?: boolean
   setor_palavras?: string[]
+  setor_sugerido?: { id: string; nome: string } | null
 }
 
 export interface Fluxo {

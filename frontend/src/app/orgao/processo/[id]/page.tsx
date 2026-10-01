@@ -194,7 +194,7 @@ export default function TelaDoProcessoPage() {
       ) : podeAgir ? (
         <>
           {temFluxo && etapaAtual ? (
-            <BlocoSuaVez key={etapaAtual.chave} processoId={processo.id} etapa={etapaAtual} linkTermo={linkTermo} onJuntada={() => carregar(true)} />
+            <BlocoSuaVez key={etapaAtual.chave} processoId={processo.id} etapa={etapaAtual} posse={posse} linkTermo={linkTermo} onJuntada={() => carregar(true)} />
           ) : ehAvulso ? (
             <BlocoPecaAvulsa processoId={processo.id} onJuntada={() => carregar(true)} />
           ) : null}

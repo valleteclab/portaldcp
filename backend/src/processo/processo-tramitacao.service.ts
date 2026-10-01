@@ -426,8 +426,15 @@ export class ProcessoTramitacaoService {
 
   /** Etapas padrão do tipo (ADITIVO/RENOVACAO) com o estado de cada uma; AVULSO não tem etapas. */
   async fluxo(p: Processo) {
-    const etapas = await this.etapasDoProcesso(p);
-    return { processo_id: p.id, disponivel: true, tem_fluxo: etapas.length > 0, fluxo_padrao: true, retrato: null, etapas, etapa_atual: etapaAtual(etapas) };
+    const calculadas = await this.etapasDoProcesso(p);
+    const setores: Array<{ id: string; nome: string }> = calculadas.length
+      ? await this.ds.query(`SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1 ORDER BY nome ASC`, [p.orgao_id])
+      : [];
+    const etapas = calculadas.map((e) => {
+      const s = sugerirSetor(e.setor_palavras, setores);
+      return { ...e, setor_sugerido: s ? { id: s.id, nome: s.nome } : null };
+    });
+    return { processo_id: p.id, disponivel: true, tem_fluxo: etapas.length > 0, fluxo_padrao: true, retrato: null, etapas, etapa_atual: etapas.find((e) => e.estado === 'ATUAL') ?? null };
   }
 
   /** Tarefas derivadas das etapas (a pendente é a "vez" de quem está com o processo). */
