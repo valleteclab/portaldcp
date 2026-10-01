@@ -23,6 +23,15 @@ export const TIPOS_COM_CONTRATO: ReadonlyArray<TipoProcesso> = [TipoProcesso.ADI
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Recusa (mensagem) se o termo a cadastrar não serve de resultado ao tipo de processo; null = serve. */
+export function erroTermoParaProcesso(tipo: TipoProcesso, renovacaoCiclo: unknown): string | null {
+  if (tipo === TipoProcesso.RENOVACAO) {
+    return renovacaoCiclo === true || renovacaoCiclo === 'true' ? null : 'O processo é de renovação: cadastre o termo como renovação de ciclo.';
+  }
+  if (tipo === TipoProcesso.ADITIVO) return null;
+  return 'O processo informado não é de termo aditivo nem de renovação.';
+}
+
 export interface AberturaDireta {
   tipo: TipoProcesso;
   contrato_id: string | null;

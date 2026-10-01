@@ -391,7 +391,7 @@ export class ContratosController {
     this.validarPropriedade(request.user, contrato.orgao_id);
     // Processo de aditivo (opcional): validado ANTES de cadastrar; o termo vira o resultado do processo.
     const { processo_id: processoId, ...dadosTermo } = dados ?? ({} as typeof dados);
-    if (processoId) await this.processos.validarVinculoTermo(contrato.orgao_id, String(processoId), contratoId);
+    if (processoId) await this.processos.validarVinculoTermo(contrato.orgao_id, String(processoId), contratoId, (dadosTermo as any).renovacao_ciclo);
     const termo = await this.contratosService.criarTermoAditivo(contratoId, dadosTermo);
     if (processoId) await this.processos.vincularTermo(String(processoId), termo.id);
     return termo;

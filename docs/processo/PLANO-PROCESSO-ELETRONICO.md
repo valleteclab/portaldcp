@@ -191,7 +191,7 @@ Esta etapa deliberadamente **não** desfez alguns laços entre o processo e a li
 
 1. **Esta base** (concluída) — invisível ao usuário.
 2. **Processo de aditivo** (etapa 2 — backend, ver §11). Plano original: tipo `ADITIVO` implementado (`implementado: true`), com `referencia_tipo = 'CONTRATO'`; abertura ligada ao contrato (não à licitação); o cadastro de aditivo atual passa a ser gravado como o **resultado** do processo (como `licitacoes` é hoje da CONTRATACAO); decidir se autos/tramitação do aditivo reaproveitam as mesmas 6 tabelas (com `processo_id` preenchido e `licitacao_id` nulo) ou precisam de tabela própria, já que aditivo não tem `licitacao_id`.
-3. **Renovação.** Mesma mecânica do aditivo (`referencia_tipo = 'CONTRATO'`); decidir o que é específico da renovação (vigência, novo valor) versus o que reaproveita do aditivo.
+3. **Renovação** (etapa 3 — backend, ver §12). Plano original: mesma mecânica do aditivo (`referencia_tipo = 'CONTRATO'`); decidir o que é específico da renovação (vigência, novo valor) versus o que reaproveita do aditivo.
 4. **Tela do processo**, sobre a base pronta. Protótipo aprovado "Processo Passo a Passo": **Está com → Sua vez → Etapas → Linha do tempo → Detalhes**. Precisa: as rotas de `/api/processos` já cobrem os dados (autos, tramitação, fluxo, tarefas); falta a composição na tela e, nessa mesma etapa, o construtor de fluxo (hoje específico da fase interna — PRs #538/#539, `docs/licitacao/PLANO-CONSTRUTOR-FLUXO.md`) vira **genérico por tipo de processo**, usando `camposCondicao()` e `catalogoDocumentos()` de cada `DefinicaoTipoProcesso` em vez de ler direto o catálogo da licitação.
 
 ## 10. Roteiro de verificação desta etapa
@@ -256,3 +256,18 @@ SELECT orgao_id, numero, count(*) FROM processos GROUP BY orgao_id, numero HAVIN
 - `POST /api/contratos/:id/termos` com `processo_id` de outro contrato → 400, sem criar o termo; com o processo certo → termo criado e `GET /api/processos/:id` mostra o termo em `conteudo.termo`.
 - Repetir com o mesmo `processo_id` → 409 e nenhum termo novo.
 - Excluir o termo e conferir que o processo voltou a ficar sem resultado.
+
+
+## 12. Etapa 3 — processo de renovação (backend, invisível)
+
+A renovação, no cadastro atual, é um termo aditivo com `renovacao_ciclo = true`. Por isso o processo de RENOVACAO usa exatamente a mecânica do aditivo (§11): nasce com `contrato_id` e o termo cadastrado vira o resultado (`referencia_tipo = 'TERMO_ADITIVO'`).
+
+**O que entra.**
+- `TipoProcesso.RENOVACAO` implementado, com abertura direta (`POST /api/processos` com `tipo: 'RENOVACAO'` e `contrato_id`).
+- `POST /api/contratos/:id/termos` com `processo_id` de um processo de renovação só aceita termo com `renovacao_ciclo = true`; senão 400, antes de criar o termo. Para o processo de ADITIVO nada mudou.
+- A visão do processo traz o resumo do contrato e do termo (com `renovacao_ciclo`).
+
+**Roteiro de verificação (depois do deploy).**
+- `GET /api/processos/tipos`: RENOVACAO com `implementado=true` e `abertura_direta=true`.
+- Abrir RENOVACAO sem `contrato_id` → 400; com contrato de outro órgão → 404; com contrato do órgão → abre.
+- Cadastrar termo com esse `processo_id` sem `renovacao_ciclo` → 400, sem criar o termo; com `renovacao_ciclo: true` → criado e visível em `conteudo.termo` do processo.
