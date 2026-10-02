@@ -509,7 +509,7 @@ function DemandasPageContent() {
         onOpenChange={setShowNovaDemanda}
         ano={anoSelecionado}
         orgaoId={orgaoId}
-        onCriada={(id) => router.push(`/orgao/demandas/${id}`)}
+        onCriada={(id) => router.push(`/orgao/demandas/${id}?nova=1`)}
       />
 
     </div>
