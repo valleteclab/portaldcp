@@ -17,6 +17,7 @@ import {
   type ComQuemEsta,
   type ConferenciaPublicacao,
   type ConteudoLicitacao,
+  TIPOS_PECA_EDITOR_LICITACAO,
   type Destinos,
   type Etapa,
   type EventoLinhaDoTempo,
@@ -27,6 +28,7 @@ import {
   type RascunhoDaPeca,
 } from "@/lib/processo/processo"
 import { EditorPeca } from "./EditorPeca"
+import { FormularioPecaLicitacao } from "./FormularioPecaLicitacao"
 import { rotaFazerAqui } from "@/lib/fase-interna/telas"
 import { ROTULO_CRITERIO, rotuloModalidade } from "@/lib/licitacao-rotulos"
 import { API_URL, authFetch } from "@/lib/api"
@@ -402,32 +404,55 @@ export function FormularioPeca({
  * interna e cada uma abre onde já é feita hoje ("Fazer aqui"). Sem trava: o
  * fluxo sugere; o envio é livre.
  */
-export function BlocoSuaVezLicitacao({ licitacaoId, etapa }: { licitacaoId: string; etapa: Etapa | null }) {
+export function BlocoSuaVezLicitacao({ processoId, licitacaoId, etapa, onFeito }: { processoId: string; licitacaoId: string; etapa: Etapa | null; onFeito: (mensagem: string) => void }) {
   const pecas = etapa?.pecas ?? []
+  const [escrevendo, setEscrevendo] = useState<string | null>(null)
+  const [feito, setFeito] = useState<string | null>(null)
   return (
     <section className={`${s.bloco} ${s.vez}`} aria-labelledby="bloco-sua-vez">
       <div className={s.eyebrow} id="bloco-sua-vez">
         Sua vez
       </div>
       <h2>{etapa ? `Falta fazer: ${etapa.rotulo}` : "O processo está com você"}</h2>
+      {feito ? <div className={s.dica}>{feito}</div> : null}
       {pecas.length ? (
         <div className={s.tarefas}>
-          {pecas.map((pc) => (
-            <div key={`${pc.passo}-${pc.tipo}`} className={`${s.tarefa} ${pc.pronta ? s.feita : ""}`}>
-              <span className={s.marca} aria-hidden="true" />
-              <div className={s.tarefaTexto}>
-                <span className={s.tarefaNome}>{pc.titulo}</span>
-                <span className={s.tarefaEstado}>
-                  {pc.pronta ? "Pronta" : rotuloStatusPeca(pc.status)}
-                  {pc.obrigatorio ? "" : " · opcional"}
-                  {!pc.pronta && !pc.pode_iniciar ? " · aguarda etapa anterior" : ""}
-                </span>
+          {pecas.map((pc) => {
+            const noEditor = TIPOS_PECA_EDITOR_LICITACAO.includes(pc.tipo) && !pc.pronta
+            return (
+              <div key={`${pc.passo}-${pc.tipo}`} className={`${s.tarefa} ${pc.pronta ? s.feita : ""}`}>
+                <span className={s.marca} aria-hidden="true" />
+                <div className={s.tarefaTexto}>
+                  <span className={s.tarefaNome}>{pc.titulo}</span>
+                  <span className={s.tarefaEstado}>
+                    {pc.pronta ? "Pronta" : rotuloStatusPeca(pc.status)}
+                    {pc.obrigatorio ? "" : " · opcional"}
+                    {!pc.pronta && !pc.pode_iniciar ? " · aguarda etapa anterior" : ""}
+                  </span>
+                </div>
+                {noEditor && escrevendo !== pc.tipo ? (
+                  <button type="button" className={`${s.botao} ${s.primario}`} onClick={() => setEscrevendo(pc.tipo)}>
+                    Escrever aqui
+                  </button>
+                ) : null}
+                <Link href={rotaFazerAqui(licitacaoId, pc.tipo)} className={`${s.botao} ${pc.pronta || noEditor ? s.secundario : s.primario}`}>
+                  {pc.pronta ? "Ver" : noEditor ? "Tela da peça" : pc.status === "EM_ELABORACAO" ? "Continuar" : "Fazer aqui"}
+                </Link>
+                {escrevendo === pc.tipo ? (
+                  <FormularioPecaLicitacao
+                    processoId={processoId}
+                    tipo={pc.tipo}
+                    onCancelar={() => setEscrevendo(null)}
+                    onFeito={(m) => {
+                      setEscrevendo(null)
+                      setFeito(m)
+                      onFeito(m)
+                    }}
+                  />
+                ) : null}
               </div>
-              <Link href={rotaFazerAqui(licitacaoId, pc.tipo)} className={`${s.botao} ${pc.pronta ? s.secundario : s.primario}`}>
-                {pc.pronta ? "Ver" : pc.status === "EM_ELABORACAO" ? "Continuar" : "Fazer aqui"}
-              </Link>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : (
         <p className={s.texto}>Nenhuma peça pendente nesta etapa. Envie o processo para o próximo setor ou abra a licitação para ver tudo.</p>
