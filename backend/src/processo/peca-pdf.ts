@@ -21,6 +21,10 @@ export interface DadosPdfPeca {
   autor_cargo?: string | null;
   juntada_em: Date;
   ia_modelo?: string | null;
+  /** Logo do órgão (PNG ou JPG) para o cabeçalho; ignorada no papel timbrado. */
+  logo?: { bytes: Buffer; tipo: 'png' | 'jpg' } | null;
+  /** Sem logo nem nome do órgão no cabeçalho: o órgão imprime em papel timbrado. */
+  papel_timbrado?: boolean;
 }
 
 const A4: [number, number] = [595.28, 841.89];
@@ -36,20 +40,37 @@ export async function gerarPdfPeca(d: DadosPdfPeca): Promise<Buffer> {
   const negrito = await doc.embedFont(StandardFonts.HelveticaBold);
   const [larg, alt] = A4;
   const largura = larg - 2 * MARGEM;
+  let logo: Awaited<ReturnType<typeof doc.embedPng>> | null = null;
+  if (d.logo && !d.papel_timbrado) {
+    try {
+      logo = d.logo.tipo === 'png' ? await doc.embedPng(d.logo.bytes) : await doc.embedJpg(d.logo.bytes);
+    } catch {
+      logo = null;
+    }
+  }
+  // Papel timbrado: o topo fica livre para o timbre impresso
+  const topo = d.papel_timbrado ? alt - 120 : alt - 70;
   let pg: PDFPage = doc.addPage(A4);
-  let y = alt - 70;
+  let y = topo;
 
   const cabecalho = () => {
-    const t = textoSeguroPdf(d.orgao_nome.toUpperCase());
-    pg.drawText(t, { x: Math.max(MARGEM, (larg - negrito.widthOfTextAtSize(t, 11)) / 2), y, size: 11, font: negrito, color: PRETO });
-    y -= 15;
+    if (!d.papel_timbrado) {
+      if (logo) {
+        const h = 40;
+        const w = (logo.width / logo.height) * h;
+        pg.drawImage(logo, { x: MARGEM, y: y - h + 10, width: Math.min(w, 120), height: h });
+      }
+      const t = textoSeguroPdf(d.orgao_nome.toUpperCase());
+      pg.drawText(t, { x: Math.max(MARGEM, (larg - negrito.widthOfTextAtSize(t, 11)) / 2), y, size: 11, font: negrito, color: PRETO });
+      y -= 15;
+    }
     const sub = textoSeguroPdf(`${d.setor_nome ? `${d.setor_nome} · ` : ''}Processo administrativo nº ${d.numero_processo}`);
     pg.drawText(sub, { x: Math.max(MARGEM, (larg - fonte.widthOfTextAtSize(sub, 9)) / 2), y, size: 9, font: fonte, color: CINZA });
-    y -= 22;
+    y -= logo && !d.papel_timbrado ? 34 : 22;
   };
   const novaPagina = () => {
     pg = doc.addPage(A4);
-    y = alt - 70;
+    y = topo;
     cabecalho();
   };
   const garantir = (altura: number) => {

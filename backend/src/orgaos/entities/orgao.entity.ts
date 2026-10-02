@@ -234,6 +234,10 @@ export class Orgao {
   @Column({ nullable: true })
   logo_url: string; // Caminho relativo: /api/uploads/logos/{filename}
 
+  /** Peças do processo eletrônico saem SEM logo e nome no cabeçalho (o órgão imprime em papel timbrado). */
+  @Column({ type: 'boolean', default: false })
+  pecas_papel_timbrado: boolean;
+
   // ============ MÓDULOS DO SISTEMA ============
   
   @Column({

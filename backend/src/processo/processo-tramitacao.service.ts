@@ -25,7 +25,7 @@ import {
 import { ProcessoService } from './processo.service';
 import { textoDeAutuacao } from './processo-regras';
 import { IaService } from '../ia/ia.service';
-import { diretorioDeGravacao } from '../common/arquivos/arquivos';
+import { caminhoLogico, diretorioDeGravacao, resolverArquivo } from '../common/arquivos/arquivos';
 import { contarPaginasPdf } from '../fase-interna/folhas-autos';
 import {
   aplicarVariaveisDaPeca,
@@ -370,11 +370,13 @@ export class ProcessoTramitacaoService {
 
   /** PDF da peça feita no sistema, gravado na pasta privada `processo/<id>/`. */
   private async gerarArquivoDaPeca(p: Processo, perfil: Perfil, numeroPeca: number, titulo: string, html: string, iaModelo: string | null) {
-    const [org] = await this.ds.query(`SELECT nome, cidade, uf FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
+    const [org] = await this.ds.query(`SELECT nome, cidade, uf, logo_url, pecas_papel_timbrado FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
     const pdf = await gerarPdfPeca({
       orgao_nome: org?.nome || 'Órgão',
       cidade: org?.cidade ?? null,
       uf: org?.uf ?? null,
+      logo: org?.pecas_papel_timbrado ? null : this.logoDoOrgao(org?.logo_url),
+      papel_timbrado: !!org?.pecas_papel_timbrado,
       setor_nome: await this.nomeDoSetor(perfil.setor_id),
       numero_processo: p.numero,
       titulo,
@@ -389,6 +391,22 @@ export class ProcessoTramitacaoService {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, nome), pdf);
     return { arquivo_url: `/api/uploads/processo/${p.id}/${nome}`, arquivo_nome: `${titulo.slice(0, 80)}.pdf`, paginas: Math.max(1, await contarPaginasPdf(pdf)) };
+  }
+
+  /** Bytes da logo do órgão (`/api/uploads/logos/x.png`), ou null se não há ou não deu para ler. */
+  private logoDoOrgao(logoUrl: string | null | undefined): { bytes: Buffer; tipo: 'png' | 'jpg' } | null {
+    const nome = String(logoUrl ?? '').match(/\/logos\/([^/?]+)$/)?.[1];
+    if (!nome) return null;
+    const ext = nome.toLowerCase().split('.').pop();
+    if (ext !== 'png' && ext !== 'jpg' && ext !== 'jpeg') return null;
+    const caminho = resolverArquivo(caminhoLogico(['logos', nome]));
+    if (!caminho) return null;
+    try {
+      return { bytes: fs.readFileSync(caminho), tipo: ext === 'png' ? 'png' : 'jpg' };
+    } catch (e) {
+      this.logger.warn(`Logo do órgão não pôde ser lida para o PDF da peça: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
   }
 
   /** O que o modelo e a IA sabem do processo ao redigir a peça da etapa. */
