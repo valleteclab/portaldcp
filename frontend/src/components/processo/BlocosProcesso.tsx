@@ -15,6 +15,8 @@ import {
   urlDoArquivo,
   type Autos,
   type ComQuemEsta,
+  type ConferenciaPublicacao,
+  type ConteudoLicitacao,
   type Destinos,
   type Etapa,
   type EventoLinhaDoTempo,
@@ -26,6 +28,8 @@ import {
 } from "@/lib/processo/processo"
 import { EditorPeca } from "./EditorPeca"
 import { rotaFazerAqui } from "@/lib/fase-interna/telas"
+import { ROTULO_CRITERIO, rotuloModalidade } from "@/lib/licitacao-rotulos"
+import { API_URL, authFetch } from "@/lib/api"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 import s from "./processo.module.css"
 
@@ -429,6 +433,125 @@ export function BlocoSuaVezLicitacao({ licitacaoId, etapa }: { licitacaoId: stri
         <p className={s.texto}>Nenhuma peça pendente nesta etapa. Envie o processo para o próximo setor ou abra a licitação para ver tudo.</p>
       )}
     </section>
+  )
+}
+
+/* ------------------------------------------ Licitação: publicação e dados */
+
+/**
+ * Checklist de publicação (art. 72) na tela do processo: a única trava do
+ * fluxo. Cada pendência leva à tela onde se resolve; o botão de publicar
+ * continua nos detalhes da licitação até a fase externa vir para cá.
+ */
+export function BlocoPublicacaoLicitacao({ licitacaoId, modalidade }: { licitacaoId: string; modalidade: string | null }) {
+  const [conf, setConf] = useState<ConferenciaPublicacao | null>(null)
+  useEffect(() => {
+    let vivo = true
+    authFetch(`${API_URL}/api/licitacoes/${licitacaoId}/conferencia-publicacao`)
+      .then(async (r) => (r.ok ? ((await r.json()) as ConferenciaPublicacao) : null))
+      .then((c) => vivo && setConf(c))
+      .catch(() => undefined)
+    return () => {
+      vivo = false
+    }
+  }, [licitacaoId])
+  if (!conf || !conf.aplicavel || !conf.itens?.length) return null
+  const detalhes = `/orgao/processos/${licitacaoId}?detalhes=1`
+  const linkDaAcao = (acao: string | null): { href: string; rotulo: string } | null => {
+    switch (acao) {
+      case "ABRIR_FASE_INTERNA":
+        return null
+      case "ABRIR_CONFORMIDADE":
+        return { href: `/orgao/processos/${licitacaoId}/fase-interna/conformidade`, rotulo: "Abrir a conformidade" }
+      case "ABRIR_CONTROLE_INTERNO":
+        return { href: `/orgao/processos/${licitacaoId}/fase-interna/controle-interno`, rotulo: "Abrir o controle interno" }
+      case "CADASTRAR_ITENS":
+        return { href: `/orgao/processos/${licitacaoId}/editar?aba=itens`, rotulo: "Cadastrar itens" }
+      case "VINCULAR_PCA":
+        return { href: `/orgao/processos/${licitacaoId}/editar?aba=classificacao`, rotulo: "Vincular ou justificar" }
+      case "CONFIGURAR_ME_EPP":
+        return { href: `${detalhes}#cotas-me-epp`, rotulo: "Resolver ME/EPP" }
+      case "ANEXAR_EDITAL":
+        return { href: `${detalhes}#publicacao-edital`, rotulo: "Anexar edital" }
+      case "GERAR_AVISO":
+      case "CANCELAR_PUBLICACAO":
+        return { href: `${detalhes}#publicacao-edital`, rotulo: acao === "GERAR_AVISO" ? "Gerar aviso" : "Cancelar publicação" }
+      default:
+        return null
+    }
+  }
+  const dispensa = modalidade === "DISPENSA_ELETRONICA"
+  const pendentes = conf.itens.filter((i) => i.bloqueia && i.estado === "PENDENTE").length
+  return (
+    <section className={s.bloco} aria-labelledby="bloco-publicacao">
+      <div className={s.eyebrow} id="bloco-publicacao">
+        Publicação · {pendentes ? `${pendentes} ${pendentes === 1 ? "pendência" : "pendências"}` : "pronto para publicar"}
+      </div>
+      <p className={s.texto} style={{ marginTop: 6 }}>
+        {dispensa ? "O aviso de dispensa" : "O edital"} só é publicado quando a lista do art. 72 estiver completa. No meio do caminho o envio é livre.
+      </p>
+      <ul className={s.pecas} style={{ marginTop: 10 }}>
+        {conf.itens.map((i) => {
+          const link = linkDaAcao(i.acao)
+          return (
+            <li key={i.chave} className={s.tarefa}>
+              <span className={`${s.chip} ${i.estado === "OK" ? s.chipOk : s.chipEspera}`}>{i.estado === "OK" ? "Pronto" : i.estado === "ALERTA" ? "Atenção" : "Pendente"}</span>
+              <div className={s.tarefaTexto}>
+                <span className={s.tarefaNome}>{i.rotulo}</span>
+                <span className={s.tarefaEstado}>{i.detalhe || i.pendencias.join("; ") || i.fundamento}</span>
+              </div>
+              {link && i.estado !== "OK" ? (
+                <Link href={link.href} className={`${s.botao} ${s.secundario}`}>
+                  {link.rotulo}
+                </Link>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+      <div className={s.acoes} style={{ marginTop: 12 }}>
+        <Link href={`${detalhes}#publicacao-edital`} className={`${s.botao} ${pendentes ? s.secundario : s.primario}`}>
+          {dispensa ? "Divulgar o aviso" : "Publicar o edital"} (detalhes da licitação)
+        </Link>
+      </div>
+    </section>
+  )
+}
+
+/** Dados da contratação, recolhidos, com o atalho para os detalhes da licitação. */
+export function BlocoDadosLicitacao({ licitacaoId, lic }: { licitacaoId: string; lic: ConteudoLicitacao | null }) {
+  const valor = lic?.valor_total_estimado
+  const linhas: Array<[string, string]> = [
+    ["Modalidade", `${rotuloModalidade(lic?.modalidade)}${lic?.srp ? " (SRP)" : ""}`],
+    ["Fundamento", lic?.fundamento_legal || "—"],
+    ["Critério", (lic?.criterio_julgamento && ROTULO_CRITERIO[lic.criterio_julgamento]) || lic?.criterio_julgamento || "—"],
+    ["Valor estimado", valor === null || valor === undefined || valor === "" ? "—" : Number(valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })],
+    ["Unidade", lic?.nome_unidade_compradora || "não informada"],
+    ["Nº PNCP", lic?.numero_controle_pncp || "ainda não gerado"],
+    ["Publicação", lic?.data_publicacao_edital ? soData(lic.data_publicacao_edital) : "após a fase interna"],
+  ]
+  return (
+    <details className={s.bloco}>
+      <summary className={s.resumo}>
+        Dados da contratação <span className={s.resumoInfo}>· {rotuloModalidade(lic?.modalidade)}{lic?.numero_edital ? ` · ${lic.numero_edital}` : ""}</span>
+      </summary>
+      <div className={s.corpo}>
+        <dl className={s.detalhes}>
+          {linhas.map(([k, v]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className={s.acoes} style={{ marginTop: 12 }}>
+          <Link href={`/orgao/processos/${licitacaoId}?detalhes=1`} className={`${s.botao} ${s.secundario}`}>
+            Detalhes da licitação
+          </Link>
+          <span className={s.ou}>Itens, pesquisa de preços, PNCP e sessão ainda ficam lá.</span>
+        </div>
+      </div>
+    </details>
   )
 }
 
