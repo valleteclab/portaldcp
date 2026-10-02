@@ -65,10 +65,30 @@ export function rotaDoDfd(id: string, extra?: { acao?: AcaoNaTelaDoDfd; montado?
 }
 
 /** Tela do processo com o aviso "Processo nº X aberto" (lido por AvisoProcessoAberto). */
+import { API_URL, authFetch } from '@/lib/api'
+
 export function rotaDoProcessoAberto(licitacaoId: string, dfdRotulo?: string | null): string {
   const q = ['aberto=dfd']
   if (dfdRotulo) q.push(`dfd=${encodeURIComponent(dfdRotulo)}`)
   return `/orgao/processos/${licitacaoId}?${q.join('&')}`
+}
+
+/**
+ * Processo recém-aberto: vai DIRETO para a tela do processo eletrônico
+ * (sem passar pela tela antiga, que redirecionaria). Se o processo ainda não
+ * foi resolvido, cai na rota antiga, que redireciona sozinha.
+ */
+export async function rotaDaTelaDoProcesso(licitacaoId: string, dfdRotulo?: string | null): Promise<string> {
+  try {
+    const r = await authFetch(`${API_URL}/api/processos/referencia/LICITACAO/${licitacaoId}`)
+    if (r.ok) {
+      const p = (await r.json()) as { id?: string }
+      if (p?.id) return `/orgao/processo/${p.id}`
+    }
+  } catch {
+    /* sem conexão: rota antiga redireciona */
+  }
+  return rotaDoProcessoAberto(licitacaoId, dfdRotulo)
 }
 
 /** Acrescenta o aviso de abertura a um destino já pronto (ex.: `destino` do "feita fora"). */
