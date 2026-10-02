@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -34,6 +34,8 @@ export interface PosseResumida {
  */
 @Injectable()
 export class ProcessoConteudoService {
+  private readonly logger = new Logger(ProcessoConteudoService.name);
+
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     private readonly moduleRef: ModuleRef,
@@ -84,13 +86,78 @@ export class ProcessoConteudoService {
     if (!licId) return { ...this.indisponivel(p, 'Tramitação'), com_quem_esta: null, atual: null, movimentacoes: [], linha_do_tempo: [] };
     const tram = this.servico<any>('../fase-interna/tramitacao.service', 'TramitacaoService');
     if (!tram) return { ...this.indisponivel(p, 'Tramitação'), com_quem_esta: null, atual: null, movimentacoes: [], linha_do_tempo: [] };
-    const [com_quem_esta, atual, movimentacoes, linha_do_tempo] = await Promise.all([
+    const [com_quem_esta, atual, movimentacoes, linha_do_tempo, permissao] = await Promise.all([
       tram.comQuemEsta(licId),
       tram.tramitacaoAtual(licId),
       tram.listarPorProcesso(licId),
       tram.linhaDoTempo(licId),
+      ator ? tram.permissaoDeEnvio(licId, ator).catch(() => ({ pode: false, motivo: null })) : Promise.resolve({ pode: false, motivo: null }),
     ]);
-    return { processo_id: p.id, disponivel: true, licitacao_id: licId, com_quem_esta, atual, movimentacoes, linha_do_tempo };
+    // Mesma leitura da tela genérica: "pode agir" = quem está com o processo (ou admin); "pode receber" = envio pendente para ele
+    const pode_agir = !!permissao?.pode;
+    const pode_receber = pode_agir && com_quem_esta?.status === 'PENDENTE';
+    return { processo_id: p.id, disponivel: true, licitacao_id: licId, com_quem_esta, atual, movimentacoes, linha_do_tempo, pode_agir, pode_receber, motivo_sem_acao: permissao?.motivo ?? null };
+  }
+
+  // --------------------------------------------------------------------------
+  // CONTRATACAO: ações de tramitação pela rota do processo (motor da fase interna)
+  // --------------------------------------------------------------------------
+
+  private tramitacaoDaLicitacao(p: Processo): { licId: string; tram: any } {
+    const licId = this.licitacaoIdOuNull(p);
+    const tram = licId ? this.servico<any>('../fase-interna/tramitacao.service', 'TramitacaoService') : null;
+    if (!licId || !tram) throw new BadRequestException('Este processo não tramita pela licitação.');
+    return { licId, tram };
+  }
+
+  async enviarLicitacao(p: Processo, ator: Ator, body: any) {
+    const { licId, tram } = this.tramitacaoDaLicitacao(p);
+    return tram.tramitar(
+      licId,
+      { para_setor_id: body?.para_setor_id ?? null, para_usuario_id: body?.para_usuario_id ?? null, despacho: body?.despacho ?? null, prazo_dias_uteis: body?.prazo_dias_uteis ?? null },
+      ator,
+    );
+  }
+
+  async receberLicitacao(p: Processo, ator: Ator) {
+    const { licId, tram } = this.tramitacaoDaLicitacao(p);
+    const atual = await tram.tramitacaoAtual(licId);
+    if (!atual) throw new BadRequestException('Não há envio pendente para receber.');
+    return tram.receber(atual.id, ator, {});
+  }
+
+  async devolverLicitacao(p: Processo, ator: Ator, body: any) {
+    const { licId, tram } = this.tramitacaoDaLicitacao(p);
+    const atual = await tram.tramitacaoAtual(licId);
+    if (!atual) throw new BadRequestException('Não há tramitação para devolver.');
+    return tram.devolver(atual.id, String(body?.motivo ?? body?.despacho ?? '').trim(), ator, {});
+  }
+
+  /** Setores e pessoas do órgão + o destino sugerido pelo fluxo da fase interna (sugestão, nunca trava). */
+  async destinosLicitacao(p: Processo, ator: Ator) {
+    const { licId } = this.tramitacaoDaLicitacao(p);
+    const [setores, usuarios] = await Promise.all([
+      this.ds.query(`SELECT id::text AS id, nome, chefe_usuario_id::text AS chefe_usuario_id FROM setores WHERE orgao_id::text = $1 ORDER BY nome ASC`, [p.orgao_id]),
+      this.ds.query(`SELECT id::text AS id, nome, cargo, setor_id::text AS setor_id FROM usuarios WHERE orgao_id::text = $1 AND ativo = true ORDER BY nome ASC LIMIT 500`, [p.orgao_id]),
+    ]);
+    let sugerido: { setor_id: string | null; setor_nome: string | null; usuario_id: string | null; motivo: string } | null = null;
+    let despacho_sugerido: string | null = null;
+    const integracao = this.servico<any>('../fase-interna/fluxo/integracao-fluxo.service', 'IntegracaoFluxoService');
+    if (integracao) {
+      try {
+        const s = await integracao.sugestaoEnvio(licId, ator);
+        const d = (s?.destinos ?? []).find((x: any) => x.principal) ?? (s?.destinos ?? [])[0] ?? null;
+        if (d) {
+          const setor = d.setor_id ? setores.find((x: any) => x.id === String(d.setor_id)) : null;
+          const etapas = Array.isArray(d.etapas) && d.etapas.length ? ` Costuma fazer: ${d.etapas.join(', ')}.` : '';
+          sugerido = { setor_id: d.setor_id ? String(d.setor_id) : null, setor_nome: setor?.nome ?? d.rotulo ?? null, usuario_id: d.usuario_id ? String(d.usuario_id) : null, motivo: `Próximo passo do fluxo.${etapas}` };
+        }
+        despacho_sugerido = s?.despacho_sugerido ?? null;
+      } catch (e) {
+        this.logger.warn(`Sugestão de envio da licitação ${licId} indisponível: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    return { processo_id: p.id, setores, usuarios, sugerido, despacho_sugerido };
   }
 
   /** "Está com" de vários processos do mesmo órgão em duas consultas (lista), sem uma chamada por linha. */
@@ -134,8 +201,46 @@ export class ProcessoConteudoService {
       [licId],
     );
     const tarefas = this.servico<any>('../fase-interna/tarefas/tarefas.service', 'TarefasService');
-    const etapas = tarefas ? await tarefas.etapasDoProcesso(licId, ator) : null;
-    return { processo_id: p.id, disponivel: true, tem_fluxo: true, licitacao_id: licId, retrato: retrato ?? null, etapas };
+    const calculo = tarefas ? await tarefas.etapasDoProcesso(licId, ator) : null;
+    // Mesma forma da tela genérica (chave/rotulo/estado + peças da etapa); o cálculo completo vai em `fase_interna`
+    const lista: any[] = Array.isArray(calculo?.etapas) ? calculo.etapas : [];
+    const atualCodigo: string | null = calculo?.etapa_atual?.etapa ?? lista.find((e) => ['EM_ANDAMENTO', 'A_REVISAR', 'DISPONIVEL'].includes(e.situacao))?.etapa ?? null;
+    const etapas = lista.map((e, i) => ({
+      chave: String(e.etapa),
+      rotulo: String(e.titulo ?? e.etapa),
+      ordem: Number(e.numero ?? i + 1),
+      estado: ['CONCLUIDA', 'NAO_REALIZADA', 'CANCELADA'].includes(e.situacao) ? 'CONCLUIDA' : e.etapa === atualCodigo ? 'ATUAL' : 'FUTURA',
+      situacao_fase_interna: e.situacao,
+      tipo_peca: null,
+      titulo_peca: null,
+      setor_sugerido: null,
+      pecas: (e.passos ?? []).flatMap((passo: any) =>
+        (passo.pecas ?? []).map((pc: any) => ({
+          tipo: pc.tipo,
+          titulo: pc.titulo,
+          obrigatorio: !!pc.obrigatorio,
+          status: pc.status,
+          pronta: !!pc.pronta,
+          documento_id: pc.documento_id ?? null,
+          passo: passo.passo,
+          passo_titulo: passo.titulo,
+          situacao_passo: passo.situacao,
+          pode_iniciar: !!passo.pode_iniciar,
+          tela: passo.tela ?? null,
+        })),
+      ),
+    }));
+    return {
+      processo_id: p.id,
+      disponivel: true,
+      tem_fluxo: etapas.length > 0,
+      fluxo_padrao: false,
+      licitacao_id: licId,
+      retrato: retrato ?? null,
+      etapas,
+      etapa_atual: etapas.find((e) => e.estado === 'ATUAL') ?? null,
+      fase_interna: calculo,
+    };
   }
 
   async tarefas(p: Processo) {

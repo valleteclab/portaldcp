@@ -23,6 +23,7 @@ import {
   BlocoPecaAvulsa,
   BlocoResultado,
   BlocoSuaVez,
+  BlocoSuaVezLicitacao,
   SecaoDetalhes,
   SecaoLinhaDoTempo,
   TemaProcesso,
@@ -65,8 +66,17 @@ export default function TelaDoProcessoPage() {
           setPosse(t.com_quem_esta ? normalizarPosse(t.com_quem_esta) : null)
           setFluxo(f)
           setAutos(a)
+        } else if (p.tipo === "CONTRATACAO" && p.referencia_id) {
+          // Licitação: tramitação e etapas pelo motor da fase interna (adaptadores); os autos ficam na tela da licitação
+          const [t, f] = await Promise.all([
+            chamarProcessos<Tramitacao>(`/${id}/tramitacao`).catch(() => null),
+            chamarProcessos<Fluxo>(`/${id}/fluxo`).catch(() => null),
+          ])
+          setTram(t)
+          setPosse(normalizarPosse(t?.com_quem_esta))
+          setFluxo(f)
+          setAutos(null)
         } else {
-          // CONTRATACAO (e demais): rotas legadas, só leitura da posse
           const t = await chamarProcessos<{ com_quem_esta?: unknown }>(`/${id}/tramitacao`).catch(() => null)
           setTram(null)
           setPosse(normalizarPosse(t?.com_quem_esta))
@@ -137,6 +147,7 @@ export default function TelaDoProcessoPage() {
   const encerrado = processo.situacao === "ENCERRADO"
   const propria = temTramitacaoPropria(processo.tipo)
   const ehAvulso = processo.tipo === "AVULSO"
+  const ehLicitacao = processo.tipo === "CONTRATACAO" && !!processo.referencia_id
   const temFluxo = !!fluxo?.disponivel && !!fluxo.tem_fluxo && !!fluxo.etapas?.length
   const etapaAtual = temFluxo ? fluxo?.etapa_atual ?? null : null
   const podeAgir = !!tram?.pode_agir && !encerrado
@@ -176,18 +187,30 @@ export default function TelaDoProcessoPage() {
         erro={erroReceber}
       />
 
-      {!propria ? (
+      {ehLicitacao ? (
+        encerrado ? (
+          <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
+        ) : podeAgir ? (
+          <>
+            <BlocoSuaVezLicitacao licitacaoId={processo.referencia_id!} etapa={etapaAtual} />
+            <BlocoEnviar
+              processoId={processo.id}
+              etapaChave={etapaAtual?.chave ?? null}
+              posse={posse}
+              ehAvulso={false}
+              podeEncerrar={false}
+              onTramitou={() => carregar(true)}
+              onEncerrou={() => carregar(true)}
+            />
+          </>
+        ) : (
+          <BlocoAguardando posse={posse} encerrado={false} motivo={null} />
+        )
+      ) : !propria ? (
         <section className={`${s.bloco} ${s.neutro}`}>
-          <div className={s.eyebrow}>Licitação</div>
-          <h2>Este processo é acompanhado na licitação</h2>
-          <p>As etapas, as peças e a tramitação deste processo ficam na tela da licitação.</p>
-          <div className={s.acoes} style={{ marginTop: 12 }}>
-            {processo.referencia_id ? (
-              <Link href={`/orgao/processos/${processo.referencia_id}`} className={`${s.botao} ${s.primario}`}>
-                Abrir a licitação
-              </Link>
-            ) : null}
-          </div>
+          <div className={s.eyebrow}>Processo</div>
+          <h2>Este tipo de processo ainda não tramita por aqui</h2>
+          <p>A tramitação deste tipo entra numa próxima etapa do processo eletrônico.</p>
         </section>
       ) : encerrado ? (
         <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
@@ -211,7 +234,18 @@ export default function TelaDoProcessoPage() {
         <BlocoAguardando posse={posse} encerrado={false} motivo={null} />
       )}
 
-      {propria ? <BlocoEtapas fluxo={fluxo} /> : null}
+      {propria || ehLicitacao ? <BlocoEtapas fluxo={fluxo} /> : null}
+      {ehLicitacao ? (
+        <section className={`${s.bloco} ${s.neutro}`}>
+          <div className={s.eyebrow}>Licitação</div>
+          <p>Autos, pesquisa de preços, aprovações, assinaturas, PNCP e sessão continuam na tela da licitação.</p>
+          <div className={s.acoes} style={{ marginTop: 12 }}>
+            <Link href={`/orgao/processos/${processo.referencia_id}`} className={`${s.botao} ${s.secundario}`}>
+              Abrir a licitação
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       {resultadoDeTermo ? <BlocoResultado processo={processo} etapaAtual={etapaAtual} linkTermo={linkTermo} /> : null}
 

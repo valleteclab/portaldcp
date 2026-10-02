@@ -166,6 +166,22 @@ export interface Etapa {
   resultado?: boolean
   setor_palavras?: string[]
   setor_sugerido?: { id: string; nome: string } | null
+  /** CONTRATACAO: peças da etapa vindas do fluxo da fase interna. */
+  pecas?: PecaDaEtapaLicitacao[]
+}
+
+export interface PecaDaEtapaLicitacao {
+  tipo: string
+  titulo: string
+  obrigatorio: boolean
+  status: string
+  pronta: boolean
+  documento_id: string | null
+  passo: string
+  passo_titulo: string
+  situacao_passo: string
+  pode_iniciar: boolean
+  tela: string | null
 }
 
 export interface Fluxo {
@@ -174,6 +190,7 @@ export interface Fluxo {
   tem_fluxo: boolean
   etapas: Etapa[] | null
   etapa_atual: Etapa | null
+  licitacao_id?: string | null
 }
 
 export interface SetorDestino {

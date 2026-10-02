@@ -6,6 +6,7 @@ import { ProcessoTiposService } from './processo-tipos.service';
 import { ProcessoService } from './processo.service';
 import { ProcessoTramitacaoService } from './processo-tramitacao.service';
 import { validarAberturaDireta } from './processo-regras';
+import { temTramitacaoPropria } from './processo-tramitacao-regras';
 
 /**
  * PROCESSO ELETRÔNICO — API genérica (`/api/processos`).
@@ -118,27 +119,37 @@ export class ProcessosController {
   }
 
   /** Setores e pessoas do órgão para escolher o destino + sugestão para a etapa atual (ADITIVO, RENOVACAO, AVULSO). */
+  /** Processo de CONTRATACAO: as ações de tramitação vão pelo motor da fase interna (adaptador); os demais, pela tramitação própria. */
+  private async pelaLicitacao(ator: Ator, id: string) {
+    const p = await this.processos.obter(ator, id);
+    return temTramitacaoPropria(p.tipo) ? null : p;
+  }
+
   @Get(':id/destinos')
-  destinos(@AtorAtual() ator: Ator, @Param('id') id: string) {
-    return this.tramite.destinos(ator, id);
+  async destinos(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    const lic = await this.pelaLicitacao(ator, id);
+    return lic ? this.conteudo.destinosLicitacao(lic, ator) : this.tramite.destinos(ator, id);
   }
 
   /** Envia o processo adiante. Corpo: { para_setor_id?, para_usuario_id?, despacho }. Só quem está com ele. */
   @Post(':id/enviar')
-  enviar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
-    return this.tramite.enviar(ator, id, body);
+  async enviar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    const lic = await this.pelaLicitacao(ator, id);
+    return lic ? this.conteudo.enviarLicitacao(lic, ator, body) : this.tramite.enviar(ator, id, body);
   }
 
   /** Recebe o processo que chegou para o setor/pessoa. */
   @Post(':id/receber')
-  receber(@AtorAtual() ator: Ator, @Param('id') id: string) {
-    return this.tramite.receber(ator, id);
+  async receber(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    const lic = await this.pelaLicitacao(ator, id);
+    return lic ? this.conteudo.receberLicitacao(lic, ator) : this.tramite.receber(ator, id);
   }
 
   /** Devolve a quem enviou. Corpo: { despacho }. */
   @Post(':id/devolver')
-  devolver(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
-    return this.tramite.devolver(ator, id, body);
+  async devolver(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    const lic = await this.pelaLicitacao(ator, id);
+    return lic ? this.conteudo.devolverLicitacao(lic, ator, body) : this.tramite.devolver(ator, id, body);
   }
 
   /**

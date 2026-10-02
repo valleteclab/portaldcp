@@ -25,6 +25,7 @@ import {
   type RascunhoDaPeca,
 } from "@/lib/processo/processo"
 import { EditorPeca } from "./EditorPeca"
+import { rotaFazerAqui } from "@/lib/fase-interna/telas"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 import s from "./processo.module.css"
 
@@ -390,6 +391,62 @@ export function FormularioPeca({
   )
 }
 
+/* ------------------------------------------------- Sua vez (licitação) */
+
+/**
+ * Licitação na tela do processo: as peças da etapa atual vêm do fluxo da fase
+ * interna e cada uma abre onde já é feita hoje ("Fazer aqui"). Sem trava: o
+ * fluxo sugere; o envio é livre.
+ */
+export function BlocoSuaVezLicitacao({ licitacaoId, etapa }: { licitacaoId: string; etapa: Etapa | null }) {
+  const pecas = etapa?.pecas ?? []
+  return (
+    <section className={`${s.bloco} ${s.vez}`} aria-labelledby="bloco-sua-vez">
+      <div className={s.eyebrow} id="bloco-sua-vez">
+        Sua vez
+      </div>
+      <h2>{etapa ? `Falta fazer: ${etapa.rotulo}` : "O processo está com você"}</h2>
+      {pecas.length ? (
+        <div className={s.tarefas}>
+          {pecas.map((pc) => (
+            <div key={`${pc.passo}-${pc.tipo}`} className={`${s.tarefa} ${pc.pronta ? s.feita : ""}`}>
+              <span className={s.marca} aria-hidden="true" />
+              <div className={s.tarefaTexto}>
+                <span className={s.tarefaNome}>{pc.titulo}</span>
+                <span className={s.tarefaEstado}>
+                  {pc.pronta ? "Pronta" : rotuloStatusPeca(pc.status)}
+                  {pc.obrigatorio ? "" : " · opcional"}
+                  {!pc.pronta && !pc.pode_iniciar ? " · aguarda etapa anterior" : ""}
+                </span>
+              </div>
+              <Link href={rotaFazerAqui(licitacaoId, pc.tipo)} className={`${s.botao} ${pc.pronta ? s.secundario : s.primario}`}>
+                {pc.pronta ? "Ver" : pc.status === "EM_ELABORACAO" ? "Continuar" : "Fazer aqui"}
+              </Link>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className={s.texto}>Nenhuma peça pendente nesta etapa. Envie o processo para o próximo setor ou abra a licitação para ver tudo.</p>
+      )}
+    </section>
+  )
+}
+
+function rotuloStatusPeca(status: string): string {
+  switch (status) {
+    case "EM_ELABORACAO":
+      return "Em elaboração"
+    case "EM_APROVACAO":
+      return "Em aprovação"
+    case "EM_ASSINATURA":
+      return "Em assinatura"
+    case "PENDENTE":
+      return "A fazer"
+    default:
+      return status ? status.toLowerCase().replace(/_/g, " ") : "A fazer"
+  }
+}
+
 /* ---------------------------------------------------------------- Sua vez */
 
 export function BlocoSuaVez({
@@ -530,6 +587,7 @@ export function BlocoEnviar({
   etapaChave,
   posse,
   ehAvulso,
+  podeEncerrar = true,
   onTramitou,
   onEncerrou,
 }: {
@@ -537,6 +595,8 @@ export function BlocoEnviar({
   etapaChave: string | null
   posse: ComQuemEsta | null
   ehAvulso: boolean
+  /** Licitação não encerra por aqui (tem revogação/anulação próprias). */
+  podeEncerrar?: boolean
   onTramitou: () => void
   onEncerrou: () => void
 }) {
@@ -689,7 +749,7 @@ export function BlocoEnviar({
                 Devolver
               </button>
             ) : null}
-            {ehAvulso ? (
+            {ehAvulso && podeEncerrar ? (
               <button type="button" className={`${s.botao} ${s.perigo}`} onClick={() => { setErro(null); setModo("encerrar") }}>
                 Encerrar o processo
               </button>
