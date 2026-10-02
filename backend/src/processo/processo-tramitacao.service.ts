@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { ModeloDocumento } from '../fase-interna/entities/modelo-documento.entity';
+import { TipoDocumentoFaseInterna } from '../fase-interna/entities/documento-fase-interna.entity';
 import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { escolherDestinatarios, PerfilTramitacao } from '../fase-interna/tramitacao-regras';
@@ -25,7 +27,18 @@ import { textoDeAutuacao } from './processo-regras';
 import { IaService } from '../ia/ia.service';
 import { diretorioDeGravacao } from '../common/arquivos/arquivos';
 import { contarPaginasPdf } from '../fase-interna/folhas-autos';
-import { blocosDaPeca, ContextoDaPeca, extrairJsonDaResposta, htmlDaPecaSeguro, modeloDaPeca, montarPromptDaPeca, temLacuna, textoDaPeca } from './peca-documento';
+import {
+  aplicarVariaveisDaPeca,
+  blocosDaPeca,
+  ContextoDaPeca,
+  extrairJsonDaResposta,
+  htmlDaPecaSeguro,
+  htmlDoModelo,
+  modeloDaPeca,
+  montarPromptDaPeca,
+  temLacuna,
+  textoDaPeca,
+} from './peca-documento';
 import { gerarPdfPeca } from './peca-pdf';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
@@ -60,6 +73,7 @@ export class ProcessoTramitacaoService {
     private readonly processos: ProcessoService,
     private readonly notificacoes: NotificacoesService,
     private readonly ia: IaService,
+    @InjectRepository(ModeloDocumento) private readonly modelosRepo: Repository<ModeloDocumento>,
   ) {}
 
   // ==========================================================================
@@ -407,11 +421,57 @@ export class ProcessoTramitacaoService {
     };
   }
 
-  /** Modelo da peça da etapa com o contexto aplicado (ponto de partida no editor). */
+  /**
+   * Modelos da peça da etapa (os do órgão primeiro, depois os do sistema — tela
+   * "Modelos de documento"), já com as variáveis do processo aplicadas; `html`
+   * é o preferido. Sem modelo cadastrado, o texto padrão em código.
+   */
   async modelo(ator: Ator, id: string, chaveEtapa: string | null) {
     const p = await this.carregar(ator, id);
     const c = await this.contextoDaPeca(ator, p, chaveEtapa);
-    return { processo_id: p.id, etapa: chaveEtapa, titulo: c.titulo_peca, html: modeloDaPeca(c), ia_disponivel: await this.ia.configurada() };
+    const cadastrados = c.tipo_peca
+      ? await this.modelosRepo
+          .createQueryBuilder('m')
+          .where('m.tipo = :tipo AND m.ativo = true AND (m.orgao_id IS NULL OR m.orgao_id = :orgaoId)', { tipo: c.tipo_peca, orgaoId: p.orgao_id })
+          .orderBy('m.orgao_id', 'DESC', 'NULLS LAST')
+          .addOrderBy('m.updated_at', 'DESC')
+          .getMany()
+      : [];
+    const modelos = cadastrados
+      .map((m) => ({ id: m.id, nome: m.nome, padrao_sistema: m.padrao_sistema, do_orgao: !!m.orgao_id, html: aplicarVariaveisDaPeca(htmlDoModelo(m.secoes || []), c) }))
+      .filter((m) => m.html.trim());
+    const html = modelos[0]?.html ?? modeloDaPeca(c);
+    return { processo_id: p.id, etapa: chaveEtapa, titulo: c.titulo_peca, html, modelo_id: modelos[0]?.id ?? null, modelos, ia_disponivel: await this.ia.configurada() };
+  }
+
+  /** Salva o texto do editor como modelo do órgão para o tipo de peça da etapa (aparece na tela "Modelos de documento"). */
+  async salvarModelo(ator: Ator, id: string, body: any) {
+    const p = await this.carregar(ator, id);
+    const c = await this.contextoDaPeca(ator, p, String(body?.etapa ?? '').trim() || null);
+    if (!c.tipo_peca || !(Object.values(TipoDocumentoFaseInterna) as string[]).includes(c.tipo_peca)) {
+      throw new BadRequestException('Esta etapa não tem tipo de peça com modelo.');
+    }
+    const nome = String(body?.nome ?? '').trim().slice(0, 200);
+    if (nome.length < 3) throw new BadRequestException('Dê um nome ao modelo.');
+    const html = htmlDaPecaSeguro(body?.html);
+    if (!html) throw new BadRequestException('O modelo precisa de texto.');
+    const perfil = await this.perfil(ator, p.orgao_id);
+    const salvo = await this.modelosRepo.save(
+      this.modelosRepo.create({
+        orgao_id: p.orgao_id,
+        tipo: c.tipo_peca as TipoDocumentoFaseInterna,
+        nome,
+        descricao: `Salvo do editor da peça no processo ${p.numero}.`,
+        intro: null as any,
+        secoes: [{ id: 'texto', titulo: c.titulo_peca, texto_padrao: html, obrigatorio: true }],
+        padrao_sistema: false,
+        ativo: true,
+        versao: 1,
+        criado_por_id: perfil.usuario_id ?? undefined,
+        criado_por_nome: perfil.nome,
+      }),
+    );
+    return { id: salvo.id, nome: salvo.nome, tipo: salvo.tipo };
   }
 
   /** Rascunho da peça pela IA: lê o processo, escreve e marca lacunas; nada é juntado sem revisão. */

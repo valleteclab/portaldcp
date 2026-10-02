@@ -31,8 +31,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { API_URL, authFetch } from "@/lib/api";
-import { TITULOS_TIPO } from "@/lib/fase-interna/secoes-template";
+import { TITULOS_TIPO, TIPOS_PECA_PROCESSO, VARIAVEIS_PECA_PROCESSO } from "@/lib/fase-interna/secoes-template";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+/** Tipos que o órgão pode criar do zero (os da fase interna vêm do sistema e são duplicados). */
+const TIPOS_NOVO_MODELO = TIPOS_PECA_PROCESSO;
 import { confirmarAcao } from "@/components/DialogoGlobal"
+import { EditorPeca } from "@/components/processo/EditorPeca";
+import { TemaProcesso } from "@/components/processo/BlocosProcesso";
 
 interface SecaoModelo {
   id: string;
@@ -85,6 +97,41 @@ export default function ModelosDocumentoPage() {
   const [loading, setLoading] = useState(true);
   const [editando, setEditando] = useState<ModeloDocumento | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [novo, setNovo] = useState<{ tipo: string; nome: string } | null>(null);
+
+  const criar = async () => {
+    const orgaoId = getOrgaoId();
+    if (!novo || !orgaoId) return;
+    if (novo.nome.trim().length < 3) {
+      toast.error("Dê um nome ao modelo");
+      return;
+    }
+    setSalvando(true);
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/modelos`, {
+        method: "POST",
+        body: JSON.stringify({
+          orgao_id: orgaoId,
+          tipo: novo.tipo,
+          nome: novo.nome.trim(),
+          secoes: [{ id: "texto", titulo: TITULOS_TIPO[novo.tipo] || novo.tipo, texto_padrao: "", obrigatorio: true }],
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.message || "Erro ao criar modelo");
+      }
+      const criado = await res.json();
+      toast.success("Modelo criado — escreva o texto");
+      setNovo(null);
+      await carregar();
+      setEditando(criado);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao criar modelo");
+    } finally {
+      setSalvando(false);
+    }
+  };
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -223,6 +270,13 @@ export default function ModelosDocumentoPage() {
             são preenchidas automaticamente ao criar o documento.
           </p>
         </div>
+        <Button
+          className="ml-auto bg-[#1351b4] hover:bg-[#0c326f] text-white gap-1.5 shrink-0"
+          onClick={() => setNovo({ tipo: TIPOS_NOVO_MODELO[0], nome: "" })}
+        >
+          <Plus className="w-4 h-4" />
+          Novo modelo
+        </Button>
       </div>
 
       {loading ? (
@@ -315,6 +369,44 @@ export default function ModelosDocumentoPage() {
         </div>
       )}
 
+      {/* Dialog de criação (peças do processo eletrônico) */}
+      <Dialog open={!!novo} onOpenChange={(v) => !v && setNovo(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Novo modelo</DialogTitle>
+            <DialogDescription>
+              Modelos das peças do processo eletrônico (aditivo e renovação). Os da fase interna (DFD, ETP, TR…) são criados duplicando o padrão do sistema.
+              Dica: no editor da peça, o botão “Salvar como modelo” guarda o texto pronto aqui.
+            </DialogDescription>
+          </DialogHeader>
+          {novo && (
+            <div className="space-y-3">
+              <div>
+                <Label>Tipo de peça</Label>
+                <Select value={novo.tipo} onValueChange={(v) => setNovo({ ...novo, tipo: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TIPOS_NOVO_MODELO.map((t) => (
+                      <SelectItem key={t} value={t}>{TITULOS_TIPO[t] || t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Nome do modelo</Label>
+                <Input className="mt-1" value={novo.nome} placeholder="Ex.: Reserva de dotação — serviços continuados" onChange={(e) => setNovo({ ...novo, nome: e.target.value })} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNovo(null)}>Cancelar</Button>
+            <Button className="bg-[#1351b4] hover:bg-[#0c326f] text-white" disabled={salvando} onClick={criar}>
+              {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : "Criar e escrever"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog de edição */}
       <Dialog open={!!editando} onOpenChange={(v) => !v && setEditando(null)}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
@@ -322,7 +414,7 @@ export default function ModelosDocumentoPage() {
             <DialogTitle>Editar modelo</DialogTitle>
             <DialogDescription>
               Variáveis disponíveis:{" "}
-              {VARIAVEIS_DISPONIVEIS.map((v) => (
+              {(editando && TIPOS_PECA_PROCESSO.includes(editando.tipo) ? VARIAVEIS_PECA_PROCESSO : VARIAVEIS_DISPONIVEIS).map((v) => (
                 <code
                   key={v}
                   className="text-[10px] bg-gray-100 px-1 rounded mr-1 cursor-pointer"
@@ -424,15 +516,27 @@ export default function ModelosDocumentoPage() {
                           Obrigatória
                         </label>
                       </div>
-                      <Textarea
-                        className="text-xs"
-                        rows={3}
-                        placeholder="Texto padrão desta seção (pré-preenchido ao criar o documento; aceita variáveis {{...}})"
-                        value={s.texto_padrao || ""}
-                        onChange={(e) =>
-                          atualizarSecao(idx, { texto_padrao: e.target.value })
-                        }
-                      />
+                      {TIPOS_PECA_PROCESSO.includes(editando.tipo) ? (
+                        <TemaProcesso>
+                          <EditorPeca
+                            id={`modelo-secao-${s.id}`}
+                            html={s.texto_padrao || ""}
+                            onChange={(h) => atualizarSecao(idx, { texto_padrao: h })}
+                            cabecalho="Texto do modelo · use as variáveis acima e deixe lacunas no que o servidor decide na hora"
+                            rodape="Cabeçalho do órgão, local, data e assinatura entram no PDF da peça."
+                          />
+                        </TemaProcesso>
+                      ) : (
+                        <Textarea
+                          className="text-xs"
+                          rows={3}
+                          placeholder="Texto padrão desta seção (pré-preenchido ao criar o documento; aceita variáveis {{...}})"
+                          value={s.texto_padrao || ""}
+                          onChange={(e) =>
+                            atualizarSecao(idx, { texto_padrao: e.target.value })
+                          }
+                        />
+                      )}
                       <div className="flex gap-2">
                         <Input
                           className="h-7 text-xs"

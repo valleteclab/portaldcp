@@ -613,7 +613,31 @@ export const TITULOS_TIPO: Record<string, string> = {
   AUTORIZACAO_ABERTURA: 'Autorização para Abertura',
   EDITAL: 'Minuta do Edital',
   DOTACAO_ORCAMENTARIA: 'Dotação Orçamentária',
+  // Peças do processo eletrônico (aditivo/renovação)
+  PEDIDO_ADITIVO: 'Pedido de termo aditivo',
+  VANTAJOSIDADE: 'Vantajosidade da renovação',
+  RESERVA_DOTACAO: 'Reserva de dotação (aditivo/renovação)',
+  PARECER_PROCESSO: 'Parecer jurídico (aditivo/renovação)',
+  AUTORIZACAO_PROCESSO: 'Autorização (aditivo/renovação)',
 }
+
+/** Tipos cujo modelo é uma peça do processo eletrônico: uma seção de texto, variáveis do processo/contrato. */
+export const TIPOS_PECA_PROCESSO = ['PEDIDO_ADITIVO', 'VANTAJOSIDADE', 'RESERVA_DOTACAO', 'PARECER_PROCESSO', 'AUTORIZACAO_PROCESSO']
+
+export const VARIAVEIS_PECA_PROCESSO = [
+  '{{orgao.nome}}',
+  '{{setor.nome}}',
+  '{{processo.numero}}',
+  '{{processo.objeto}}',
+  '{{processo.tipo}}',
+  '{{contrato.numero}}',
+  '{{contrato.objeto}}',
+  '{{contrato.fornecedor}}',
+  '{{contrato.valor_global}}',
+  '{{autor.nome}}',
+  '{{autor.cargo}}',
+  '{{data_atual}}',
+]
 
 /**
  * Retorna o template de um documento pelo tipo (enum value ou nome longo).

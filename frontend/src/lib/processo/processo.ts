@@ -239,11 +239,21 @@ export async function chamarProcessos<T>(caminho: string, opcoes?: { metodo?: st
 
 export const textoDoErro = (e: unknown, padrao = "Não foi possível concluir a operação.") => (e instanceof Error && e.message ? e.message : padrao)
 
+export interface OpcaoDeModelo {
+  id: string
+  nome: string
+  padrao_sistema: boolean
+  do_orgao: boolean
+  html: string
+}
+
 export interface ModeloDaPeca {
   processo_id: string
   etapa: string | null
   titulo: string
   html: string
+  modelo_id: string | null
+  modelos: OpcaoDeModelo[]
   ia_disponivel: boolean
 }
 

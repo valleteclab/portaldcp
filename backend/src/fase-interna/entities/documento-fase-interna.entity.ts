@@ -52,7 +52,24 @@ export enum TipoDocumentoFaseInterna {
   // Entrega 5 — peça da PUBLICAÇÃO (etapa 8): registro da publicação no
   // Diário Oficial do órgão (número/edição, data e página, ou a página anexada).
   PUBLICACAO_DIARIO_OFICIAL = 'PDO',
+
+  // Peças do PROCESSO ELETRÔNICO sem licitação (aditivo/renovação) — modelos
+  // na mesma tela "Modelos de documento"; o editor da peça lê daqui.
+  PEDIDO_ADITIVO = 'PEDIDO_ADITIVO',
+  VANTAJOSIDADE_RENOVACAO = 'VANTAJOSIDADE',
+  RESERVA_DOTACAO_PROCESSO = 'RESERVA_DOTACAO',
+  PARECER_PROCESSO = 'PARECER_PROCESSO',
+  AUTORIZACAO_PROCESSO = 'AUTORIZACAO_PROCESSO',
 }
+
+/** Tipos cujo modelo é uma peça do processo eletrônico (uma seção de texto, variáveis do processo/contrato). */
+export const TIPOS_PECA_PROCESSO: readonly TipoDocumentoFaseInterna[] = [
+  TipoDocumentoFaseInterna.PEDIDO_ADITIVO,
+  TipoDocumentoFaseInterna.VANTAJOSIDADE_RENOVACAO,
+  TipoDocumentoFaseInterna.RESERVA_DOTACAO_PROCESSO,
+  TipoDocumentoFaseInterna.PARECER_PROCESSO,
+  TipoDocumentoFaseInterna.AUTORIZACAO_PROCESSO,
+];
 
 export enum StatusDocumento {
   PENDENTE = 'PENDENTE',

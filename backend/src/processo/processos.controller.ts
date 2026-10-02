@@ -150,6 +150,12 @@ export class ProcessosController {
     return this.tramite.modelo(ator, id, String(etapa ?? '').trim() || null);
   }
 
+  /** Salva o texto do editor como modelo do órgão. Corpo: { etapa?, nome, html }. */
+  @Post(':id/pecas/modelos')
+  salvarModeloDaPeca(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.tramite.salvarModelo(ator, id, body);
+  }
+
   /** Rascunho da peça pela IA. Corpo: { etapa?, orientacao? }. Devolve html com <mark> nas lacunas; não junta nada. */
   @Post(':id/pecas/rascunho')
   rascunhoDaPeca(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {

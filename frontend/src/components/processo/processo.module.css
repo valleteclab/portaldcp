@@ -466,6 +466,23 @@ select.campo {
   background: var(--linha);
   margin: 4px;
 }
+.seletorModelo {
+  margin-left: auto;
+  min-height: 34px;
+  max-width: 100%;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tinta2);
+  background: var(--papel);
+  border: 1px solid var(--linha);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+.seletorModelo:focus-visible {
+  outline: 3px solid var(--azul);
+  outline-offset: 1px;
+}
 .folhaCabecalho,
 .folhaRodape {
   border: 1px solid var(--linha);

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import type { OpcaoDeModelo } from "@/lib/processo/processo"
 import s from "./processo.module.css"
 
 /**
@@ -13,12 +14,21 @@ export function EditorPeca({
   cabecalho,
   rodape,
   id,
+  modelos = [],
+  modeloId = null,
+  onEscolherModelo,
+  onSalvarModelo,
 }: {
   html: string
   onChange: (html: string) => void
   cabecalho: string
   rodape: string
   id: string
+  /** Modelos prontos do tipo de peça (tela "Modelos de documento"). */
+  modelos?: OpcaoDeModelo[]
+  modeloId?: string | null
+  onEscolherModelo?: (id: string) => void
+  onSalvarModelo?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -76,6 +86,23 @@ export function EditorPeca({
         <button type="button" className={s.ferramenta} onMouseDown={(e) => e.preventDefault()} onClick={preencherLacuna} title="Confirma o texto da lacuna onde está o cursor">
           Lacuna preenchida
         </button>
+        {onEscolherModelo ? (
+          <select className={s.seletorModelo} aria-label="Modelo da peça" value={modeloId ?? ""} onChange={(e) => onEscolherModelo(e.target.value)}>
+            {modelos.length ? null : <option value="">Modelo padrão</option>}
+            {modelos.map((m) => (
+              <option key={m.id} value={m.id}>
+                Modelo: {m.nome}
+                {m.do_orgao ? "" : " (sistema)"}
+              </option>
+            ))}
+            <option value="__vazio">Sem modelo (em branco)</option>
+          </select>
+        ) : null}
+        {onSalvarModelo ? (
+          <button type="button" className={s.ferramenta} onMouseDown={(e) => e.preventDefault()} onClick={onSalvarModelo} title="Guarda este texto como modelo do órgão para esta peça">
+            Salvar como modelo
+          </button>
+        ) : null}
       </div>
       <div className={s.folhaCabecalho} aria-hidden="true">
         {cabecalho}

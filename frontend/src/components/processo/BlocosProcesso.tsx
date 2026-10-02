@@ -25,6 +25,7 @@ import {
   type RascunhoDaPeca,
 } from "@/lib/processo/processo"
 import { EditorPeca } from "./EditorPeca"
+import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 import s from "./processo.module.css"
 
 /** Wrapper com os tokens de cor da tela (claro/escuro). */
@@ -117,6 +118,7 @@ export function FormularioPeca({
   const [titulo, setTitulo] = useState(tituloInicial)
   const [html, setHtml] = useState("")
   const [modelo, setModelo] = useState<ModeloDaPeca | null>(null)
+  const [modeloId, setModeloId] = useState<string | null>(null)
   const [iaModelo, setIaModelo] = useState<string | null>(null)
   const [orientacao, setOrientacao] = useState("")
   const [gerando, setGerando] = useState(false)
@@ -133,10 +135,11 @@ export function FormularioPeca({
       .then((m) => {
         if (!vivo) return
         setModelo(m)
+        setModeloId(m.modelo_id)
         setHtml((atual) => atual || m.html)
-        setAviso("Modelo do órgão. As lacunas em destaque precisam ser preenchidas.")
+        setAviso(m.modelos.length ? `Modelo "${m.modelos[0].nome}". As lacunas em destaque precisam ser preenchidas.` : "Texto padrão. As lacunas em destaque precisam ser preenchidas.")
       })
-      .catch(() => vivo && setModelo({ processo_id: processoId, etapa: etapa?.chave ?? null, titulo: tituloInicial, html: "", ia_disponivel: false }))
+      .catch(() => vivo && setModelo({ processo_id: processoId, etapa: etapa?.chave ?? null, titulo: tituloInicial, html: "", modelo_id: null, modelos: [], ia_disponivel: false }))
     return () => {
       vivo = false
     }
@@ -166,6 +169,36 @@ export function FormularioPeca({
   function aoEditar(novo: string) {
     setHtml(novo)
     if (erro) setErro(null)
+  }
+
+  async function escolherModelo(id: string) {
+    const escolhido = id === "__vazio" ? null : modelo?.modelos.find((m) => m.id === id) ?? null
+    const htmlNovo = escolhido?.html ?? ""
+    const textoAtual = html.replace(/<[^>]+>|&nbsp;/g, "").trim()
+    const textoDoModeloAtual = (modelo?.modelos.find((m) => m.id === modeloId)?.html ?? modelo?.html ?? "").replace(/<[^>]+>|&nbsp;/g, "").trim()
+    if (textoAtual && textoAtual !== textoDoModeloAtual) {
+      const ok = await confirmarAcao({ titulo: "Trocar o modelo?", mensagem: "O texto que você escreveu será substituído pelo modelo escolhido.", confirmarRotulo: "Trocar", destrutivo: true })
+      if (!ok) return
+    }
+    setModeloId(id === "__vazio" ? "__vazio" : id)
+    setHtml(htmlNovo)
+    setIaModelo(null)
+    setAviso(escolhido ? `Modelo "${escolhido.nome}". As lacunas em destaque precisam ser preenchidas.` : "Em branco: escreva a peça.")
+  }
+
+  async function salvarComoModelo() {
+    const texto = html.replace(/<[^>]+>|&nbsp;/g, "").trim()
+    if (!texto) return setErro("Escreva o texto antes de salvar como modelo.")
+    const nome = await pedirTextoAcao({ titulo: "Salvar como modelo do órgão", mensagem: "Este texto ficará disponível para as próximas peças desta etapa, em Configurações › Modelos de documento.", rotulo: "Nome do modelo", obrigatorio: true, minimo: 3, linhaUnica: true, valorInicial: titulo })
+    if (!nome) return
+    try {
+      const r = await chamarProcessos<{ id: string; nome: string }>(`/${processoId}/pecas/modelos`, { metodo: "POST", padrao: "Não foi possível salvar o modelo.", corpo: { etapa: etapa?.chave, nome, html } })
+      setModelo((m) => (m ? { ...m, modelos: [{ id: r.id, nome: r.nome, padrao_sistema: false, do_orgao: true, html }, ...m.modelos] } : m))
+      setModeloId(r.id)
+      setAviso(`Modelo "${r.nome}" salvo para o órgão.`)
+    } catch (e) {
+      setErro(textoDoErro(e, "Não foi possível salvar o modelo."))
+    }
   }
 
   async function juntar() {
@@ -326,6 +359,10 @@ export function FormularioPeca({
               onChange={aoEditar}
               cabecalho={`${etapa?.rotulo ?? "Peça avulsa"} · cabeçalho do órgão e nº do processo entram no PDF`}
               rodape="Local, data e assinatura eletrônica entram no PDF ao juntar."
+              modelos={modelo?.modelos ?? []}
+              modeloId={modeloId}
+              onEscolherModelo={etapa?.tipo_peca ? escolherModelo : undefined}
+              onSalvarModelo={etapa?.tipo_peca ? salvarComoModelo : undefined}
             />
             <div className={s.acoes}>
               {aviso ? <span className={s.ou}>{aviso}</span> : null}

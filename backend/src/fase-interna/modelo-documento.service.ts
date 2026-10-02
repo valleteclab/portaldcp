@@ -27,6 +27,7 @@ import {
   MINUTA_AVISO_PREAMBULO_ANTIGO,
   TEXTOS_SUBSTITUIDOS_HOMOLOGACAO,
 } from './modelos-padrao';
+import { MODELOS_PADRAO_PROCESSO } from '../processo/modelos-peca-padrao';
 import {
   dataPorExtensoBrasilia,
   localDoOrgao,
@@ -84,7 +85,7 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
   /** Cria os modelos padrão do sistema que ainda não existem (idempotente). */
   async seedModelosPadrao(): Promise<{ criados: number }> {
     let criados = 0;
-    for (const def of MODELOS_PADRAO) {
+    for (const def of [...MODELOS_PADRAO, ...MODELOS_PADRAO_PROCESSO]) {
       const existente = await this.modeloRepo.findOne({
         where: { orgao_id: IsNull(), tipo: def.tipo, padrao_sistema: true },
       });

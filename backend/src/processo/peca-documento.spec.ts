@@ -1,4 +1,6 @@
 import {
+  aplicarVariaveisDaPeca,
+  htmlDoModelo,
   blocosDaPeca,
   ContextoDaPeca,
   contarLacunas,
@@ -63,6 +65,13 @@ describe('peça feita no sistema — regras puras', () => {
     expect(h).toContain('contrato nº 012/2026, firmado com Agência &lt;X&gt; Ltda');
     expect(temLacuna(h)).toBe(true);
     expect(modeloDaPeca(contexto({ tipo_peca: null, titulo_peca: 'Ofício' }))).toContain('OFÍCIO');
+  });
+
+  it('variáveis do modelo: aplica o contexto e transforma a que falta em lacuna', () => {
+    const h = aplicarVariaveisDaPeca('<p>Processo {{processo.numero}} — {{ contrato.fornecedor }} — {{contrato.vigencia}} — {{setor.nome}}</p>', contexto({ setor_nome: null }));
+    expect(h).toBe('<p>Processo 2026/00031 — Agência &lt;X&gt; Ltda — <mark>contrato vigencia</mark> — <mark>setor nome</mark></p>');
+    expect(htmlDoModelo([{ titulo: 'A', texto_padrao: '<p>x</p>' }])).toBe('<p>x</p>');
+    expect(htmlDoModelo([{ titulo: 'A', texto_padrao: '<p>x</p>' }, { titulo: 'B', texto_padrao: '<p>y</p>' }, { titulo: 'C', texto_padrao: '' }])).toBe('<h3>A</h3><p>x</p><h3>B</h3><p>y</p>');
   });
 
   it('prompt da IA: traz contrato, peças e a orientação; pede JSON com html e <mark>', () => {
