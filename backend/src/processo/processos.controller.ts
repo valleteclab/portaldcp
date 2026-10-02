@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Ip, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { PecasLicitacaoService } from './pecas-licitacao.service';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ProcessoConteudoService } from './processo-conteudo.service';
@@ -26,6 +27,7 @@ export class ProcessosController {
     private readonly conteudo: ProcessoConteudoService,
     private readonly tipos: ProcessoTiposService,
     private readonly tramite: ProcessoTramitacaoService,
+    private readonly pecasLicitacao: PecasLicitacaoService,
   ) {}
 
   /** Tipos de processo (registro em dados + catálogo de documentos e campos de condição de cada um). */
@@ -159,6 +161,31 @@ export class ProcessosController {
   @Post(':id/pecas')
   juntar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
     return this.tramite.juntar(ator, id, body);
+  }
+
+  // --- Licitação: AA/PJ/MCI escritas no editor novo, gravadas pela fase interna ---
+
+  @Get(':id/pecas-licitacao/:tipo')
+  async pecaLicitacao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('tipo') tipo: string) {
+    return this.pecasLicitacao.obter(await this.processos.obter(ator, id), ator, tipo);
+  }
+
+  @Post(':id/pecas-licitacao/:tipo/rascunho')
+  async rascunhoPecaLicitacao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('tipo') tipo: string) {
+    return this.pecasLicitacao.rascunho(await this.processos.obter(ator, id), ator, tipo);
+  }
+
+  /** Corpo: { texto_html, conclusao?, ressalvas?, apontamentos? }. */
+  @Post(':id/pecas-licitacao/:tipo')
+  async emitirPecaLicitacao(
+    @AtorAtual() ator: Ator,
+    @Param('id') id: string,
+    @Param('tipo') tipo: string,
+    @Body() body: any,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+  ) {
+    return this.pecasLicitacao.emitir(await this.processos.obter(ator, id), ator, tipo, body ?? {}, { ip, userAgent });
   }
 
   /** Modelo da peça da etapa (`?etapa=`), com o contexto do processo aplicado, para começar no editor. */

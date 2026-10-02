@@ -196,7 +196,7 @@ export default function TelaDoProcessoPage() {
           <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
         ) : podeAgir ? (
           <>
-            <BlocoSuaVezLicitacao licitacaoId={processo.referencia_id!} etapa={etapaAtual} />
+            <BlocoSuaVezLicitacao processoId={processo.id} licitacaoId={processo.referencia_id!} etapa={etapaAtual} onFeito={() => carregar(true)} />
             <BlocoEnviar
               processoId={processo.id}
               etapaChave={etapaAtual?.chave ?? null}

@@ -82,6 +82,32 @@ export interface ConteudoLicitacao {
   data_publicacao_edital?: string | null
 }
 
+/** Peça da licitação escrita no editor novo (AA, PJ, MCI): GET /processos/:id/pecas-licitacao/:tipo. */
+export interface PecaLicitacaoEditor {
+  tipo: "AA" | "PJ" | "MCI"
+  titulo: string
+  html: string
+  texto_corrido: boolean
+  extra: { id: "ressalvas" | "apontamentos"; rotulo: string } | null
+  conclusoes: Array<{ valor: string; rotulo: string }> | null
+  acao: string
+  status_atual: string | null
+  origem_atual: string | null
+  ia_disponivel: boolean
+}
+
+export interface RascunhoPecaLicitacao {
+  tipo: string
+  html: string
+  extra_id: string | null
+  extra: string | null
+  conclusao_sugerida: string | null
+  ia_modelo: string
+  lacunas: number
+}
+
+export const TIPOS_PECA_EDITOR_LICITACAO = ["AA", "PJ", "MCI"]
+
 /** GET /api/licitacoes/:id/conferencia-publicacao (o backend decide o que falta para publicar). */
 export interface ConferenciaPublicacao {
   aplicavel: boolean
