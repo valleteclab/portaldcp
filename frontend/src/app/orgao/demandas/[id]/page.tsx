@@ -75,6 +75,16 @@ export default function DetalheDemandaPage() {
 
   const [itemSelecionado, setItemSelecionado] = useState<ItemSelecionado | null>(null)
   const [dialogAdicionar, setDialogAdicionar] = useState(false)
+  // Pedido recém-criado (?nova=1): mostra o que o requisitante precisa fazer agora
+  const [boasVindas, setBoasVindas] = useState(false)
+  useEffect(() => {
+    if (!demanda || typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('nova') !== '1') return
+    url.searchParams.delete('nova')
+    router.replace(url.pathname + (url.search || ''))
+    if (demanda.status === 'RASCUNHO') setBoasVindas(true)
+  }, [demanda?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const [itemEditando, setItemEditando] = useState<ItemDemanda | null>(null)
 
   // ── Carregar orgaoId e demanda ─────────────────────────────────────────────
@@ -547,10 +557,57 @@ export default function DetalheDemandaPage() {
       </header>
 
       {podeEditar && faltaParaEnviar.length > 0 && (
-        <p className="text-sm text-amber-800">
-          Para enviar, falta: {faltaParaEnviar.map(c => c.secao === 1 ? 'a descrição do pedido (seção 1)' : 'ao menos 1 item (seção 3)').join(' e ')}.
-        </p>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 flex flex-wrap items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1 min-w-[220px]">
+            Para enviar o pedido, falta: {faltaParaEnviar.map(c => c.secao === 1 ? 'a descrição do pedido (seção 1)' : 'ao menos 1 material ou serviço (seção 3)').join(' e ')}.
+          </span>
+          {demanda.itens.length === 0 && (
+            <Button size="sm" onClick={() => { setItemSelecionado(null); setDialogAdicionar(true) }}>
+              Adicionar material ou serviço
+            </Button>
+          )}
+        </div>
       )}
+
+      {/* ══ Pedido criado: o que fazer agora ═════════════════════════════════ */}
+      <Dialog open={boasVindas} onOpenChange={setBoasVindas}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Pedido criado. O que fazer agora</DialogTitle>
+            <DialogDescription>O pedido fica em rascunho até você enviar. Siga os três passos:</DialogDescription>
+          </DialogHeader>
+          <ol className="space-y-3 text-sm text-gray-800">
+            <li className="flex gap-3">
+              <span className="h-6 w-6 shrink-0 rounded-full bg-blue-100 text-blue-800 font-bold flex items-center justify-center">1</span>
+              <div>
+                <p className="font-medium">Descreva o que precisa (seção 1)</p>
+                <p className="text-gray-600">{demanda.descricao_sucinta_objeto?.trim() ? 'Já preenchido — pode ajustar.' : 'Em uma frase: o que será comprado ou contratado e para quê.'}</p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="h-6 w-6 shrink-0 rounded-full bg-blue-100 text-blue-800 font-bold flex items-center justify-center">2</span>
+              <div>
+                <p className="font-medium">Adicione os materiais ou serviços (seção 3)</p>
+                <p className="text-gray-600">Cada item com quantidade, unidade e valor estimado. É o que o planejamento vai juntar no DFD.</p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="h-6 w-6 shrink-0 rounded-full bg-blue-100 text-blue-800 font-bold flex items-center justify-center">3</span>
+              <div>
+                <p className="font-medium">Clique em “Enviar demanda”</p>
+                <p className="text-gray-600">O pedido vai para aprovação; você acompanha o andamento nesta mesma tela.</p>
+              </div>
+            </li>
+          </ol>
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setBoasVindas(false)}>Fechar</Button>
+            <Button onClick={() => { setBoasVindas(false); setItemSelecionado(null); setDialogAdicionar(true) }}>
+              Adicionar material ou serviço
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Avisos */}
       {demanda.status === 'REJEITADA' && demanda.motivo_rejeicao && (
