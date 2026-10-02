@@ -92,6 +92,23 @@ export default function ProcessoPage() {
   const faseInterna = !!fase && FASES_INTERNAS.includes(fase)
   const fluxo = useEtapasFluxo(id, faseInterna, dados)
 
+  // Na fase interna, a tela de trabalho é a do processo eletrônico (decisão do dono, 02/10/2026).
+  // Esta tela fica como "Detalhes da licitação", aberta só com ?detalhes=1 (atalho da tela nova).
+  useEffect(() => {
+    if (!id || !faseInterna) return
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("detalhes") === "1") return
+    let vivo = true
+    authFetch(`${API_URL}/api/processos/referencia/LICITACAO/${id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (vivo && p?.id) router.replace(`/orgao/processo/${p.id}`)
+      })
+      .catch(() => undefined)
+    return () => {
+      vivo = false
+    }
+  }, [id, faseInterna, router])
+
   // Checklist de pré-publicação (backend) — na fase interna e enquanto aguarda o PNCP
   const [conferencia, setConferencia] = useState<ConferenciaPrePublicacao | null>(null)
   const precisaConferencia = !!fase && (FASES_INTERNAS.includes(fase) || fase === "AGUARDANDO_DIVULGACAO")
