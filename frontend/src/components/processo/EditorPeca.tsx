@@ -6,7 +6,9 @@ import s from "./processo.module.css"
 
 /**
  * Editor da peça: folha com cabeçalho, barra de formatação simples e lacunas
- * (<mark>) em destaque. O HTML sai cru; o servidor limpa e gera o PDF.
+ * (<mark>) em destaque. Clicar numa lacuna seleciona o texto dela; ao alterar
+ * esse texto, a marca some sozinha (a lacuna foi preenchida). O HTML sai cru;
+ * o servidor limpa e gera o PDF.
  */
 export function EditorPeca({
   html,
@@ -31,11 +33,58 @@ export function EditorPeca({
   onSalvarModelo?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // Texto original de cada lacuna do modelo: a marca só some quando o texto muda
+  const originais = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const el = ref.current
-    if (el && el.innerHTML !== html) el.innerHTML = html
+    if (!el || el.innerHTML === html) return
+    el.innerHTML = html
+    originais.current = new Set(Array.from(el.querySelectorAll("mark")).map((m) => (m.textContent ?? "").trim()))
   }, [html])
+
+  function emitir() {
+    if (ref.current) onChange(ref.current.innerHTML)
+  }
+
+  /** Tira a marca das lacunas cujo texto já não é o original, mantendo o cursor no lugar. */
+  function resolverLacunas() {
+    const el = ref.current
+    if (!el) return
+    const sel = window.getSelection()
+    for (const mark of Array.from(el.querySelectorAll("mark"))) {
+      const texto = (mark.textContent ?? "").trim()
+      if (!texto || originais.current.has(texto)) continue
+      const dentro = sel?.anchorNode && mark.contains(sel.anchorNode)
+      const offset = dentro ? caretOffsetDentro(mark, sel!) : null
+      const no = document.createTextNode(mark.textContent ?? "")
+      mark.replaceWith(no)
+      if (offset !== null && sel) {
+        const r = document.createRange()
+        r.setStart(no, Math.min(offset, no.length))
+        r.collapse(true)
+        sel.removeAllRanges()
+        sel.addRange(r)
+      }
+    }
+  }
+
+  function aoDigitar() {
+    resolverLacunas()
+    emitir()
+  }
+
+  /** Clicar numa lacuna seleciona o texto dela: é só digitar por cima. */
+  function aoClicar(e: React.MouseEvent<HTMLDivElement>) {
+    const alvo = (e.target as Element).closest("mark")
+    if (!alvo || !ref.current?.contains(alvo)) return
+    const sel = window.getSelection()
+    if (!sel) return
+    const r = document.createRange()
+    r.selectNodeContents(alvo)
+    sel.removeAllRanges()
+    sel.addRange(r)
+  }
 
   function comando(cmd: string, valor?: string) {
     ref.current?.focus()
@@ -44,21 +93,7 @@ export function EditorPeca({
     } catch {
       /* navegador sem suporte: o texto continua editável */
     }
-    if (ref.current) onChange(ref.current.innerHTML)
-  }
-
-  function preencherLacuna() {
-    const sel = window.getSelection()
-    const no = sel?.anchorNode
-    const mark = (no instanceof Element ? no : no?.parentElement)?.closest("mark")
-    if (!mark || !ref.current?.contains(mark)) return
-    const texto = document.createTextNode(mark.textContent ?? "")
-    mark.replaceWith(texto)
-    const r = document.createRange()
-    r.selectNodeContents(texto)
-    sel?.removeAllRanges()
-    sel?.addRange(r)
-    onChange(ref.current.innerHTML)
+    emitir()
   }
 
   const botao = (rotulo: React.ReactNode, cmd: string, valor?: string, titulo?: string) => (
@@ -82,10 +117,6 @@ export function EditorPeca({
         {botao("Esq.", "justifyLeft", undefined, "Alinhar à esquerda")}
         {botao("Centro", "justifyCenter", undefined, "Centralizar")}
         {botao("Justif.", "justifyFull", undefined, "Justificar")}
-        <span className={s.separador} aria-hidden="true" />
-        <button type="button" className={s.ferramenta} onMouseDown={(e) => e.preventDefault()} onClick={preencherLacuna} title="Confirma o texto da lacuna onde está o cursor">
-          Lacuna preenchida
-        </button>
         {onEscolherModelo ? (
           <select className={s.seletorModelo} aria-label="Modelo da peça" value={modeloId ?? ""} onChange={(e) => onEscolherModelo(e.target.value)}>
             {modelos.length ? null : <option value="">Modelo padrão</option>}
@@ -117,12 +148,20 @@ export function EditorPeca({
         role="textbox"
         aria-multiline="true"
         aria-label="Texto da peça"
-        onInput={(e) => onChange((e.currentTarget as HTMLDivElement).innerHTML)}
-        onBlur={(e) => onChange((e.currentTarget as HTMLDivElement).innerHTML)}
+        onInput={aoDigitar}
+        onBlur={emitir}
+        onClick={aoClicar}
       />
       <div className={s.folhaRodape} aria-hidden="true">
         {rodape}
       </div>
     </div>
   )
+}
+
+function caretOffsetDentro(el: Element, sel: Selection): number {
+  const r = sel.getRangeAt(0).cloneRange()
+  r.selectNodeContents(el)
+  r.setEnd(sel.anchorNode!, sel.anchorOffset)
+  return r.toString().length
 }

@@ -28,6 +28,8 @@ import { EditorPeca } from "./EditorPeca"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 import s from "./processo.module.css"
 
+const DICA_LACUNA = "Clique em cada lacuna laranja e escreva no lugar: a marca some sozinha."
+
 /** Wrapper com os tokens de cor da tela (claro/escuro). */
 export function TemaProcesso({ children }: { children: React.ReactNode }) {
   return <div className={s.tema}>{children}</div>
@@ -137,7 +139,7 @@ export function FormularioPeca({
         setModelo(m)
         setModeloId(m.modelo_id)
         setHtml((atual) => atual || m.html)
-        setAviso(m.modelos.length ? `Modelo "${m.modelos[0].nome}". As lacunas em destaque precisam ser preenchidas.` : "Texto padrão. As lacunas em destaque precisam ser preenchidas.")
+        setAviso(m.modelos.length ? `Modelo "${m.modelos[0].nome}". ${DICA_LACUNA}` : `Texto padrão. ${DICA_LACUNA}`)
       })
       .catch(() => vivo && setModelo({ processo_id: processoId, etapa: etapa?.chave ?? null, titulo: tituloInicial, html: "", modelo_id: null, modelos: [], ia_disponivel: false }))
     return () => {
@@ -157,7 +159,7 @@ export function FormularioPeca({
       setHtml(r.html)
       if (r.titulo) setTitulo(r.titulo)
       setIaModelo(r.ia_modelo)
-      setAviso(r.lacunas ? `A IA usou o que está nos autos. ${r.lacunas === 1 ? "Uma lacuna" : `${r.lacunas} lacunas`} para você preencher.` : "A IA usou o que está nos autos. Revise antes de juntar.")
+      setAviso(r.lacunas ? `A IA usou o que está nos autos. ${r.lacunas === 1 ? "Uma lacuna" : `${r.lacunas} lacunas`} para você preencher: ${DICA_LACUNA.toLowerCase()}` : "A IA usou o que está nos autos. Revise antes de juntar.")
       setCaminho("escrever")
     } catch (e) {
       setErro(textoDoErro(e, "A IA não conseguiu escrever o rascunho."))
@@ -183,7 +185,7 @@ export function FormularioPeca({
     setModeloId(id === "__vazio" ? "__vazio" : id)
     setHtml(htmlNovo)
     setIaModelo(null)
-    setAviso(escolhido ? `Modelo "${escolhido.nome}". As lacunas em destaque precisam ser preenchidas.` : "Em branco: escreva a peça.")
+    setAviso(escolhido ? `Modelo "${escolhido.nome}". ${DICA_LACUNA}` : "Em branco: escreva a peça.")
   }
 
   async function salvarComoModelo() {
@@ -206,7 +208,7 @@ export function FormularioPeca({
     if (titulo.trim().length < 3) return setErro("Informe o título da peça.")
     const noEditor = caminho !== "anexar"
     if (noEditor && !html.replace(/<[^>]+>|&nbsp;/g, "").trim()) return setErro("Escreva o texto da peça ou anexe o arquivo.")
-    if (noEditor && temLacuna(html)) return setErro("Ainda há lacunas em destaque. Preencha-as (clique na lacuna, escreva e use “Lacuna preenchida”) antes de juntar.")
+    if (noEditor && temLacuna(html)) return setErro("Ainda há lacunas em laranja. Clique em cada uma e escreva o texto no lugar; a marca some sozinha.")
     if (!noEditor && !arquivo) return setErro("Escolha o arquivo PDF para anexar.")
     setEnviando(true)
     try {
