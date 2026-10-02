@@ -116,6 +116,7 @@ export default function ConfiguracoesPage() {
     whatsapp_responsavel_medicoes: '' as string | null,
     whatsapp_responsavel_frota: '' as string | null,
     logo_url: '' as string | null,
+    pecas_papel_timbrado: false,
   })
   const [loading, setLoading] = useState(true)
   // MunicÃ­pio como estÃ¡ GRAVADO (o aviso some ao salvar, nÃ£o ao digitar)
@@ -142,6 +143,7 @@ export default function ConfiguracoesPage() {
           whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
           whatsapp_responsavel_frota: dados.whatsapp_responsavel_frota || '',
           logo_url: dados.logo_url || null,
+          pecas_papel_timbrado: !!dados.pecas_papel_timbrado,
         }
         setOrgao(orgaoAtual)
         setCidadeGravada(orgaoAtual.cidade)
@@ -167,6 +169,7 @@ export default function ConfiguracoesPage() {
           whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
           whatsapp_responsavel_frota: dados.whatsapp_responsavel_frota || '',
           logo_url: dados.logo_url || null,
+          pecas_papel_timbrado: !!dados.pecas_papel_timbrado,
         })
       }
     } finally {
@@ -316,6 +319,26 @@ export default function ConfiguracoesPage() {
   const mcpConfigSnippet = (chave: string) => JSON.stringify({
     servers: { portaldcp: { type: 'http', url: `${typeof window !== 'undefined' ? window.location.origin : ''}/api/mcp/orgao`, headers: { Authorization: `Bearer ${chave}` } } },
   }, null, 2)
+
+  const [salvandoTimbrado, setSalvandoTimbrado] = useState(false)
+  const salvarPapelTimbrado = async (ligado: boolean) => {
+    if (!orgao.id) return
+    setSalvandoTimbrado(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/orgaos/${orgao.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pecas_papel_timbrado: ligado }),
+      })
+      if (!res.ok) throw new Error("Não foi possível salvar")
+      setOrgao((prev) => ({ ...prev, pecas_papel_timbrado: ligado }))
+      toast.success(ligado ? "Peças sairão sem cabeçalho, para papel timbrado" : "Peças sairão com a logo e o nome do órgão")
+    } catch {
+      toast.error("Não foi possível salvar a opção de papel timbrado")
+    } finally {
+      setSalvandoTimbrado(false)
+    }
+  }
 
   const salvarDadosOrgao = async () => {
     if (!orgao.id) return
@@ -782,6 +805,19 @@ export default function ConfiguracoesPage() {
                   </Button>
                   <p className="text-xs text-muted-foreground mt-2">PNG ou JPG, max 2MB</p>
                 </div>
+              </div>
+              <div className="flex items-center justify-between gap-4 mt-6 pt-4 border-t">
+                <div>
+                  <p className="font-medium">Peças do processo em papel timbrado</p>
+                  <p className="text-sm text-muted-foreground">
+                    Ligado: o PDF das peças sai sem logo e sem o nome do órgão no topo, com espaço para o timbre impresso. Desligado: a logo e o nome vão no cabeçalho (uso 100% digital).
+                  </p>
+                </div>
+                <Switch
+                  checked={orgao.pecas_papel_timbrado}
+                  disabled={!orgao.id || salvandoTimbrado}
+                  onCheckedChange={salvarPapelTimbrado}
+                />
               </div>
             </CardContent>
           </Card>

@@ -108,6 +108,8 @@ export class CreateOrgaoDto {
   @IsOptional()
   whatsapp_responsavel_frota?: string;
 
+  pecas_papel_timbrado?: boolean;
+
   // Responsável Legal - tornando opcional com valores padrão
   @IsString()
   @IsOptional()
