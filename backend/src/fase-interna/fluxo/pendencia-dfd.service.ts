@@ -101,6 +101,36 @@ export class PendenciaDfdService {
   }
 
   /**
+   * Pendência "Aprovar pedidos" da caixa "Para mim": pedidos enviados/em
+   * análise do órgão, para quem aprova demandas (null: não aprova ou não há).
+   * A decisão continua na Central de Aprovações; aqui é só a chamada.
+   */
+  async pendenciaAprovarDemandas(ator: Ator | null | undefined, orgaoId: string) {
+    try {
+      if (!(await this.planejamento.podeAprovarDemanda(ator, orgaoId))) return null;
+      const linhas: Array<{ ano: number; n: number }> = await this.ds.query(
+        `SELECT EXTRACT(YEAR FROM created_at)::int AS ano, COUNT(*)::int AS n
+           FROM demandas WHERE orgao_id::text = $1 AND status::text IN ('ENVIADA', 'EM_ANALISE')
+          GROUP BY 1 ORDER BY 1 DESC`,
+        [orgaoId],
+      );
+      const total = linhas.reduce((s, l) => s + Number(l.n), 0);
+      if (!total) return null;
+      return {
+        chave: 'APROVAR_DEMANDAS',
+        titulo: `Aprovar pedidos — ${total} ${total === 1 ? 'pedido aguardando' : 'pedidos aguardando'}`,
+        descricao: 'Pedidos dos setores enviados para aprovação. Aprove ou rejeite na Central de Aprovações.',
+        quantidade: total,
+        por_ano: linhas.map((l) => ({ ano: Number(l.ano), n: Number(l.n) })),
+        destino: '/orgao/aprovacoes?tab=demandas',
+      };
+    } catch (e: any) {
+      this.logger.warn(`Pendência de aprovação de demandas não calculada: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  /**
    * AVISO a quem monta o DFD, na aprovação da demanda. Não repete ninguém,
    * não avisa quem aprovou e agrupa aprovações seguidas (`decidirAviso`).
    * Devolve se quem pediu a demanda já recebeu por aqui (então o aviso ao

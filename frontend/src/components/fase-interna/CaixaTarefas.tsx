@@ -204,12 +204,13 @@ export function CaixaTarefas() {
 
 /** Pendência fora dos processos (ex.: montar o DFD com as demandas aprovadas). */
 function ItemPendencia({ p }: { p: PendenciaCaixa }) {
+  const aprovar = p.chave === "APROVAR_DEMANDAS"
   return (
     <li className="rounded-lg border border-indigo-200 bg-white p-3 flex gap-3">
       <div className="w-1 rounded-full shrink-0 bg-indigo-600" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-800">Planejamento</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-800">{aprovar ? "Aprovação" : "Planejamento"}</span>
           <span className="font-medium text-slate-900">{p.titulo}</span>
         </div>
         <p className="text-sm text-slate-700">{p.descricao}</p>
@@ -220,7 +221,7 @@ function ItemPendencia({ p }: { p: PendenciaCaixa }) {
       <div className="flex items-start shrink-0">
         <Button asChild size="sm">
           <Link href={p.destino}>
-            <ClipboardCheck className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> Montar o DFD <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
+            <ClipboardCheck className="w-3.5 h-3.5 mr-1" aria-hidden="true" /> {aprovar ? "Abrir aprovações" : "Montar o DFD"} <ArrowRight className="w-3.5 h-3.5 ml-1" aria-hidden="true" />
           </Link>
         </Button>
       </div>
