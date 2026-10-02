@@ -94,13 +94,33 @@ export class IntegracaoFluxoService {
     const atual = etapaAtual(r.etapas);
     const passo = atual?.passos.find(passoParaFazer) ?? r.passos.find(passoParaFazer);
     if (!passo) return;
-    const destino = r.destinos[passo.passo] ?? (r.condutor_id ? { setor_id: null, usuario_id: r.condutor_id, rotulo: '' } : null);
+    let destino = r.destinos[passo.passo] ?? (r.condutor_id ? { setor_id: null, usuario_id: r.condutor_id, rotulo: '' } : null);
+    let finalidade = finalidadeDasEtapas([passo.titulo]);
+    // Processo aberto pelo DFD consolidado: o DFD já foi montado pelo planejamento e só
+    // falta emitir — o processo fica com quem o abriu, não volta ao setor demandante.
+    if (passo.passo === 'DFD' && r.condutor_id && (await this.dfdVeioDoConsolidado(r.lic.id))) {
+      destino = { setor_id: null, usuario_id: r.condutor_id, rotulo: '' };
+      finalidade = 'conferir e emitir o DFD montado a partir das demandas aprovadas';
+    }
     if (!destino) return;
     try {
-      const t = await this.tramitacao.registrarPosseInicial(r.lic.id, { setor_id: destino.setor_id, usuario_id: destino.usuario_id }, { finalidade: finalidadeDasEtapas([passo.titulo]) });
+      const t = await this.tramitacao.registrarPosseInicial(r.lic.id, { setor_id: destino.setor_id, usuario_id: destino.usuario_id }, { finalidade });
       if (t) void this.tarefas.agendar(r.lic.id);
     } catch (e: any) {
       this.logger.warn(`Posse inicial do processo ${r.lic.id} não registrada: ${e?.message ?? e}`);
+    }
+  }
+
+  private async dfdVeioDoConsolidado(licitacaoId: string): Promise<boolean> {
+    try {
+      const [d] = await this.ds.query(
+        `SELECT 1 AS ok FROM documentos_fase_interna
+          WHERE licitacao_id::text = $1 AND tipo::text = 'DFD' AND versao_atual = true AND dados_estruturados ? '_dfd_consolidado' LIMIT 1`,
+        [licitacaoId],
+      );
+      return !!d;
+    } catch {
+      return false;
     }
   }
 

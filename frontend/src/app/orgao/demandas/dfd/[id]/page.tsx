@@ -36,7 +36,7 @@ import { confirmarAcao, pedirTextoAcao } from '@/components/DialogoGlobal'
 import { type ModoFaseInterna, lembrarEscolhaModo, rotaFaseInternaFeitaFora, ultimaEscolhaModo } from '@/lib/fase-interna/criacao'
 import { OpcoesModoFaseInterna } from '@/components/fase-interna/externa/EscolhaModoFaseInterna'
 import { AlertaParecidos, COR_STATUS_DFD, GuiaDfd, ROTULO_STATUS_DFD, formatarMoeda, type Parecido } from '@/components/demandas/dfd-comum'
-import { passoDoDfd, proximoPassoNoDfd, rotaDoProcessoAberto, type ProximoPassoNoDfd } from '@/lib/demandas/proxima-acao-dfd'
+import { passoDoDfd, proximoPassoNoDfd, rotaDaTelaDoProcesso, type ProximoPassoNoDfd } from '@/lib/demandas/proxima-acao-dfd'
 
 interface ItemDfd {
   chave: string
@@ -314,7 +314,7 @@ function DfdDetalhe() {
       if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
       if (j?.alerta) toast.warning(j.alerta, { duration: 12000 })
       // Tela do processo com o aviso "Processo nº X aberto — está com… Próximo passo: …"
-      router.push(rotaDoProcessoAberto(j.licitacao.id, dfd.rotulo))
+      router.push(await rotaDaTelaDoProcesso(j.licitacao.id, dfd.rotulo))
     } catch (e: unknown) {
       toast.error(`Processo não aberto: ${e instanceof Error ? e.message : String(e)}`)
       setAbrindo(false)
