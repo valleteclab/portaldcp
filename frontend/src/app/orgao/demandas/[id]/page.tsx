@@ -148,6 +148,7 @@ export default function DetalheDemandaPage() {
   // Permissões pelo modelo de fluxo (Configurações › Fluxo): quem aprova a demanda e quem monta o DFD
   const [podeAprovar, setPodeAprovar] = useState(false)
   const [podeMontarDfd, setPodeMontarDfd] = useState(false)
+  const [quemMontaDfd, setQuemMontaDfd] = useState<string | null>(null)
   useEffect(() => {
     authFetch(`${API_URL}/api/dfds-consolidados/permissoes`)
       .then(async (r) => {
@@ -155,6 +156,7 @@ export default function DetalheDemandaPage() {
         const p = await r.json()
         setPodeAprovar(!!p.pode_aprovar_demanda)
         setPodeMontarDfd(!!p.pode_montar)
+        setQuemMontaDfd(typeof p.responsavel_dfd === 'string' ? p.responsavel_dfd : null)
       })
       .catch(() => { /* sem permissões: botões ocultos */ })
   }, [])
@@ -566,6 +568,20 @@ export default function DetalheDemandaPage() {
             <Button size="sm" onClick={() => { setItemSelecionado(null); setDialogAdicionar(true) }}>
               Adicionar material ou serviço
             </Button>
+          )}
+        </div>
+      )}
+
+      {demanda.status === 'APROVADA' && !demanda.dfd && !processoVinculado && (
+        <div role="note" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 flex flex-wrap items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1 min-w-[220px]">
+            {podeMontarDfd
+              ? 'Pedido aprovado. Agora é com você: inicie a contratação só com este pedido ou junte-o a outros no DFD consolidado.'
+              : `Pedido aprovado, aguardando o DFD. Quem monta o DFD e abre o processo: ${quemMontaDfd || 'a unidade de planejamento'} (Configurações › Fluxo).`}
+          </span>
+          {podeMontarDfd && (
+            <Button size="sm" variant="outline" onClick={() => router.push('/orgao/demandas/consolidacao')}>DFD consolidado</Button>
           )}
         </div>
       )}
