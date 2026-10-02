@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas, fmtDia, fmtDiaCurto, publicarContagemTarefas, rotuloPrazo, type CaixaTarefas as Caixa, type TarefaTela } from "@/lib/tarefas"
 import type { PendenciaCaixa } from "@/lib/demandas/pendencia-dfd"
+import { ProcessosComigo } from "@/components/processo/ProcessosComigo"
 
 type Aba = "para-mim" | "aguardando" | "concluidas"
 
@@ -97,7 +98,7 @@ export function CaixaTarefas() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Minhas tarefas</h1>
           <p className="text-sm text-slate-600">
-            O que você tem para fazer na fase interna, pelo prazo. Cada tarefa abre a peça dentro do processo: faça aqui, anexe o PDF feito fora ou marque &quot;não se aplica&quot;.
+            Processos que estão com você (aditivos, renovações, avulsos) e o que você tem para fazer na fase interna, pelo prazo. Cada tarefa abre a peça dentro do processo: faça aqui, anexe o PDF feito fora ou marque &quot;não se aplica&quot;.
           </p>
         </div>
         <div className="flex gap-2">
@@ -109,6 +110,8 @@ export function CaixaTarefas() {
           </Button>
         </div>
       </div>
+
+      <ProcessosComigo />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <section aria-label="Tarefas">

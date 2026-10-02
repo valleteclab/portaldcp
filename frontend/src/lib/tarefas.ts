@@ -73,8 +73,16 @@ export function rotuloPrazo(t: Pick<TarefaTela, "prazo" | "atrasada" | "dias_ute
 /** Contagem para o badge do menu (evento "tarefas-atualizadas" recarrega). */
 export async function carregarContagemTarefas(): Promise<{ para_mim: number; atrasadas: number } | null> {
   try {
-    const r = await authFetch(`${API_URL}/api/tarefas/contagem`)
-    return r.ok ? await r.json() : null
+    const [r, p] = await Promise.all([
+      authFetch(`${API_URL}/api/tarefas/contagem`),
+      // Processos com você (aditivo/renovação/avulso) entram no mesmo badge
+      authFetch(`${API_URL}/api/processos/comigo`).catch(() => null),
+    ])
+    if (!r.ok) return null
+    const c = (await r.json()) as { para_mim: number; atrasadas: number }
+    const comigo = p && p.ok ? ((await p.json()) as { aguardando_recebimento?: unknown[]; com_voce?: unknown[] }) : null
+    const processos = (comigo?.aguardando_recebimento?.length ?? 0) + (comigo?.com_voce?.length ?? 0)
+    return { para_mim: (Number(c.para_mim) || 0) + processos, atrasadas: Number(c.atrasadas) || 0 }
   } catch {
     return null
   }

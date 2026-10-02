@@ -77,6 +77,12 @@ export class ProcessosController {
     return this.conteudo.visao(await this.processos.porReferencia(ator, tipo, id));
   }
 
+  /** Processos (aditivo/renovação/avulso) com o usuário ou o setor dele: aguardando recebimento e já recebidos. Antes de ':id'. */
+  @Get('comigo')
+  comigo(@AtorAtual() ator: Ator) {
+    return this.tramite.comigo(ator);
+  }
+
   @Get(':id')
   async obter(@AtorAtual() ator: Ator, @Param('id') id: string) {
     return this.conteudo.visao(await this.processos.obter(ator, id));
