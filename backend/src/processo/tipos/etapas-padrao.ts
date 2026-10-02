@@ -21,8 +21,8 @@ const TIPOS_COM_ETAPAS_PADRAO: TipoProcesso[] = [TipoProcesso.ADITIVO, TipoProce
 
 const COMUNS: EtapaPadrao[] = [
   { chave: 'RESERVA', rotulo: 'Reserva de recurso', setor_palavras: ['orcament', 'financ', 'contabil'], tipo_peca: 'RESERVA_DOTACAO', titulo_peca: 'Reserva de dotação orçamentária' },
-  { chave: 'PARECER', rotulo: 'Parecer jurídico', setor_palavras: ['juridic', 'procurad'], tipo_peca: 'PARECER_JURIDICO', titulo_peca: 'Parecer jurídico' },
-  { chave: 'AUTORIZACAO', rotulo: 'Autorização', setor_palavras: ['gabinete', 'secretari', 'presidencia', 'autoridade'], tipo_peca: 'AUTORIZACAO', titulo_peca: 'Autorização da autoridade competente' },
+  { chave: 'PARECER', rotulo: 'Parecer jurídico', setor_palavras: ['juridic', 'procurad'], tipo_peca: 'PARECER_PROCESSO', titulo_peca: 'Parecer jurídico' },
+  { chave: 'AUTORIZACAO', rotulo: 'Autorização', setor_palavras: ['gabinete', 'secretari', 'presidencia', 'autoridade'], tipo_peca: 'AUTORIZACAO_PROCESSO', titulo_peca: 'Autorização da autoridade competente' },
 ];
 
 const ETAPAS: Partial<Record<TipoProcesso, EtapaPadrao[]>> = {

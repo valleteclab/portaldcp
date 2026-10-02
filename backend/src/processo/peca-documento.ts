@@ -171,17 +171,55 @@ const MODELOS: Record<string, Modelo> = {
     `<p>Em atenção ao pedido constante dos autos, informamos que há disponibilidade orçamentária para a despesa relativa ao ${refContrato(c)}, no valor de <mark>valor</mark>, conforme:</p>` +
     `<ul><li>Unidade orçamentária: <mark>unidade</mark></li><li>Funcional programática: <mark>funcional programática</mark></li><li>Elemento de despesa: <mark>elemento</mark></li></ul>` +
     `<p>Fica reservado o valor indicado para o exercício de <mark>ano</mark>.</p>`,
-  PARECER_JURIDICO: (c) =>
+  PARECER_PROCESSO: (c) =>
     `<h3 style="text-align:center">PARECER JURÍDICO</h3>` +
     `<p><strong>Assunto:</strong> ${c.tipo_processo === 'RENOVACAO' ? 'prorrogação' : 'termo aditivo'} do ${refContrato(c)}.</p>` +
     `<p><strong>Relatório.</strong> <mark>Resumo do que consta nos autos: pedido, reserva de recurso e documentos</mark>.</p>` +
     `<p><strong>Fundamentação.</strong> <mark>Análise à luz da Lei nº 14.133/2021 (arts. 104 a 107, 124 e 125) e das cláusulas do contrato</mark>.</p>` +
     `<p><strong>Conclusão.</strong> Opina-se pela <mark>possibilidade ou impossibilidade</mark> da formalização, <mark>com as recomendações cabíveis</mark>.</p>`,
-  AUTORIZACAO: (c) =>
+  AUTORIZACAO_PROCESSO: (c) =>
     `<h3 style="text-align:center">AUTORIZAÇÃO</h3>` +
     `<p>À vista do que consta nos autos, em especial do parecer jurídico, <strong>autorizo</strong> a formalização do ${c.tipo_processo === 'RENOVACAO' ? 'termo de renovação' : 'termo aditivo'} do ${refContrato(c)}.</p>` +
     `<p>Encaminhe-se ao Setor de Contratos para a lavratura do termo.</p>`,
 };
+
+/** Variáveis que um modelo de peça pode usar ({{processo.numero}}, {{contrato.fornecedor}}…). */
+export function variaveisDaPeca(c: ContextoDaPeca, agora = new Date()): Record<string, string> {
+  const v: Record<string, string> = {
+    'orgao.nome': c.orgao_nome,
+    'setor.nome': c.setor_nome ?? '',
+    'processo.numero': c.numero_processo,
+    'processo.objeto': c.objeto,
+    'processo.tipo': rotuloTipo(c.tipo_processo),
+    'contrato.numero': c.contrato?.numero ?? '',
+    'contrato.objeto': c.contrato?.objeto ?? '',
+    'contrato.fornecedor': c.contrato?.fornecedor ?? '',
+    'contrato.valor_global': moeda(c.contrato?.valor_global) ?? '',
+    'autor.nome': c.autor_nome,
+    'autor.cargo': c.autor_cargo ?? '',
+    data_atual: agora.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: 'long', year: 'numeric' }),
+  };
+  return v;
+}
+
+export const VARIAVEIS_PECA = Object.keys(variaveisDaPeca({ orgao_nome: '', setor_nome: null, numero_processo: '', tipo_processo: 'ADITIVO', objeto: '', etapa_rotulo: '', tipo_peca: null, titulo_peca: '', contrato: null, pecas: [], autor_nome: '', autor_cargo: null }));
+
+/** Aplica as variáveis ao HTML do modelo; a que não tem valor vira LACUNA (nunca `{{…}}` cru). */
+export function aplicarVariaveisDaPeca(html: string, c: ContextoDaPeca): string {
+  const v = variaveisDaPeca(c);
+  return String(html ?? '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, chave: string) => {
+    const valor = v[chave];
+    return valor && valor.trim() ? escapar(valor) : `<mark>${escapar(chave.replace(/[._]/g, ' '))}</mark>`;
+  });
+}
+
+/** HTML de um modelo da tela "Modelos de documento": uma seção = o texto; várias = título + texto de cada. */
+export function htmlDoModelo(secoes: Array<{ titulo?: string; texto_padrao?: string | null }>): string {
+  const uteis = (secoes || []).filter((s) => (s.texto_padrao ?? '').trim());
+  if (!uteis.length) return '';
+  if (uteis.length === 1) return uteis[0].texto_padrao!;
+  return uteis.map((s) => `<h3>${escapar(s.titulo ?? '')}</h3>${s.texto_padrao}`).join('');
+}
 
 /** Modelo do tipo de peça com o contexto aplicado; sem modelo, um começo mínimo. */
 export function modeloDaPeca(c: ContextoDaPeca): string {
