@@ -1256,7 +1256,7 @@ export class TarefasService {
       );
       return r;
     };
-    const [cMim, cOutros, pendenciaDfd] = await Promise.all([contar(paraMim), contar(aguardando), this.pendenciaDoDfd(ator, p.orgaoId)]);
+    const [cMim, cOutros, pendenciasForaDosProcessos] = await Promise.all([contar(paraMim), contar(aguardando), this.pendenciasForaDosProcessos(ator, p.orgaoId)]);
 
     // Prazos da semana: tarefas visíveis que vencem nos próximos 7 dias + sessões públicas
     const semana = new Date(agora.getTime() + 7 * 86_400_000);
@@ -1288,32 +1288,35 @@ export class TarefasService {
     return {
       aba,
       tarefas,
-      // Fora dos processos: "Montar o DFD — N demanda(s) aprovada(s) aguardando" (quem monta o DFD; some sozinha)
-      pendencias: aba === 'para-mim' && pendenciaDfd ? [pendenciaDfd] : [],
-      contagem: { para_mim: cMim.n + (pendenciaDfd ? 1 : 0), atrasadas: cMim.atrasadas, aguardando: cOutros.n },
+      // Fora dos processos: "Aprovar pedidos — N aguardando" (quem aprova demandas) e
+      // "Montar o DFD — N demanda(s) aprovada(s)" (quem monta o DFD); somem sozinhas
+      pendencias: aba === 'para-mim' ? pendenciasForaDosProcessos : [],
+      contagem: { para_mim: cMim.n + pendenciasForaDosProcessos.length, atrasadas: cMim.atrasadas, aguardando: cOutros.n },
       prazos_semana: prazosSemana,
       perfil: { usuario_id: p.usuarioId, papeis: p.papeis, setor_id: p.setorId, orgao: p.orgao, admin: p.adminOrgao },
     };
   }
 
-  /** Pendência "Montar o DFD" de quem consulta (derivada das demandas aprovadas livres do órgão). */
-  private async pendenciaDoDfd(ator: Ator, orgaoId: string) {
-    return (await this.pendenciaDfd?.pendenciaDaCaixa(ator, orgaoId)) ?? null;
+  /** Pendências fora dos processos de quem consulta: aprovar pedidos (quem aprova demandas) e montar o DFD (quem monta). */
+  private async pendenciasForaDosProcessos(ator: Ator, orgaoId: string) {
+    if (!this.pendenciaDfd) return [];
+    const [aprovar, dfd] = await Promise.all([this.pendenciaDfd.pendenciaAprovarDemandas(ator, orgaoId), this.pendenciaDfd.pendenciaDaCaixa(ator, orgaoId)]);
+    return [aprovar, dfd].filter((x): x is NonNullable<typeof x> => !!x);
   }
 
-  /** Contagem para o badge do menu (as tarefas abertas para mim + a pendência do DFD). */
+  /** Contagem para o badge do menu (as tarefas abertas para mim + as pendências fora dos processos). */
   async contagem(ator: Ator, orgaoInformado?: string) {
     await this.aguardarPendentes();
     const p = await this.perfil(ator, orgaoInformado);
     const f = this.filtroParaMim(p, 2);
-    const pendenciaDfd = await this.pendenciaDoDfd(ator, p.orgaoId);
+    const pendencias = await this.pendenciasForaDosProcessos(ator, p.orgaoId);
     const [r] = await this.ds.query(
       `SELECT COUNT(*)::int AS para_mim, COUNT(*) FILTER (WHERE t.prazo < now())::int AS atrasadas
          FROM tarefas t JOIN licitacoes l ON l.id = t.licitacao_id
         WHERE t.orgao_id::text = $1 AND t.status = 'ABERTA' AND ${f.sql}`,
       [p.orgaoId, ...f.params],
     );
-    return { para_mim: Number(r?.para_mim ?? 0) + (pendenciaDfd ? 1 : 0), atrasadas: Number(r?.atrasadas ?? 0) };
+    return { para_mim: Number(r?.para_mim ?? 0) + pendencias.length, atrasadas: Number(r?.atrasadas ?? 0) };
   }
 
   private rotuloResponsavel(t: any): string {
