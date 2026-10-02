@@ -561,6 +561,29 @@ select.campo {
     padding: 16px 14px;
   }
 }
+.detalhes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.detalhes div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.detalhes dt {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+.detalhes dd {
+  margin: 0;
+  font-size: 14px;
+  color: var(--tinta);
+}
 .ou {
   font-size: 13px;
   color: var(--apagado);

@@ -14,6 +14,7 @@ import {
   type Fluxo,
   type ProcessoVisao,
   type Tramitacao,
+  type ConteudoLicitacao,
 } from "@/lib/processo/processo"
 import {
   BlocoAguardando,
@@ -24,6 +25,8 @@ import {
   BlocoResultado,
   BlocoSuaVez,
   BlocoSuaVezLicitacao,
+  BlocoPublicacaoLicitacao,
+  BlocoDadosLicitacao,
   SecaoDetalhes,
   SecaoLinhaDoTempo,
   TemaProcesso,
@@ -157,6 +160,7 @@ export default function TelaDoProcessoPage() {
   const linkTermo = processo.contrato_id ? `/orgao/contratos/${processo.contrato_id}?tab=termos&processo_id=${processo.id}` : null
 
   const contrato = processo.conteudo?.contrato ?? null
+  const licitacao = ehLicitacao && processo.conteudo && "modalidade" in processo.conteudo ? (processo.conteudo as ConteudoLicitacao) : null
 
   return (
     <TemaProcesso>
@@ -235,17 +239,8 @@ export default function TelaDoProcessoPage() {
       )}
 
       {propria || ehLicitacao ? <BlocoEtapas fluxo={fluxo} /> : null}
-      {ehLicitacao ? (
-        <section className={`${s.bloco} ${s.neutro}`}>
-          <div className={s.eyebrow}>Licitação</div>
-          <p>Autos, pesquisa de preços, checklist de publicação, PNCP e sessão ainda ficam nos detalhes da licitação.</p>
-          <div className={s.acoes} style={{ marginTop: 12 }}>
-            <Link href={`/orgao/processos/${processo.referencia_id}?detalhes=1`} className={`${s.botao} ${s.secundario}`}>
-              Detalhes da licitação
-            </Link>
-          </div>
-        </section>
-      ) : null}
+      {ehLicitacao && !encerrado ? <BlocoPublicacaoLicitacao licitacaoId={processo.referencia_id!} modalidade={licitacao?.modalidade ?? null} /> : null}
+      {ehLicitacao ? <BlocoDadosLicitacao licitacaoId={processo.referencia_id!} lic={licitacao} /> : null}
 
       {resultadoDeTermo ? <BlocoResultado processo={processo} etapaAtual={etapaAtual} linkTermo={linkTermo} /> : null}
 

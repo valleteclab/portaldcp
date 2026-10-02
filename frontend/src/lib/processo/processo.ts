@@ -75,6 +75,30 @@ export interface ConteudoLicitacao {
   situacao: string | null
   valor_total_estimado: number | string | null
   fundamento_legal: string | null
+  criterio_julgamento?: string | null
+  nome_unidade_compradora?: string | null
+  numero_controle_pncp?: string | null
+  srp?: boolean | null
+  data_publicacao_edital?: string | null
+}
+
+/** GET /api/licitacoes/:id/conferencia-publicacao (o backend decide o que falta para publicar). */
+export interface ConferenciaPublicacao {
+  aplicavel: boolean
+  fase: string
+  aguardando_divulgacao: boolean
+  itens: Array<{
+    chave: string
+    rotulo: string
+    fundamento: string
+    estado: "OK" | "PENDENTE" | "ALERTA"
+    bloqueia: boolean
+    detalhe: string | null
+    pendencias: string[]
+    acao: string | null
+  }>
+  bloqueantes: number
+  pode_publicar: boolean
 }
 
 export interface ProcessoVisao extends ProcessoResumo {
