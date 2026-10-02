@@ -181,7 +181,9 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/demandas/consolidacao", label: "DFD consolidado", icon: ClipboardCheck, modulo: ModuloSistema.DEMANDAS },
     { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
     // Licitação (E8): um caminho por ato — a sala da sessão abre do processo
-    { href: "/orgao/licitacoes", label: "Processos", icon: FileText, modulo: ModuloSistema.LICITACOES },
+    // "Tudo é processo": a lista de todos os tipos (licitação, aditivo, renovação, avulso) é a entrada
+    { href: "/orgao/processo", label: "Processos", icon: FileText, modulos: [ModuloSistema.CONTRATOS, ModuloSistema.LICITACOES] },
+    { href: "/orgao/licitacoes", label: "Licitações", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/fase-interna/processos/novo", label: "Novo processo", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     // Fase interna (Entrega 2): a entrada da área é a caixa de tarefas do usuário
     { href: "/orgao/fase-interna", label: "Minhas tarefas", icon: Inbox, modulo: ModuloSistema.LICITACOES },
@@ -193,7 +195,6 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/credenciamentos", label: "Credenciamentos", icon: Users, modulo: ModuloSistema.CREDENCIAMENTO },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
     { href: "/orgao/contratos", label: "Contratos", icon: FileCheck, modulo: ModuloSistema.CONTRATOS },
-    { href: "/orgao/processo", label: "Processo eletrônico", icon: FileText, modulos: [ModuloSistema.CONTRATOS, ModuloSistema.LICITACOES] },
     { href: "/orgao/medicoes-v2", label: "Medições", icon: ClipboardCheck, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/agente-contratos", label: "Verif. Aditivos", icon: Bot, modulo: ModuloSistema.IA_CONTRATOS },
     { href: "/orgao/analisar-contrato", label: "Analisar Contrato", icon: FileSearch, modulo: ModuloSistema.IA_CONTRATOS },

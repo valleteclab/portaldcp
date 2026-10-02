@@ -368,6 +368,51 @@ export class ProcessoTramitacaoService {
     return { peca, ...(await this.fluxo(p)) };
   }
 
+  /**
+   * Processos COM VOCÊ: abertos, com tramitação própria, cuja posse atual é o seu
+   * setor ou você (administrador do órgão vê todos com tramitação). Separa os
+   * que aguardam recebimento dos já recebidos. Alimenta "Minhas tarefas".
+   */
+  async comigo(ator: Ator) {
+    const orgaoId = ator.admin ? null : ator.orgaoId;
+    if (!orgaoId) return { aguardando_recebimento: [], com_voce: [] };
+    const perfil = await this.perfil(ator, orgaoId);
+    const linhas: Array<{
+      id: string; numero: string; objeto: string; tipo: string; aberto_em: Date; contrato_id: string | null;
+      para_setor_id: string | null; para_setor_nome: string | null; para_usuario_id: string | null; para_usuario_nome: string | null;
+      recebida_em: Date | null; despacho: string; movida_em: Date;
+    }> = await this.ds.query(
+      `SELECT p.id::text AS id, p.numero, p.objeto, p.tipo::text AS tipo, p.aberto_em, p.contrato_id::text AS contrato_id,
+              m.para_setor_id::text AS para_setor_id, m.para_setor_nome, m.para_usuario_id::text AS para_usuario_id, m.para_usuario_nome,
+              m.recebida_em, m.despacho, m.created_at AS movida_em
+         FROM processos p
+         JOIN LATERAL (SELECT * FROM processo_movimentacoes x WHERE x.processo_id = p.id ORDER BY x.sequencia DESC LIMIT 1) m ON true
+        WHERE p.orgao_id::text = $1 AND p.situacao = 'ABERTO' AND p.tipo::text = ANY($2::text[])
+        ORDER BY m.created_at DESC`,
+      [orgaoId, ['ADITIVO', 'RENOVACAO', 'AVULSO']],
+    );
+    const minhas = linhas.filter((l) => {
+      if (perfil.admin_orgao) return true;
+      if (l.para_usuario_id && perfil.usuario_id && l.para_usuario_id === perfil.usuario_id) return true;
+      return !!l.para_setor_id && !!perfil.setor_id && l.para_setor_id === perfil.setor_id && !l.para_usuario_id;
+    });
+    const item = (l: (typeof linhas)[number]) => ({
+      id: l.id,
+      numero: l.numero,
+      objeto: l.objeto,
+      tipo: l.tipo,
+      contrato_id: l.contrato_id,
+      esta_com: [l.para_setor_nome, l.para_usuario_nome].filter(Boolean).join(' · ') || 'Órgão',
+      despacho: l.despacho,
+      desde: l.recebida_em ?? l.movida_em,
+      recebida: !!l.recebida_em,
+    });
+    return {
+      aguardando_recebimento: minhas.filter((l) => !l.recebida_em).map(item),
+      com_voce: minhas.filter((l) => !!l.recebida_em).map(item),
+    };
+  }
+
   /** PDF da peça feita no sistema, gravado na pasta privada `processo/<id>/`. */
   private async gerarArquivoDaPeca(p: Processo, perfil: Perfil, numeroPeca: number, titulo: string, html: string, iaModelo: string | null) {
     const [org] = await this.ds.query(`SELECT nome, cidade, uf, logo_url, pecas_papel_timbrado FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
