@@ -22,6 +22,14 @@ import {
 } from './processo-tramitacao-regras';
 import { ProcessoService } from './processo.service';
 import { textoDeAutuacao } from './processo-regras';
+import { IaService } from '../ia/ia.service';
+import { diretorioDeGravacao } from '../common/arquivos/arquivos';
+import { contarPaginasPdf } from '../fase-interna/folhas-autos';
+import { blocosDaPeca, ContextoDaPeca, extrairJsonDaResposta, htmlDaPecaSeguro, modeloDaPeca, montarPromptDaPeca, temLacuna, textoDaPeca } from './peca-documento';
+import { gerarPdfPeca } from './peca-pdf';
+import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 interface Perfil extends PerfilTramitacao {
   orgao_id: string;
@@ -51,6 +59,7 @@ export class ProcessoTramitacaoService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly processos: ProcessoService,
     private readonly notificacoes: NotificacoesService,
+    private readonly ia: IaService,
   ) {}
 
   // ==========================================================================
@@ -290,10 +299,14 @@ export class ProcessoTramitacaoService {
   async juntar(ator: Ator, id: string, body: any) {
     const p = await this.carregar(ator, id);
     this.exigirAberto(p);
-    const v = validarPeca(body ?? {});
+    // Peça feita no editor: HTML limpo, sem lacuna aberta; o texto corrido vale para a validação e a busca
+    const html = body?.texto_html ? htmlDaPecaSeguro(body.texto_html) : '';
+    if (html && temLacuna(html)) throw new BadRequestException('A peça ainda tem lacunas em destaque. Preencha-as antes de juntar.');
+    const v = validarPeca(html ? { ...body, texto: textoDaPeca(html), arquivo_url: undefined, arquivo_nome: undefined } : body ?? {});
     if ('erro' in v) throw new BadRequestException(v.erro);
     const perfil = await this.perfil(ator, p.orgao_id);
     const chaveEtapa = String(body?.etapa ?? '').trim() || null;
+    const iaModelo = html ? String(body?.ia_modelo ?? '').trim().slice(0, 100) || null : null;
     const peca = await this.ds.transaction(async (m) => {
       await this.travar(m, p.id);
       const atual = await this.atual(p, m);
@@ -313,19 +326,25 @@ export class ProcessoTramitacaoService {
         `SELECT COALESCE(MAX(numero_peca), 0) AS n, COALESCE(MAX(folha_final), 0) AS f FROM processo_pecas WHERE processo_id = $1::uuid`,
         [p.id],
       );
-      const folhas = folhasDaPeca(Number(u.f), v.dados.paginas);
+      const numeroPeca = Number(u.n) + 1;
+      let arquivo = { arquivo_url: v.dados.arquivo_url, arquivo_nome: v.dados.arquivo_nome, paginas: v.dados.paginas };
+      if (html) arquivo = await this.gerarArquivoDaPeca(p, perfil, numeroPeca, v.dados.titulo, html, iaModelo);
+      const folhas = folhasDaPeca(Number(u.f), arquivo.paginas);
       const repo = m.getRepository(ProcessoPeca);
       return repo.save(
         repo.create({
           processo_id: p.id,
           orgao_id: p.orgao_id,
-          numero_peca: Number(u.n) + 1,
+          numero_peca: numeroPeca,
           etapa: chaveEtapa,
           tipo_peca: tipoPeca,
           titulo: v.dados.titulo,
           texto: v.dados.texto,
-          arquivo_url: v.dados.arquivo_url,
-          arquivo_nome: v.dados.arquivo_nome,
+          texto_html: html || null,
+          origem: html ? (iaModelo ? 'IA' : 'EDITOR') : 'ARQUIVO',
+          ia_modelo: iaModelo,
+          arquivo_url: arquivo.arquivo_url,
+          arquivo_nome: arquivo.arquivo_nome,
           ...folhas,
           criado_por_id: perfil.usuario_id ?? ator.id,
           criado_por_nome: perfil.nome,
@@ -333,6 +352,86 @@ export class ProcessoTramitacaoService {
       );
     });
     return { peca, ...(await this.fluxo(p)) };
+  }
+
+  /** PDF da peça feita no sistema, gravado na pasta privada `processo/<id>/`. */
+  private async gerarArquivoDaPeca(p: Processo, perfil: Perfil, numeroPeca: number, titulo: string, html: string, iaModelo: string | null) {
+    const [org] = await this.ds.query(`SELECT nome, cidade, uf FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
+    const pdf = await gerarPdfPeca({
+      orgao_nome: org?.nome || 'Órgão',
+      cidade: org?.cidade ?? null,
+      uf: org?.uf ?? null,
+      setor_nome: await this.nomeDoSetor(perfil.setor_id),
+      numero_processo: p.numero,
+      titulo,
+      blocos: blocosDaPeca(html),
+      autor_nome: perfil.nome,
+      autor_cargo: perfil.cargo,
+      juntada_em: new Date(),
+      ia_modelo: iaModelo,
+    });
+    const nome = `peca-${numeroPeca}-${randomUUID()}.pdf`;
+    const dir = path.join(diretorioDeGravacao('processo'), p.id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, nome), pdf);
+    return { arquivo_url: `/api/uploads/processo/${p.id}/${nome}`, arquivo_nome: `${titulo.slice(0, 80)}.pdf`, paginas: Math.max(1, await contarPaginasPdf(pdf)) };
+  }
+
+  /** O que o modelo e a IA sabem do processo ao redigir a peça da etapa. */
+  private async contextoDaPeca(ator: Ator, p: Processo, chaveEtapa: string | null): Promise<ContextoDaPeca> {
+    const perfil = await this.perfil(ator, p.orgao_id);
+    const etapa = chaveEtapa ? (await this.etapasDoProcesso(p)).find((e) => e.chave === chaveEtapa) ?? null : null;
+    if (chaveEtapa && (!etapa || etapa.resultado)) throw new BadRequestException('Etapa inválida para redigir peça.');
+    const [org] = await this.ds.query(`SELECT nome FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
+    const [c] = p.contrato_id
+      ? await this.ds.query(`SELECT numero_contrato, objeto, fornecedor_razao_social, valor_global FROM contratos WHERE id::text = $1`, [p.contrato_id])
+      : [];
+    const pecas = await this.pecas(p);
+    return {
+      orgao_nome: org?.nome || 'Órgão',
+      setor_nome: await this.nomeDoSetor(perfil.setor_id),
+      numero_processo: p.numero,
+      tipo_processo: p.tipo,
+      objeto: p.objeto,
+      etapa_rotulo: etapa?.rotulo ?? 'Peça avulsa',
+      tipo_peca: etapa?.tipo_peca ?? null,
+      titulo_peca: etapa?.titulo_peca ?? etapa?.rotulo ?? 'Peça',
+      contrato: c ? { numero: c.numero_contrato, objeto: c.objeto ?? null, fornecedor: c.fornecedor_razao_social ?? null, valor_global: c.valor_global !== null && c.valor_global !== undefined ? Number(c.valor_global) : null } : null,
+      pecas: pecas.map((x) => ({
+        titulo: x.titulo,
+        folhas: x.folha_inicial === x.folha_final ? `fl. ${x.folha_inicial}` : `fls. ${x.folha_inicial}–${x.folha_final}`,
+        texto: x.texto ? x.texto.slice(0, 1500) : null,
+      })),
+      autor_nome: perfil.nome,
+      autor_cargo: perfil.cargo,
+    };
+  }
+
+  /** Modelo da peça da etapa com o contexto aplicado (ponto de partida no editor). */
+  async modelo(ator: Ator, id: string, chaveEtapa: string | null) {
+    const p = await this.carregar(ator, id);
+    const c = await this.contextoDaPeca(ator, p, chaveEtapa);
+    return { processo_id: p.id, etapa: chaveEtapa, titulo: c.titulo_peca, html: modeloDaPeca(c), ia_disponivel: await this.ia.configurada() };
+  }
+
+  /** Rascunho da peça pela IA: lê o processo, escreve e marca lacunas; nada é juntado sem revisão. */
+  async rascunhoIa(ator: Ator, id: string, body: any) {
+    const p = await this.carregar(ator, id);
+    this.exigirAberto(p);
+    if (!(await this.ia.configurada())) throw new ConflictException('A IA não está configurada neste servidor. Escreva a peça no editor ou anexe o arquivo.');
+    const c = await this.contextoDaPeca(ator, p, String(body?.etapa ?? '').trim() || null);
+    const orientacao = String(body?.orientacao ?? '').trim().slice(0, 2000) || null;
+    const pedido = montarPromptDaPeca(c, orientacao);
+    let resposta: { texto: string; modelo: string };
+    try {
+      resposta = await this.ia.gerarRascunhoJson(pedido.sistema, pedido.usuario, { maxTokens: 4000 });
+    } catch (e) {
+      this.logger.warn(`Rascunho da peça falhou (processo ${p.id}): ${e instanceof Error ? e.message : e}`);
+      throw new ConflictException('A IA não respondeu agora. Tente de novo em instantes ou escreva a peça no editor.');
+    }
+    const lido = extrairJsonDaResposta(resposta.texto);
+    if (!lido) throw new ConflictException('A IA devolveu um texto que não deu para aproveitar. Tente de novo ou escreva no editor.');
+    return { processo_id: p.id, titulo: lido.titulo ?? c.titulo_peca, html: lido.html, ia_modelo: resposta.modelo, lacunas: (lido.html.match(/<mark>/g) || []).length };
   }
 
   /** Encerra o processo sem conteúdo; só quem está com ele (ou o administrador do órgão). */

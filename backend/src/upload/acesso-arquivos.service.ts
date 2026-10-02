@@ -184,6 +184,10 @@ export class AcessoArquivosService {
       } else if (c.tipo === 'licitacoes') {
         const r = await q(`SELECT orgao_id FROM licitacoes WHERE id = $1`, [sub]);
         r.forEach((x) => addOrgao(x.orgao_id));
+      } else if (c.tipo === 'processo') {
+        // Peça gerada pelo sistema nos autos do processo eletrônico (pasta processo/<processoId>/)
+        const r = await q(`SELECT orgao_id FROM processos WHERE id = $1`, [sub]);
+        r.forEach((x) => addOrgao(x.orgao_id));
       }
     }
 

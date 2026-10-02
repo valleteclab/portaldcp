@@ -144,6 +144,18 @@ export class ProcessosController {
     return this.tramite.juntar(ator, id, body);
   }
 
+  /** Modelo da peça da etapa (`?etapa=`), com o contexto do processo aplicado, para começar no editor. */
+  @Get(':id/pecas/modelo')
+  modeloDaPeca(@AtorAtual() ator: Ator, @Param('id') id: string, @Query('etapa') etapa?: string) {
+    return this.tramite.modelo(ator, id, String(etapa ?? '').trim() || null);
+  }
+
+  /** Rascunho da peça pela IA. Corpo: { etapa?, orientacao? }. Devolve html com <mark> nas lacunas; não junta nada. */
+  @Post(':id/pecas/rascunho')
+  rascunhoDaPeca(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.tramite.rascunhoIa(ator, id, body);
+  }
+
   /** Encerra um processo sem conteúdo. Corpo: { motivo? }. Só quem está com ele (ou o administrador do órgão). */
   @Post(':id/encerrar')
   async encerrar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
