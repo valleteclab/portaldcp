@@ -9,6 +9,7 @@ import {
   enviarArquivoDoProcesso,
   rotuloFolhas,
   soData,
+  temLacuna,
   textoDoErro,
   textoPosse,
   urlDoArquivo,
@@ -18,9 +19,12 @@ import {
   type Etapa,
   type EventoLinhaDoTempo,
   type Fluxo,
+  type ModeloDaPeca,
   type Peca,
   type ProcessoVisao,
+  type RascunhoDaPeca,
 } from "@/lib/processo/processo"
+import { EditorPeca } from "./EditorPeca"
 import s from "./processo.module.css"
 
 /** Wrapper com os tokens de cor da tela (claro/escuro). */
@@ -108,22 +112,74 @@ export function FormularioPeca({
   onJuntada: () => void
   onCancelar: () => void
 }) {
+  const sufixo = etapa?.chave ?? "avulsa"
+  const [caminho, setCaminho] = useState<"escrever" | "ia" | "anexar">("escrever")
   const [titulo, setTitulo] = useState(tituloInicial)
-  const [texto, setTexto] = useState("")
+  const [html, setHtml] = useState("")
+  const [modelo, setModelo] = useState<ModeloDaPeca | null>(null)
+  const [iaModelo, setIaModelo] = useState<string | null>(null)
+  const [orientacao, setOrientacao] = useState("")
+  const [gerando, setGerando] = useState(false)
+  const [aviso, setAviso] = useState<string | null>(null)
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [paginas, setPaginas] = useState("1")
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
+  // Modelo da etapa: ponto de partida do editor (lacunas em destaque)
+  useEffect(() => {
+    let vivo = true
+    chamarProcessos<ModeloDaPeca>(`/${processoId}/pecas/modelo${etapa ? `?etapa=${encodeURIComponent(etapa.chave)}` : ""}`, { padrao: "Não foi possível carregar o modelo." })
+      .then((m) => {
+        if (!vivo) return
+        setModelo(m)
+        setHtml((atual) => atual || m.html)
+        setAviso("Modelo do órgão. As lacunas em destaque precisam ser preenchidas.")
+      })
+      .catch(() => vivo && setModelo({ processo_id: processoId, etapa: etapa?.chave ?? null, titulo: tituloInicial, html: "", ia_disponivel: false }))
+    return () => {
+      vivo = false
+    }
+  }, [processoId, etapa?.chave, tituloInicial])
+
+  async function gerarRascunho() {
+    setErro(null)
+    setGerando(true)
+    try {
+      const r = await chamarProcessos<RascunhoDaPeca>(`/${processoId}/pecas/rascunho`, {
+        metodo: "POST",
+        padrao: "A IA não conseguiu escrever o rascunho.",
+        corpo: { etapa: etapa?.chave, orientacao: orientacao.trim() || undefined },
+      })
+      setHtml(r.html)
+      if (r.titulo) setTitulo(r.titulo)
+      setIaModelo(r.ia_modelo)
+      setAviso(r.lacunas ? `A IA usou o que está nos autos. ${r.lacunas === 1 ? "Uma lacuna" : `${r.lacunas} lacunas`} para você preencher.` : "A IA usou o que está nos autos. Revise antes de juntar.")
+      setCaminho("escrever")
+    } catch (e) {
+      setErro(textoDoErro(e, "A IA não conseguiu escrever o rascunho."))
+    } finally {
+      setGerando(false)
+    }
+  }
+
+  function aoEditar(novo: string) {
+    setHtml(novo)
+    if (erro) setErro(null)
+  }
+
   async function juntar() {
     setErro(null)
     if (titulo.trim().length < 3) return setErro("Informe o título da peça.")
-    if (!texto.trim() && !arquivo) return setErro("Escreva o texto da peça ou anexe o arquivo.")
+    const noEditor = caminho !== "anexar"
+    if (noEditor && !html.replace(/<[^>]+>|&nbsp;/g, "").trim()) return setErro("Escreva o texto da peça ou anexe o arquivo.")
+    if (noEditor && temLacuna(html)) return setErro("Ainda há lacunas em destaque. Preencha-as (clique na lacuna, escreva e use “Lacuna preenchida”) antes de juntar.")
+    if (!noEditor && !arquivo) return setErro("Escolha o arquivo PDF para anexar.")
     setEnviando(true)
     try {
       let arquivo_url: string | undefined
       let arquivo_nome: string | undefined
-      if (arquivo) {
+      if (!noEditor && arquivo) {
         const up = await enviarArquivoDoProcesso(arquivo)
         arquivo_url = up.url
         arquivo_nome = up.nome
@@ -133,10 +189,11 @@ export function FormularioPeca({
         padrao: "Não foi possível juntar a peça.",
         corpo: {
           titulo: titulo.trim(),
-          texto: texto.trim() || undefined,
+          texto_html: noEditor ? html : undefined,
+          ia_modelo: noEditor && iaModelo ? iaModelo : undefined,
           arquivo_url,
           arquivo_nome,
-          paginas: arquivo ? Math.max(1, Number(paginas) || 1) : undefined,
+          paginas: !noEditor && arquivo ? Math.max(1, Number(paginas) || 1) : undefined,
           etapa: etapa?.chave,
           tipo_peca: etapa?.tipo_peca || undefined,
         },
@@ -149,53 +206,133 @@ export function FormularioPeca({
     }
   }
 
+  const iaDisponivel = modelo?.ia_disponivel ?? false
+  const escolher = (c: typeof caminho) => (
+    <button type="button" className={s.caminho} aria-pressed={caminho === c} onClick={() => setCaminho(c)} disabled={enviando}>
+      {c === "escrever" ? (
+        <>
+          <b>Escrever</b>
+          <small>Editor com formatação, cabeçalho do órgão e modelo da peça.</small>
+        </>
+      ) : c === "ia" ? (
+        <>
+          <b>Pedir rascunho à IA</b>
+          <small>{iaDisponivel ? "A IA escreve a partir do processo; você revisa no editor." : "Indisponível neste servidor (IA não configurada)."}</small>
+        </>
+      ) : (
+        <>
+          <b>Anexar pronto</b>
+          <small>PDF feito fora do sistema.</small>
+        </>
+      )}
+    </button>
+  )
+
   return (
     <div className={s.peca}>
       <div className={s.formulario}>
-        <label className={s.rotulo} htmlFor={`peca-titulo-${etapa?.chave ?? "avulsa"}`}>
+        <div className={s.caminhos} role="group" aria-label="Como fazer a peça">
+          {escolher("escrever")}
+          {escolher("ia")}
+          {escolher("anexar")}
+        </div>
+        <label className={s.rotulo} htmlFor={`peca-titulo-${sufixo}`}>
           Título da peça
         </label>
-        <input
-          id={`peca-titulo-${etapa?.chave ?? "avulsa"}`}
-          className={s.campo}
-          value={titulo}
-          maxLength={300}
-          onChange={(e) => setTitulo(e.target.value)}
-        />
-        <label className={s.rotulo} htmlFor={`peca-texto-${etapa?.chave ?? "avulsa"}`}>
-          Texto
-        </label>
-        <textarea
-          id={`peca-texto-${etapa?.chave ?? "avulsa"}`}
-          className={s.campo}
-          value={texto}
-          onChange={(e) => setTexto(e.target.value)}
-          placeholder="Escreva aqui o conteúdo da peça"
-        />
-        <div className={s.ou}>ou anexe o documento já pronto (PDF)</div>
-        <input
-          type="file"
-          className={s.campo}
-          accept=".pdf,application/pdf,.doc,.docx,.png,.jpg,.jpeg"
-          onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
-          aria-label="Anexar arquivo"
-        />
-        {arquivo ? (
+        <input id={`peca-titulo-${sufixo}`} className={s.campo} value={titulo} maxLength={300} onChange={(e) => setTitulo(e.target.value)} />
+
+        {caminho === "ia" ? (
           <>
-            <label className={s.rotulo} htmlFor="peca-paginas">
-              Quantas páginas tem o arquivo
+            <ul className={s.sabe} aria-label="O que a IA já sabe">
+              <li>
+                <b>Processo</b>
+                <span>Número, assunto e tipo</span>
+              </li>
+              <li>
+                <b>Contrato</b>
+                <span>Número, fornecedor, objeto e valor</span>
+              </li>
+              <li>
+                <b>Autos</b>
+                <span>As peças já juntadas</span>
+              </li>
+              <li>
+                <b>Etapa</b>
+                <span>{etapa?.rotulo ?? "Peça avulsa"}</span>
+              </li>
+            </ul>
+            <label className={s.rotulo} htmlFor={`peca-orientacao-${sufixo}`}>
+              O que mais a IA deve considerar (opcional)
             </label>
-            <input
-              id="peca-paginas"
-              type="number"
-              min={1}
-              max={500}
-              className={`${s.campo} ${s.campoPequeno}`}
-              value={paginas}
-              onChange={(e) => setPaginas(e.target.value)}
+            <textarea
+              id={`peca-orientacao-${sufixo}`}
+              className={s.campo}
+              value={orientacao}
+              onChange={(e) => setOrientacao(e.target.value)}
+              placeholder="Ex.: usar a dotação 02.01.04.122.0003.2010 e o elemento 3.3.90.39."
+              maxLength={2000}
             />
+            {gerando ? (
+              <div className={s.gerando} role="status">
+                <span className={s.pulso} aria-hidden="true" />
+                Lendo os autos e escrevendo a peça…
+              </div>
+            ) : (
+              <div className={s.acoes}>
+                <button type="button" className={`${s.botao} ${s.primario}`} onClick={gerarRascunho} disabled={!iaDisponivel || enviando}>
+                  Gerar rascunho
+                </button>
+                <span className={s.ou}>O rascunho vai para o editor com as lacunas marcadas. Nada é juntado sem a sua revisão.</span>
+              </div>
+            )}
           </>
         ) : null}
+
+        {caminho === "anexar" ? (
+          <>
+            <div className={s.solta}>
+              <b>Escolha o PDF feito fora do sistema</b>
+              <input
+                type="file"
+                className={s.campo}
+                accept=".pdf,application/pdf"
+                onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+                aria-label="Anexar arquivo"
+              />
+              <span className={s.ou}>O sistema numera as folhas e registra a juntada.</span>
+            </div>
+            {arquivo ? (
+              <>
+                <label className={s.rotulo} htmlFor={`peca-paginas-${sufixo}`}>
+                  Quantas páginas tem o arquivo
+                </label>
+                <input
+                  id={`peca-paginas-${sufixo}`}
+                  type="number"
+                  min={1}
+                  max={500}
+                  className={`${s.campo} ${s.campoPequeno}`}
+                  value={paginas}
+                  onChange={(e) => setPaginas(e.target.value)}
+                />
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <EditorPeca
+              id={`peca-texto-${sufixo}`}
+              html={html}
+              onChange={aoEditar}
+              cabecalho={`${etapa?.rotulo ?? "Peça avulsa"} · cabeçalho do órgão e nº do processo entram no PDF`}
+              rodape="Local, data e assinatura eletrônica entram no PDF ao juntar."
+            />
+            <div className={s.acoes}>
+              {aviso ? <span className={s.ou}>{aviso}</span> : null}
+              {iaModelo ? <span className={s.seloIa}>Rascunho da IA — revise antes de juntar</span> : null}
+            </div>
+          </>
+        )}
         {erro ? (
           <div className={s.erro} role="alert">
             {erro}
