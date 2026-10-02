@@ -238,10 +238,10 @@ export default function TelaDoProcessoPage() {
       {ehLicitacao ? (
         <section className={`${s.bloco} ${s.neutro}`}>
           <div className={s.eyebrow}>Licitação</div>
-          <p>Autos, pesquisa de preços, aprovações, assinaturas, PNCP e sessão continuam na tela da licitação.</p>
+          <p>Autos, pesquisa de preços, checklist de publicação, PNCP e sessão ainda ficam nos detalhes da licitação.</p>
           <div className={s.acoes} style={{ marginTop: 12 }}>
-            <Link href={`/orgao/processos/${processo.referencia_id}`} className={`${s.botao} ${s.secundario}`}>
-              Abrir a licitação
+            <Link href={`/orgao/processos/${processo.referencia_id}?detalhes=1`} className={`${s.botao} ${s.secundario}`}>
+              Detalhes da licitação
             </Link>
           </div>
         </section>
