@@ -119,6 +119,7 @@ interface GrupoClasse {
 const valorDaDemanda = (d: Demanda) => (d.itens || []).reduce((t, i) => t + (Number(i.valor_total_estimado) || 0), 0)
 const chaveDaClasse = (i: ItemDemanda) => `${i.categoria}:${i.codigo_classe || 'SEM-CLASSE'}:${i.nome_classe || 'Sem classificação'}`.toUpperCase()
 const plural = (n: number, um: string, varios: string) => `${n} ${n === 1 ? um : varios}`
+const GRUPOS_POR_PAGINA = 20
 const numeroBR = (n: number) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 3 })
 
 function DfdConsolidadoContent() {
@@ -214,6 +215,9 @@ function DfdConsolidadoContent() {
   }, [selecionadas, podeMontar])
 
   const unidades = useMemo(() => Array.from(new Set(demandas.map((d) => d.unidade_requisitante).filter(Boolean))).sort(), [demandas])
+  // Lista grande (centenas de demandas): mostra por páginas de classes; busca e filtro continuam valendo sobre tudo
+  const [gruposVisiveis, setGruposVisiveis] = useState(GRUPOS_POR_PAGINA)
+  useEffect(() => setGruposVisiveis(GRUPOS_POR_PAGINA), [termo, unidade])
 
   const grupos = useMemo(() => {
     const mapa = new Map<string, GrupoClasse>()
@@ -450,7 +454,7 @@ function DfdConsolidadoContent() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {grupos.map((g) => (
+                    {grupos.slice(0, gruposVisiveis).map((g) => (
                       <GrupoDemandas
                         key={g.chave}
                         grupo={g}
@@ -462,6 +466,12 @@ function DfdConsolidadoContent() {
                         onAlternarGrupo={() => alternarGrupo(g)}
                       />
                     ))}
+                    {grupos.length > gruposVisiveis && (
+                      <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border bg-white p-3 text-sm">
+                        <span className="text-gray-700">Mostrando {gruposVisiveis} de {grupos.length} classes. Use a busca ou o filtro por unidade para achar mais rápido.</span>
+                        <Button variant="outline" size="sm" onClick={() => setGruposVisiveis((n) => n + GRUPOS_POR_PAGINA)}>Mostrar mais {Math.min(GRUPOS_POR_PAGINA, grupos.length - gruposVisiveis)}</Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
