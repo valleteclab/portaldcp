@@ -171,6 +171,8 @@ export function PainelTvConfig() {
             Quadro do setor de licitação para uma TV na sala: processos por etapa (com quem está, dias na etapa e atraso), sessões,
             publicações e contratos que vão vencer. Só leitura, sem login, atualiza sozinho a cada minuto. Não mostra valores de
             processos, propostas, textos de pareceres nem dados pessoais (CPF, e-mail, telefone).
+            {" "}O mesmo link com <code className="rounded bg-muted px-1 text-xs">/andamento</code> no fim abre o <strong>painel do gestor</strong>:
+            todos os processos (licitações, aditivos, renovações, avulsos e pedidos) com o caminho, onde estão, há quanto tempo e os gargalos por setor.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

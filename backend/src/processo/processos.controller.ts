@@ -88,6 +88,12 @@ export class ProcessosController {
     return this.painelGestor.painel(ator, orgaoId);
   }
 
+  /** Cobrança do gestor: avisa quem está com o processo (sino, e-mail, WhatsApp). Corpo: { mensagem? }. */
+  @Post(':id/cobrar')
+  cobrar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.painelGestor.cobrar(ator, id, body?.mensagem);
+  }
+
   /** Processos (aditivo/renovação/avulso) com o usuário ou o setor dele: aguardando recebimento e já recebidos. Antes de ':id'. */
   @Get('comigo')
   comigo(@AtorAtual() ator: Ator) {

@@ -27,6 +27,6 @@ import { PainelGestorService } from './painel-gestor.service';
   imports: [TypeOrmModule.forFeature([Processo, TipoProcessoRegistro, ProcessoMovimentacao, ProcessoPeca, ModeloDocumento]), NumeroProcessoModule, NotificacoesModule, IaModule],
   controllers: [ProcessosController],
   providers: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PecasLicitacaoService, PainelGestorService, MigracaoProcessoBootService],
-  exports: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, MigracaoProcessoBootService],
+  exports: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PainelGestorService, MigracaoProcessoBootService],
 })
 export class ProcessoModule {}
