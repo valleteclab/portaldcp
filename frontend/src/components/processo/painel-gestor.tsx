@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { API_URL, authFetch } from '@/lib/api'
 import { soData } from '@/lib/processo/processo'
 import { pedirTextoAcao } from '@/components/DialogoGlobal'
+import { KanbanAndamento } from './painel-gestor-kanban'
 import { toast } from 'sonner'
 
 export interface EtapaPainel {
@@ -264,6 +265,7 @@ export function PainelGestorAndamento() {
   const [termo, setTermo] = useState('')
   const [setor, setSetor] = useState('TODOS')
   const [ordem, setOrdem] = useState<Ordem>('PADRAO')
+  const [visao, setVisao] = useState<'LISTA' | 'KANBAN_SETOR' | 'KANBAN_ETAPA'>('LISTA')
   const [abertoId, setAbertoId] = useState<string | null>(null)
   const [visiveis, setVisiveis] = useState(POR_PAGINA)
 
@@ -469,11 +471,26 @@ export function PainelGestorAndamento() {
             <SelectItem value="SETOR">Por setor</SelectItem>
           </SelectContent>
         </Select>
+        <div role="group" aria-label="Visão" className="flex rounded-md border bg-white overflow-hidden">
+          {([['LISTA', 'Lista'], ['KANBAN_SETOR', 'Kanban por setor'], ['KANBAN_ETAPA', 'Kanban por etapa']] as const).map(([v, rotulo]) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={visao === v}
+              onClick={() => setVisao(v)}
+              className={`px-3 text-sm font-medium min-h-10 ${visao === v ? 'bg-[#1351b4] text-white' : 'text-gray-700 hover:bg-slate-50'}`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
+      <div className={`grid gap-4 items-start ${visao === 'LISTA' ? 'lg:grid-cols-[minmax(0,1fr)_300px]' : ''}`}>
         <div className="min-w-0">
-          {linhasFiltradas.length === 0 ? (
+          {visao !== 'LISTA' ? (
+            <KanbanAndamento linhas={linhasFiltradas} agrupar={visao === 'KANBAN_SETOR' ? 'SETOR' : 'ETAPA'} onAbrir={(l) => abrir(l.link)} onCobrar={(l) => cobrar(l)} />
+          ) : linhasFiltradas.length === 0 ? (
             <p className="text-sm text-gray-600 rounded-lg border border-dashed bg-slate-50 p-6 text-center">Nenhum processo com esse filtro.</p>
           ) : (
             <>
