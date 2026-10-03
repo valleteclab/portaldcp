@@ -209,7 +209,7 @@ function LinhaProcesso({ linha, aberto, onAlternar, onAbrir, onCobrar }: {
       {linha.etapas.length > 0 && <Caminho linha={linha} />}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
-        <span>Está com <b className="text-gray-900">{textoPosse(linha.esta_com)}</b></span>
+        <span>Localização: <b className="text-gray-900">{textoPosse(linha.esta_com)}</b></span>
         {linha.situacao !== 'ENCERRADO' && (
           <span className={`font-semibold ${diasCor}`}>há {plural(linha.esta_com?.dias ?? 0, 'dia', 'dias')}</span>
         )}
@@ -229,7 +229,7 @@ function LinhaProcesso({ linha, aberto, onAlternar, onAbrir, onCobrar }: {
             <dd className="text-gray-900">{linha.esta_com?.despacho || '—'}</dd>
           </div>
           <div>
-            <dt className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Está com desde</dt>
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Nesta localização desde</dt>
             <dd className="text-gray-900">{linha.esta_com?.desde ? soData(linha.esta_com.desde) : '—'}</dd>
           </div>
           <div>
@@ -456,9 +456,9 @@ export function PainelGestorAndamento() {
           />
         </div>
         <Select value={setor} onValueChange={setSetor}>
-          <SelectTrigger aria-label="Está com" className="w-full sm:w-56 bg-white"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label="Localização" className="w-full sm:w-56 bg-white"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="TODOS">Está com: todos os setores</SelectItem>
+            <SelectItem value="TODOS">Localização: todos os setores</SelectItem>
             {setoresOpcoes.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
           </SelectContent>
         </Select>

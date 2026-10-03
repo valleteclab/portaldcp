@@ -275,6 +275,10 @@ export class IntegracaoFluxoService {
     const condutor = await this.tarefas.condutorDoProcesso(licitacaoId);
     const posse = await this.tarefas.posseAtual(licitacaoId);
     const destinos = await this.tarefas.destinosDoProcesso(lic.orgao_id, modelo, config.modo, condutor);
+    // DFD montado pelo planejamento (consolidado): a etapa DFD é de quem abriu o processo, não do setor demandante
+    if (condutor && destinos['DFD'] && (await this.dfdVeioDoConsolidado(licitacaoId))) {
+      destinos['DFD'] = { setor_id: null, usuario_id: condutor, rotulo: 'quem abriu o processo' };
+    }
     const possiveis = await this.tarefas.destinosPossiveisDoProcesso(lic.orgao_id, modelo, config.modo, condutor, destinos);
     const s = sugerirEnvio(passos, destinos, posse, possiveis);
     const com = await this.tramitacao.comQuemEsta(licitacaoId);
