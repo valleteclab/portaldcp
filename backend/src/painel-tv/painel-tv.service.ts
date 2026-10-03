@@ -18,6 +18,7 @@ import { ComQuemEsta, TramitacaoService } from '../fase-interna/tramitacao.servi
 import { ROTULO_PAPEL, etapaAtual } from '../fase-interna/tarefas/etapas-fase-interna';
 import type { ConfigFaseInternaEfetiva } from '../fase-interna/tarefas/configuracao-fase-interna';
 import { ConfiguracaoPainelTv, PainelTvLink } from './painel-tv-link.entity';
+import { PainelGestorService } from '../processo/painel-gestor.service';
 import {
   COLUNAS_PAINEL,
   CacheCurto,
@@ -164,6 +165,7 @@ export class PainelTvService {
     @InjectRepository(ConfiguracaoPainelTv) private readonly configs: Repository<ConfiguracaoPainelTv>,
     private readonly tarefas: TarefasService,
     private readonly tramitacao: TramitacaoService,
+    private readonly painelGestor: PainelGestorService,
   ) {}
 
   /** Cache de 30 a 60 s (PAINEL_TV_CACHE_MS; 0 desliga — usado nos testes). */
@@ -303,6 +305,23 @@ export class PainelTvService {
    * revogado respondem o MESMO 404. Limite de requisições por token (429).
    */
   async dadosPorToken(token: string): Promise<PainelTvDados> {
+    const link = await this.linkPeloToken(token);
+    return this.dados(link.orgao_id);
+  }
+
+  /** Painel do gestor na TV (`/painel-tv/<token>/andamento`): mesmo token, mesmas regras, sem valores nem despachos. */
+  async andamentoPorToken(token: string) {
+    const link = await this.linkPeloToken(token);
+    const [orgao] = await this.ds.query(`SELECT nome, logo_url FROM orgaos WHERE id::text = $1`, [link.orgao_id]);
+    const painel = await this.painelGestor.painelParaTv(link.orgao_id);
+    const dados = { orgao: { nome: orgao?.nome ?? 'Órgão', logo_url: orgao?.logo_url || null }, ...painel };
+    const vazadas = chavesProibidasEm(dados);
+    if (vazadas.length) this.logger.error(`Painel do gestor na TV: chaves proibidas removidas do JSON: ${vazadas.join(', ')}`);
+    return removerChavesProibidas(dados);
+  }
+
+  /** Token → link ativo (404 igual para inválido, inexistente e revogado; 429 por token). */
+  private async linkPeloToken(token: string): Promise<{ id: string; orgao_id: string }> {
     const valor = String(token ?? '').trim().toLowerCase();
     const hash = this.hash(valor);
     if (!this.limitador.permitir(hash)) {
@@ -315,7 +334,7 @@ export class PainelTvService {
     this.ds
       .query(`UPDATE painel_tv_links SET ultimo_acesso = now() WHERE id = $1`, [link.id])
       .catch(() => undefined); // só estatística
-    return this.dados(link.orgao_id);
+    return link;
   }
 
   /** Dados do órgão (cache curto; montagens simultâneas do mesmo órgão viram uma). */

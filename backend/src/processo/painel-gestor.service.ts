@@ -1,7 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import type { Ator } from '../auth/acesso/ator';
+import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { escolherDestinatarios } from '../fase-interna/tramitacao-regras';
+import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { ProcessoService } from './processo.service';
 import { TipoProcesso } from './entities/processo.entity';
 import { diasEntre, estadoPeloTempo, EstadoAndamento, EtapaDoCaminho, etapasDaLicitacao, etapasDoPedido, etapasDoProcessoProprio, rotuloTipoProcesso } from './painel-gestor-regras';
 
@@ -31,7 +36,13 @@ export interface LinhaDoPainel {
 
 @Injectable()
 export class PainelGestorService {
-  constructor(@InjectDataSource() private readonly ds: DataSource) {}
+  private readonly logger = new Logger(PainelGestorService.name);
+
+  constructor(
+    @InjectDataSource() private readonly ds: DataSource,
+    private readonly processos: ProcessoService,
+    private readonly notificacoes: NotificacoesService,
+  ) {}
 
   private orgaoDe(ator: Ator, informado?: string): string {
     const id = ator.admin ? informado || ator.orgaoId : ator.orgaoId;
@@ -40,7 +51,89 @@ export class PainelGestorService {
   }
 
   async painel(ator: Ator, orgaoInformado?: string) {
-    const orgaoId = this.orgaoDe(ator, orgaoInformado);
+    return this.painelDoOrgao(this.orgaoDe(ator, orgaoInformado));
+  }
+
+  /**
+   * Versão para a TV (link público por token): só os abertos, sem valores e
+   * sem o texto dos despachos — a TV fica numa sala, não é lugar de valor
+   * estimado nem de dado de pessoa além do nome.
+   */
+  async painelParaTv(orgaoId: string) {
+    const p = await this.painelDoOrgao(orgaoId);
+    const limpar = (l: LinhaDoPainel) => ({ ...l, valor: null, esta_com: l.esta_com ? { ...l.esta_com, despacho: null } : null });
+    return {
+      ...p,
+      linhas: p.linhas.filter((l) => l.situacao === 'ABERTO').map(limpar),
+    };
+  }
+
+  /**
+   * COBRAR: o gestor avisa quem está com o processo (sino, e-mail e WhatsApp
+   * pelos canais do órgão) — a pessoa de destino, os lotados no setor e o
+   * chefe. Não muda a posse nem o prazo; só registra a cobrança no aviso.
+   */
+  async cobrar(ator: Ator, processoId: string, mensagemInformada: unknown) {
+    const p = await this.processos.obter(ator, processoId);
+    if (p.situacao === 'ENCERRADO') throw new BadRequestException('O processo está encerrado.');
+    const mensagem = String(mensagemInformada ?? '').trim().slice(0, 1000);
+    const licitacao = p.referencia_tipo === 'LICITACAO' && !!p.referencia_id;
+    const [posse] = licitacao
+      ? await this.ds.query(
+          `SELECT para_setor_id::text AS para_setor_id, para_setor_nome, para_usuario_id::text AS para_usuario_id, para_usuario_nome, COALESCE(data_ocorrencia, data_envio) AS em
+             FROM tramitacoes_processo WHERE licitacao_id::text = $1 ORDER BY sequencia DESC LIMIT 1`,
+          [p.referencia_id],
+        )
+      : await this.ds.query(
+          `SELECT para_setor_id::text AS para_setor_id, para_setor_nome, para_usuario_id::text AS para_usuario_id, para_usuario_nome, created_at AS em
+             FROM processo_movimentacoes WHERE processo_id::text = $1 ORDER BY sequencia DESC LIMIT 1`,
+          [p.id],
+        );
+    if (!posse) throw new BadRequestException('O processo ainda não está com ninguém: não há quem cobrar.');
+    const [chefeLinha] = posse.para_setor_id && ehUuid(posse.para_setor_id) ? await this.ds.query(`SELECT chefe_usuario_id::text AS chefe FROM setores WHERE id::text = $1`, [posse.para_setor_id]) : [];
+    const chefe: string | null = chefeLinha?.chefe ?? null;
+    const candidatos: Array<{ id: string; email: string | null; telefone: string | null; setor_id: string | null; nome: string | null }> = await this.ds.query(
+      `SELECT id::text AS id, email, telefone, setor_id::text AS setor_id, nome FROM usuarios
+        WHERE orgao_id::text = $1 AND ativo = true
+          AND (id::text = $2 OR ($3::text IS NOT NULL AND setor_id::text = $3::text) OR id::text = $4)
+        LIMIT 60`,
+      [p.orgao_id, posse.para_usuario_id ?? '', posse.para_setor_id ?? null, chefe ?? ''],
+    );
+    const para = escolherDestinatarios({ para_usuario_id: posse.para_usuario_id ?? null, para_setor_id: posse.para_setor_id ?? null }, candidatos, chefe, null);
+    if (!para.length) throw new BadRequestException('Não há usuário ativo no destino para receber a cobrança.');
+    const [gestor] = ator.usuarioId && ehUuid(ator.usuarioId) ? await this.ds.query(`SELECT nome FROM usuarios WHERE id::text = $1`, [ator.usuarioId]) : [];
+    const quem = gestor?.nome ?? (ator.tipo === 'ORGAO' ? 'Órgão' : 'Gestor');
+    const dias = diasEntre(posse.em, new Date());
+    const com = [posse.para_setor_nome, posse.para_usuario_nome].filter(Boolean).join(' · ') || 'você';
+    const link = licitacao ? `/orgao/processo/${p.id}` : `/orgao/processo/${p.id}`;
+    const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://portaldcp.com.br';
+    const titulo = `Cobrança: processo ${p.numero} está com ${com} há ${dias} dia${dias === 1 ? '' : 's'}`;
+    const texto = `${quem}: ${mensagem || 'Por favor, dê andamento ao processo.'}`;
+    await this.notificacoes.criarParaMultiplos(
+      para.map((u) => ({ id: u.id, email: u.email ?? undefined, telefone: u.telefone ?? undefined })),
+      {
+        orgao_id: p.orgao_id,
+        tipo: TipoNotificacao.PROCESSO_TRAMITADO,
+        titulo,
+        mensagem: texto,
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'PROCESSO',
+        entidade_id: p.id,
+        link,
+        enviar_email: true,
+        metadata: {
+          evento: 'COBRANCA',
+          cobrado_por: ator.usuarioId ?? ator.id,
+          whatsapp_text: `*${titulo}*\n${texto}\n\n${p.objeto}`,
+          whatsapp_url: `${appUrl}${link}`,
+        },
+      },
+    );
+    this.logger.log(`Cobrança do processo ${p.numero} por ${quem}: ${para.length} avisado(s)`);
+    return { ok: true, avisados: para.length, nomes: para.map((u) => (u as any).nome).filter(Boolean), esta_com: com, dias };
+  }
+
+  async painelDoOrgao(orgaoId: string) {
     const agora = new Date();
     const [processos, pedidos] = await Promise.all([this.linhasDosProcessos(orgaoId, agora), this.linhasDosPedidos(orgaoId, agora)]);
     const linhas = [...processos, ...pedidos].sort((a, b) => pesoEstado(b.estado) - pesoEstado(a.estado) || (b.esta_com?.dias ?? 0) - (a.esta_com?.dias ?? 0));

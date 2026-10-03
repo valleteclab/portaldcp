@@ -19,6 +19,8 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { API_URL, authFetch } from '@/lib/api'
 import { soData } from '@/lib/processo/processo'
+import { pedirTextoAcao } from '@/components/DialogoGlobal'
+import { toast } from 'sonner'
 
 export interface EtapaPainel {
   chave: string
@@ -349,7 +351,26 @@ export function PainelGestorAndamento() {
 
   const abrir = (link: string) => router.push(link)
   // TODO: ainda não existe endpoint de cobrança (aviso ao setor/pessoa). Por ora, "Cobrar" só abre o processo.
-  const cobrar = (link: string) => router.push(link)
+  // Cobrança: avisa quem está com o processo (sino, e-mail e WhatsApp), sem mudar a posse
+  const cobrar = async (l: { id: string; numero: string; esta_com: { setor_nome: string | null; usuario_nome: string | null; dias: number } | null }) => {
+    const com = [l.esta_com?.setor_nome, l.esta_com?.usuario_nome].filter(Boolean).join(' · ') || 'quem está com o processo'
+    const mensagem = await pedirTextoAcao({
+      titulo: `Cobrar o processo ${l.numero}`,
+      mensagem: `A cobrança vai para ${com} (está há ${l.esta_com?.dias ?? 0} dias). Escreva o que precisa, se quiser.`,
+      rotulo: 'Mensagem (opcional)',
+      placeholder: 'Ex.: Precisamos publicar até sexta. Dá para concluir o parecer hoje?',
+      confirmarRotulo: 'Enviar cobrança',
+    })
+    if (mensagem === null) return
+    try {
+      const r = await authFetch(`${API_URL}/api/processos/${l.id}/cobrar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mensagem }) })
+      const j = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
+      toast.success(`Cobrança enviada para ${j?.nomes?.length ? j.nomes.join(', ') : com}.`)
+    } catch (e) {
+      toast.error(`Não foi possível cobrar: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
 
   if (carregando) {
     return (
@@ -464,7 +485,7 @@ export function PainelGestorAndamento() {
                     aberto={abertoId === l.id}
                     onAlternar={() => setAbertoId((v) => (v === l.id ? null : l.id))}
                     onAbrir={() => abrir(l.link)}
-                    onCobrar={() => cobrar(l.link)}
+                    onCobrar={() => cobrar(l)}
                   />
                 ))}
               </ul>

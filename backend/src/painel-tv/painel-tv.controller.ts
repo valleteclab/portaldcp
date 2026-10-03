@@ -23,6 +23,15 @@ export class PainelTvController {
   dados(@Param('token') token: string) {
     return this.painel.dadosPorToken(token);
   }
+
+  /** Painel do gestor na TV: andamento de todos os processos (sem valores nem despachos). */
+  @Public()
+  @Get(':token/andamento')
+  @Header('Cache-Control', 'no-store')
+  @Header('X-Robots-Tag', 'noindex, nofollow')
+  andamento(@Param('token') token: string) {
+    return this.painel.andamentoPorToken(token);
+  }
 }
 
 /**
