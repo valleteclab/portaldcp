@@ -780,6 +780,22 @@ export default function DetalheDemandaPage() {
           </SecaoDemanda>
 
           {/* 2. Justificativa */}
+          {!podeEditar && !demanda.observacoes?.trim() && (
+            <div role="note" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 flex flex-wrap items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="flex-1 min-w-[220px]">
+                O pedido já foi enviado: a justificativa dele só se escreve em rascunho, pelo setor que pediu ({demanda.unidade_requisitante}).
+                {demanda.dfd
+                  ? ' A justificativa da contratação é escrita no DFD ("Justificativa consolidada da necessidade").'
+                  : ' A justificativa da contratação será escrita no DFD, quando o planejamento montar.'}
+              </span>
+              {demanda.dfd && (
+                <Button size="sm" variant="outline" className="bg-white" onClick={() => router.push(`/orgao/demandas/dfd/${demanda.dfd!.id}`)}>
+                  Abrir o DFD
+                </Button>
+              )}
+            </div>
+          )}
           <JustificativaDemanda
             demandaId={demanda.id}
             justificativa={demanda.observacoes || ''}
