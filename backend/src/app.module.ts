@@ -68,6 +68,7 @@ import { LeilaoModule } from './leilao/leilao.module';
 import { ConcursoModule } from './concurso/concurso.module';
 import { DialogoCompetitivoModule } from './dialogo-competitivo/dialogo.module';
 import { PainelTvModule } from './painel-tv/painel-tv.module';
+import { WorkflowModule } from './workflow/workflow.module';
 
 @Module({
   imports: [
@@ -183,6 +184,7 @@ import { PainelTvModule } from './painel-tv/painel-tv.module';
     ConcursoModule, // concurso (E7c — art. 30)
     DialogoCompetitivoModule, // diálogo competitivo (E7c — art. 32)
     PainelTvModule, // painel para TV do setor de licitação (link com token, só leitura)
+    WorkflowModule,
   ],
   controllers: [HealthController],
   providers: [

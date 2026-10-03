@@ -1,191 +1,121 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, ArrowRight, Check, ChevronDown, Circle, Clock3, GitBranch, Loader2, Plus, Save, ShieldCheck, UserRound } from "lucide-react"
+import { ArrowLeft, Bell, CheckCircle2, ClipboardList, FileInput, FileText, GitBranch, Loader2, Mail, MessageCircle, Plus, Send, Settings2, Smartphone, UserCheck } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { API_URL, authFetch } from "@/lib/api"
-import { corpoDoRascunho, modeloEmEdicao, TIPOS_PROCESSO, type ModeloEmEdicao, type TelaConstrutor, type TipoProcesso } from "@/lib/fluxo/tela-construtor"
-import type { NoFluxo } from "@/lib/fluxo/grafo-editor"
 
-const BASE = `${API_URL}/api/fluxo-fase-interna/construtor`
+type Reacao = { id: string; tipo: string; nome: string; configuracao: Record<string, unknown> }
+type Acao = { id: string; nome: string; tipo: string; prazo_dias_uteis: number | null; reacoes: Reacao[] }
+type Fase = { id: string; nome: string; cor: string; ordem: number; acoes: Acao[] }
+type Campo = { id: string; rotulo: string; tipo: string; obrigatorio: boolean }
+type Formulario = { id: string; nome: string; campos: Campo[] }
+type Workflow = { id: string; nome: string; descricao: string | null; status: string; versao: number; fases: Fase[]; formularios: Formulario[] }
 
-type Passo = "escolher" | "montar" | "revisar"
+const BASE = `${API_URL}/api/workflows`
 
-const tipoVisual = (no: NoFluxo) => {
-  if (no.tipo === "inicio") return { rotulo: "Início", cor: "border-emerald-300 bg-emerald-50", icone: Circle }
-  if (no.tipo === "fim") return { rotulo: "Fim", cor: "border-slate-300 bg-slate-50", icone: Check }
-  if (no.tipo === "condicao") return { rotulo: "Decisão", cor: "border-amber-300 bg-amber-50", icone: GitBranch }
-  if (no.tipo === "aprovacao") return { rotulo: "Aprovação", cor: "border-violet-300 bg-violet-50", icone: ShieldCheck }
-  return { rotulo: "Tarefa", cor: "border-blue-300 bg-blue-50", icone: UserRound }
-}
-
-async function jsonOuErro(resposta: Response) {
+async function requisicao(url: string, init?: RequestInit) {
+  const resposta = await authFetch(url, init)
   const corpo = await resposta.json().catch(() => null)
   if (!resposta.ok) throw new Error(Array.isArray(corpo?.message) ? corpo.message.join(" ") : corpo?.message || `Erro ${resposta.status}`)
   return corpo
 }
 
-function ordenarNos(modelo: ModeloEmEdicao | null) {
-  return [...(modelo?.grafo.nos ?? [])].sort((a, b) => a.x - b.x || a.y - b.y)
-}
+const ACAO = {
+  FORMULARIO: { nome: "Preenchimento de formulário", cor: "#0891b2", Icone: ClipboardList },
+  APROVACAO: { nome: "Aprovação", cor: "#eab308", Icone: UserCheck },
+  DOCUMENTO: { nome: "Envio de documento", cor: "#0ea5e9", Icone: FileInput },
+  TAREFA: { nome: "Tarefa", cor: "#6366f1", Icone: CheckCircle2 },
+} as const
 
-export default function FluxosSimplesPage() {
-  const [tipo, setTipo] = useState<TipoProcesso>("DISPENSA")
-  const [passo, setPasso] = useState<Passo>("escolher")
-  const [tela, setTela] = useState<TelaConstrutor | null>(null)
-  const [modelo, setModelo] = useState<ModeloEmEdicao | null>(null)
-  const [selecionado, setSelecionado] = useState<string | null>(null)
+const REACAO = {
+  EMAIL: { nome: "Enviar e-mail", Icone: Mail },
+  WHATSAPP: { nome: "Enviar WhatsApp", Icone: Smartphone },
+  NOTIFICACAO: { nome: "Notificação interna", Icone: Bell },
+  GERAR_DOCUMENTO: { nome: "Gerar documento", Icone: FileText },
+  AVANCAR: { nome: "Avançar no fluxo", Icone: Send },
+} as const
+
+export default function WorkflowsPage() {
+  const [lista, setLista] = useState<Workflow[]>([])
+  const [workflow, setWorkflow] = useState<Workflow | null>(null)
   const [carregando, setCarregando] = useState(true)
-  const [salvando, setSalvando] = useState(false)
-  const [publicando, setPublicando] = useState(false)
+  const [nomeNovo, setNomeNovo] = useState("")
+  const [criando, setCriando] = useState(false)
+  const [formulariosAbertos, setFormulariosAbertos] = useState(false)
 
-  const carregar = useCallback(async () => {
+  const listar = useCallback(async () => {
     setCarregando(true)
-    try {
-      const dados = (await jsonOuErro(await authFetch(`${BASE}/${tipo}`))) as TelaConstrutor
-      const atual = modeloEmEdicao(dados)
-      setTela(dados)
-      setModelo(atual)
-      setSelecionado(ordenarNos(atual).find((no) => no.tipo !== "inicio" && no.tipo !== "fim")?.id ?? null)
-    } catch (erro) {
-      toast.error(erro instanceof Error ? erro.message : "Não foi possível carregar o fluxo")
-    } finally {
-      setCarregando(false)
-    }
-  }, [tipo])
+    try { setLista(await requisicao(BASE)) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao carregar processos") } finally { setCarregando(false) }
+  }, [])
+  useEffect(() => void listar(), [listar])
 
-  useEffect(() => void carregar(), [carregar])
-
-  const nos = useMemo(() => ordenarNos(modelo), [modelo])
-  const no = modelo?.grafo.nos.find((item) => item.id === selecionado) ?? null
-  const erros = tela?.conferencia?.erros ?? []
-
-  const alterarNo = (mudanca: Partial<NoFluxo>) => {
-    if (!modelo || !selecionado) return
-    setModelo({ ...modelo, grafo: { ...modelo.grafo, nos: modelo.grafo.nos.map((item) => item.id === selecionado ? { ...item, ...mudanca } : item) } })
+  const abrir = async (id: string) => {
+    try { setWorkflow(await requisicao(`${BASE}/${id}`)) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao abrir processo") }
   }
-
-  const salvar = async () => {
-    if (!modelo) return
-    setSalvando(true)
-    try {
-      const dados = (await jsonOuErro(await authFetch(`${BASE}/${tipo}/rascunho`, { method: "PUT", body: JSON.stringify(corpoDoRascunho(modelo)) }))) as TelaConstrutor
-      setTela(dados)
-      toast.success("Rascunho salvo. Nada mudou nos processos em andamento.")
-      setPasso("revisar")
-    } catch (erro) {
-      toast.error(erro instanceof Error ? erro.message : "Não foi possível salvar")
-    } finally {
-      setSalvando(false)
-    }
+  const recarregar = async () => { if (workflow) await abrir(workflow.id) }
+  const criar = async () => {
+    if (!nomeNovo.trim()) return toast.error("Digite o nome do processo")
+    setCriando(true)
+    try { const criado = await requisicao(BASE, { method: "POST", body: JSON.stringify({ nome: nomeNovo }) }); setNomeNovo(""); setWorkflow(criado); await listar() } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao criar") } finally { setCriando(false) }
   }
-
+  const adicionarFase = async () => {
+    if (!workflow) return
+    const nome = window.prompt("Nome da nova fase:", "Análise")?.trim(); if (!nome) return
+    await requisicao(`${BASE}/${workflow.id}/fases`, { method: "POST", body: JSON.stringify({ nome }) }); await recarregar()
+  }
+  const adicionarAcao = async (fase: Fase) => {
+    if (!workflow) return
+    const tipo = (window.prompt("Tipo: FORMULARIO, APROVACAO, DOCUMENTO ou TAREFA", "FORMULARIO") || "").toUpperCase()
+    if (!(tipo in ACAO)) return toast.error("Escolha um tipo de ação válido")
+    const nome = window.prompt("Nome da ação:", ACAO[tipo as keyof typeof ACAO].nome)?.trim(); if (!nome) return
+    await requisicao(`${BASE}/${workflow.id}/fases/${fase.id}/acoes`, { method: "POST", body: JSON.stringify({ tipo, nome }) }); await recarregar()
+  }
+  const adicionarReacao = async (acao: Acao) => {
+    if (!workflow) return
+    const tipo = (window.prompt("Reação: EMAIL, WHATSAPP, NOTIFICACAO, GERAR_DOCUMENTO ou AVANCAR", "EMAIL") || "").toUpperCase()
+    if (!(tipo in REACAO)) return toast.error("Escolha uma reação válida")
+    const nome = window.prompt("Nome da reação:", REACAO[tipo as keyof typeof REACAO].nome)?.trim(); if (!nome) return
+    const configuracao: Record<string, string> = {}
+    if (tipo === "EMAIL") { configuracao.destinatario = window.prompt("Destinatário ou variável (ex.: {{solicitante.email}}):", "{{responsavel.email}}") || ""; configuracao.assunto = window.prompt("Assunto:", `Tarefa: ${acao.nome}`) || ""; configuracao.mensagem = window.prompt("Mensagem:", "Você possui uma nova tarefa no Portal DCP.") || "" }
+    if (tipo === "WHATSAPP") { configuracao.destinatario = window.prompt("Telefone ou variável (ex.: {{solicitante.telefone}}):", "{{responsavel.telefone}}") || ""; configuracao.mensagem = window.prompt("Mensagem do WhatsApp:", `Nova tarefa: ${acao.nome}. Acesse {{link_tarefa}}`) || "" }
+    await requisicao(`${BASE}/${workflow.id}/acoes/${acao.id}/reacoes`, { method: "POST", body: JSON.stringify({ tipo, nome, configuracao }) }); await recarregar()
+  }
+  const criarFormulario = async () => {
+    if (!workflow) return
+    const nome = window.prompt("Nome do formulário:", "Formulário da solicitação")?.trim(); if (!nome) return
+    await requisicao(`${BASE}/${workflow.id}/formularios`, { method: "POST", body: JSON.stringify({ nome }) }); await recarregar(); setFormulariosAbertos(true)
+  }
+  const adicionarCampo = async (formulario: Formulario) => {
+    if (!workflow) return
+    const rotulo = window.prompt("Nome do campo:", "Descrição")?.trim(); if (!rotulo) return
+    const tipo = (window.prompt("Tipo: TEXTO, TEXTO_LONGO, NUMERO, MOEDA, DATA, LISTA, ARQUIVO, USUARIO ou SETOR", "TEXTO") || "TEXTO").toUpperCase()
+    const obrigatorio = window.confirm("Este campo é obrigatório?")
+    await requisicao(`${BASE}/${workflow.id}/formularios/${formulario.id}/campos`, { method: "POST", body: JSON.stringify({ rotulo, tipo, obrigatorio }) }); await recarregar()
+  }
   const publicar = async () => {
-    setPublicando(true)
-    try {
-      await salvar()
-      const dados = await jsonOuErro(await authFetch(`${BASE}/${tipo}/ativar`, { method: "POST" }))
-      toast.success(`Versão ${dados?.ativado?.versao ?? dados?.versao ?? "nova"} ativada para processos novos.`)
-      await carregar()
-    } catch (erro) {
-      toast.error(erro instanceof Error ? erro.message : "O fluxo ainda precisa de ajustes")
-    } finally {
-      setPublicando(false)
-    }
+    if (!workflow) return
+    try { await requisicao(`${BASE}/${workflow.id}`, { method: "PATCH", body: JSON.stringify({ status: "PUBLICADO" }) }); toast.success("Processo publicado"); await recarregar() } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao publicar") }
   }
 
-  return (
-    <div className="mx-auto max-w-7xl space-y-6 pb-16">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Link href="/orgao/configuracoes" className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline">
-            <ArrowLeft className="h-4 w-4" /> Configurações
-          </Link>
-          <h1 className="mt-2 text-3xl font-bold text-slate-900">Fluxos de trabalho</h1>
-          <p className="mt-1 max-w-2xl text-slate-600">Monte o caminho como sua equipe trabalha. Você não precisa conhecer BPMN: o sistema cuida das regras e do desenho técnico.</p>
-        </div>
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-          <strong>Modo seguro:</strong> alterações ficam em rascunho até você ativar.
-        </div>
-      </div>
+  if (carregando && !workflow) return <div className="flex justify-center py-20"><Loader2 className="h-7 w-7 animate-spin" /></div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {(["escolher", "montar", "revisar"] as Passo[]).map((item, indice) => {
-          const titulos = ["1. Escolha o processo", "2. Monte as etapas", "3. Revise e ative"]
-          const ativo = passo === item
-          return <button key={item} onClick={() => setPasso(item)} className={`rounded-xl border p-4 text-left transition ${ativo ? "border-blue-600 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white hover:border-slate-300"}`}>
-            <span className={`mb-2 inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${ativo ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-600"}`}>{indice + 1}</span>
-            <div className="font-semibold text-slate-900">{titulos[indice]}</div>
-          </button>
-        })}
-      </div>
+  if (!workflow) return <div className="mx-auto max-w-6xl space-y-6">
+    <div><Link href="/orgao/configuracoes" className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Configurações</Link><h1 className="mt-2 text-3xl font-bold">Gestão de processos e workflow</h1><p className="mt-1 text-slate-600">Crie processos com formulários, aprovações, documentos e automações.</p></div>
+    <Card><CardContent className="flex flex-wrap gap-3 p-5"><Input className="max-w-md" placeholder="Ex.: Solicitação de compras" value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && criar()} /><Button onClick={criar} disabled={criando}>{criando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}Criar processo</Button></CardContent></Card>
+    <div className="grid gap-4 md:grid-cols-3">{lista.map((item) => <button key={item.id} onClick={() => abrir(item.id)} className="rounded-xl border bg-white p-5 text-left shadow-sm hover:border-blue-500"><div className="flex items-start justify-between"><GitBranch className="h-7 w-7 text-blue-700" /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "PUBLICADO" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>{item.status}</span></div><h2 className="mt-4 font-semibold text-slate-900">{item.nome}</h2><p className="mt-1 text-sm text-slate-500">Versão {item.versao}</p></button>)}</div>
+  </div>
 
-      {passo === "escolher" && (
-        <Card><CardContent className="p-6">
-          <h2 className="text-xl font-semibold">Qual processo você quer organizar?</h2>
-          <p className="mt-1 text-sm text-slate-600">Comece por um fluxo existente. A versão ativa continuará valendo até a publicação.</p>
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {TIPOS_PROCESSO.map((item) => <button key={item.tipo} onClick={() => { setTipo(item.tipo); setPasso("montar") }} className={`rounded-xl border p-5 text-left hover:border-blue-500 hover:bg-blue-50 ${tipo === item.tipo ? "border-blue-500 bg-blue-50" : "border-slate-200"}`}>
-              <GitBranch className="mb-4 h-7 w-7 text-blue-700" />
-              <div className="font-semibold text-slate-900">{item.rotulo}</div>
-              <div className="mt-1 text-sm text-slate-500">Abrir e simplificar este fluxo</div>
-            </button>)}
-          </div>
-        </CardContent></Card>
-      )}
+  return <div className="space-y-5 pb-16">
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><button onClick={() => setWorkflow(null)} className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Todos os processos</button><h1 className="mt-1 text-2xl font-bold">{workflow.nome}</h1><p className="text-sm text-slate-500">Versão {workflow.versao} · {workflow.status}</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setFormulariosAbertos(!formulariosAbertos)}><ClipboardList className="mr-2 h-4 w-4" />Formulários</Button><Button variant="outline" onClick={adicionarFase}><Plus className="mr-2 h-4 w-4" />Fase</Button><Button onClick={publicar}>Publicar</Button></div></div>
 
-      {passo !== "escolher" && carregando && <div className="flex justify-center py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-700" /></div>}
+    {formulariosAbertos && <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Formulários do processo</h2><p className="text-sm text-slate-500">Os campos preenchidos ficam disponíveis para ações e mensagens.</p></div><Button size="sm" onClick={criarFormulario}><Plus className="mr-1 h-4 w-4" />Formulário</Button></div><div className="mt-4 grid gap-3 md:grid-cols-3">{workflow.formularios.map((form) => <div key={form.id} className="rounded-lg border p-4"><div className="flex justify-between"><strong>{form.nome}</strong><button onClick={() => adicionarCampo(form)} className="text-sm text-blue-700">+ Campo</button></div><div className="mt-3 space-y-1">{form.campos.map((campo) => <div key={campo.id} className="rounded bg-slate-50 px-2 py-1 text-sm">{campo.rotulo} <span className="text-xs text-slate-400">{campo.tipo}{campo.obrigatorio ? " · obrigatório" : ""}</span></div>)}</div></div>)}</div></CardContent></Card>}
 
-      {passo === "montar" && !carregando && modelo && (
-        <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-          <Card><CardContent className="p-5">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div><h2 className="text-xl font-semibold">Caminho do processo</h2><p className="text-sm text-slate-500">Clique em uma etapa para configurar.</p></div>
-              <Button variant="outline" onClick={() => toast.info("Na próxima fatia, esta ação abrirá o catálogo de tarefas sem exigir desenho manual.")}><Plus className="mr-2 h-4 w-4" />Adicionar etapa</Button>
-            </div>
-            <div className="overflow-x-auto pb-4">
-              <div className="flex min-w-max items-center gap-2">
-                {nos.map((item, indice) => {
-                  const visual = tipoVisual(item); const Icone = visual.icone
-                  return <div key={item.id} className="flex items-center gap-2">
-                    <button onClick={() => setSelecionado(item.id)} className={`w-48 rounded-xl border-2 p-4 text-left transition ${visual.cor} ${selecionado === item.id ? "ring-2 ring-blue-600 ring-offset-2" : ""}`}>
-                      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500"><Icone className="h-4 w-4" />{visual.rotulo}</div>
-                      <div className="mt-2 line-clamp-2 font-semibold text-slate-900">{item.nome}</div>
-                      {item.prazo_dias_uteis != null && <div className="mt-2 flex items-center gap-1 text-xs text-slate-600"><Clock3 className="h-3.5 w-3.5" />{item.prazo_dias_uteis} dias úteis</div>}
-                    </button>
-                    {indice < nos.length - 1 && <ArrowRight className="h-5 w-5 shrink-0 text-slate-400" />}
-                  </div>
-                })}
-              </div>
-            </div>
-            <div className="mt-5 rounded-lg bg-slate-50 p-3 text-sm text-slate-600">O sistema mantém decisões, devoluções e validações legais do fluxo original. Esta visão mostra apenas o necessário para configurar o trabalho.</div>
-          </CardContent></Card>
-
-          <Card><CardContent className="p-5">
-            {!no ? <p className="text-sm text-slate-500">Selecione uma etapa.</p> : <div className="space-y-5">
-              <div><div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tipoVisual(no).rotulo}</div><h3 className="text-lg font-semibold">Configurar etapa</h3></div>
-              <label className="block text-sm font-medium">Nome<Input className="mt-1" value={no.nome} disabled={no.tipo === "inicio" || no.tipo === "fim"} onChange={(e) => alterarNo({ nome: e.target.value })} /></label>
-              {no.tipo !== "inicio" && no.tipo !== "fim" && <>
-                <label className="block text-sm font-medium">Responsável<select className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3" value={no.responsavel?.setor_id ? `setor:${no.responsavel.setor_id}` : no.responsavel?.usuario_id ? `usuario:${no.responsavel.usuario_id}` : no.responsavel?.papel ? `papel:${no.responsavel.papel}` : ""} onChange={(e) => { const [origem, id] = e.target.value.split(":"); alterarNo({ responsavel: { papel: origem === "papel" ? id : null, setor_id: origem === "setor" ? id : null, usuario_id: origem === "usuario" ? id : null } }) }}><option value="">Quem estiver com o processo</option><optgroup label="Setores">{tela?.setores.map((s) => <option key={s.id} value={`setor:${s.id}`}>{s.nome}</option>)}</optgroup><optgroup label="Pessoas">{tela?.usuarios.map((u) => <option key={u.id} value={`usuario:${u.id}`}>{u.nome}</option>)}</optgroup><optgroup label="Papéis">{tela?.papeis.map((p) => <option key={p.codigo} value={`papel:${p.codigo}`}>{p.rotulo}</option>)}</optgroup></select></label>
-                <label className="block text-sm font-medium">Prazo em dias úteis<Input className="mt-1" type="number" min={0} value={no.prazo_dias_uteis ?? ""} onChange={(e) => alterarNo({ prazo_dias_uteis: e.target.value === "" ? null : Number(e.target.value) })} /></label>
-              </>}
-              <Button className="w-full" onClick={salvar} disabled={salvando}>{salvando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Salvar rascunho</Button>
-            </div>}
-          </CardContent></Card>
-        </div>
-      )}
-
-      {passo === "revisar" && !carregando && tela && (
-        <Card><CardContent className="p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 className="text-xl font-semibold">Tudo pronto para testar?</h2><p className="mt-1 text-sm text-slate-600">A versão ativa é a {tela.ativo.versao}. Processos em andamento não serão alterados.</p></div><div className={`rounded-full px-3 py-1 text-sm font-semibold ${erros.length ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}`}>{erros.length ? `${erros.length} ajuste(s) necessário(s)` : "Fluxo conferido"}</div></div>
-          {erros.length > 0 && <div className="mt-5 space-y-2">{erros.map((erro, i) => <div key={`${erro.codigo}-${i}`} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm"><strong>{erro.mensagem}</strong>{erro.fundamento && <div className="mt-1 text-amber-800">{erro.fundamento}</div>}</div>)}</div>}
-          <div className="mt-6 flex flex-wrap gap-3"><Button variant="outline" onClick={() => setPasso("montar")}>Voltar e ajustar</Button><Button onClick={publicar} disabled={publicando || erros.length > 0}>{publicando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Ativar para novos processos</Button><Link href={`/orgao/configuracoes/fluxo?tipo=${tipo}&tecnico=1`}><Button variant="ghost">Abrir editor técnico <ChevronDown className="ml-2 h-4 w-4 -rotate-90" /></Button></Link></div>
-        </CardContent></Card>
-      )}
-    </div>
-  )
+    <div className="overflow-x-auto pb-4"><div className="flex min-w-max items-start gap-4">{workflow.fases.map((fase) => <section key={fase.id} className="w-80 rounded-xl border border-slate-200 bg-slate-50 shadow-sm"><div className="rounded-t-xl border-b bg-white px-4 py-3" style={{ borderTop: `5px solid ${fase.cor}` }}><div className="flex items-center justify-between"><h2 className="font-bold text-slate-800">{fase.nome}</h2><Settings2 className="h-4 w-4 text-slate-400" /></div><button onClick={() => adicionarAcao(fase)} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-700"><Plus className="h-4 w-4" />AÇÃO</button></div><div className="space-y-3 p-3">{fase.acoes.map((acao) => { const visual = ACAO[acao.tipo as keyof typeof ACAO] ?? ACAO.TAREFA; const Icone = visual.Icone; return <article key={acao.id} className="overflow-hidden rounded-lg border bg-white shadow-sm"><div className="border-l-4 p-3" style={{ borderLeftColor: visual.cor }}><div className="flex gap-2"><Icone className="mt-0.5 h-4 w-4 shrink-0" style={{ color: visual.cor }} /><div><div className="text-xs font-semibold uppercase text-slate-400">{visual.nome}</div><h3 className="font-semibold text-slate-800">{acao.nome}</h3></div></div></div><div className="border-t bg-slate-50 px-3 py-2"><div className="flex items-center justify-between"><span className="text-xs font-semibold uppercase text-slate-400">Reações</span><button onClick={() => adicionarReacao(acao)} className="text-xs font-semibold text-blue-700">+ REAÇÃO</button></div><div className="mt-2 space-y-1">{acao.reacoes.map((reacao) => { const item = REACAO[reacao.tipo as keyof typeof REACAO]; const RIcone = item?.Icone ?? Bell; return <div key={reacao.id} className="flex items-center gap-2 rounded bg-white px-2 py-1.5 text-sm"><RIcone className={`h-4 w-4 ${reacao.tipo === "WHATSAPP" ? "text-green-600" : "text-blue-600"}`} />{reacao.nome}</div> })}</div></div></article>})}{fase.acoes.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-400">Adicione a primeira ação</div>}</div></section>)}<button onClick={adicionarFase} className="flex h-32 w-48 items-center justify-center rounded-xl border-2 border-dashed text-sm font-semibold text-slate-500 hover:border-blue-500 hover:text-blue-700"><Plus className="mr-2 h-4 w-4" />Nova fase</button></div></div>
+    <div className="fixed bottom-5 right-5 rounded-full bg-green-600 p-3 text-white shadow-lg" title="WhatsApp integrado"><MessageCircle className="h-5 w-5" /></div>
+  </div>
 }

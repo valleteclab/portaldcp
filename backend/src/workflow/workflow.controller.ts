@@ -1,0 +1,20 @@
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { AtorAtual } from '../auth/acesso/acesso.decorators';
+import type { Ator } from '../auth/acesso/ator';
+import { WorkflowService } from './workflow.service';
+
+const orgaoDo = (ator: Ator) => { if (!ator?.orgaoId) throw new BadRequestException('Acesso exclusivo do órgão'); return ator.orgaoId; };
+
+@Controller('workflows')
+export class WorkflowController {
+  constructor(private readonly service: WorkflowService) {}
+  @Get() listar(@AtorAtual() ator: Ator) { return this.service.listar(orgaoDo(ator)); }
+  @Post() criar(@AtorAtual() ator: Ator, @Body() body: any) { return this.service.criar(orgaoDo(ator), ator.usuarioId ?? ator.id, body); }
+  @Get(':id') obter(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.service.obter(orgaoDo(ator), id); }
+  @Patch(':id') atualizar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.atualizar(orgaoDo(ator), id, body); }
+  @Post(':id/fases') fase(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.adicionarFase(orgaoDo(ator), id, body); }
+  @Post(':id/formularios') formulario(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.adicionarFormulario(orgaoDo(ator), id, body); }
+  @Post(':id/formularios/:formularioId/campos') campo(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('formularioId') formularioId: string, @Body() body: any) { return this.service.adicionarCampo(orgaoDo(ator), id, formularioId, body); }
+  @Post(':id/fases/:faseId/acoes') acao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('faseId') faseId: string, @Body() body: any) { return this.service.adicionarAcao(orgaoDo(ator), id, faseId, body); }
+  @Post(':id/acoes/:acaoId/reacoes') reacao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('acaoId') acaoId: string, @Body() body: any) { return this.service.adicionarReacao(orgaoDo(ator), id, acaoId, body); }
+}
