@@ -83,7 +83,7 @@ export class PainelGestorService {
               l.fase::text AS lic_fase, l.situacao::text AS lic_situacao, l.valor_total_estimado::text AS lic_valor, l.data_abertura_sessao AS lic_sessao, l.data_limite_impugnacao AS lic_impugnacao,
               c.numero_contrato AS contrato_numero, c.valor_global::text AS contrato_valor, c.data_vigencia_fim AS contrato_fim,
               m.para_setor_id::text AS mov_setor_id, m.para_setor_nome AS mov_setor_nome, m.para_usuario_nome AS mov_usuario_nome, m.recebida_em AS mov_recebida_em, m.despacho AS mov_despacho, m.created_at AS mov_em,
-              t.para_setor_id::text AS tr_setor_id, t.para_setor_nome AS tr_setor_nome, t.para_usuario_nome AS tr_usuario_nome, t.status::text AS tr_status, t.data_recebimento AS tr_recebido_em, t.despacho AS tr_despacho, t.created_at AS tr_em, t.prazo_dias_uteis AS tr_prazo_dias
+              t.para_setor_id::text AS tr_setor_id, t.para_setor_nome AS tr_setor_nome, t.para_usuario_nome AS tr_usuario_nome, t.status::text AS tr_status, t.data_recebimento AS tr_recebido_em, t.despacho AS tr_despacho, COALESCE(t.data_ocorrencia, t.data_envio) AS tr_em, t.prazo_dias_uteis AS tr_prazo_dias
          FROM processos p
          LEFT JOIN licitacoes l ON p.referencia_tipo = 'LICITACAO' AND l.id::text = p.referencia_id::text
          LEFT JOIN contratos c ON c.id = p.contrato_id
