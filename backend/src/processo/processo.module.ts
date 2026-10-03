@@ -13,6 +13,7 @@ import { ProcessoTiposService } from './processo-tipos.service';
 import { ProcessoService } from './processo.service';
 import { ProcessosController } from './processos.controller';
 import { PecasLicitacaoService } from './pecas-licitacao.service';
+import { PainelGestorService } from './painel-gestor.service';
 
 /**
  * PROCESSO ELETRÔNICO (fundação — decisão do dono de 28/09/2026).
@@ -25,7 +26,7 @@ import { PecasLicitacaoService } from './pecas-licitacao.service';
 @Module({
   imports: [TypeOrmModule.forFeature([Processo, TipoProcessoRegistro, ProcessoMovimentacao, ProcessoPeca, ModeloDocumento]), NumeroProcessoModule, NotificacoesModule, IaModule],
   controllers: [ProcessosController],
-  providers: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PecasLicitacaoService, MigracaoProcessoBootService],
+  providers: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PecasLicitacaoService, PainelGestorService, MigracaoProcessoBootService],
   exports: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, MigracaoProcessoBootService],
 })
 export class ProcessoModule {}

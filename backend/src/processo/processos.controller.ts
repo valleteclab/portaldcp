@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Headers, Ip, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { PecasLicitacaoService } from './pecas-licitacao.service';
+import { PainelGestorService } from './painel-gestor.service';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ProcessoConteudoService } from './processo-conteudo.service';
@@ -28,6 +29,7 @@ export class ProcessosController {
     private readonly tipos: ProcessoTiposService,
     private readonly tramite: ProcessoTramitacaoService,
     private readonly pecasLicitacao: PecasLicitacaoService,
+    private readonly painelGestor: PainelGestorService,
   ) {}
 
   /** Tipos de processo (registro em dados + catálogo de documentos e campos de condição de cada um). */
@@ -78,6 +80,12 @@ export class ProcessosController {
   async porReferencia(@AtorAtual() ator: Ator, @Param('tipo') tipo: string, @Param('id') id: string) {
     if (String(tipo).toUpperCase() === 'TERMO_ADITIVO') return this.conteudo.visao(await this.processos.porTermoAditivo(ator, id));
     return this.conteudo.visao(await this.processos.porReferencia(ator, tipo, id));
+  }
+
+  /** Painel do gestor: todos os processos do órgão (e pedidos) com caminho, posse, prazos e gargalos. Antes de ':id'. */
+  @Get('painel')
+  painel(@AtorAtual() ator: Ator, @Query('orgao_id') orgaoId?: string) {
+    return this.painelGestor.painel(ator, orgaoId);
   }
 
   /** Processos (aditivo/renovação/avulso) com o usuário ou o setor dele: aguardando recebimento e já recebidos. Antes de ':id'. */
