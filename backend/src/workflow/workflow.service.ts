@@ -86,6 +86,40 @@ export class WorkflowService {
     return this.reacoes.save(this.reacoes.create({ acao_id: acaoId, ordem, tipo, nome: String(body?.nome ?? '').trim() || tipo, ativa: true, configuracao: body?.configuracao && typeof body.configuracao === 'object' ? body.configuracao : {} }));
   }
 
+  async atualizarAcao(orgaoId: string, workflowId: string, acaoId: string, body: any) {
+    const modelo = await this.obter(orgaoId, workflowId);
+    const acao = modelo.fases.flatMap((fase) => fase.acoes).find((item) => item.id === acaoId);
+    if (!acao) throw new NotFoundException('Ação não encontrada');
+    if (body?.nome !== undefined) acao.nome = String(body.nome).trim() || acao.nome;
+    if (body?.formulario_id !== undefined) {
+      if (body.formulario_id && !modelo.formularios.some((f) => f.id === body.formulario_id)) throw new BadRequestException('Formulário não pertence a este processo');
+      acao.formulario_id = body.formulario_id || null;
+    }
+    if (body?.prazo_dias_uteis !== undefined) acao.prazo_dias_uteis = body.prazo_dias_uteis === null ? null : Math.max(0, Number(body.prazo_dias_uteis));
+    if (body?.responsavel_tipo !== undefined) acao.responsavel_tipo = String(body.responsavel_tipo).toUpperCase();
+    if (body?.responsavel_valor !== undefined) acao.responsavel_valor = body.responsavel_valor || null;
+    const configuracao = { ...(acao.configuracao ?? {}) };
+    if (Array.isArray(body?.responsaveis)) configuracao.responsaveis = [...new Set(body.responsaveis.map(String))];
+    if (body?.regra_conclusao !== undefined) {
+      const regra = String(body.regra_conclusao).toUpperCase();
+      if (!['QUALQUER', 'TODOS', 'MINIMO', 'SEQUENCIAL'].includes(regra)) throw new BadRequestException('Regra de conclusão inválida');
+      configuracao.regra_conclusao = regra;
+      if (regra === 'MINIMO') configuracao.quantidade_minima = Math.max(1, Number(body.quantidade_minima ?? 1));
+    }
+    acao.configuracao = configuracao;
+    return this.acoes.save(acao);
+  }
+
+  async atualizarReacao(orgaoId: string, workflowId: string, reacaoId: string, body: any) {
+    const modelo = await this.obter(orgaoId, workflowId);
+    const reacao = modelo.fases.flatMap((f) => f.acoes).flatMap((a) => a.reacoes).find((r) => r.id === reacaoId);
+    if (!reacao) throw new NotFoundException('Reação não encontrada');
+    if (body?.nome !== undefined) reacao.nome = String(body.nome).trim() || reacao.nome;
+    if (body?.ativa !== undefined) reacao.ativa = body.ativa === true;
+    if (body?.configuracao && typeof body.configuracao === 'object') reacao.configuracao = { ...reacao.configuracao, ...body.configuracao };
+    return this.reacoes.save(reacao);
+  }
+
   private prazo(dias: number | null) {
     if (!dias) return null;
     const data = new Date();

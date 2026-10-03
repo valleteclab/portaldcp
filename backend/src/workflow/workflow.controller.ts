@@ -20,5 +20,7 @@ export class WorkflowController {
   @Post(':id/formularios') formulario(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.adicionarFormulario(orgaoDo(ator), id, body); }
   @Post(':id/formularios/:formularioId/campos') campo(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('formularioId') formularioId: string, @Body() body: any) { return this.service.adicionarCampo(orgaoDo(ator), id, formularioId, body); }
   @Post(':id/fases/:faseId/acoes') acao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('faseId') faseId: string, @Body() body: any) { return this.service.adicionarAcao(orgaoDo(ator), id, faseId, body); }
+  @Patch(':id/acoes/:acaoId') atualizarAcao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('acaoId') acaoId: string, @Body() body: any) { return this.service.atualizarAcao(orgaoDo(ator), id, acaoId, body); }
   @Post(':id/acoes/:acaoId/reacoes') reacao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('acaoId') acaoId: string, @Body() body: any) { return this.service.adicionarReacao(orgaoDo(ator), id, acaoId, body); }
+  @Patch(':id/reacoes/:reacaoId') atualizarReacao(@AtorAtual() ator: Ator, @Param('id') id: string, @Param('reacaoId') reacaoId: string, @Body() body: any) { return this.service.atualizarReacao(orgaoDo(ator), id, reacaoId, body); }
 }
