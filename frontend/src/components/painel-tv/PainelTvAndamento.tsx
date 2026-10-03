@@ -163,7 +163,7 @@ export function PainelTvAndamento({ carregar }: { carregar: (signal: AbortSignal
               </div>
               <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 20 }}>
                 <span>
-                  Está com <strong>{[l.esta_com?.setor_nome, l.esta_com?.usuario_nome].filter(Boolean).join(" · ") || "—"}</strong>
+                  Localização: <strong>{[l.esta_com?.setor_nome, l.esta_com?.usuario_nome].filter(Boolean).join(" · ") || "—"}</strong>
                 </span>
                 {l.esta_com ? (
                   <span style={{ color: corDoEstado(l.estado), fontWeight: 700 }}>

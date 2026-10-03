@@ -35,7 +35,7 @@ import { API_URL, authFetch } from "@/lib/api"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 import s from "./processo.module.css"
 
-const DICA_LACUNA = "Clique em cada lacuna laranja e escreva no lugar: a marca some sozinha."
+const DICA_LACUNA = "Clique em cada lacuna destacada e substitua pelo texto; a marcação é removida automaticamente."
 
 /** Wrapper com os tokens de cor da tela (claro/escuro). */
 export function TemaProcesso({ children }: { children: React.ReactNode }) {
@@ -64,11 +64,11 @@ export function BlocoEstaCom({
   return (
     <section className={s.bloco} aria-labelledby="bloco-esta-com">
       <div className={s.eyebrow} id="bloco-esta-com">
-        Está com
+        Localização atual
       </div>
       {!posse ? (
         <p className={s.texto} style={{ marginTop: 6 }}>
-          {encerrado ? "Processo encerrado." : "Este processo ainda não tem tramitação registrada."}
+          {encerrado ? "Processo encerrado." : "Tramitação ainda não registrada."}
         </p>
       ) : (
         <div className={s.estaCom}>
@@ -215,7 +215,7 @@ export function FormularioPeca({
     if (titulo.trim().length < 3) return setErro("Informe o título da peça.")
     const noEditor = caminho !== "anexar"
     if (noEditor && !html.replace(/<[^>]+>|&nbsp;/g, "").trim()) return setErro("Escreva o texto da peça ou anexe o arquivo.")
-    if (noEditor && temLacuna(html)) return setErro("Ainda há lacunas em laranja. Clique em cada uma e escreva o texto no lugar; a marca some sozinha.")
+    if (noEditor && temLacuna(html)) return setErro(`Há lacunas não preenchidas. ${DICA_LACUNA}`)
     if (!noEditor && !arquivo) return setErro("Escolha o arquivo PDF para anexar.")
     setEnviando(true)
     try {
@@ -258,7 +258,7 @@ export function FormularioPeca({
         </>
       ) : c === "ia" ? (
         <>
-          <b>Pedir rascunho à IA</b>
+          <b>Gerar minuta com IA</b>
           <small>{iaDisponivel ? "A IA escreve a partir do processo; você revisa no editor." : "Indisponível neste servidor (IA não configurada)."}</small>
         </>
       ) : (
@@ -411,9 +411,9 @@ export function BlocoSuaVezLicitacao({ processoId, licitacaoId, etapa, onFeito }
   return (
     <section className={`${s.bloco} ${s.vez}`} aria-labelledby="bloco-sua-vez">
       <div className={s.eyebrow} id="bloco-sua-vez">
-        Sua vez
+        Providência pendente
       </div>
-      <h2>{etapa ? `Falta fazer: ${etapa.rotulo}` : "O processo está com você"}</h2>
+      <h2>{etapa ? `Etapa pendente: ${etapa.rotulo}` : "Processo sob sua responsabilidade"}</h2>
       {feito ? <div className={s.dica}>{feito}</div> : null}
       {pecas.length ? (
         <div className={s.tarefas}>
@@ -432,11 +432,11 @@ export function BlocoSuaVezLicitacao({ processoId, licitacaoId, etapa, onFeito }
                 </div>
                 {noEditor && escrevendo !== pc.tipo ? (
                   <button type="button" className={`${s.botao} ${s.primario}`} onClick={() => setEscrevendo(pc.tipo)}>
-                    Escrever aqui
+                    Elaborar no editor
                   </button>
                 ) : null}
                 <Link href={rotaFazerAqui(licitacaoId, pc.tipo)} className={`${s.botao} ${pc.pronta || noEditor ? s.secundario : s.primario}`}>
-                  {pc.pronta ? "Ver" : noEditor ? "Tela da peça" : pc.status === "EM_ELABORACAO" ? "Continuar" : "Fazer aqui"}
+                  {pc.pronta ? "Ver peça" : noEditor ? "Abrir peça" : pc.status === "EM_ELABORACAO" ? "Continuar" : "Elaborar"}
                 </Link>
                 {escrevendo === pc.tipo ? (
                   <FormularioPecaLicitacao
@@ -618,9 +618,9 @@ export function BlocoSuaVez({
   return (
     <section className={`${s.bloco} ${s.vez}`} aria-labelledby="bloco-sua-vez">
       <div className={s.eyebrow} id="bloco-sua-vez">
-        Sua vez
+        Providência pendente
       </div>
-      <h2>{ehResultado ? `Etapa atual: ${etapa.rotulo}` : `Falta fazer: ${etapa.rotulo}`}</h2>
+      <h2>{ehResultado ? `Etapa atual: ${etapa.rotulo}` : `Etapa pendente: ${etapa.rotulo}`}</h2>
       {etapaDeOutroSetor ? (
         <div className={s.dica}>
           Esta etapa costuma ser feita por {setorDaEtapa.nome}. Se não é com você, envie o processo para lá (abaixo); se já tem a peça, junte-a aqui mesmo.
@@ -632,7 +632,7 @@ export function BlocoSuaVez({
           <div className={s.tarefaTexto}>
             <span className={s.tarefaNome}>{etapa.titulo_peca || etapa.rotulo}</span>
             <span className={s.tarefaEstado}>
-              {ehResultado ? "O termo é cadastrado no contrato e liga-se a este processo" : "Junte a peça desta etapa aos autos"}
+              {ehResultado ? "O termo é cadastrado no contrato e vinculado a este processo" : "Juntar aos autos a peça desta etapa"}
             </span>
           </div>
           {ehResultado ? (
@@ -643,7 +643,7 @@ export function BlocoSuaVez({
             ) : null
           ) : !aberto ? (
             <button type="button" className={`${s.botao} ${s.primario}`} onClick={() => setAberto(true)}>
-              Fazer agora
+              Elaborar
             </button>
           ) : null}
           {aberto && !ehResultado ? (
@@ -671,9 +671,9 @@ export function BlocoPecaAvulsa({ processoId, onJuntada }: { processoId: string;
   return (
     <section className={`${s.bloco} ${s.vez}`} aria-labelledby="bloco-peca-avulsa">
       <div className={s.eyebrow} id="bloco-peca-avulsa">
-        Sua vez
+        Providência pendente
       </div>
-      <h2>Este processo está com você</h2>
+      <h2>Processo sob sua responsabilidade</h2>
       <div className={s.tarefas}>
         <div className={s.tarefa}>
           <span className={s.marca} aria-hidden="true" />
@@ -716,10 +716,10 @@ export function BlocoAguardando({ posse, encerrado, motivo }: { posse: ComQuemEs
         </>
       ) : (
         <>
-          <h2>Nada para você fazer agora</h2>
+          <h2>Nenhuma providência pendente</h2>
           <p>
             {posse
-              ? `O processo está com ${textoPosse(posse)}. Você acompanha por aqui e é avisado quando ele chegar até você.`
+              ? `O processo encontra-se com ${textoPosse(posse)}. Você será notificado quando ele for encaminhado a você ou ao seu setor.`
               : "O processo não tem tramitação registrada."}
           </p>
         </>
@@ -847,7 +847,7 @@ export function BlocoEnviar({
           ) : null}
           {destinos?.sugerido ? (
             <div className={s.dica}>
-              Sugerido: {destinos.sugerido.setor_nome}. {destinos.sugerido.motivo}
+              Destino sugerido: {destinos.sugerido.setor_nome} — {destinos.sugerido.motivo}
             </div>
           ) : null}
           <label className={s.rotulo} htmlFor="destino-processo">
@@ -874,7 +874,7 @@ export function BlocoEnviar({
             ) : null}
           </select>
           <label className={s.rotulo} htmlFor="despacho-processo">
-            Despacho (o que o destinatário precisa fazer)
+            Despacho
           </label>
           <textarea
             id="despacho-processo"

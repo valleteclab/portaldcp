@@ -5,7 +5,7 @@ import { chamarProcessos, temLacuna, textoDoErro, type PecaLicitacaoEditor, type
 import { EditorPeca } from "./EditorPeca"
 import s from "./processo.module.css"
 
-const DICA = "Clique em cada lacuna laranja e escreva no lugar: a marca some sozinha."
+const DICA = "Clique em cada lacuna destacada e substitua pelo texto; a marcação é removida automaticamente."
 
 /**
  * Autorização, parecer e manifestação do controle interno escritos no editor
@@ -58,7 +58,7 @@ export function FormularioPecaLicitacao({ processoId, tipo, onFeito, onCancelar 
   async function emitir() {
     setErro(null)
     if (!html.replace(/<[^>]+>|&nbsp;/g, "").trim()) return setErro("Escreva o texto da peça.")
-    if (temLacuna(html)) return setErro(`Ainda há lacunas em laranja. ${DICA}`)
+    if (temLacuna(html)) return setErro(`Há lacunas não preenchidas. ${DICA}`)
     if (peca?.conclusoes && !conclusao) return setErro("Escolha a conclusão.")
     setEnviando(true)
     try {
@@ -91,7 +91,7 @@ export function FormularioPecaLicitacao({ processoId, tipo, onFeito, onCancelar 
               {iaModelo ? <span className={s.seloIa}>Rascunho da IA — revise antes de emitir</span> : null}
               {peca.ia_disponivel ? (
                 <button type="button" className={`${s.botao} ${s.secundario}`} onClick={gerarRascunho} disabled={gerando || enviando}>
-                  {gerando ? "Escrevendo…" : "Pedir rascunho à IA"}
+                  {gerando ? "Gerando…" : "Gerar minuta com IA"}
                 </button>
               ) : null}
             </div>

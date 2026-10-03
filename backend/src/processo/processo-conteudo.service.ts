@@ -149,8 +149,13 @@ export class ProcessoConteudoService {
         const d = (s?.destinos ?? []).find((x: any) => x.principal) ?? (s?.destinos ?? [])[0] ?? null;
         if (d) {
           const setor = d.setor_id ? setores.find((x: any) => x.id === String(d.setor_id)) : null;
-          const etapas = Array.isArray(d.etapas) && d.etapas.length ? ` Costuma fazer: ${d.etapas.join(', ')}.` : '';
-          sugerido = { setor_id: d.setor_id ? String(d.setor_id) : null, setor_nome: setor?.nome ?? d.rotulo ?? null, usuario_id: d.usuario_id ? String(d.usuario_id) : null, motivo: `Próximo passo do fluxo.${etapas}` };
+          const titulos = Array.isArray(d.etapas) ? [...new Set(d.etapas.map((e: any) => (Array.isArray(e) ? e[1] ?? e[0] : e)).filter(Boolean))] : [];
+          sugerido = {
+            setor_id: d.setor_id ? String(d.setor_id) : null,
+            setor_nome: setor?.nome ?? d.rotulo ?? null,
+            usuario_id: d.usuario_id ? String(d.usuario_id) : null,
+            motivo: titulos.length ? `Responsável pela etapa seguinte: ${titulos.join('; ')}.` : 'Responsável pela etapa seguinte do fluxo.',
+          };
         }
         despacho_sugerido = s?.despacho_sugerido ?? null;
       } catch (e) {

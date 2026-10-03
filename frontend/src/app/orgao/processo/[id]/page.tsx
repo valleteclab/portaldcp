@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import {
@@ -51,6 +51,7 @@ export default function TelaDoProcessoPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [recebendo, setRecebendo] = useState(false)
   const [erroReceber, setErroReceber] = useState<string | null>(null)
+  const tentativasPosse = useRef(0)
 
   const carregar = useCallback(
     async (silencioso = false) => {
@@ -79,6 +80,11 @@ export default function TelaDoProcessoPage() {
           setPosse(normalizarPosse(t?.com_quem_esta))
           setFluxo(f)
           setAutos(null)
+          // Processo recém-aberto: a autuação automática leva alguns segundos; relê até aparecer a posse
+          if (!normalizarPosse(t?.com_quem_esta) && tentativasPosse.current < 4) {
+            tentativasPosse.current += 1
+            setTimeout(() => carregar(true), 2500)
+          }
         } else {
           const t = await chamarProcessos<{ com_quem_esta?: unknown }>(`/${id}/tramitacao`).catch(() => null)
           setTram(null)

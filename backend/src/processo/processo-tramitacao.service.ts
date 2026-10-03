@@ -690,7 +690,7 @@ export class ProcessoTramitacaoService {
       processo_id: p.id,
       setores,
       usuarios,
-      sugerido: achado ? { setor_id: achado.id, setor_nome: achado.nome, motivo: `Costuma fazer a etapa “${etapa!.rotulo}”.` } : null,
+      sugerido: achado ? { setor_id: achado.id, setor_nome: achado.nome, motivo: `Responsável pela etapa “${etapa!.rotulo}”.` } : null,
     };
   }
 
