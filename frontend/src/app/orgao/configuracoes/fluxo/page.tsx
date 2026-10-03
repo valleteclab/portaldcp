@@ -11,7 +11,8 @@
  */
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { ArrowLeft, Loader2 } from "lucide-react"
 import { EditorFluxo } from "@/components/fase-interna/construtor/EditorFluxo"
 import { PlanejamentoFluxoCard } from "@/components/fase-interna/fluxo/PlanejamentoFluxoCard"
 import { TIPOS_PROCESSO, type TipoProcesso } from "@/lib/fluxo/tela-construtor"
@@ -36,18 +37,30 @@ function tipoDaUrl(): TipoProcesso | null {
 }
 
 export default function DesenharFluxoPage() {
+  const router = useRouter()
   const [tipo, setTipo] = useState<TipoProcesso>("DISPENSA")
   const [admin, setAdmin] = useState<boolean | null>(null)
+  const [modoTecnico, setModoTecnico] = useState<boolean | null>(null)
 
   useEffect(() => {
+    const tecnico = new URLSearchParams(window.location.search).get("tecnico") === "1"
+    if (!tecnico) {
+      router.replace("/orgao/configuracoes/fluxos")
+      return
+    }
     // Link direto para uma aba (ex.: ?tipo=LICITACAO) e quem pode editar (lidos no navegador)
     const t = tipoDaUrl()
     const a = ehAdminDoOrgao()
     queueMicrotask(() => {
+      setModoTecnico(true)
       if (t) setTipo(t)
       setAdmin(a)
     })
-  }, [])
+  }, [router])
+
+  if (modoTecnico !== true) {
+    return <div className="flex justify-center py-20"><Loader2 className="h-7 w-7 animate-spin text-blue-700" aria-label="Abrindo o construtor simples" /></div>
+  }
 
   const trocarTipo = (t: TipoProcesso) => {
     setTipo(t)
