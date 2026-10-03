@@ -87,3 +87,53 @@ export class WorkflowReacao {
   @Column({ type: 'boolean', default: true }) ativa: boolean;
   @Column({ type: 'jsonb' }) configuracao: Record<string, unknown>;
 }
+
+@Entity('workflow_instancias')
+@Index('idx_workflow_instancia_orgao', ['orgao_id', 'status'])
+export class WorkflowInstancia {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'uuid' }) orgao_id: string;
+  @Column({ type: 'uuid' }) workflow_id: string;
+  @Column({ type: 'int' }) workflow_versao: number;
+  @Column({ type: 'varchar', length: 40, unique: true }) numero: string;
+  @Column({ type: 'varchar', length: 200 }) titulo: string;
+  @Column({ type: 'varchar', length: 20, default: 'EM_ANDAMENTO' }) status: string;
+  @Column({ type: 'uuid', nullable: true }) fase_atual_id: string | null;
+  @Column({ type: 'uuid', nullable: true }) acao_atual_id: string | null;
+  @Column({ type: 'varchar', length: 100, nullable: true }) iniciado_por_id: string | null;
+  @Column({ type: 'varchar', length: 40, nullable: true }) vinculo_tipo: string | null;
+  @Column({ type: 'uuid', nullable: true }) vinculo_id: string | null;
+  @Column({ type: 'jsonb', nullable: true }) dados: Record<string, unknown> | null;
+  @CreateDateColumn({ type: 'timestamptz' }) created_at: Date;
+  @UpdateDateColumn({ type: 'timestamptz' }) updated_at: Date;
+}
+
+@Entity('workflow_tarefas')
+@Index('idx_workflow_tarefa_instancia', ['instancia_id', 'status'])
+export class WorkflowTarefa {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'uuid' }) instancia_id: string;
+  @Column({ type: 'uuid' }) fase_id: string;
+  @Column({ type: 'uuid' }) acao_id: string;
+  @Column({ type: 'varchar', length: 20, default: 'ABERTA' }) status: string;
+  @Column({ type: 'varchar', length: 20 }) responsavel_tipo: string;
+  @Column({ type: 'jsonb', nullable: true }) responsaveis: string[] | null;
+  @Column({ type: 'varchar', length: 20, default: 'QUALQUER' }) regra_conclusao: string;
+  @Column({ type: 'timestamptz', nullable: true }) prazo_em: Date | null;
+  @Column({ type: 'jsonb', nullable: true }) resposta: Record<string, unknown> | null;
+  @Column({ type: 'varchar', length: 100, nullable: true }) concluida_por_id: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) concluida_em: Date | null;
+  @CreateDateColumn({ type: 'timestamptz' }) created_at: Date;
+}
+
+@Entity('workflow_historico')
+@Index('idx_workflow_historico_instancia', ['instancia_id', 'created_at'])
+export class WorkflowHistorico {
+  @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'uuid' }) instancia_id: string;
+  @Column({ type: 'varchar', length: 40 }) evento: string;
+  @Column({ type: 'varchar', length: 240 }) descricao: string;
+  @Column({ type: 'varchar', length: 100, nullable: true }) ator_id: string | null;
+  @Column({ type: 'jsonb', nullable: true }) detalhes: Record<string, unknown> | null;
+  @CreateDateColumn({ type: 'timestamptz' }) created_at: Date;
+}
