@@ -15,6 +15,7 @@ type Fase = { id: string; nome: string; cor: string; ordem: number; acoes: Acao[
 type Campo = { id: string; rotulo: string; tipo: string; obrigatorio: boolean }
 type Formulario = { id: string; nome: string; campos: Campo[] }
 type Workflow = { id: string; nome: string; descricao: string | null; status: string; versao: number; fases: Fase[]; formularios: Formulario[] }
+type Execucao = { id: string; numero: string; titulo: string; status: string; fase_atual_id: string | null; created_at: string }
 
 const BASE = `${API_URL}/api/workflows`
 
@@ -48,6 +49,7 @@ export default function WorkflowsPage() {
   const [criando, setCriando] = useState(false)
   const [formulariosAbertos, setFormulariosAbertos] = useState(false)
   const [faseMenu, setFaseMenu] = useState<string | null>(null)
+  const [execucoes, setExecucoes] = useState<Execucao[] | null>(null)
 
   const listar = useCallback(async () => {
     setCarregando(true)
@@ -101,17 +103,29 @@ export default function WorkflowsPage() {
     if (!workflow) return
     try { await requisicao(`${BASE}/${workflow.id}`, { method: "PATCH", body: JSON.stringify({ status: "PUBLICADO" }) }); toast.success("Processo publicado"); await recarregar() } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao publicar") }
   }
+  const carregarExecucoes = async () => {
+    try { setExecucoes(await requisicao(`${BASE}/execucoes/listar`)) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao carregar execuções") }
+  }
+  const iniciarTeste = async () => {
+    if (!workflow) return
+    if (workflow.status !== "PUBLICADO") return toast.error("Publique o processo antes de executar")
+    const titulo = window.prompt("Nome desta execução de teste:", `Teste — ${workflow.nome}`)?.trim()
+    if (!titulo) return
+    try { const criada = await requisicao(`${BASE}/${workflow.id}/iniciar`, { method: "POST", body: JSON.stringify({ titulo, dados: { demonstracao: true } }) }); toast.success(`${criada.numero} iniciada com sucesso`) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao iniciar execução") }
+  }
 
   if (carregando && !workflow) return <div className="flex justify-center py-20"><Loader2 className="h-7 w-7 animate-spin" /></div>
 
   if (!workflow) return <div className="mx-auto max-w-6xl space-y-6">
-    <div><Link href="/orgao/configuracoes" className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Configurações</Link><h1 className="mt-2 text-3xl font-bold">Gestão de processos e workflow</h1><p className="mt-1 text-slate-600">Crie processos com formulários, aprovações, documentos e automações.</p></div>
+    <div className="flex flex-wrap items-end justify-between gap-3"><div><Link href="/orgao/configuracoes" className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Configurações</Link><h1 className="mt-2 text-3xl font-bold">Gestão de processos e workflow</h1><p className="mt-1 text-slate-600">Crie processos com formulários, aprovações, documentos e automações.</p></div><Button variant="outline" onClick={execucoes === null ? carregarExecucoes : () => setExecucoes(null)}>{execucoes === null ? "Ver execuções" : "Voltar aos modelos"}</Button></div>
+    {execucoes !== null && <Card><CardContent className="space-y-2 p-5"><h2 className="mb-4 text-lg font-semibold">Execuções dos processos</h2>{execucoes.length === 0 && <p className="text-sm text-slate-500">Nenhuma execução iniciada.</p>}{execucoes.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"><div><strong>{item.numero} · {item.titulo}</strong><p className="text-xs text-slate-500">Iniciada em {new Date(item.created_at).toLocaleString("pt-BR")}</p></div><span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">{item.status}</span></div>)}</CardContent></Card>}
+    {execucoes === null && <>
     <Card><CardContent className="flex flex-wrap gap-3 p-5"><Input className="max-w-md" placeholder="Ex.: Solicitação de compras" value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && criar()} /><Button onClick={criar} disabled={criando}>{criando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}Criar processo</Button></CardContent></Card>
-    <div className="grid gap-4 md:grid-cols-3">{lista.map((item) => <button key={item.id} onClick={() => abrir(item.id)} className="rounded-xl border bg-white p-5 text-left shadow-sm hover:border-blue-500"><div className="flex items-start justify-between"><GitBranch className="h-7 w-7 text-blue-700" /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "PUBLICADO" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>{item.status}</span></div><h2 className="mt-4 font-semibold text-slate-900">{item.nome}</h2><p className="mt-1 text-sm text-slate-500">Versão {item.versao}</p></button>)}</div>
+    <div className="grid gap-4 md:grid-cols-3">{lista.map((item) => <button key={item.id} onClick={() => abrir(item.id)} className="rounded-xl border bg-white p-5 text-left shadow-sm hover:border-blue-500"><div className="flex items-start justify-between"><GitBranch className="h-7 w-7 text-blue-700" /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "PUBLICADO" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>{item.status}</span></div><h2 className="mt-4 font-semibold text-slate-900">{item.nome}</h2><p className="mt-1 text-sm text-slate-500">Versão {item.versao}</p></button>)}</div></>}
   </div>
 
   return <div className="space-y-5 pb-16">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div><button onClick={() => setWorkflow(null)} className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Todos os processos</button><h1 className="mt-1 text-2xl font-bold">{workflow.nome}</h1><p className="text-sm text-slate-500">Versão {workflow.versao} · {workflow.status}</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setFormulariosAbertos(!formulariosAbertos)}><ClipboardList className="mr-2 h-4 w-4" />Formulários</Button><Button variant="outline" onClick={adicionarFase}><Plus className="mr-2 h-4 w-4" />Fase</Button><Button onClick={publicar}>Publicar</Button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><button onClick={() => setWorkflow(null)} className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Todos os processos</button><h1 className="mt-1 text-2xl font-bold">{workflow.nome}</h1><p className="text-sm text-slate-500">Versão {workflow.versao} · {workflow.status}</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setFormulariosAbertos(!formulariosAbertos)}><ClipboardList className="mr-2 h-4 w-4" />Formulários</Button><Button variant="outline" onClick={adicionarFase}><Plus className="mr-2 h-4 w-4" />Fase</Button>{workflow.status === "PUBLICADO" && <Button variant="outline" onClick={iniciarTeste}>Executar teste</Button>}<Button onClick={publicar}>Publicar</Button></div></div>
 
     {formulariosAbertos && <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Formulários do processo</h2><p className="text-sm text-slate-500">Os campos preenchidos ficam disponíveis para ações e mensagens.</p></div><Button size="sm" onClick={criarFormulario}><Plus className="mr-1 h-4 w-4" />Formulário</Button></div><div className="mt-4 grid gap-3 md:grid-cols-3">{workflow.formularios.map((form) => <div key={form.id} className="rounded-lg border p-4"><div className="flex justify-between"><strong>{form.nome}</strong><button onClick={() => adicionarCampo(form)} className="text-sm text-blue-700">+ Campo</button></div><div className="mt-3 space-y-1">{form.campos.map((campo) => <div key={campo.id} className="rounded bg-slate-50 px-2 py-1 text-sm">{campo.rotulo} <span className="text-xs text-slate-400">{campo.tipo}{campo.obrigatorio ? " · obrigatório" : ""}</span></div>)}</div></div>)}</div></CardContent></Card>}
 
