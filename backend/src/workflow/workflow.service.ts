@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import type { Ator } from '../auth/acesso/ator';
 import { WorkflowAcao, WorkflowCampo, WorkflowFase, WorkflowFormulario, WorkflowHistorico, WorkflowInstancia, WorkflowModelo, WorkflowReacao, WorkflowTarefa } from './workflow.entities';
 
 @Injectable()
@@ -135,10 +136,27 @@ export class WorkflowService {
       acao.formulario_id = body.formulario_id || null;
     }
     if (body?.prazo_dias_uteis !== undefined) acao.prazo_dias_uteis = body.prazo_dias_uteis === null ? null : Math.max(0, Number(body.prazo_dias_uteis));
-    if (body?.responsavel_tipo !== undefined) acao.responsavel_tipo = String(body.responsavel_tipo).toUpperCase();
+    if (body?.responsavel_tipo !== undefined) {
+      const tipo = String(body.responsavel_tipo).toUpperCase();
+      if (!['USUARIO', 'SETOR', 'SOLICITANTE'].includes(tipo)) throw new BadRequestException('Tipo de responsável inválido');
+      acao.responsavel_tipo = tipo;
+    }
     if (body?.responsavel_valor !== undefined) acao.responsavel_valor = body.responsavel_valor || null;
     const configuracao = { ...(acao.configuracao ?? {}) };
-    if (Array.isArray(body?.responsaveis)) configuracao.responsaveis = [...new Set(body.responsaveis.map(String))];
+    if (Array.isArray(body?.responsaveis)) {
+      const informados: unknown[] = body.responsaveis;
+      const responsaveis = acao.responsavel_tipo === 'SOLICITANTE' ? [] : [...new Set(informados.map(String).filter(Boolean))];
+      if (responsaveis.length) {
+        const tabela = acao.responsavel_tipo === 'SETOR' ? 'setores' : 'usuarios';
+        const encontrados: Array<{ id: string }> = await this.dataSource.query(
+          `SELECT id::text AS id FROM ${tabela} WHERE orgao_id::text = $1 AND id::text = ANY($2::text[])`,
+          [orgaoId, responsaveis],
+        );
+        if (encontrados.length !== responsaveis.length) throw new BadRequestException('Há responsável selecionado que não pertence a este órgão');
+      }
+      configuracao.responsaveis = responsaveis;
+      if (acao.responsavel_tipo === 'SOLICITANTE') acao.responsavel_valor = null;
+    }
     if (body?.regra_conclusao !== undefined) {
       const regra = String(body.regra_conclusao).toUpperCase();
       if (!['QUALQUER', 'TODOS', 'MINIMO', 'SEQUENCIAL'].includes(regra)) throw new BadRequestException('Regra de conclusão inválida');
@@ -178,7 +196,7 @@ export class WorkflowService {
     return this.dataSource.transaction(async (manager) => {
       const instancia = await manager.save(WorkflowInstancia, manager.create(WorkflowInstancia, { orgao_id: orgaoId, workflow_id: workflowId, workflow_versao: modelo.versao, numero, titulo: String(body?.titulo ?? '').trim() || `${modelo.nome} ${numero}`, fase_atual_id: fase.id, acao_atual_id: acao.id, iniciado_por_id: atorId, vinculo_tipo: body?.vinculo_tipo || null, vinculo_id: body?.vinculo_id || null, dados: body?.dados || {} }));
       const responsaveis = Array.isArray(acao.configuracao?.responsaveis) ? acao.configuracao.responsaveis as string[] : acao.responsavel_valor ? [acao.responsavel_valor] : [atorId];
-      await manager.save(WorkflowTarefa, manager.create(WorkflowTarefa, { instancia_id: instancia.id, fase_id: fase.id, acao_id: acao.id, responsavel_tipo: acao.responsavel_tipo, responsaveis, regra_conclusao: String(acao.configuracao?.regra_conclusao ?? 'QUALQUER'), prazo_em: this.prazo(acao.prazo_dias_uteis) }));
+      await manager.save(WorkflowTarefa, manager.create(WorkflowTarefa, { instancia_id: instancia.id, fase_id: fase.id, acao_id: acao.id, responsavel_tipo: acao.responsavel_tipo, responsaveis, regra_conclusao: typeof acao.configuracao?.regra_conclusao === 'string' ? acao.configuracao.regra_conclusao : 'QUALQUER', quantidade_minima: Number(acao.configuracao?.quantidade_minima ?? 1), prazo_em: this.prazo(acao.prazo_dias_uteis) }));
       await manager.save(WorkflowHistorico, manager.create(WorkflowHistorico, { instancia_id: instancia.id, evento: 'INICIADA', descricao: `Execução iniciada em ${fase.nome} — ${acao.nome}`, ator_id: atorId, detalhes: { workflow_versao: modelo.versao } }));
       return instancia;
     });
@@ -193,22 +211,63 @@ export class WorkflowService {
     return { ...instancia, tarefas, historico };
   }
 
-  async concluirTarefa(orgaoId: string, instanciaId: string, tarefaId: string, atorId: string, body: any) {
+  private async chaveDoResponsavel(orgaoId: string, instancia: WorkflowInstancia, tarefa: WorkflowTarefa, ator: Ator) {
+    const atorId = ator.usuarioId ?? ator.id;
+    if (ator.tipo === 'ORGAO') return { chave: atorId, administrador: true };
+    if (tarefa.responsavel_tipo === 'SOLICITANTE') {
+      if (instancia.iniciado_por_id !== atorId) throw new ForbiddenException('Esta tarefa pertence ao solicitante do processo');
+      return { chave: atorId, administrador: false };
+    }
+    const responsaveis = Array.isArray(tarefa.responsaveis) ? tarefa.responsaveis : [];
+    if (tarefa.responsavel_tipo === 'USUARIO') {
+      if (!responsaveis.includes(atorId)) throw new ForbiddenException('Você não é um dos responsáveis por esta tarefa');
+      return { chave: atorId, administrador: false };
+    }
+    const usuarios: Array<{ setor_id: string | null }> = ator.usuarioId ? await this.dataSource.query(
+      `SELECT setor_id::text AS setor_id FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2 AND ativo = true`,
+      [ator.usuarioId, orgaoId],
+    ) : [];
+    const usuario = usuarios[0];
+    if (!usuario?.setor_id || !responsaveis.includes(usuario.setor_id)) throw new ForbiddenException('Esta tarefa pertence a outro setor');
+    return { chave: String(usuario.setor_id), administrador: false };
+  }
+
+  async concluirTarefa(orgaoId: string, instanciaId: string, tarefaId: string, ator: Ator, body: any) {
     const instancia = await this.instancias.findOne({ where: { id: instanciaId, orgao_id: orgaoId } });
     if (!instancia) throw new NotFoundException('Execução não encontrada');
     const tarefa = await this.tarefas.findOne({ where: { id: tarefaId, instancia_id: instanciaId, status: 'ABERTA' } });
     if (!tarefa) throw new NotFoundException('Tarefa aberta não encontrada');
+    const atorId = ator.usuarioId ?? ator.id;
+    const identidade = await this.chaveDoResponsavel(orgaoId, instancia, tarefa, ator);
+    const armazenadas = tarefa.resposta?._conclusoes;
+    const anteriores: string[] = Array.isArray(armazenadas) ? armazenadas.map((item: unknown) => String(item)) : [];
+    if (!identidade.administrador && anteriores.includes(identidade.chave)) throw new BadRequestException('Você já registrou sua conclusão nesta tarefa');
+    const responsaveis = Array.isArray(tarefa.responsaveis) ? tarefa.responsaveis : [];
+    const regra = String(tarefa.regra_conclusao || 'QUALQUER').toUpperCase();
+    if (!identidade.administrador && regra === 'SEQUENCIAL' && responsaveis[anteriores.length] !== identidade.chave) throw new ForbiddenException('Aguarde o responsável anterior concluir esta tarefa');
+    const conclusoes = [...anteriores, identidade.chave];
+    const exigidas = regra === 'TODOS' || regra === 'SEQUENCIAL'
+      ? Math.max(1, responsaveis.length)
+      : regra === 'MINIMO'
+        ? Math.max(1, Math.min(tarefa.quantidade_minima ?? 1, responsaveis.length || 1))
+        : 1;
+    tarefa.resposta = { ...(tarefa.resposta ?? {}), ...(body?.resposta ?? {}), _conclusoes: conclusoes };
+    if (!identidade.administrador && conclusoes.length < exigidas) {
+      await this.tarefas.save(tarefa);
+      await this.historico.save(this.historico.create({ instancia_id: instanciaId, evento: 'CONCLUSAO_REGISTRADA', descricao: `Conclusão registrada (${conclusoes.length}/${exigidas})`, ator_id: atorId, detalhes: { regra, conclusoes: conclusoes.length, exigidas } }));
+      return this.obterInstancia(orgaoId, instanciaId);
+    }
     const modelo = await this.obter(orgaoId, instancia.workflow_id);
     const passos = modelo.fases.flatMap((fase) => fase.acoes.map((acao) => ({ fase, acao })));
     const atual = passos.findIndex((p) => p.acao.id === tarefa.acao_id);
     const proximo = passos[atual + 1];
     await this.dataSource.transaction(async (manager) => {
-      tarefa.status = 'CONCLUIDA'; tarefa.resposta = body?.resposta || {}; tarefa.concluida_por_id = atorId; tarefa.concluida_em = new Date(); await manager.save(tarefa);
+      tarefa.status = 'CONCLUIDA'; tarefa.concluida_por_id = atorId; tarefa.concluida_em = new Date(); await manager.save(tarefa);
       await manager.save(WorkflowHistorico, manager.create(WorkflowHistorico, { instancia_id: instanciaId, evento: 'TAREFA_CONCLUIDA', descricao: `Tarefa concluída: ${passos[atual]?.acao.nome ?? 'ação'}`, ator_id: atorId, detalhes: { resposta: tarefa.resposta } }));
       if (!proximo) { instancia.status = 'CONCLUIDA'; instancia.fase_atual_id = null; instancia.acao_atual_id = null; await manager.save(instancia); await manager.save(WorkflowHistorico, manager.create(WorkflowHistorico, { instancia_id: instanciaId, evento: 'CONCLUIDA', descricao: 'Execução concluída', ator_id: atorId, detalhes: null })); return; }
       instancia.fase_atual_id = proximo.fase.id; instancia.acao_atual_id = proximo.acao.id; await manager.save(instancia);
       const responsaveis = Array.isArray(proximo.acao.configuracao?.responsaveis) ? proximo.acao.configuracao.responsaveis as string[] : proximo.acao.responsavel_valor ? [proximo.acao.responsavel_valor] : [atorId];
-      await manager.save(WorkflowTarefa, manager.create(WorkflowTarefa, { instancia_id: instanciaId, fase_id: proximo.fase.id, acao_id: proximo.acao.id, responsavel_tipo: proximo.acao.responsavel_tipo, responsaveis, regra_conclusao: String(proximo.acao.configuracao?.regra_conclusao ?? 'QUALQUER'), prazo_em: this.prazo(proximo.acao.prazo_dias_uteis) }));
+      await manager.save(WorkflowTarefa, manager.create(WorkflowTarefa, { instancia_id: instanciaId, fase_id: proximo.fase.id, acao_id: proximo.acao.id, responsavel_tipo: proximo.acao.responsavel_tipo, responsaveis, regra_conclusao: typeof proximo.acao.configuracao?.regra_conclusao === 'string' ? proximo.acao.configuracao.regra_conclusao : 'QUALQUER', quantidade_minima: Number(proximo.acao.configuracao?.quantidade_minima ?? 1), prazo_em: this.prazo(proximo.acao.prazo_dias_uteis) }));
       await manager.save(WorkflowHistorico, manager.create(WorkflowHistorico, { instancia_id: instanciaId, evento: 'AVANCOU', descricao: `Avançou para ${proximo.fase.nome} — ${proximo.acao.nome}`, ator_id: atorId, detalhes: null }));
     });
     return this.obterInstancia(orgaoId, instanciaId);

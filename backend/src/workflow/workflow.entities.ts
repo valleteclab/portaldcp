@@ -119,6 +119,7 @@ export class WorkflowTarefa {
   @Column({ type: 'varchar', length: 20 }) responsavel_tipo: string;
   @Column({ type: 'jsonb', nullable: true }) responsaveis: string[] | null;
   @Column({ type: 'varchar', length: 20, default: 'QUALQUER' }) regra_conclusao: string;
+  @Column({ type: 'int', nullable: true }) quantidade_minima: number | null;
   @Column({ type: 'timestamptz', nullable: true }) prazo_em: Date | null;
   @Column({ type: 'jsonb', nullable: true }) resposta: Record<string, unknown> | null;
   @Column({ type: 'varchar', length: 100, nullable: true }) concluida_por_id: string | null;
