@@ -272,4 +272,34 @@ export class WorkflowService {
     });
     return this.obterInstancia(orgaoId, instanciaId);
   }
+
+  async devolverTarefa(orgaoId: string, instanciaId: string, tarefaId: string, ator: Ator, body: any) {
+    const instancia = await this.instancias.findOne({ where: { id: instanciaId, orgao_id: orgaoId } });
+    if (!instancia) throw new NotFoundException('Execução não encontrada');
+    const tarefa = await this.tarefas.findOne({ where: { id: tarefaId, instancia_id: instanciaId, status: 'ABERTA' } });
+    if (!tarefa) throw new NotFoundException('Tarefa aberta não encontrada');
+    await this.chaveDoResponsavel(orgaoId, instancia, tarefa, ator);
+    const motivo = String(body?.motivo ?? '').trim();
+    if (!motivo) throw new BadRequestException('Informe o motivo da devolução');
+    const modelo = await this.obter(orgaoId, instancia.workflow_id);
+    const passos = modelo.fases.flatMap((fase) => fase.acoes.map((acao) => ({ fase, acao })));
+    const atual = passos.findIndex((passo) => passo.acao.id === tarefa.acao_id);
+    const anterior = passos[atual - 1];
+    if (!anterior) throw new BadRequestException('A primeira etapa não pode ser devolvida');
+    const atorId = ator.usuarioId ?? ator.id;
+    await this.dataSource.transaction(async (manager) => {
+      tarefa.status = 'DEVOLVIDA';
+      tarefa.resposta = { ...(tarefa.resposta ?? {}), decisao: 'DEVOLVIDO', motivo };
+      tarefa.concluida_por_id = atorId;
+      tarefa.concluida_em = new Date();
+      await manager.save(tarefa);
+      instancia.fase_atual_id = anterior.fase.id;
+      instancia.acao_atual_id = anterior.acao.id;
+      await manager.save(instancia);
+      const responsaveis = Array.isArray(anterior.acao.configuracao?.responsaveis) ? anterior.acao.configuracao.responsaveis as string[] : anterior.acao.responsavel_valor ? [anterior.acao.responsavel_valor] : [instancia.iniciado_por_id ?? atorId];
+      await manager.save(WorkflowTarefa, manager.create(WorkflowTarefa, { instancia_id: instanciaId, fase_id: anterior.fase.id, acao_id: anterior.acao.id, responsavel_tipo: anterior.acao.responsavel_tipo, responsaveis, regra_conclusao: typeof anterior.acao.configuracao?.regra_conclusao === 'string' ? anterior.acao.configuracao.regra_conclusao : 'QUALQUER', quantidade_minima: Number(anterior.acao.configuracao?.quantidade_minima ?? 1), prazo_em: this.prazo(anterior.acao.prazo_dias_uteis) }));
+      await manager.save(WorkflowHistorico, manager.create(WorkflowHistorico, { instancia_id: instanciaId, evento: 'DEVOLVIDA', descricao: `Etapa devolvida para ${anterior.fase.nome} — ${anterior.acao.nome}: ${motivo}`, ator_id: atorId, detalhes: { motivo, tarefa_id: tarefaId } }));
+    });
+    return this.obterInstancia(orgaoId, instanciaId);
+  }
 }
