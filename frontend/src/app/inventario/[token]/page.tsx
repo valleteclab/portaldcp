@@ -24,7 +24,7 @@ const somDe = (situacao?: Situacao | null): Som =>
   situacao === 'ENCONTRADO' || situacao === 'SEM_PLAQUETA' ? 'ok' : situacao === 'OUTRO_SETOR' || situacao === 'BAIXADO_PRESENTE' ? 'outro' : 'erro'
 
 type Situacao = 'ENCONTRADO' | 'OUTRO_SETOR' | 'DESCONHECIDO' | 'SEM_PLAQUETA' | 'BAIXADO_PRESENTE'
-type Bem = { id: string; plaqueta: string | null; descricao: string; categoria: string | null; estado_conservacao: string | null; foto_url: string | null; marca?: string | null; modelo?: string | null; situacao?: Situacao | null; lido_em?: string | null }
+type Bem = { id: string; plaqueta: string | null; descricao: string; categoria: string | null; estado_conservacao: string | null; foto_url: string | null; marca?: string | null; modelo?: string | null; situacao?: Situacao | null; lido_em?: string | null; localizado_em_outra_sala?: string | null }
 type Leitura = { id: string; situacao: Situacao; origem: string; codigo_lido: string; setor_cadastro_nome: string | null; estado_conservacao: string | null; observacao: string | null; created_at: string; foto_url?: string | null; presenca_confirmada?: boolean | null; exige_confirmacao?: boolean; bem: Bem | null }
 type Dados = {
   orgao: { nome: string; logo_url: string | null }
@@ -553,7 +553,19 @@ export default function ConferenciaSetorPage() {
   }
 
   // ─── derivados ──────────────────────────────────────────────────
-  const pendentes = useMemo(() => (dados?.bens || []).filter((b) => !b.situacao), [dados])
+  /**
+   * Pendentes de verdade: tira os que já foram achados e CONFIRMADOS em outra
+   * sala desta campanha. Cobrar deles aqui faria o conferente procurar um bem
+   * que outra equipe já localizou.
+   */
+  const pendentes = useMemo(
+    () => (dados?.bens || []).filter((b) => !b.situacao && !b.localizado_em_outra_sala),
+    [dados],
+  )
+  const emOutraSala = useMemo(
+    () => (dados?.bens || []).filter((b) => !b.situacao && b.localizado_em_outra_sala),
+    [dados],
+  )
   const lidos = useMemo(() => (dados?.bens || []).filter((b) => b.situacao === 'ENCONTRADO'), [dados])
   const divergencias = useMemo(() => (dados?.leituras || []).filter((l) => l.situacao !== 'ENCONTRADO'), [dados])
   const filtrar = (lista: Bem[]) => {
@@ -1067,15 +1079,20 @@ export default function ConferenciaSetorPage() {
           <div className="text-sm space-y-1 mb-3">
             <p><span className="text-emerald-300 font-semibold">{lidos.length}</span> conferidos de {total}</p>
             {pendentes.length > 0 && <p><span className="text-rose-300 font-semibold">{pendentes.length}</span> não localizados (ficam registrados como divergência)</p>}
+            {emOutraSala.length > 0 && (
+              <p>
+                <span className="text-sky-300 font-semibold">{emOutraSala.length}</span> localizados em outra sala desta campanha — não contam como falta
+              </p>
+            )}
             {divergencias.length > 0 && <p><span className="text-amber-300 font-semibold">{divergencias.length}</span> divergência(s) para a comissão</p>}
           </div>
           {aConfirmar.length > 0 && (
             <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
               <p className="text-sm font-semibold text-amber-200">
-                {aConfirmar.length === 1 ? 'Um bem de outro setor foi lido aqui.' : `${aConfirmar.length} bens de outros setores foram lidos aqui.`} Eles estão mesmo nesta sala?
+                {aConfirmar.length === 1 ? 'Uma leitura precisa da sua resposta.' : `${aConfirmar.length} leituras precisam da sua resposta.`} O que foi lido está mesmo nesta sala?
               </p>
               <p className="text-[11px] text-amber-200/70 mt-1">
-                O leitor RFID atravessa parede. Marque &ldquo;Não está&rdquo; se a leitura veio de outra sala — ela é descartada.
+                O leitor RFID atravessa parede e pega etiqueta de outros ambientes. O que você marcar como de fora é descartado.
               </p>
               <div className="mt-3 space-y-2">
                 {aConfirmar.map((l) => {
@@ -1087,7 +1104,11 @@ export default function ConferenciaSetorPage() {
                         {l.bem?.descricao || l.codigo_lido}
                       </p>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        {l.situacao === 'BAIXADO_PRESENTE' ? 'baixado no cadastro' : `cadastrado em ${l.setor_cadastro_nome || 'outro setor'}`}
+                        {l.situacao === 'DESCONHECIDO'
+                          ? 'código lido que não está no cadastro'
+                          : l.situacao === 'BAIXADO_PRESENTE'
+                            ? 'baixado no cadastro'
+                            : `cadastrado em ${l.setor_cadastro_nome || 'outro setor'}`}
                       </p>
                       <div className="grid grid-cols-2 gap-2 mt-2">
                         <button
@@ -1095,16 +1116,21 @@ export default function ConferenciaSetorPage() {
                           onClick={() => setRespostas((v) => ({ ...v, [l.id]: true }))}
                           className={`rounded-lg py-2.5 text-xs border ${r === true ? 'bg-emerald-500 border-emerald-300 text-slate-900 font-bold' : 'bg-slate-700 border-transparent text-slate-200'}`}
                         >
-                          {r === true ? '● ' : ''}Está aqui
+                          {r === true ? '● ' : ''}{l.situacao === 'DESCONHECIDO' ? 'É bem daqui' : 'Está aqui'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setRespostas((v) => ({ ...v, [l.id]: false }))}
                           className={`rounded-lg py-2.5 text-xs border ${r === false ? 'bg-rose-500 border-rose-300 text-slate-900 font-bold' : 'bg-slate-700 border-transparent text-slate-200'}`}
                         >
-                          {r === false ? '● ' : ''}Não está
+                          {r === false ? '● ' : ''}{l.situacao === 'DESCONHECIDO' ? 'Não é daqui' : 'Não está'}
                         </button>
                       </div>
+                      {l.situacao === 'DESCONHECIDO' && r === true && (
+                        <p className="text-[11px] text-emerald-300/80 mt-2">
+                          Vai como divergência para a comissão. Para cadastrar agora, use &ldquo;Bem sem plaqueta&rdquo; antes de finalizar.
+                        </p>
+                      )}
                     </div>
                   )
                 })}

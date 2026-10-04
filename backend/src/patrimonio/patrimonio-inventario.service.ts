@@ -30,6 +30,7 @@ import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
 import { ehTagDeTerceiro, plaquetaDeEpcAscii } from './codigo-tag.util';
 import {
   exigeConfirmacaoPresenca,
+  localizadoEmOutroSetor,
   mensagemPendencias,
   pendentesDeConfirmacao,
 } from './confirmacao-presenca.util';
@@ -172,12 +173,40 @@ export class PatrimonioInventarioService {
     });
   }
 
+  /**
+   * Bens deste setor que apareceram — e foram CONFIRMADOS — em outra sala da
+   * mesma campanha. Sem isso o setor de origem cobraria como não localizado um
+   * bem que foi achado, só que em outro lugar: dois relatórios se contradizendo.
+   *
+   * Devolve bem_id -> nome da sala onde ele foi confirmado.
+   */
+  private async localizadosEmOutraSala(invSetor: InventarioSetor): Promise<Map<string, string>> {
+    const mapa = new Map<string, string>();
+    if (!invSetor.setor_id) return mapa;
+    const leituras = await this.leituraRepo
+      .createQueryBuilder('l')
+      .innerJoin('l.inventario_setor', 's')
+      .addSelect('s.setor_nome', 's_setor_nome')
+      .where('l.inventario_id = :inv', { inv: invSetor.inventario_id })
+      .andWhere('l.inventario_setor_id <> :setor', { setor: invSetor.id })
+      .andWhere('l.situacao = :sit', { sit: SituacaoLeitura.OUTRO_SETOR })
+      .andWhere('l.presenca_confirmada = true')
+      .andWhere('l.bem_id IS NOT NULL')
+      .getRawAndEntities();
+    leituras.entities.forEach((l, i) => {
+      if (l.bem_id) mapa.set(l.bem_id, leituras.raw[i]?.s_setor_nome || 'outra sala');
+    });
+    return mapa;
+  }
+
   private async resumoDoSetor(invSetor: InventarioSetor) {
-    const [bens, leituras] = await Promise.all([
+    const [bens, leituras, emOutraSala] = await Promise.all([
       this.bensDoSetor(invSetor),
       this.leituraRepo.find({ where: { inventario_setor_id: invSetor.id } }),
+      this.localizadosEmOutraSala(invSetor),
     ]);
     const lidos = new Set(leituras.filter((l) => l.bem_id && l.situacao === SituacaoLeitura.ENCONTRADO).map((l) => l.bem_id));
+    const achado = (b: BemPatrimonial) => lidos.has(b.id) || emOutraSala.has(b.id);
     const cont = (sit: SituacaoLeitura) => leituras.filter((l) => l.situacao === sit).length;
     return {
       ...invSetor,
@@ -185,7 +214,9 @@ export class PatrimonioInventarioService {
       resumo: {
         total: bens.length,
         encontrados: bens.filter((b) => lidos.has(b.id)).length,
-        nao_localizados: bens.filter((b) => !lidos.has(b.id)).length,
+        /** Achados, porém em outra sala: pedem transferência, não busca. */
+        em_outra_sala: bens.filter((b) => !lidos.has(b.id) && emOutraSala.has(b.id)).length,
+        nao_localizados: bens.filter((b) => !achado(b)).length,
         outro_setor: cont(SituacaoLeitura.OUTRO_SETOR),
         desconhecidos: cont(SituacaoLeitura.DESCONHECIDO),
         sem_plaqueta: cont(SituacaoLeitura.SEM_PLAQUETA),
@@ -373,11 +404,12 @@ export class PatrimonioInventarioService {
   /** Tela do setor: bens a conferir e o que já foi lido. */
   async obterPorToken(token: string) {
     const s = await this.setorPorToken(token);
-    const [bens, leituras, orgao, categorias] = await Promise.all([
+    const [bens, leituras, orgao, categorias, emOutraSala] = await Promise.all([
       this.bensDoSetor(s),
       this.leituraRepo.find({ where: { inventario_setor_id: s.id }, relations: ['bem', 'bem.categoria'], order: { created_at: 'DESC' } }),
       this.orgaoRepo.findOne({ where: { id: s.orgao_id }, select: ['id', 'nome', 'nome_fantasia', 'logo_url'] }),
       this.patrimonioService.listarCategorias(s.orgao_id),
+      this.localizadosEmOutraSala(s),
     ]);
     const porBem = new Map(leituras.filter((l) => l.bem_id).map((l) => [l.bem_id as string, l]));
     const bem = (b: BemPatrimonial) => ({
@@ -409,6 +441,8 @@ export class PatrimonioInventarioService {
         ...bem(b),
         situacao: porBem.get(b.id)?.situacao || null,
         lido_em: porBem.get(b.id)?.created_at || null,
+        /** Achado e confirmado em outra sala desta campanha: não procure aqui. */
+        localizado_em_outra_sala: !porBem.has(b.id) ? emOutraSala.get(b.id) || null : null,
       })),
       leituras: leituras.map((l) => ({
         id: l.id,
@@ -797,7 +831,9 @@ export class PatrimonioInventarioService {
     const pendentes = pendentesDeConfirmacao(leituras);
     if (pendentes.length) {
       throw new BadRequestException(
-        mensagemPendencias(pendentes.map((l) => ({ plaqueta: l.bem?.plaqueta, descricao: l.bem?.descricao }))),
+        mensagemPendencias(
+          pendentes.map((l) => ({ plaqueta: l.bem?.plaqueta, descricao: l.bem?.descricao, codigo_lido: l.codigo_lido })),
+        ),
       );
     }
     s.status = StatusInventarioSetor.FECHADO;
