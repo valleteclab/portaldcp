@@ -135,6 +135,16 @@ export class PatrimonioPublicController {
     });
   }
 
+  /**
+   * Recomeça a conferência da sala: apaga todas as leituras e volta ao zero.
+   * Limite baixo de propósito — é ação destrutiva e de uso excepcional.
+   */
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post('inventario/:token/recomecar')
+  recomecarSetor(@Param('token') token: string, @Body() body: any) {
+    return this.inventario.recomecarSetor(token, { nome: body?.nome, motivo: body?.motivo });
+  }
+
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('inventario/:token/fechar')
   fechar(@Param('token') token: string, @Body() body: any) {
