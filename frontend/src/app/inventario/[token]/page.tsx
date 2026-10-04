@@ -25,7 +25,7 @@ const somDe = (situacao?: Situacao | null): Som =>
 
 type Situacao = 'ENCONTRADO' | 'OUTRO_SETOR' | 'DESCONHECIDO' | 'SEM_PLAQUETA' | 'BAIXADO_PRESENTE'
 type Bem = { id: string; plaqueta: string | null; descricao: string; categoria: string | null; estado_conservacao: string | null; foto_url: string | null; marca?: string | null; modelo?: string | null; situacao?: Situacao | null; lido_em?: string | null }
-type Leitura = { id: string; situacao: Situacao; origem: string; codigo_lido: string; setor_cadastro_nome: string | null; estado_conservacao: string | null; observacao: string | null; created_at: string; foto_url?: string | null; bem: Bem | null }
+type Leitura = { id: string; situacao: Situacao; origem: string; codigo_lido: string; setor_cadastro_nome: string | null; estado_conservacao: string | null; observacao: string | null; created_at: string; foto_url?: string | null; presenca_confirmada?: boolean | null; exige_confirmacao?: boolean; bem: Bem | null }
 type Dados = {
   orgao: { nome: string; logo_url: string | null }
   inventario: { id: string; nome: string; ano: number; status: 'ABERTO' | 'FECHADO' }
@@ -36,7 +36,7 @@ type Dados = {
   bens: Bem[]
   leituras: Leitura[]
 }
-type Resultado = { situacao: Situacao; repetida?: boolean; leitura?: { id: string; foto_url?: string | null; estado_conservacao?: string | null } | null; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null; estado_conservacao?: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
+type Resultado = { situacao: Situacao; repetida?: boolean; ignorada?: boolean; leitura?: { id: string; foto_url?: string | null; estado_conservacao?: string | null } | null; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null; estado_conservacao?: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
 type ItemFila = { codigo: string; origem: 'QR' | 'RFID' | 'MANUAL'; estado_conservacao?: string; observacao?: string; lido_por?: string; t: number }
 
 const SIT: Record<Situacao, { label: string; cor: string; icone: React.ReactNode; dica: string }> = {
@@ -210,6 +210,12 @@ export default function ConferenciaSetorPage() {
     setErroAcao('')
     try {
       const r = await postLeitura({ codigo: limpo, origem, ...extras })
+      // Tag de terceiro: nada a conferir. Avisa de leve e não abre cartão, senão
+      // cada etiqueta de roupa que passasse perto travaria a tela do conferente.
+      if (r.ignorada) {
+        mostrarAviso('Tag de terceiros ignorada', 'erro')
+        return
+      }
       tocar(somDe(r.situacao))
       if (opcoes?.semCartao && r.situacao === 'ENCONTRADO') mostrarAviso(`✓ ${opcoes.rotulo || limpo} conferido`)
       else setResultado({ ...r, codigo: limpo })
@@ -314,10 +320,10 @@ export default function ConferenciaSetorPage() {
    * e sobem em lotes a cada 1,5 s para a rota de lote; nada de cartão por tag.
    * Ao encerrar, a sala é fechada com o resumo de irregularidades.
    */
-  type ResultadoVarredura = { codigo: string; situacao?: Situacao; repetida?: boolean; erro?: string; bem?: { plaqueta: string | null; descricao: string; setor_nome: string | null } | null }
+  type ResultadoVarredura = { codigo: string; situacao?: Situacao; repetida?: boolean; ignorada?: boolean; erro?: string; bem?: { plaqueta: string | null; descricao: string; setor_nome: string | null } | null }
   const [varrendo, setVarrendo] = useState(false)
   const [varreduraLog, setVarreduraLog] = useState<ResultadoVarredura[]>([])
-  const [varreduraCont, setVarreduraCont] = useState({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0 })
+  const [varreduraCont, setVarreduraCont] = useState({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0, ignoradas: 0 })
   const [enviandoLote, setEnviandoLote] = useState(false)
   const [resumoVarredura, setResumoVarredura] = useState<null | { ausentes: Bem[]; outro_setor: Leitura[]; desconhecidos: Leitura[]; baixados: Leitura[] }>(null)
   const bufferVarredura = useRef<string[]>([])
@@ -335,11 +341,15 @@ export default function ConferenciaSetorPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw Object.assign(new Error(json?.message || 'Erro no lote'), { status: res.status })
       const rs: ResultadoVarredura[] = json.resultados || []
-      const novas = rs.filter((r) => !r.repetida)
+      // Tag de terceiro (roupa, embalagem) não apita nem entra no histórico:
+      // só soma no contador, para quem está varrendo saber que o ambiente tem ruído.
+      const uteis = rs.filter((r) => !r.ignorada)
+      const novas = uteis.filter((r) => !r.repetida)
       if (novas.length) tocar(novas.some((r) => !r.situacao || r.situacao === 'DESCONHECIDO') ? 'erro' : novas.some((r) => r.situacao === 'OUTRO_SETOR' || r.situacao === 'BAIXADO_PRESENTE') ? 'outro' : 'ok')
-      setVarreduraLog((l) => [...rs.slice().reverse(), ...l].slice(0, 200))
+      setVarreduraLog((l) => [...uteis.slice().reverse(), ...l].slice(0, 200))
       setVarreduraCont((c) => ({
         lidas: c.lidas + (json.novas || 0),
+        ignoradas: c.ignoradas + (json.ignoradas || 0),
         encontrados: c.encontrados + rs.filter((r) => r.situacao === 'ENCONTRADO' && !r.repetida).length,
         outro_setor: c.outro_setor + rs.filter((r) => r.situacao === 'OUTRO_SETOR' && !r.repetida).length,
         desconhecidos: c.desconhecidos + rs.filter((r) => r.situacao === 'DESCONHECIDO' && !r.repetida).length,
@@ -380,7 +390,7 @@ export default function ConferenciaSetorPage() {
     desbloquearAudio()
     setResumoVarredura(null)
     setVarreduraLog([])
-    setVarreduraCont({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0 })
+    setVarreduraCont({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0, ignoradas: 0 })
     bufferVarredura.current = []
     varrendoRef.current = true
     setVarrendo(true)
@@ -451,8 +461,48 @@ export default function ConferenciaSetorPage() {
     } catch (e: any) { setErroAcao(e.message) }
   }
 
+  /**
+   * Bens de outro setor (ou baixados) lidos nesta sala. A antena atravessa
+   * parede, então antes de fechar o conferente diz, um a um, se o bem estava
+   * mesmo aqui ou se foi leitura da sala vizinha.
+   */
+  const aConfirmar = useMemo(
+    () => (dados?.leituras || []).filter((l) => l.exige_confirmacao && l.presenca_confirmada == null),
+    [dados],
+  )
+  const [respostas, setRespostas] = useState<Record<string, boolean>>({})
+  const [salvandoPresencas, setSalvandoPresencas] = useState(false)
+  const faltamResponder = aConfirmar.filter((l) => respostas[l.id] === undefined).length
+
+  const enviarPresencas = async () => {
+    if (!aConfirmar.length) return true
+    setSalvandoPresencas(true)
+    setErroAcao('')
+    try {
+      const res = await fetch(`${PUB}/inventario/${token}/confirmar-presencas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmacoes: aConfirmar.map((l) => ({ leitura_id: l.id, confirmada: !!respostas[l.id] })),
+          por: fecharForm.nome || nome || undefined,
+        }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.message || 'Erro ao confirmar')
+      await carregar()
+      return true
+    } catch (e: any) {
+      setErroAcao(e.message)
+      return false
+    } finally {
+      setSalvandoPresencas(false)
+    }
+  }
+
   const fecharSetor = async () => {
     setErroAcao('')
+    // As respostas sobem primeiro: o fechamento é recusado enquanto houver pendência.
+    if (aConfirmar.length && !(await enviarPresencas())) return
     try {
       const res = await fetch(`${PUB}/inventario/${token}/fechar`, {
         method: 'POST',
@@ -647,6 +697,12 @@ export default function ConferenciaSetorPage() {
             {enviandoLote || bufferVarredura.current.length ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
             Varrendo a sala: aperte o gatilho e passe o leitor pelos bens. {varreduraCont.repetidas > 0 ? `${varreduraCont.repetidas} leitura(s) repetida(s) ignorada(s).` : ''}
           </p>
+          {varreduraCont.ignoradas > 0 && (
+            <p className="text-xs text-slate-400 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
+              {varreduraCont.ignoradas} tag(s) de terceiros descartada(s) — etiqueta de roupa, embalagem ou
+              produto com chip de fábrica. Não entram na conferência.
+            </p>
+          )}
           <div className="rounded-xl bg-slate-800 border border-slate-700 divide-y divide-slate-700 max-h-[45vh] overflow-y-auto">
             {varreduraLog.length === 0 && <p className="text-sm text-slate-400 p-4 text-center">Nenhuma tag lida ainda.</p>}
             {varreduraLog.map((r, i) => (
@@ -1013,11 +1069,56 @@ export default function ConferenciaSetorPage() {
             {pendentes.length > 0 && <p><span className="text-rose-300 font-semibold">{pendentes.length}</span> não localizados (ficam registrados como divergência)</p>}
             {divergencias.length > 0 && <p><span className="text-amber-300 font-semibold">{divergencias.length}</span> divergência(s) para a comissão</p>}
           </div>
+          {aConfirmar.length > 0 && (
+            <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+              <p className="text-sm font-semibold text-amber-200">
+                {aConfirmar.length === 1 ? 'Um bem de outro setor foi lido aqui.' : `${aConfirmar.length} bens de outros setores foram lidos aqui.`} Eles estão mesmo nesta sala?
+              </p>
+              <p className="text-[11px] text-amber-200/70 mt-1">
+                O leitor RFID atravessa parede. Marque &ldquo;Não está&rdquo; se a leitura veio de outra sala — ela é descartada.
+              </p>
+              <div className="mt-3 space-y-2">
+                {aConfirmar.map((l) => {
+                  const r = respostas[l.id]
+                  return (
+                    <div key={l.id} className="rounded-lg bg-slate-900 border border-slate-700 p-2.5">
+                      <p className="text-sm">
+                        <span className="font-mono text-amber-300">{l.bem?.plaqueta || '—'}</span>{' '}
+                        {l.bem?.descricao || l.codigo_lido}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {l.situacao === 'BAIXADO_PRESENTE' ? 'baixado no cadastro' : `cadastrado em ${l.setor_cadastro_nome || 'outro setor'}`}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setRespostas((v) => ({ ...v, [l.id]: true }))}
+                          className={`rounded-lg py-2.5 text-xs border ${r === true ? 'bg-emerald-500 border-emerald-300 text-slate-900 font-bold' : 'bg-slate-700 border-transparent text-slate-200'}`}
+                        >
+                          {r === true ? '● ' : ''}Está aqui
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRespostas((v) => ({ ...v, [l.id]: false }))}
+                          className={`rounded-lg py-2.5 text-xs border ${r === false ? 'bg-rose-500 border-rose-300 text-slate-900 font-bold' : 'bg-slate-700 border-transparent text-slate-200'}`}
+                        >
+                          {r === false ? '● ' : ''}Não está
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {faltamResponder > 0 && (
+                <p className="text-[11px] text-amber-200/80 mt-2">Faltam {faltamResponder} para responder.</p>
+              )}
+            </div>
+          )}
           <input id="fechar-nome" value={fecharForm.nome} onChange={(e) => setFecharForm({ ...fecharForm, nome: e.target.value })} placeholder="Nome de quem finaliza" className="w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2.5 text-sm" />
           <textarea id="fechar-obs" value={fecharForm.observacoes} onChange={(e) => setFecharForm({ ...fecharForm, observacoes: e.target.value })} placeholder="Observações (opcional): bens emprestados, em conserto, etc." rows={3} className="mt-2 w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2.5 text-sm" />
           <p className="text-xs text-slate-400 mt-2">Ao finalizar, declaro que conferi fisicamente os bens deste setor. A comissão pode reabrir se precisar.</p>
           {erroAcao && <p className="text-xs text-rose-300 mt-2">{erroAcao}</p>}
-          <button onClick={fecharSetor} disabled={fecharForm.nome.trim().length < 3} className="mt-3 w-full rounded-xl bg-emerald-500 disabled:opacity-50 text-slate-900 font-bold py-3">Finalizar setor</button>
+          <button onClick={fecharSetor} disabled={fecharForm.nome.trim().length < 3 || faltamResponder > 0 || salvandoPresencas} className="mt-3 w-full rounded-xl bg-emerald-500 disabled:opacity-50 text-slate-900 font-bold py-3">{salvandoPresencas ? 'Confirmando…' : 'Finalizar setor'}</button>
         </Modal>
       )}
     </div>
