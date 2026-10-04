@@ -499,6 +499,48 @@ export default function ConferenciaSetorPage() {
     }
   }
 
+  /**
+   * Recomeçar: apaga tudo que foi lido nesta sala. Serve para quem varreu a
+   * sala errada ou quer refazer a conferência do zero — antes isso dependia do
+   * suporte mexer no banco, porque o "Desfazer" só existe na leitura avulsa.
+   */
+  const [modalRecomecar, setModalRecomecar] = useState(false)
+  const [recomecarForm, setRecomecarForm] = useState({ nome: '', motivo: '' })
+  const [recomecando, setRecomecando] = useState(false)
+
+  const recomecarSetor = async () => {
+    if (recomecando) return
+    setRecomecando(true)
+    setErroAcao('')
+    try {
+      const res = await fetch(`${PUB}/inventario/${token}/recomecar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(recomecarForm),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.message || 'Erro ao recomeçar')
+      lidosSessao.current.clear()
+      setRespostas({})
+      setResumoVarredura(null)
+      setVarreduraLog([])
+      setModalRecomecar(false)
+      mostrarAviso(`${json.apagadas} leitura(s) apagada(s)`, 'erro')
+      carregar()
+    } catch (e: any) {
+      setErroAcao(e.message)
+    } finally {
+      setRecomecando(false)
+    }
+  }
+
+  const abrirRecomecar = () => {
+    setRecomecarForm({ nome: nome || dados?.setor?.responsavel_nome || '', motivo: '' })
+    setErroAcao('')
+    setModalFechar(false)
+    setModalRecomecar(true)
+  }
+
   const fecharSetor = async () => {
     setErroAcao('')
     // As respostas sobem primeiro: o fechamento é recusado enquanto houver pendência.
@@ -801,6 +843,11 @@ export default function ConferenciaSetorPage() {
               <button onClick={iniciarVarredura} className="rounded-xl bg-slate-700 py-3 font-semibold text-sm">Varrer de novo</button>
               <button onClick={() => { setFecharForm({ nome: nome || dados.setor.responsavel_nome || '', observacoes: '' }); setModalFechar(true) }} className="rounded-xl bg-emerald-500 text-slate-900 py-3 font-bold text-sm">Finalizar setor</button>
             </div>
+          )}
+          {!fechado && (
+            <button onClick={abrirRecomecar} className="w-full text-xs text-rose-300/80 underline underline-offset-2 py-1">
+              Varreu a sala errada? Recomeçar esta conferência
+            </button>
           )}
         </section>
       )}
@@ -1143,8 +1190,47 @@ export default function ConferenciaSetorPage() {
           <input id="fechar-nome" value={fecharForm.nome} onChange={(e) => setFecharForm({ ...fecharForm, nome: e.target.value })} placeholder="Nome de quem finaliza" className="w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2.5 text-sm" />
           <textarea id="fechar-obs" value={fecharForm.observacoes} onChange={(e) => setFecharForm({ ...fecharForm, observacoes: e.target.value })} placeholder="Observações (opcional): bens emprestados, em conserto, etc." rows={3} className="mt-2 w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2.5 text-sm" />
           <p className="text-xs text-slate-400 mt-2">Ao finalizar, declaro que conferi fisicamente os bens deste setor. A comissão pode reabrir se precisar.</p>
+          <button onClick={abrirRecomecar} className="mt-2 text-xs text-rose-300/80 underline underline-offset-2">
+            Conferiu errado? Recomeçar esta sala do zero
+          </button>
           {erroAcao && <p className="text-xs text-rose-300 mt-2">{erroAcao}</p>}
           <button onClick={fecharSetor} disabled={fecharForm.nome.trim().length < 3 || faltamResponder > 0 || salvandoPresencas} className="mt-3 w-full rounded-xl bg-emerald-500 disabled:opacity-50 text-slate-900 font-bold py-3">{salvandoPresencas ? 'Confirmando…' : 'Finalizar setor'}</button>
+        </Modal>
+      )}
+
+      {modalRecomecar && dados && (
+        <Modal titulo="Recomeçar a conferência desta sala" onClose={() => setModalRecomecar(false)}>
+          <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm">
+            <p className="font-semibold text-rose-200">
+              Isto apaga as {(dados.leituras || []).length} leitura(s) já feitas em {dados.setor.nome}.
+            </p>
+            <p className="text-[11px] text-rose-200/80 mt-1">
+              A sala volta ao zero e todos os bens voltam a ser cobrados. Não dá para desfazer.
+            </p>
+          </div>
+          <input
+            id="recomecar-nome"
+            value={recomecarForm.nome}
+            onChange={(e) => setRecomecarForm({ ...recomecarForm, nome: e.target.value })}
+            placeholder="Nome de quem está recomeçando"
+            className="mt-3 w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2.5 text-sm"
+          />
+          <input
+            id="recomecar-motivo"
+            value={recomecarForm.motivo}
+            onChange={(e) => setRecomecarForm({ ...recomecarForm, motivo: e.target.value })}
+            placeholder="Motivo (opcional): varri a sala errada, etc."
+            className="mt-2 w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2.5 text-sm"
+          />
+          <p className="text-[11px] text-slate-400 mt-2">Fica registrado nas observações do setor, para a comissão.</p>
+          {erroAcao && <p className="text-xs text-rose-300 mt-2">{erroAcao}</p>}
+          <button
+            onClick={recomecarSetor}
+            disabled={recomecarForm.nome.trim().length < 3 || recomecando}
+            className="mt-3 w-full rounded-xl bg-rose-500 disabled:opacity-50 text-slate-900 font-bold py-3"
+          >
+            {recomecando ? 'Apagando…' : 'Apagar e recomeçar'}
+          </button>
         </Modal>
       )}
     </div>

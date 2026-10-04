@@ -821,6 +821,40 @@ export class PatrimonioInventarioService {
     return { confirmadas, descartadas, pendentes: pendentes.length };
   }
 
+  /**
+   * Recomeçar a conferência da sala: apaga tudo que foi lido e volta ao zero.
+   *
+   * Por que existe: o "Desfazer" só aparece no cartão da leitura recém-feita, e
+   * na varredura de sala — justamente onde se lê muito e rápido — não há cartão
+   * nenhum. Quem varria a sala errada ficava sem saída e dependia do suporte
+   * mexer no banco. Agora resolve sozinho, em campo.
+   *
+   * Fica o registro de quem recomeçou e quantas leituras foram apagadas, nas
+   * observações do setor, para a comissão enxergar.
+   */
+  async recomecarSetor(token: string, input: { nome: string; motivo?: string }) {
+    const s = await this.setorPorToken(token);
+    this.exigirAberto(s);
+    const nome = String(input?.nome || '').trim();
+    if (nome.length < 3) throw new BadRequestException('Informe o nome de quem está recomeçando a conferência');
+    const apagadas = await this.leituraRepo.count({ where: { inventario_setor_id: s.id } });
+    if (!apagadas) throw new BadRequestException('Esta sala ainda não tem nenhuma leitura para apagar');
+    await this.leituraRepo.delete({ inventario_setor_id: s.id });
+
+    const quando = new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' });
+    const motivo = String(input?.motivo || '').trim();
+    const registro =
+      `[${quando}] Conferência recomeçada por ${nome}: ${apagadas} leitura(s) apagada(s).` +
+      (motivo ? ` Motivo: ${motivo}` : '');
+    s.observacoes = s.observacoes ? `${s.observacoes}
+${registro}` : registro;
+    s.status = StatusInventarioSetor.PENDENTE;
+    s.iniciado_em = null;
+    await this.invSetorRepo.save(s);
+    this.logger.log(`Inventário: setor ${s.setor_nome} recomeçado por ${nome} (${apagadas} leituras apagadas)`);
+    return { ok: true, apagadas };
+  }
+
   async fecharSetor(token: string, input: { nome: string; observacoes?: string }) {
     const s = await this.setorPorToken(token);
     this.exigirAberto(s);
