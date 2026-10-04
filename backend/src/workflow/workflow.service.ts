@@ -40,11 +40,50 @@ export class WorkflowService {
     return this.obter(orgaoId, id);
   }
 
+  async criarModeloAditivo(orgaoId: string, autorId: string | null) {
+    const nome = 'Solicitação de aditivo contratual';
+    const existente = await this.modelos.findOne({ where: { orgao_id: orgaoId, nome } });
+    if (existente) return this.obter(orgaoId, existente.id);
+    const id = await this.dataSource.transaction(async (manager) => {
+      const modelo = await manager.save(WorkflowModelo, manager.create(WorkflowModelo, { orgao_id: orgaoId, criado_por_id: autorId, nome, descricao: 'Do pedido inicial à formalização e publicação do termo aditivo.' }));
+      const nomesFases = ['Solicitação', 'Análise do fiscal', 'Análise administrativa', 'Parecer jurídico', 'Autorização', 'Termo e assinaturas', 'Publicação'];
+      const fases = await manager.save(WorkflowFase, nomesFases.map((fase, i) => manager.create(WorkflowFase, { workflow_id: modelo.id, nome: fase, ordem: i + 1, cor: ['#0891b2', '#2563eb', '#6366f1', '#7c3aed', '#eab308', '#ea580c', '#16a34a'][i] })));
+      const formulario = await manager.save(WorkflowFormulario, manager.create(WorkflowFormulario, { workflow_id: modelo.id, nome: 'Solicitação de aditivo', descricao: 'Dados necessários para iniciar a análise do aditivo.' }));
+      const campos = [
+        ['tipo_aditivo', 'Tipo do aditivo', 'LISTA', true, ['Prazo', 'Valor', 'Prazo e valor', 'Supressão', 'Outro']],
+        ['justificativa', 'Justificativa', 'TEXTO_LONGO', true, null], ['novo_prazo', 'Novo prazo pretendido', 'DATA', false, null],
+        ['valor_alteracao', 'Valor da alteração', 'MOEDA', false, null], ['documentos', 'Documentos comprobatórios', 'ARQUIVO', false, null],
+      ];
+      await manager.save(WorkflowCampo, campos.map((c, i) => manager.create(WorkflowCampo, { formulario_id: formulario.id, chave: c[0] as string, rotulo: c[1] as string, tipo: c[2] as string, obrigatorio: c[3] as boolean, ordem: i + 1, opcoes: c[4] as unknown[] | null, validacao: null })));
+      const nomesAcoes = ['Preencher solicitação', 'Manifestação do fiscal', 'Conferir requisitos e limites', 'Emitir parecer jurídico', 'Autorizar aditivo', 'Elaborar e coletar assinaturas', 'Publicar e concluir'];
+      const tipos = ['FORMULARIO', 'APROVACAO', 'TAREFA', 'APROVACAO', 'APROVACAO', 'DOCUMENTO', 'TAREFA'];
+      for (let i = 0; i < fases.length; i++) {
+        const acao = await manager.save(WorkflowAcao, manager.create(WorkflowAcao, { fase_id: fases[i].id, nome: nomesAcoes[i], tipo: tipos[i], ordem: 1, formulario_id: i === 0 ? formulario.id : null, responsavel_tipo: i === 0 ? 'SOLICITANTE' : 'SETOR', responsavel_valor: null, prazo_dias_uteis: [2, 3, 3, 5, 2, 3, 2][i], configuracao: { responsaveis: [], regra_conclusao: 'QUALQUER', requer_configuracao_responsavel: i !== 0 } }));
+        if (i < fases.length - 1) await manager.save(WorkflowReacao, manager.create(WorkflowReacao, { acao_id: acao.id, tipo: 'NOTIFICACAO', nome: `Avisar responsável por ${nomesFases[i + 1]}`, ordem: 1, ativa: true, configuracao: { destinatario: '{{proximo_responsavel}}', mensagem: `O processo {{numero}} aguarda: ${nomesAcoes[i + 1]}.` } }));
+      }
+      return modelo.id;
+    });
+    return this.obter(orgaoId, id);
+  }
+
   async atualizar(orgaoId: string, id: string, body: any) {
     const modelo = await this.obter(orgaoId, id);
     if (body?.nome !== undefined) modelo.nome = String(body.nome).trim() || modelo.nome;
     if (body?.descricao !== undefined) modelo.descricao = String(body.descricao).trim() || null;
-    if (body?.status === 'PUBLICADO') modelo.status = 'PUBLICADO';
+    if (body?.status === 'PUBLICADO') {
+      const erros: string[] = [];
+      if (!modelo.fases.length) erros.push('Crie ao menos uma fase.');
+      for (const fase of modelo.fases) {
+        if (!fase.acoes.length) erros.push(`A fase "${fase.nome}" não possui ação.`);
+        for (const acao of fase.acoes) {
+          const responsaveis = Array.isArray(acao.configuracao?.responsaveis) ? acao.configuracao.responsaveis : [];
+          if (acao.responsavel_tipo !== 'SOLICITANTE' && !acao.responsavel_valor && !responsaveis.length) erros.push(`Defina o responsável da ação "${acao.nome}".`);
+          if (acao.tipo === 'FORMULARIO' && !acao.formulario_id) erros.push(`Vincule um formulário à ação "${acao.nome}".`);
+        }
+      }
+      if (erros.length) throw new BadRequestException(erros);
+      modelo.status = 'PUBLICADO';
+    }
     return this.modelos.save(modelo);
   }
 
