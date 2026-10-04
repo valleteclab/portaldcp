@@ -36,7 +36,7 @@ type Dados = {
   bens: Bem[]
   leituras: Leitura[]
 }
-type Resultado = { situacao: Situacao; repetida?: boolean; leitura?: { id: string; foto_url?: string | null; estado_conservacao?: string | null } | null; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null; estado_conservacao?: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
+type Resultado = { situacao: Situacao; repetida?: boolean; ignorada?: boolean; leitura?: { id: string; foto_url?: string | null; estado_conservacao?: string | null } | null; bem: { id: string; plaqueta: string | null; descricao: string; categoria: string | null; setor_nome: string | null; status: string; foto_url: string | null; estado_conservacao?: string | null } | null; codigo?: string; offline?: boolean; erro?: string }
 type ItemFila = { codigo: string; origem: 'QR' | 'RFID' | 'MANUAL'; estado_conservacao?: string; observacao?: string; lido_por?: string; t: number }
 
 const SIT: Record<Situacao, { label: string; cor: string; icone: React.ReactNode; dica: string }> = {
@@ -210,6 +210,12 @@ export default function ConferenciaSetorPage() {
     setErroAcao('')
     try {
       const r = await postLeitura({ codigo: limpo, origem, ...extras })
+      // Tag de terceiro: nada a conferir. Avisa de leve e não abre cartão, senão
+      // cada etiqueta de roupa que passasse perto travaria a tela do conferente.
+      if (r.ignorada) {
+        mostrarAviso('Tag de terceiros ignorada', 'erro')
+        return
+      }
       tocar(somDe(r.situacao))
       if (opcoes?.semCartao && r.situacao === 'ENCONTRADO') mostrarAviso(`✓ ${opcoes.rotulo || limpo} conferido`)
       else setResultado({ ...r, codigo: limpo })
@@ -314,10 +320,10 @@ export default function ConferenciaSetorPage() {
    * e sobem em lotes a cada 1,5 s para a rota de lote; nada de cartão por tag.
    * Ao encerrar, a sala é fechada com o resumo de irregularidades.
    */
-  type ResultadoVarredura = { codigo: string; situacao?: Situacao; repetida?: boolean; erro?: string; bem?: { plaqueta: string | null; descricao: string; setor_nome: string | null } | null }
+  type ResultadoVarredura = { codigo: string; situacao?: Situacao; repetida?: boolean; ignorada?: boolean; erro?: string; bem?: { plaqueta: string | null; descricao: string; setor_nome: string | null } | null }
   const [varrendo, setVarrendo] = useState(false)
   const [varreduraLog, setVarreduraLog] = useState<ResultadoVarredura[]>([])
-  const [varreduraCont, setVarreduraCont] = useState({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0 })
+  const [varreduraCont, setVarreduraCont] = useState({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0, ignoradas: 0 })
   const [enviandoLote, setEnviandoLote] = useState(false)
   const [resumoVarredura, setResumoVarredura] = useState<null | { ausentes: Bem[]; outro_setor: Leitura[]; desconhecidos: Leitura[]; baixados: Leitura[] }>(null)
   const bufferVarredura = useRef<string[]>([])
@@ -335,11 +341,15 @@ export default function ConferenciaSetorPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw Object.assign(new Error(json?.message || 'Erro no lote'), { status: res.status })
       const rs: ResultadoVarredura[] = json.resultados || []
-      const novas = rs.filter((r) => !r.repetida)
+      // Tag de terceiro (roupa, embalagem) não apita nem entra no histórico:
+      // só soma no contador, para quem está varrendo saber que o ambiente tem ruído.
+      const uteis = rs.filter((r) => !r.ignorada)
+      const novas = uteis.filter((r) => !r.repetida)
       if (novas.length) tocar(novas.some((r) => !r.situacao || r.situacao === 'DESCONHECIDO') ? 'erro' : novas.some((r) => r.situacao === 'OUTRO_SETOR' || r.situacao === 'BAIXADO_PRESENTE') ? 'outro' : 'ok')
-      setVarreduraLog((l) => [...rs.slice().reverse(), ...l].slice(0, 200))
+      setVarreduraLog((l) => [...uteis.slice().reverse(), ...l].slice(0, 200))
       setVarreduraCont((c) => ({
         lidas: c.lidas + (json.novas || 0),
+        ignoradas: c.ignoradas + (json.ignoradas || 0),
         encontrados: c.encontrados + rs.filter((r) => r.situacao === 'ENCONTRADO' && !r.repetida).length,
         outro_setor: c.outro_setor + rs.filter((r) => r.situacao === 'OUTRO_SETOR' && !r.repetida).length,
         desconhecidos: c.desconhecidos + rs.filter((r) => r.situacao === 'DESCONHECIDO' && !r.repetida).length,
@@ -380,7 +390,7 @@ export default function ConferenciaSetorPage() {
     desbloquearAudio()
     setResumoVarredura(null)
     setVarreduraLog([])
-    setVarreduraCont({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0 })
+    setVarreduraCont({ lidas: 0, encontrados: 0, outro_setor: 0, desconhecidos: 0, baixados: 0, repetidas: 0, ignoradas: 0 })
     bufferVarredura.current = []
     varrendoRef.current = true
     setVarrendo(true)
@@ -647,6 +657,12 @@ export default function ConferenciaSetorPage() {
             {enviandoLote || bufferVarredura.current.length ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
             Varrendo a sala: aperte o gatilho e passe o leitor pelos bens. {varreduraCont.repetidas > 0 ? `${varreduraCont.repetidas} leitura(s) repetida(s) ignorada(s).` : ''}
           </p>
+          {varreduraCont.ignoradas > 0 && (
+            <p className="text-xs text-slate-400 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2">
+              {varreduraCont.ignoradas} tag(s) de terceiros descartada(s) — etiqueta de roupa, embalagem ou
+              produto com chip de fábrica. Não entram na conferência.
+            </p>
+          )}
           <div className="rounded-xl bg-slate-800 border border-slate-700 divide-y divide-slate-700 max-h-[45vh] overflow-y-auto">
             {varreduraLog.length === 0 && <p className="text-sm text-slate-400 p-4 text-center">Nenhuma tag lida ainda.</p>}
             {varreduraLog.map((r, i) => (

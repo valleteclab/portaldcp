@@ -27,6 +27,7 @@ import { CriarInventarioDto, AtualizarSetorInventarioDto } from './dto/criar-inv
 import { PatrimonioService } from './patrimonio.service';
 import { agruparPorResponsavel, chaveTelefone, mensagemConvite } from './inventario-responsavel.util';
 import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
+import { ehTagDeTerceiro, plaquetaDeEpcAscii } from './codigo-tag.util';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
@@ -503,11 +504,12 @@ export class PatrimonioInventarioService {
     // 3) plaqueta digitada sem zeros à esquerda (ou EPC gravado só com dígitos)
     if (!bem && /^\d+$/.test(limpo)) bem = await porNumero(limpo.replace(/^0+/, '') || '0');
     // 4) EPC em hex (leitor RFID): o fornecedor grava o número da plaqueta em ASCII
-    //    (ex.: "CMLEM000482" → 434D4C454D303030343832) — decodifica e tenta o número
-    if (!bem && /^[0-9A-F]{8,64}$/.test(limpo) && limpo.length % 2 === 0) {
-      const ascii = Buffer.from(limpo, 'hex').toString('latin1').replace(/[^\x20-\x7e]/g, '');
-      const digitos = ascii.match(/\d{1,12}/g);
-      if (digitos?.length) bem = await porNumero(digitos[digitos.length - 1].replace(/^0+/, '') || '0');
+    //    (ex.: "CMLEM000482" → 434D4C454D303030343832) — decodifica e tenta o número.
+    //    A validação do texto fica em plaquetaDeEpcAscii: sem ela, qualquer EPC
+    //    binário de terceiro pescava um dígito e casava com um bem ao acaso.
+    if (!bem) {
+      const numero = plaquetaDeEpcAscii(limpo);
+      if (numero) bem = await porNumero(numero);
     }
     return { bem, codigo };
   }
@@ -516,7 +518,9 @@ export class PatrimonioInventarioService {
     const s = await this.setorPorToken(token);
     this.exigirAberto(s);
     const r = await this.processarLeitura(s, input);
-    await this.marcarEmAndamento(s);
+    // Tag de terceiro não abre a conferência: o setor só entra em andamento
+    // quando alguém leu algo de verdade.
+    if (!(r as any).ignorada) await this.marcarEmAndamento(s);
     return r;
   }
 
@@ -539,7 +543,8 @@ export class PatrimonioInventarioService {
         resultados.push({ codigo, erro: err?.message || 'Falha ao registrar' });
       }
     }
-    await this.marcarEmAndamento(s);
+    const ignoradas = resultados.filter((r) => r.ignorada).length;
+    if (ignoradas < resultados.length) await this.marcarEmAndamento(s);
     const cont = (sit: SituacaoLeitura) => resultados.filter((r) => r.situacao === sit).length;
     return {
       total: resultados.length,
@@ -549,6 +554,8 @@ export class PatrimonioInventarioService {
       outro_setor: cont(SituacaoLeitura.OUTRO_SETOR),
       desconhecidos: cont(SituacaoLeitura.DESCONHECIDO),
       baixados_presentes: cont(SituacaoLeitura.BAIXADO_PRESENTE),
+      /** Tags que não são do órgão (etiqueta de roupa, embalagem): descartadas. */
+      ignoradas,
       resultados,
     };
   }
@@ -564,6 +571,12 @@ export class PatrimonioInventarioService {
   /** Classifica e grava uma leitura no setor já carregado (sem tocar no status do setor). */
   private async processarLeitura(s: InventarioSetor, input: LeituraInput) {
     const { bem, codigo } = await this.resolverCodigo(s.orgao_id, input.codigo);
+    // Tag que não é do órgão e não casou com nada (etiqueta de roupa, embalagem):
+    // descarta sem gravar. Registrar viraria uma linha DESCONHECIDO no relatório
+    // da sala para cada peça de roupa que passasse perto da antena.
+    if (ehTagDeTerceiro(codigo, !!bem)) {
+      return { ignorada: true, repetida: false, situacao: null, leitura: null, bem: null };
+    }
     const origem = input.origem && Object.values(OrigemLeitura).includes(input.origem) ? input.origem : OrigemLeitura.QR;
     const estado = input.estado_conservacao && Object.values(EstadoConservacao).includes(input.estado_conservacao) ? input.estado_conservacao : null;
 
