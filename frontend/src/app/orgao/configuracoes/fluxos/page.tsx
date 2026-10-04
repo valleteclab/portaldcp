@@ -137,12 +137,55 @@ export default function WorkflowsPage() {
     <div className="grid gap-4 md:grid-cols-3">{lista.map((item) => <button key={item.id} onClick={() => abrir(item.id)} className="rounded-xl border bg-white p-5 text-left shadow-sm hover:border-blue-500"><div className="flex items-start justify-between"><GitBranch className="h-7 w-7 text-blue-700" /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "PUBLICADO" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>{item.status}</span></div><h2 className="mt-4 font-semibold text-slate-900">{item.nome}</h2><p className="mt-1 text-sm text-slate-500">Versão {item.versao}</p></button>)}</div></>}
   </div>
 
+  const acoesDoProcesso = workflow.fases.flatMap((fase) =>
+    fase.acoes.map((acao) => ({ acao, faseNome: fase.nome })),
+  )
+  const responsavelDefinido = (acao: Acao) =>
+    acao.responsavel_tipo === "SOLICITANTE" ||
+    Boolean(acao.responsavel_valor) ||
+    Boolean(acao.configuracao?.responsaveis?.length)
+  const acoesPendentes = acoesDoProcesso.filter(({ acao }) => !responsavelDefinido(acao))
+
   return <div className="space-y-5 pb-16">
     <div className="flex flex-wrap items-start justify-between gap-4"><div><button onClick={() => setWorkflow(null)} className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Todos os processos</button><h1 className="mt-1 text-2xl font-bold">{workflow.nome}</h1><p className="text-sm text-slate-500">Versão {workflow.versao} · {workflow.status}</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setFormulariosAbertos(!formulariosAbertos)}><ClipboardList className="mr-2 h-4 w-4" />Formulários</Button><Button variant="outline" onClick={adicionarFase}><Plus className="mr-2 h-4 w-4" />Fase</Button>{workflow.status === "PUBLICADO" && <Button variant="outline" onClick={iniciarTeste}>Executar teste</Button>}<Button onClick={publicar}>Publicar</Button></div></div>
 
     {formulariosAbertos && <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Formulários do processo</h2><p className="text-sm text-slate-500">Os campos preenchidos ficam disponíveis para ações e mensagens.</p></div><Button size="sm" onClick={criarFormulario}><Plus className="mr-1 h-4 w-4" />Formulário</Button></div><div className="mt-4 grid gap-3 md:grid-cols-3">{workflow.formularios.map((form) => <div key={form.id} className="rounded-lg border p-4"><div className="flex justify-between"><strong>{form.nome}</strong><button onClick={() => adicionarCampo(form)} className="text-sm text-blue-700">+ Campo</button></div><div className="mt-3 space-y-1">{form.campos.map((campo) => <div key={campo.id} className="rounded bg-slate-50 px-2 py-1 text-sm">{campo.rotulo} <span className="text-xs text-slate-400">{campo.tipo}{campo.obrigatorio ? " · obrigatório" : ""}</span></div>)}</div></div>)}</div></CardContent></Card>}
 
     <div className="overflow-x-auto pb-4"><div className="flex min-w-max items-start gap-4">{workflow.fases.map((fase) => <section key={fase.id} className="w-80 rounded-xl border border-slate-200 bg-slate-50 shadow-sm"><div className="rounded-t-xl border-b bg-white px-4 py-3" style={{ borderTop: `5px solid ${fase.cor}` }}><div className="flex items-center justify-between"><h2 className="font-bold text-slate-800">{fase.nome}</h2><Settings2 className="h-4 w-4 text-slate-400" /></div><button onClick={() => setFaseMenu(faseMenu === fase.id ? null : fase.id)} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-700"><Plus className="h-4 w-4" />AÇÃO</button>{faseMenu === fase.id && <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg border bg-white p-2 shadow-lg">{Object.entries(ACAO).map(([tipo, item]) => <button key={tipo} onClick={() => adicionarAcao(fase, tipo as keyof typeof ACAO)} className="rounded p-2 text-left text-xs hover:bg-blue-50"><item.Icone className="mb-1 h-4 w-4" style={{ color: item.cor }} />{item.nome}</button>)}</div>}</div><div className="space-y-3 p-3">{fase.acoes.map((acao) => { const visual = ACAO[acao.tipo as keyof typeof ACAO] ?? ACAO.TAREFA; const Icone = visual.Icone; return <article key={acao.id} className="overflow-hidden rounded-lg border bg-white shadow-sm"><div className="border-l-4 p-3" style={{ borderLeftColor: visual.cor }}><div className="flex gap-2"><Icone className="mt-0.5 h-4 w-4 shrink-0" style={{ color: visual.cor }} /><div><div className="text-xs font-semibold uppercase text-slate-400">{visual.nome}</div><h3 className="font-semibold text-slate-800">{acao.nome}</h3></div></div></div><div className="border-t bg-slate-50 px-3 py-2"><div className="flex items-center justify-between"><span className="text-xs font-semibold uppercase text-slate-400">Reações</span><button onClick={() => adicionarReacao(acao)} className="text-xs font-semibold text-blue-700">+ REAÇÃO</button></div><div className="mt-2 space-y-1">{acao.reacoes.map((reacao) => { const item = REACAO[reacao.tipo as keyof typeof REACAO]; const RIcone = item?.Icone ?? Bell; return <div key={reacao.id} className="flex items-center gap-2 rounded bg-white px-2 py-1.5 text-sm"><RIcone className={`h-4 w-4 ${reacao.tipo === "WHATSAPP" ? "text-green-600" : "text-blue-600"}`} />{reacao.nome}</div> })}</div></div></article>})}{fase.acoes.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-400">Adicione a primeira ação</div>}</div></section>)}<button onClick={adicionarFase} className="flex h-32 w-48 items-center justify-center rounded-xl border-2 border-dashed text-sm font-semibold text-slate-500 hover:border-blue-500 hover:text-blue-700"><Plus className="mr-2 h-4 w-4" />Nova fase</button></div></div>
+    <Card className={acoesPendentes.length ? "border-amber-300" : "border-emerald-300"}>
+      <CardContent className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-900">Responsáveis das ações</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Escolha uma pessoa, várias pessoas, um ou vários setores ou o próprio solicitante.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${acoesPendentes.length ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+            {acoesPendentes.length ? `${acoesPendentes.length} pendente(s)` : "Tudo configurado"}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {acoesDoProcesso.map(({ acao, faseNome }) => {
+            const definido = responsavelDefinido(acao)
+            return <button
+              key={acao.id}
+              type="button"
+              onClick={() => setAcaoEditando(acao)}
+              className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition hover:border-blue-500 hover:bg-blue-50 ${definido ? "bg-white" : "border-amber-300 bg-amber-50"}`}
+            >
+              <div className="min-w-0">
+                <p className="truncate text-xs text-slate-500">{faseNome}</p>
+                <p className="truncate text-sm font-semibold text-slate-800">{acao.nome}</p>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-semibold ${definido ? "bg-emerald-100 text-emerald-700" : "bg-amber-200 text-amber-900"}`}>
+                {definido ? "Configurar" : "Definir responsável"}
+              </span>
+            </button>
+          })}
+        </div>
+      </CardContent>
+    </Card>
     {acaoEditando && <PainelAcao workflowId={workflow.id} acao={acaoEditando} formularios={workflow.formularios} aoFechar={() => setAcaoEditando(null)} aoSalvar={recarregar} />}
     {acaoDaReacao && <PainelReacao workflowId={workflow.id} acaoId={acaoDaReacao.id} acaoNome={acaoDaReacao.nome} aoFechar={() => setAcaoDaReacao(null)} aoSalvar={recarregar} />}
     <div className="fixed bottom-5 right-5 rounded-full bg-green-600 p-3 text-white shadow-lg" title="WhatsApp integrado"><MessageCircle className="h-5 w-5" /></div>
