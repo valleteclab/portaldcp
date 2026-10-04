@@ -192,6 +192,27 @@ export class InventarioLeitura {
   @Column({ type: 'varchar', nullable: true })
   lido_por: string | null;
 
+  /**
+   * Só para OUTRO_SETOR e BAIXADO_PRESENTE: o bem estava MESMO nesta sala?
+   *
+   * A antena UHF atravessa parede, então ler um bem de outro setor pode
+   * significar duas coisas opostas — o bem foi parar aqui (achado real, que
+   * pede transferência) ou o leitor pegou a sala vizinha (ruído). Só quem está
+   * na sala sabe, e por isso a resposta é dada no fechamento da conferência.
+   *
+   * null = ainda não respondido (trava o fechamento do setor)
+   * true = está aqui mesmo
+   * false = leitura por alcance; a linha fica para auditoria mas sai das contas
+   */
+  @Column({ type: 'boolean', nullable: true })
+  presenca_confirmada: boolean | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  presenca_confirmada_por: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  presenca_confirmada_em: Date | null;
+
   @CreateDateColumn()
   created_at: Date;
 }

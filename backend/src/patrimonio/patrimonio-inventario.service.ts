@@ -28,6 +28,11 @@ import { PatrimonioService } from './patrimonio.service';
 import { agruparPorResponsavel, chaveTelefone, mensagemConvite } from './inventario-responsavel.util';
 import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
 import { ehTagDeTerceiro, plaquetaDeEpcAscii } from './codigo-tag.util';
+import {
+  exigeConfirmacaoPresenca,
+  mensagemPendencias,
+  pendentesDeConfirmacao,
+} from './confirmacao-presenca.util';
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
@@ -415,6 +420,9 @@ export class PatrimonioInventarioService {
         observacao: l.observacao,
         foto_url: l.foto_url,
         created_at: l.created_at,
+        presenca_confirmada: l.presenca_confirmada ?? null,
+        presenca_confirmada_por: l.presenca_confirmada_por,
+        exige_confirmacao: exigeConfirmacaoPresenca(l.situacao),
         bem: l.bem ? bem(l.bem) : null,
       })),
     };
@@ -604,6 +612,18 @@ export class PatrimonioInventarioService {
       });
     }
     leitura.situacao = situacao;
+    // Bem de outro setor (ou baixado) volta a pendente de resposta a cada
+    // leitura: a pergunta só faz sentido no fechamento, com tudo já lido.
+    if (exigeConfirmacaoPresenca(situacao)) {
+      leitura.presenca_confirmada = null;
+      leitura.presenca_confirmada_por = null;
+      leitura.presenca_confirmada_em = null;
+    } else if (leitura.presenca_confirmada !== null) {
+      // Deixou de ser caso de confirmação (o bem mudou de setor no cadastro).
+      leitura.presenca_confirmada = null;
+      leitura.presenca_confirmada_por = null;
+      leitura.presenca_confirmada_em = null;
+    }
     leitura.setor_cadastro_nome = bem ? bem.setor?.nome || bem.localizacao_nome || null : null;
     if (estado) leitura.estado_conservacao = estado;
     if (input.observacao !== undefined) leitura.observacao = input.observacao?.trim() || null;
@@ -611,7 +631,10 @@ export class PatrimonioInventarioService {
     await this.leituraRepo.save(leitura);
 
     if (bem) {
-      bem.ultima_conferencia_em = new Date();
+      // Bem de outro setor só é dado como conferido depois que alguém confirmar
+      // que ele estava mesmo na sala. Sem isso, uma leitura pela parede marcava
+      // como conferido um bem que ninguém viu.
+      if (!exigeConfirmacaoPresenca(situacao)) bem.ultima_conferencia_em = new Date();
       if (estado) bem.estado_conservacao = estado;
       await this.bemRepo.save(bem);
     }
@@ -720,11 +743,63 @@ export class PatrimonioInventarioService {
     };
   }
 
+  /**
+   * Resposta do conferente, no fechamento: cada bem de outro setor (ou baixado)
+   * lido aqui estava mesmo na sala, ou foi o leitor pegando através da parede?
+   *
+   * "Está aqui" vira achado confirmado e marca o bem como conferido.
+   * "Não está" descarta a leitura das contas — a linha fica para auditoria, com
+   * quem respondeu e quando, mas o bem segue pendente no setor dele.
+   */
+  async confirmarPresencas(
+    token: string,
+    input: { confirmacoes: Array<{ leitura_id: string; confirmada: boolean }>; por?: string },
+  ) {
+    const s = await this.setorPorToken(token);
+    this.exigirAberto(s);
+    const lista = Array.isArray(input?.confirmacoes) ? input.confirmacoes : [];
+    if (!lista.length) throw new BadRequestException('Nenhuma confirmação informada');
+    const por = String(input.por || '').trim().slice(0, 120) || null;
+    const agora = new Date();
+    let confirmadas = 0;
+    let descartadas = 0;
+    for (const item of lista) {
+      const leitura = await this.leituraRepo.findOne({
+        where: { id: String(item?.leitura_id || ''), inventario_setor_id: s.id },
+        relations: ['bem'],
+      });
+      if (!leitura || !exigeConfirmacaoPresenca(leitura.situacao)) continue;
+      leitura.presenca_confirmada = !!item.confirmada;
+      leitura.presenca_confirmada_por = por;
+      leitura.presenca_confirmada_em = agora;
+      await this.leituraRepo.save(leitura);
+      if (item.confirmada) {
+        confirmadas++;
+        // Agora sim o bem foi visto por alguém nesta sala.
+        if (leitura.bem_id) await this.bemRepo.update({ id: leitura.bem_id }, { ultima_conferencia_em: agora });
+      } else {
+        descartadas++;
+      }
+    }
+    const pendentes = pendentesDeConfirmacao(
+      await this.leituraRepo.find({ where: { inventario_setor_id: s.id } }),
+    );
+    return { confirmadas, descartadas, pendentes: pendentes.length };
+  }
+
   async fecharSetor(token: string, input: { nome: string; observacoes?: string }) {
     const s = await this.setorPorToken(token);
     this.exigirAberto(s);
     const nome = String(input.nome || '').trim();
     if (nome.length < 3) throw new BadRequestException('Informe o nome de quem está finalizando a conferência');
+    // Trava: sem responder, a sala fecharia com bens que ninguém sabe se estavam lá.
+    const leituras = await this.leituraRepo.find({ where: { inventario_setor_id: s.id }, relations: ['bem'] });
+    const pendentes = pendentesDeConfirmacao(leituras);
+    if (pendentes.length) {
+      throw new BadRequestException(
+        mensagemPendencias(pendentes.map((l) => ({ plaqueta: l.bem?.plaqueta, descricao: l.bem?.descricao }))),
+      );
+    }
     s.status = StatusInventarioSetor.FECHADO;
     s.fechado_em = new Date();
     s.fechado_por = nome;

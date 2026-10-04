@@ -122,6 +122,19 @@ export class PatrimonioPublicController {
     return this.inventario.desfazerLeitura(token, leituraId);
   }
 
+  /**
+   * Fechamento: responde se os bens de outro setor (ou baixados) lidos nesta
+   * sala estavam mesmo aqui ou vieram pela parede. Sem isso o setor não fecha.
+   */
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @Post('inventario/:token/confirmar-presencas')
+  confirmarPresencas(@Param('token') token: string, @Body() body: any) {
+    return this.inventario.confirmarPresencas(token, {
+      confirmacoes: body?.confirmacoes,
+      por: body?.por,
+    });
+  }
+
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('inventario/:token/fechar')
   fechar(@Param('token') token: string, @Body() body: any) {
