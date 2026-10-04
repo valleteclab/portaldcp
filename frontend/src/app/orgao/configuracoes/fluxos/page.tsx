@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { API_URL, authFetch } from "@/lib/api"
 import { PainelAcao } from "@/components/workflow/PainelAcao"
+import { PainelReacao } from "@/components/workflow/PainelReacao"
 
 type Reacao = { id: string; tipo: string; nome: string; configuracao: Record<string, unknown> }
 type Acao = { id: string; nome: string; tipo: string; formulario_id?: string | null; responsavel_tipo?: string; responsavel_valor?: string | null; prazo_dias_uteis: number | null; configuracao?: { responsaveis?: string[]; regra_conclusao?: string; quantidade_minima?: number } | null; reacoes: Reacao[] }
@@ -56,6 +57,7 @@ export default function WorkflowsPage() {
   const [execucoes, setExecucoes] = useState<Execucao[] | null>(null)
   const [execucao, setExecucao] = useState<ExecucaoDetalhe | null>(null)
   const [acaoEditando, setAcaoEditando] = useState<Acao | null>(null)
+  const [acaoDaReacao, setAcaoDaReacao] = useState<Acao | null>(null)
 
   const listar = useCallback(async () => {
     setCarregando(true)
@@ -83,16 +85,7 @@ export default function WorkflowsPage() {
     const criada = await requisicao(`${BASE}/${workflow.id}/fases/${fase.id}/acoes`, { method: "POST", body: JSON.stringify({ tipo, nome }) }); await recarregar(); setAcaoEditando({ ...criada, reacoes: [] })
     setFaseMenu(null)
   }
-  const adicionarReacao = async (acao: Acao) => {
-    if (!workflow) return
-    const tipo = (window.prompt("Reação: EMAIL, WHATSAPP, NOTIFICACAO, GERAR_DOCUMENTO ou AVANCAR", "EMAIL") || "").toUpperCase()
-    if (!(tipo in REACAO)) return toast.error("Escolha uma reação válida")
-    const nome = window.prompt("Nome da reação:", REACAO[tipo as keyof typeof REACAO].nome)?.trim(); if (!nome) return
-    const configuracao: Record<string, string> = {}
-    if (tipo === "EMAIL") { configuracao.destinatario = window.prompt("Destinatário ou variável (ex.: {{solicitante.email}}):", "{{responsavel.email}}") || ""; configuracao.assunto = window.prompt("Assunto:", `Tarefa: ${acao.nome}`) || ""; configuracao.mensagem = window.prompt("Mensagem:", "Você possui uma nova tarefa no Portal DCP.") || "" }
-    if (tipo === "WHATSAPP") { configuracao.destinatario = window.prompt("Telefone ou variável (ex.: {{solicitante.telefone}}):", "{{responsavel.telefone}}") || ""; configuracao.mensagem = window.prompt("Mensagem do WhatsApp:", `Nova tarefa: ${acao.nome}. Acesse {{link_tarefa}}`) || "" }
-    await requisicao(`${BASE}/${workflow.id}/acoes/${acao.id}/reacoes`, { method: "POST", body: JSON.stringify({ tipo, nome, configuracao }) }); await recarregar()
-  }
+  const adicionarReacao = (acao: Acao) => setAcaoDaReacao(acao)
   const criarFormulario = async () => {
     if (!workflow) return
     const nome = window.prompt("Nome do formulário:", "Formulário da solicitação")?.trim(); if (!nome) return
@@ -147,6 +140,7 @@ export default function WorkflowsPage() {
 
     <div className="overflow-x-auto pb-4"><div className="flex min-w-max items-start gap-4">{workflow.fases.map((fase) => <section key={fase.id} className="w-80 rounded-xl border border-slate-200 bg-slate-50 shadow-sm"><div className="rounded-t-xl border-b bg-white px-4 py-3" style={{ borderTop: `5px solid ${fase.cor}` }}><div className="flex items-center justify-between"><h2 className="font-bold text-slate-800">{fase.nome}</h2><Settings2 className="h-4 w-4 text-slate-400" /></div><button onClick={() => setFaseMenu(faseMenu === fase.id ? null : fase.id)} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-700"><Plus className="h-4 w-4" />AÇÃO</button>{faseMenu === fase.id && <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg border bg-white p-2 shadow-lg">{Object.entries(ACAO).map(([tipo, item]) => <button key={tipo} onClick={() => adicionarAcao(fase, tipo as keyof typeof ACAO)} className="rounded p-2 text-left text-xs hover:bg-blue-50"><item.Icone className="mb-1 h-4 w-4" style={{ color: item.cor }} />{item.nome}</button>)}</div>}</div><div className="space-y-3 p-3">{fase.acoes.map((acao) => { const visual = ACAO[acao.tipo as keyof typeof ACAO] ?? ACAO.TAREFA; const Icone = visual.Icone; return <article key={acao.id} className="overflow-hidden rounded-lg border bg-white shadow-sm"><div className="border-l-4 p-3" style={{ borderLeftColor: visual.cor }}><div className="flex gap-2"><Icone className="mt-0.5 h-4 w-4 shrink-0" style={{ color: visual.cor }} /><div><div className="text-xs font-semibold uppercase text-slate-400">{visual.nome}</div><h3 className="font-semibold text-slate-800">{acao.nome}</h3></div></div></div><div className="border-t bg-slate-50 px-3 py-2"><div className="flex items-center justify-between"><span className="text-xs font-semibold uppercase text-slate-400">Reações</span><button onClick={() => adicionarReacao(acao)} className="text-xs font-semibold text-blue-700">+ REAÇÃO</button></div><div className="mt-2 space-y-1">{acao.reacoes.map((reacao) => { const item = REACAO[reacao.tipo as keyof typeof REACAO]; const RIcone = item?.Icone ?? Bell; return <div key={reacao.id} className="flex items-center gap-2 rounded bg-white px-2 py-1.5 text-sm"><RIcone className={`h-4 w-4 ${reacao.tipo === "WHATSAPP" ? "text-green-600" : "text-blue-600"}`} />{reacao.nome}</div> })}</div></div></article>})}{fase.acoes.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-400">Adicione a primeira ação</div>}</div></section>)}<button onClick={adicionarFase} className="flex h-32 w-48 items-center justify-center rounded-xl border-2 border-dashed text-sm font-semibold text-slate-500 hover:border-blue-500 hover:text-blue-700"><Plus className="mr-2 h-4 w-4" />Nova fase</button></div></div>
     {acaoEditando && <PainelAcao workflowId={workflow.id} acao={acaoEditando} formularios={workflow.formularios} aoFechar={() => setAcaoEditando(null)} aoSalvar={recarregar} />}
+    {acaoDaReacao && <PainelReacao workflowId={workflow.id} acaoId={acaoDaReacao.id} acaoNome={acaoDaReacao.nome} aoFechar={() => setAcaoDaReacao(null)} aoSalvar={recarregar} />}
     <div className="fixed bottom-5 right-5 rounded-full bg-green-600 p-3 text-white shadow-lg" title="WhatsApp integrado"><MessageCircle className="h-5 w-5" /></div>
   </div>
 }
