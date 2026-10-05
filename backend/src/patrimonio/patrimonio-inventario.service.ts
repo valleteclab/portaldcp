@@ -28,6 +28,8 @@ import { PatrimonioService } from './patrimonio.service';
 import { agruparPorResponsavel, chaveTelefone, mensagemConvite } from './inventario-responsavel.util';
 import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
 import { ehTagDeTerceiro, plaquetaDeEpcAscii } from './codigo-tag.util';
+import { gerarTermoConferenciaPdf } from './termo-conferencia-pdf';
+import { codigoVerificacao, montarTermoSetor, periodoConferencia } from './termo-conferencia.util';
 import {
   exigeConfirmacaoPresenca,
   leituraContaNoRelatorio,
@@ -912,6 +914,92 @@ ${registro}` : registro;
     if (input.observacoes !== undefined) s.observacoes = input.observacoes?.trim() || null;
     await this.invSetorRepo.save(s);
     return { ok: true, fechado_em: s.fechado_em, fechado_por: s.fechado_por };
+  }
+
+  /**
+   * TERMO DE CONFERÊNCIA do setor: o documento que o responsável assina e leva.
+   *
+   * Só depois de fechado — o termo atesta conferência concluída, e antes disso
+   * os números ainda mudam. Os quadros saem da mesma regra da tela: leitura
+   * negada pelo conferente não entra, e bem achado por outra sala não é falta.
+   */
+  async gerarTermoSetor(token: string): Promise<{ buffer: Buffer; nomeArquivo: string; setor: InventarioSetor }> {
+    const s = await this.setorPorToken(token);
+    if (s.status !== StatusInventarioSetor.FECHADO) {
+      throw new BadRequestException(
+        'O termo é emitido depois de finalizar a conferência do setor.',
+      );
+    }
+    const [bens, leituras, orgao, emOutraSala] = await Promise.all([
+      this.bensDoSetor(s),
+      this.leituraRepo.find({ where: { inventario_setor_id: s.id }, relations: ['bem'] }),
+      this.orgaoRepo.findOne({ where: { id: s.orgao_id }, select: ['id', 'nome', 'nome_fantasia', 'cnpj'] }),
+      this.localizadosEmOutraSala(s),
+    ]);
+    const confirmadosFora = new Map<string, string>();
+    emOutraSala.forEach((v, k) => {
+      if (v.confirmado) confirmadosFora.set(k, v.setor_nome);
+    });
+
+    const dados = montarTermoSetor({
+      bens: bens as any,
+      leituras: leituras as any,
+      localizadosEmOutraSala: confirmadosFora,
+    });
+
+    const buffer = gerarTermoConferenciaPdf(
+      {
+        orgao_nome: orgao?.nome_fantasia || orgao?.nome || '',
+        orgao_cnpj: (orgao as any)?.cnpj || null,
+        comissao: s.inventario?.comissao || null,
+        inventario_nome: s.inventario?.nome || 'Inventário de Bens Móveis',
+        inventario_ano: s.inventario?.ano || new Date().getFullYear(),
+        setor_nome: s.setor_nome,
+        responsavel_nome: s.responsavel_nome,
+        periodo: periodoConferencia(s.iniciado_em, s.fechado_em),
+        emitido_em: new Date().toLocaleString('pt-BR', { timeZone: 'America/Bahia' }),
+        fechado_por: s.fechado_por,
+        codigo_verificacao: codigoVerificacao(s.id),
+      },
+      dados,
+    );
+    const nomeArquivo = `termo_${s.setor_nome.normalize('NFD').replace(/[^\w]/g, '_')}_${s.inventario?.ano || ''}.pdf`;
+    return { buffer, nomeArquivo, setor: s };
+  }
+
+  /**
+   * Manda o termo por WhatsApp para o número que o conferente digitar — o
+   * responsável do setor, o presidente da comissão, quem for. Em campo o
+   * celular é o único canal: ninguém vai ao computador imprimir.
+   */
+  async enviarTermoWhatsApp(token: string, input: { telefone: string; nome?: string }) {
+    const telefone = String(input?.telefone || '').replace(/\D/g, '');
+    if (telefone.length < 10) {
+      throw new BadRequestException('Informe o WhatsApp com DDD de quem vai receber o termo');
+    }
+    const { buffer, nomeArquivo, setor } = await this.gerarTermoSetor(token);
+    const configurado = await this.whatsapp.isConfigurado(setor.orgao_id);
+    if (!configurado) {
+      throw new BadRequestException('O WhatsApp deste órgão não está configurado. Baixe o PDF e envie manualmente.');
+    }
+    const legenda =
+      `Termo de Conferência — ${setor.setor_nome}
+` +
+      `${setor.inventario?.nome || 'Inventário'} ${setor.inventario?.ano || ''}
+
+` +
+      `Conferência finalizada por ${setor.fechado_por || setor.responsavel_nome || '—'}.`;
+    const enviado = await this.whatsapp.enviarDocumento(setor.orgao_id, {
+      to: telefone,
+      documentoBase64: buffer.toString('base64'),
+      nomeArquivo,
+      legenda,
+      extensao: 'pdf',
+      mimeType: 'application/pdf',
+    });
+    if (!enviado) throw new BadRequestException('Não foi possível enviar pelo WhatsApp. Baixe o PDF e envie manualmente.');
+    this.logger.log(`Termo do setor ${setor.setor_nome} enviado por WhatsApp para ${telefone}`);
+    return { ok: true, telefone, nome_arquivo: nomeArquivo };
   }
 
   /** Página pública do QR (quem lê a plaqueta com a câmera do celular). */

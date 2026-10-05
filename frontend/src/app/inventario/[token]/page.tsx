@@ -31,6 +31,7 @@ function horaCurta(iso: string): string {
   return `em ${dia} às ${hora}`
 }
 
+const LS_TERMO_TEL = 'dcp_inv_termo_tel'
 const LS_NOME = 'inventario_nome_conferente'
 const LS_MUDO = 'inventario_mudo'
 
@@ -532,6 +533,49 @@ export default function ConferenciaSetorPage() {
   }
 
   /**
+   * Termo de Conferência: o PDF que o responsável assina e leva. Sai só depois
+   * de finalizar, e vai por WhatsApp para quem o conferente indicar — em campo
+   * ninguém vai ao computador imprimir.
+   */
+  const [modalTermo, setModalTermo] = useState(false)
+  const [termoTel, setTermoTel] = useState('')
+  const [termoEnviando, setTermoEnviando] = useState(false)
+  const [termoErro, setTermoErro] = useState('')
+  const [termoOk, setTermoOk] = useState('')
+
+  const enviarTermoWhatsApp = async () => {
+    const digitos = termoTel.replace(/\D/g, '')
+    if (digitos.length < 10 || termoEnviando) return
+    setTermoEnviando(true)
+    setTermoErro('')
+    setTermoOk('')
+    try {
+      const res = await fetch(`${PUB}/inventario/${token}/termo/whatsapp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone: digitos }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.message || 'Não foi possível enviar')
+      setTermoOk('Termo enviado pelo WhatsApp.')
+      try { localStorage.setItem(LS_TERMO_TEL, digitos) } catch { /* privado */ }
+    } catch (e: any) {
+      setTermoErro(e.message)
+    } finally {
+      setTermoEnviando(false)
+    }
+  }
+
+  const abrirTermo = () => {
+    let salvo = ''
+    try { salvo = localStorage.getItem(LS_TERMO_TEL) || '' } catch { /* privado */ }
+    setTermoTel(salvo)
+    setTermoErro('')
+    setTermoOk('')
+    setModalTermo(true)
+  }
+
+  /**
    * Recomeçar: apaga tudo que foi lido nesta sala. Serve para quem varreu a
    * sala errada ou quer refazer a conferência do zero — antes isso dependia do
    * suporte mexer no banco, porque o "Desfazer" só existe na leitura avulsa.
@@ -738,7 +782,15 @@ export default function ConferenciaSetorPage() {
         )}
         {fechado && (
           <div className="mt-2 text-xs bg-emerald-500/20 border border-emerald-400/40 rounded-lg px-3 py-2">
-            Conferência finalizada{dados.setor.fechado_por ? ` por ${dados.setor.fechado_por}` : ''}{dados.setor.fechado_em ? ` em ${new Date(dados.setor.fechado_em).toLocaleString('pt-BR')}` : ''}.
+            <p>Conferência finalizada{dados.setor.fechado_por ? ` por ${dados.setor.fechado_por}` : ''}{dados.setor.fechado_em ? ` em ${new Date(dados.setor.fechado_em).toLocaleString('pt-BR')}` : ''}.</p>
+            <div className="mt-2 flex gap-2">
+              <a href={`${PUB}/inventario/${token}/termo`} target="_blank" rel="noreferrer" className="flex-1 text-center rounded-lg bg-slate-800 text-slate-100 py-2 font-semibold">
+                Ver termo (PDF)
+              </a>
+              <button onClick={abrirTermo} className="flex-1 rounded-lg bg-emerald-500 text-slate-900 py-2 font-bold">
+                Enviar por WhatsApp
+              </button>
+            </div>
           </div>
         )}
       </header>
@@ -1254,6 +1306,45 @@ export default function ConferenciaSetorPage() {
           </button>
           {erroAcao && <p className="text-xs text-rose-300 mt-2">{erroAcao}</p>}
           <button onClick={fecharSetor} disabled={fecharForm.nome.trim().length < 3 || faltamResponder > 0 || salvandoPresencas} className="mt-3 w-full rounded-xl bg-emerald-500 disabled:opacity-50 text-slate-900 font-bold py-3">{salvandoPresencas ? 'Confirmando…' : 'Finalizar setor'}</button>
+        </Modal>
+      )}
+
+      {modalTermo && dados && (
+        <Modal titulo="Enviar termo por WhatsApp" onClose={() => setModalTermo(false)}>
+          <p className="text-sm text-slate-300">
+            O Termo de Conferência de <span className="font-semibold">{dados.setor.nome}</span> vai em PDF
+            para o número abaixo.
+          </p>
+          <label htmlFor="termo-tel" className="mt-3 block text-xs text-slate-400">WhatsApp com DDD</label>
+          <input
+            id="termo-tel"
+            value={termoTel}
+            onChange={(e) => setTermoTel(e.target.value)}
+            inputMode="tel"
+            placeholder="77 99999-0000"
+            className="mt-1 w-full rounded-lg bg-slate-900 border border-slate-600 px-3 py-2.5 text-base"
+          />
+          <p className="text-[11px] text-slate-400 mt-1.5">
+            Pode ser o responsável pelo setor, a comissão ou o patrimônio. O número fica guardado neste
+            aparelho para os próximos envios.
+          </p>
+          {termoErro && <p className="text-xs text-rose-300 mt-2">{termoErro}</p>}
+          {termoOk && <p className="text-xs text-emerald-300 mt-2">{termoOk}</p>}
+          <button
+            onClick={enviarTermoWhatsApp}
+            disabled={termoTel.replace(/\D/g, '').length < 10 || termoEnviando}
+            className="mt-3 w-full rounded-xl bg-emerald-500 disabled:opacity-50 text-slate-900 font-bold py-3"
+          >
+            {termoEnviando ? 'Enviando…' : 'Enviar termo'}
+          </button>
+          <a
+            href={`${PUB}/inventario/${token}/termo`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block text-center text-xs text-slate-300 underline underline-offset-2 py-1"
+          >
+            Ou abrir o PDF para baixar
+          </a>
         </Modal>
       )}
 
