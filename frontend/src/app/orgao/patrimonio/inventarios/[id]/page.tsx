@@ -140,6 +140,12 @@ export default function InventarioDetalhePage() {
   if (!inv) return <div className="py-12 text-center text-muted-foreground">Carregando...</div>
   const aberta = inv.status === "ABERTO"
   const setoresAbertos = inv.setores.filter((s: any) => s.status !== "FECHADO").length
+  const pctDe = (n: number) =>
+    inv.totais.bens ? `${Math.round((n / inv.totais.bens) * 100)}% do total` : undefined
+  /** Setores finalizados com menos da metade localizada. */
+  const subconferidos = inv.setores.filter(
+    (s: any) => s.status === "FECHADO" && s.resumo.total > 0 && s.resumo.encontrados / s.resumo.total < 0.5,
+  )
 
   return (
     <div className="space-y-6">
@@ -161,11 +167,41 @@ export default function InventarioDetalhePage() {
         )}
       </div>
 
+      {/*
+        Setor finalizado com quase nada localizado quase nunca é perda real —
+        é conferência interrompida. Sem este aviso, o caso passa batido e vira
+        um relatório propondo apuração de dezenas de bens que estão no lugar.
+      */}
+      {subconferidos.length > 0 && (
+        <div className="flex flex-wrap items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-700 mt-0.5" />
+          <div className="flex-1 min-w-[280px]">
+            <p className="font-semibold text-amber-900 text-sm">
+              {subconferidos.length === 1
+                ? `${subconferidos[0].setor_nome} foi finalizado com ${subconferidos[0].resumo.nao_localizados} de ${subconferidos[0].resumo.total} bens não localizados`
+                : `${subconferidos.length} setores foram finalizados com a maior parte dos bens não localizada`}
+            </p>
+            <p className="text-sm text-amber-900/90 mt-0.5">
+              Índice assim costuma indicar conferência interrompida, não perda. Confira com o responsável antes
+              de gerar o relatório final — ele propõe apuração de cada bem não localizado.
+            </p>
+          </div>
+          {aberta && (
+            <Button size="sm" variant="outline" className="border-amber-400 text-amber-900"
+              onClick={() => reabrir(subconferidos[0])}>
+              <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+              {subconferidos.length === 1 ? "Reabrir setor" : `Reabrir ${subconferidos[0].setor_nome}`}
+            </Button>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Resumo titulo="Bens nos setores" valor={inv.totais.bens} />
-        <Resumo titulo="Conferidos" valor={inv.totais.encontrados} cor="text-green-600" />
-        <Resumo titulo="Não localizados" valor={inv.totais.nao_localizados} cor="text-red-600" />
-        <Resumo titulo="Divergências" valor={inv.totais.divergencias} cor="text-amber-600" />
+        <Resumo titulo="Localizados" valor={inv.totais.encontrados} cor="text-green-600" detalhe={pctDe(inv.totais.encontrados)} />
+        <Resumo titulo="Não localizados" valor={inv.totais.nao_localizados} cor="text-red-600" detalhe={pctDe(inv.totais.nao_localizados)} />
+        <Resumo titulo="Outras divergências" valor={inv.totais.divergencias} cor="text-amber-600"
+          detalhe="outro setor, sem cadastro, baixados presentes" />
       </div>
 
       <div className="flex gap-2">
@@ -377,28 +413,49 @@ export default function InventarioDetalhePage() {
   )
 }
 
-function Resumo({ titulo, valor, cor }: { titulo: string; valor: number; cor?: string }) {
+function Resumo({ titulo, valor, cor, detalhe }: { titulo: string; valor: number; cor?: string; detalhe?: string }) {
   return (
     <Card>
       <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">{titulo}</CardTitle></CardHeader>
-      <CardContent><div className={`text-2xl font-bold ${cor || ""}`}>{valor}</div></CardContent>
+      <CardContent>
+        <div className={`text-2xl font-bold ${cor || ""}`}>{valor}</div>
+        {detalhe && <div className="text-xs text-muted-foreground mt-1">{detalhe}</div>}
+      </CardContent>
     </Card>
   )
 }
 
+/**
+ * Uma classe de divergência. Mostra as primeiras e guarda o resto atrás de um
+ * botão: num setor com 36 bens não localizados, a lista inteira empurrava o
+ * resto da tela para fora e ninguém via as outras classes.
+ */
+const PRIMEIRAS = 8
+
 function Lista({ titulo, cor, itens }: { titulo: string; cor: string; itens: { texto: string; acao?: { rotulo: string; onClick: () => void } }[] }) {
+  const [todos, setTodos] = useState(false)
   if (!itens.length) return null
+  const visiveis = todos ? itens : itens.slice(0, PRIMEIRAS)
+  const ocultos = itens.length - visiveis.length
   return (
     <div>
       <p className={`font-semibold ${cor}`}>{titulo}</p>
       <ul className="list-disc pl-5 text-muted-foreground space-y-0.5">
-        {itens.map((t, i) => (
+        {visiveis.map((t, i) => (
           <li key={i}>
             {t.texto}
             {t.acao && <button onClick={t.acao.onClick} className="ml-2 text-xs text-blue-700 underline underline-offset-2">{t.acao.rotulo}</button>}
           </li>
         ))}
       </ul>
+      {(ocultos > 0 || todos) && (
+        <button
+          onClick={() => setTodos(!todos)}
+          className="mt-1 ml-5 text-xs text-blue-700 underline underline-offset-2"
+        >
+          {todos ? `Mostrar apenas ${PRIMEIRAS}` : `Ver os outros ${ocultos}`}
+        </button>
+      )}
     </div>
   )
 }
