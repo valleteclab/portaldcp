@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Pencil } from "lucide-react"
+import Link from "next/link"
+import { ArrowLeft, Plus, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -53,9 +54,12 @@ export default function CategoriasPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Categorias de Bens</h1>
-          <p className="text-muted-foreground">Categorias e parâmetros de depreciação (vida útil, valor residual, conta contábil)</p>
+        <div className="flex items-center gap-3">
+          <Link href="/orgao/patrimonio"><Button variant="ghost" size="icon" aria-label="Voltar"><ArrowLeft className="h-5 w-5" /></Button></Link>
+          <div>
+            <h1 className="text-2xl font-bold">Categorias de Bens</h1>
+            <p className="text-muted-foreground">Categorias e parâmetros de depreciação (vida útil, valor residual, conta contábil)</p>
+          </div>
         </div>
         <Button onClick={abrirNovo}><Plus className="h-4 w-4 mr-2" />Nova Categoria</Button>
       </div>
