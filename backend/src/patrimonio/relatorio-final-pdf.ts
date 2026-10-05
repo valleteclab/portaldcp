@@ -10,6 +10,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { DadosRelatorioFinal, recomendacoes } from './relatorio-final.util';
+import { BrasaoPdf, medidaBrasao } from './brasao-pdf.util';
 
 type RGB = [number, number, number];
 const INSTIT: RGB = [27, 74, 99];
@@ -44,6 +45,7 @@ export interface CabecalhoRelatorio {
   periodo: string;
   cidade_uf: string;
   data_extenso: string;
+  brasao?: BrasaoPdf | null;
 }
 
 export function gerarRelatorioFinalPdf(cab: CabecalhoRelatorio, d: DadosRelatorioFinal): Buffer {
@@ -89,6 +91,28 @@ export function gerarRelatorioFinalPdf(cab: CabecalhoRelatorio, d: DadosRelatori
   };
 
   let y = novaPagina();
+
+  // ─── Brasão e identificação do órgão (só na primeira página) ──
+  if (cab.brasao) {
+    const m = medidaBrasao(cab.brasao, 18, 26);
+    doc.addImage(cab.brasao.dataUrl, 'PNG', (L + R) / 2 - m.largura / 2, y, m.largura, m.altura);
+    y += m.altura + 3;
+  }
+  doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...INK);
+  doc.text(cab.orgao_nome.toUpperCase(), (L + R) / 2, y + 3, { align: 'center', maxWidth: R - L });
+  y += 8;
+  if (cab.portaria || cab.comissao_texto) {
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...MUTED);
+    doc.text(
+      cab.portaria ? `Comissão de Inventário — ${cab.portaria}` : 'Comissão de Inventário de Bens Móveis',
+      (L + R) / 2,
+      y,
+      { align: 'center' },
+    );
+    y += 5;
+  }
+  doc.setDrawColor(...INSTIT).setLineWidth(0.6).line(L, y, R, y);
+  y += 7;
 
   // ─── Título ──────────────────────────────────────────────────
   doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(...INK);

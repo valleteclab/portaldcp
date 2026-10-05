@@ -32,6 +32,7 @@ import { gerarTermoConferenciaPdf } from './termo-conferencia-pdf';
 import { codigoVerificacao, montarTermoSetor, periodoConferencia } from './termo-conferencia.util';
 import { gerarRelatorioFinalPdf } from './relatorio-final-pdf';
 import { montarRelatorioFinal, SetorNoRelatorio } from './relatorio-final.util';
+import { brasaoParaPdf } from './brasao-pdf.util';
 import {
   exigeConfirmacaoPresenca,
   leituraContaNoRelatorio,
@@ -972,7 +973,7 @@ ${registro}` : registro;
     const inv = await this.carregar(orgaoId, inventarioId);
     const orgao = await this.orgaoRepo.findOne({
       where: { id: orgaoId },
-      select: ['id', 'nome', 'nome_fantasia', 'cidade', 'uf'],
+      select: ['id', 'nome', 'nome_fantasia', 'cidade', 'uf', 'logo_url'],
     });
 
     const setores: SetorNoRelatorio[] = [];
@@ -1003,6 +1004,7 @@ ${registro}` : registro;
     const buffer = gerarRelatorioFinalPdf(
       {
         orgao_nome: orgao?.nome_fantasia || orgao?.nome || '',
+        brasao: brasaoParaPdf(orgao?.logo_url),
         inventario_nome: inv.nome,
         inventario_ano: inv.ano,
         portaria: inv.portaria,
@@ -1042,7 +1044,7 @@ ${registro}` : registro;
     const [bens, leituras, orgao, emOutraSala] = await Promise.all([
       this.bensDoSetor(s),
       this.leituraRepo.find({ where: { inventario_setor_id: s.id }, relations: ['bem'] }),
-      this.orgaoRepo.findOne({ where: { id: s.orgao_id }, select: ['id', 'nome', 'nome_fantasia', 'cnpj'] }),
+      this.orgaoRepo.findOne({ where: { id: s.orgao_id }, select: ['id', 'nome', 'nome_fantasia', 'cnpj', 'logo_url'] }),
       this.localizadosEmOutraSala(s),
     ]);
     const confirmadosFora = new Map<string, string>();
@@ -1060,6 +1062,7 @@ ${registro}` : registro;
       {
         orgao_nome: orgao?.nome_fantasia || orgao?.nome || '',
         orgao_cnpj: (orgao as any)?.cnpj || null,
+        brasao: brasaoParaPdf(orgao?.logo_url),
         comissao: s.inventario?.comissao || null,
         inventario_nome: s.inventario?.nome || 'Inventário de Bens Móveis',
         inventario_ano: s.inventario?.ano || new Date().getFullYear(),

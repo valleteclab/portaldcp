@@ -11,6 +11,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { DadosTermoSetor } from './termo-conferencia.util';
+import { BrasaoPdf, medidaBrasao } from './brasao-pdf.util';
 
 type RGB = [number, number, number];
 const INSTIT: RGB = [27, 74, 99];
@@ -41,6 +42,7 @@ export interface CabecalhoTermo {
   emitido_em: string;
   fechado_por?: string | null;
   codigo_verificacao: string;
+  brasao?: BrasaoPdf | null;
 }
 
 export function gerarTermoConferenciaPdf(cab: CabecalhoTermo, dados: DadosTermoSetor): Buffer {
@@ -50,16 +52,23 @@ export function gerarTermoConferenciaPdf(cab: CabecalhoTermo, dados: DadosTermoS
   let y = 16;
 
   // ─── Cabeçalho ───────────────────────────────────────────────
+  // Com brasão o texto desloca para a direita; sem ele, encosta na margem.
+  let xTexto = L;
+  if (cab.brasao) {
+    const m = medidaBrasao(cab.brasao, 16, 24);
+    doc.addImage(cab.brasao.dataUrl, 'PNG', L, y - 2, m.largura, m.altura);
+    xTexto = L + m.largura + 5;
+  }
   doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(...INK);
-  doc.text(cab.orgao_nome.toUpperCase(), L, y);
-  y += 5;
+  doc.text(cab.orgao_nome.toUpperCase(), xTexto, y + 2, { maxWidth: R - xTexto });
+  let yTexto = y + 7;
   doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...MUTED);
   if (cab.orgao_cnpj) {
-    doc.text(`CNPJ ${cab.orgao_cnpj}`, L, y);
-    y += 4;
+    doc.text(`CNPJ ${cab.orgao_cnpj}`, xTexto, yTexto);
+    yTexto += 4;
   }
-  doc.text(cab.comissao || 'Comissão de Inventário de Bens Móveis', L, y);
-  y += 3.5;
+  doc.text(cab.comissao || 'Comissão de Inventário de Bens Móveis', xTexto, yTexto, { maxWidth: R - xTexto });
+  y = Math.max(yTexto + 3.5, cab.brasao ? y + 16 : yTexto + 3.5);
   doc.setDrawColor(...INSTIT).setLineWidth(0.6).line(L, y, R, y);
   y += 9;
 
