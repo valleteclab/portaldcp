@@ -439,11 +439,13 @@ export default function ConferenciaSetorPage() {
       if (res.ok) {
         const d: Dados = await res.json()
         setDados(d)
+        // Negadas pelo conferente ficam fora do resumo: não são divergência.
+        const vale = (l: Leitura) => l.presenca_confirmada !== false
         setResumoVarredura({
-          ausentes: d.bens.filter((b) => !b.situacao),
-          outro_setor: d.leituras.filter((l) => l.situacao === 'OUTRO_SETOR'),
-          desconhecidos: d.leituras.filter((l) => l.situacao === 'DESCONHECIDO'),
-          baixados: d.leituras.filter((l) => l.situacao === 'BAIXADO_PRESENTE'),
+          ausentes: d.bens.filter((b) => !b.situacao && !b.localizado_em_outra_sala),
+          outro_setor: d.leituras.filter((l) => l.situacao === 'OUTRO_SETOR' && vale(l)),
+          desconhecidos: d.leituras.filter((l) => l.situacao === 'DESCONHECIDO' && vale(l)),
+          baixados: d.leituras.filter((l) => l.situacao === 'BAIXADO_PRESENTE' && vale(l)),
         })
       }
     } catch { /* mantém a tela; o usuário pode recarregar */ }
@@ -639,7 +641,20 @@ export default function ConferenciaSetorPage() {
     [dados],
   )
   const lidos = useMemo(() => (dados?.bens || []).filter((b) => b.situacao === 'ENCONTRADO'), [dados])
-  const divergencias = useMemo(() => (dados?.leituras || []).filter((l) => l.situacao !== 'ENCONTRADO'), [dados])
+  /**
+   * Divergências de verdade: fora as leituras que o próprio conferente negou
+   * ("não está nesta sala"). Aquilo foi a antena pegando o ambiente vizinho —
+   * mandar para a comissão como divergência criaria transferência que ninguém
+   * pediu e falta que não existe.
+   */
+  const divergencias = useMemo(
+    () => (dados?.leituras || []).filter((l) => l.situacao !== 'ENCONTRADO' && l.presenca_confirmada !== false),
+    [dados],
+  )
+  const descartadas = useMemo(
+    () => (dados?.leituras || []).filter((l) => l.presenca_confirmada === false),
+    [dados],
+  )
   const filtrar = (lista: Bem[]) => {
     const q = busca.trim().toLowerCase()
     if (!q) return lista
@@ -937,6 +952,12 @@ export default function ConferenciaSetorPage() {
               </span>
             </div>
           ))
+        )}
+        {aba === 'divergencias' && descartadas.length > 0 && (
+          <p className="rounded-xl bg-slate-800 border border-slate-700 px-3 py-2.5 text-[11px] text-slate-400">
+            {descartadas.length} leitura(s) descartada(s): o conferente informou que não estavam nesta sala.
+            Ficam no histórico, fora do relatório.
+          </p>
         )}
         {aba === 'divergencias' && (
           divergencias.length === 0 ? <p className="text-sm text-slate-400 py-6 text-center">Nenhuma divergência registrada.</p>
