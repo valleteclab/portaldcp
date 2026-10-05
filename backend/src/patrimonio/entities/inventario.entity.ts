@@ -51,6 +51,28 @@ export class Inventario {
   @Column({ type: 'text', nullable: true })
   comissao: string | null;
 
+  /** "Portaria nº 089/2024" — ato que designou a comissão. Vai no cabeçalho. */
+  @Column({ type: 'varchar', nullable: true })
+  portaria: string | null;
+
+  /** Processo administrativo em que o inventário tramita. */
+  @Column({ type: 'varchar', nullable: true })
+  processo: string | null;
+
+  /**
+   * Membros da comissão, para os blocos de assinatura do relatório final.
+   * [{ nome, cargo, papel: 'PRESIDENTE' | 'MEMBRO' }]
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  membros: Array<{ nome: string; cargo?: string | null; papel?: string | null }> | null;
+
+  /** Quem ratifica o relatório (Mesa Diretora, ordenador de despesa). */
+  @Column({ type: 'varchar', nullable: true })
+  autoridade_nome: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  autoridade_cargo: string | null;
+
   @Column({ type: 'text', nullable: true })
   observacoes: string | null;
 

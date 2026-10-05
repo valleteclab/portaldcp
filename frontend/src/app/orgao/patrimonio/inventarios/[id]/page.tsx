@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import {
   obterInventario, divergenciasInventario, fecharInventario, atualizarSetorInventario,
   enviarLinkSetorInventario, enviarLinksInventario, reabrirSetorInventario, abrirPdf, urlTermoResponsabilidade,
+  urlRelatorioInventario, salvarComissaoInventario,
 } from "@/services/patrimonio.service"
 import { TransferenciaDialog, BaixaDialog } from "../../movimentacoes/BemAcoes"
 import { FileText } from "lucide-react"
@@ -32,6 +33,58 @@ export default function InventarioDetalhePage() {
   const [inv, setInv] = useState<any>(null)
   const [div, setDiv] = useState<any>(null)
   const [aba, setAba] = useState<"setores" | "divergencias">("setores")
+
+  /**
+   * Relatório Final da Comissão. Antes de gerar, cobra os dados que só existem
+   * fora do sistema — portaria, membros, autoridade — senão o documento nasce
+   * com assinatura em branco e ninguém pode protocolar.
+   */
+  const [gerando, setGerando] = useState(false)
+  const [comissaoAberta, setComissaoAberta] = useState(false)
+  const [comissao, setComissao] = useState({
+    portaria: "", processo: "", autoridade_nome: "", autoridade_cargo: "",
+    membros: [] as Array<{ nome: string; cargo: string; papel: string }>,
+  })
+  const [salvandoComissao, setSalvandoComissao] = useState(false)
+
+  const abrirRelatorio = async () => {
+    setGerando(true)
+    try {
+      await abrirPdf(urlRelatorioInventario(id))
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao gerar o relatório")
+    } finally {
+      setGerando(false)
+    }
+  }
+
+  const abrirComissao = () => {
+    setComissao({
+      portaria: inv?.portaria || "",
+      processo: inv?.processo || "",
+      autoridade_nome: inv?.autoridade_nome || "",
+      autoridade_cargo: inv?.autoridade_cargo || "",
+      membros: (inv?.membros || []).map((m: any) => ({ nome: m.nome || "", cargo: m.cargo || "", papel: m.papel || "MEMBRO" })),
+    })
+    setComissaoAberta(true)
+  }
+
+  const salvarComissao = async () => {
+    setSalvandoComissao(true)
+    try {
+      await salvarComissaoInventario(id, {
+        ...comissao,
+        membros: comissao.membros.filter((m) => m.nome.trim()),
+      })
+      toast.success("Dados da comissão salvos")
+      setComissaoAberta(false)
+      carregar()
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao salvar")
+    } finally {
+      setSalvandoComissao(false)
+    }
+  }
   const [editando, setEditando] = useState<any>(null)
   const [editForm, setEditForm] = useState({ responsavel_nome: "", responsavel_telefone: "" })
   const [transf, setTransf] = useState<{ bem: any; setorId: string; setorNome: string } | null>(null)
@@ -97,6 +150,10 @@ export default function InventarioDetalhePage() {
           <p className="text-muted-foreground text-sm">Ano {inv.ano} · aberta por {inv.aberto_por || "-"}{inv.comissao ? ` · Comissão: ${inv.comissao}` : ""}</p>
         </div>
         <Badge className={aberta ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}>{aberta ? "Em andamento" : `Fechada${inv.fechado_por ? ` por ${inv.fechado_por}` : ""}`}</Badge>
+        <Button variant="ghost" onClick={abrirComissao}>Dados da comissão</Button>
+        <Button variant="outline" onClick={abrirRelatorio} disabled={gerando}>
+          <FileText className="h-4 w-4 mr-2" />{gerando ? "Gerando..." : "Relatório final"}
+        </Button>
         {aberta && (
           <Button variant={setoresAbertos ? "outline" : "default"} onClick={() => fechar(setoresAbertos > 0)}>
             <Lock className="h-4 w-4 mr-2" />{setoresAbertos ? `Fechar (${setoresAbertos} aberto${setoresAbertos > 1 ? "s" : ""})` : "Fechar campanha"}
@@ -213,6 +270,76 @@ export default function InventarioDetalhePage() {
           })}
         </div>
       )}
+
+      <Dialog open={comissaoAberta} onOpenChange={setComissaoAberta}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Dados da comissão</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Estes campos aparecem no cabeçalho e nas assinaturas do relatório final. Sem eles o documento
+            sai com os espaços em branco.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="com-portaria">Portaria de designação</Label>
+              <Input id="com-portaria" value={comissao.portaria} onChange={(e) => setComissao({ ...comissao, portaria: e.target.value })} placeholder="Portaria nº 089/2024" />
+            </div>
+            <div>
+              <Label htmlFor="com-processo">Processo administrativo</Label>
+              <Input id="com-processo" value={comissao.processo} onChange={(e) => setComissao({ ...comissao, processo: e.target.value })} placeholder="nº 0123/2026" />
+            </div>
+          </div>
+
+          <div className="mt-2">
+            <div className="flex items-center justify-between">
+              <Label>Membros da comissão</Label>
+              <Button type="button" size="sm" variant="outline" onClick={() => setComissao({ ...comissao, membros: [...comissao.membros, { nome: "", cargo: "", papel: comissao.membros.length ? "MEMBRO" : "PRESIDENTE" }] })}>
+                Adicionar membro
+              </Button>
+            </div>
+            <div className="space-y-2 mt-2">
+              {comissao.membros.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nenhum membro informado — o relatório sai com uma linha de assinatura em branco.</p>
+              )}
+              {comissao.membros.map((m, i) => (
+                <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] gap-2 items-end">
+                  <div>
+                    <Label htmlFor={`m-nome-${i}`} className="text-xs">Nome</Label>
+                    <Input id={`m-nome-${i}`} value={m.nome} onChange={(e) => setComissao({ ...comissao, membros: comissao.membros.map((x, j) => (j === i ? { ...x, nome: e.target.value } : x)) })} />
+                  </div>
+                  <div>
+                    <Label htmlFor={`m-cargo-${i}`} className="text-xs">Cargo</Label>
+                    <Input id={`m-cargo-${i}`} value={m.cargo} onChange={(e) => setComissao({ ...comissao, membros: comissao.membros.map((x, j) => (j === i ? { ...x, cargo: e.target.value } : x)) })} />
+                  </div>
+                  <Button type="button" size="sm" variant={m.papel === "PRESIDENTE" ? "default" : "outline"} onClick={() => setComissao({ ...comissao, membros: comissao.membros.map((x, j) => ({ ...x, papel: j === i ? "PRESIDENTE" : "MEMBRO" })) })}>
+                    Presidente
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setComissao({ ...comissao, membros: comissao.membros.filter((_, j) => j !== i) })}>
+                    Remover
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div>
+              <Label htmlFor="com-aut-nome">Autoridade que ratifica</Label>
+              <Input id="com-aut-nome" value={comissao.autoridade_nome} onChange={(e) => setComissao({ ...comissao, autoridade_nome: e.target.value })} placeholder="Nome" />
+            </div>
+            <div>
+              <Label htmlFor="com-aut-cargo">Cargo da autoridade</Label>
+              <Input id="com-aut-cargo" value={comissao.autoridade_cargo} onChange={(e) => setComissao({ ...comissao, autoridade_cargo: e.target.value })} placeholder="Presidente da Mesa Diretora" />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setComissaoAberta(false)}>Cancelar</Button>
+            <Button onClick={salvarComissao} disabled={salvandoComissao}>{salvandoComissao ? "Salvando..." : "Salvar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <TransferenciaDialog
         bens={transf ? [transf.bem] : []}

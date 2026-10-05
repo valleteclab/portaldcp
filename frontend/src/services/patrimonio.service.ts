@@ -418,6 +418,31 @@ export async function obterInventario(id: string) {
   return res.json();
 }
 
+/** Relatório Final da Comissão (PDF) — caminho para abrirPdf(). */
+export const urlRelatorioInventario = (id: string) => `inventarios/${id}/relatorio`;
+
+/** Portaria, processo, membros e autoridade: o que o relatório final exige. */
+export async function salvarComissaoInventario(
+  id: string,
+  dados: {
+    portaria?: string | null;
+    processo?: string | null;
+    comissao?: string | null;
+    membros?: Array<{ nome: string; cargo?: string | null; papel?: string | null }>;
+    autoridade_nome?: string | null;
+    autoridade_cargo?: string | null;
+  },
+) {
+  const res = await authFetch(`${baseUrl()}/inventarios/${id}/comissao`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dados),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.message || 'Erro ao salvar os dados da comissão');
+  return json;
+}
+
 export async function divergenciasInventario(id: string) {
   const res = await authFetch(`${baseUrl()}/inventarios/${id}/divergencias`);
   if (!res.ok) throw new Error('Erro ao obter divergências');

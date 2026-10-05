@@ -30,6 +30,8 @@ import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
 import { ehTagDeTerceiro, plaquetaDeEpcAscii } from './codigo-tag.util';
 import { gerarTermoConferenciaPdf } from './termo-conferencia-pdf';
 import { codigoVerificacao, montarTermoSetor, periodoConferencia } from './termo-conferencia.util';
+import { gerarRelatorioFinalPdf } from './relatorio-final-pdf';
+import { montarRelatorioFinal, SetorNoRelatorio } from './relatorio-final.util';
 import {
   exigeConfirmacaoPresenca,
   leituraContaNoRelatorio,
@@ -914,6 +916,113 @@ ${registro}` : registro;
     if (input.observacoes !== undefined) s.observacoes = input.observacoes?.trim() || null;
     await this.invSetorRepo.save(s);
     return { ok: true, fechado_em: s.fechado_em, fechado_por: s.fechado_por };
+  }
+
+  /** Dados da comissão exigidos pelo relatório final. */
+  async atualizarComissao(
+    orgaoId: string,
+    inventarioId: string,
+    dados: {
+      portaria?: string | null;
+      processo?: string | null;
+      comissao?: string | null;
+      membros?: Array<{ nome: string; cargo?: string | null; papel?: string | null }> | null;
+      autoridade_nome?: string | null;
+      autoridade_cargo?: string | null;
+    },
+  ) {
+    const inv = await this.carregar(orgaoId, inventarioId);
+    const texto = (v: unknown) => (typeof v === 'string' ? v.trim() || null : v === null ? null : undefined);
+    const campos: any = {
+      portaria: texto(dados?.portaria),
+      processo: texto(dados?.processo),
+      comissao: texto(dados?.comissao),
+      autoridade_nome: texto(dados?.autoridade_nome),
+      autoridade_cargo: texto(dados?.autoridade_cargo),
+    };
+    if (dados?.membros !== undefined) {
+      campos.membros = Array.isArray(dados.membros)
+        ? dados.membros
+            .map((m) => ({
+              nome: String(m?.nome || '').trim(),
+              cargo: String(m?.cargo || '').trim() || null,
+              papel: String(m?.papel || '').trim().toUpperCase() === 'PRESIDENTE' ? 'PRESIDENTE' : 'MEMBRO',
+            }))
+            .filter((m) => m.nome)
+            .slice(0, 12)
+        : null;
+    }
+    for (const k of Object.keys(campos)) if (campos[k] === undefined) delete campos[k];
+    await this.invRepo.update({ id: inv.id }, campos);
+    return this.obter(orgaoId, inventarioId);
+  }
+
+  /**
+   * RELATÓRIO FINAL DA COMISSÃO: consolida os termos de todos os setores.
+   *
+   * Monta cada setor com a MESMA função do termo e só então soma. Assim o
+   * relatório da comissão não tem como contradizer o termo que o servidor
+   * assinou — seria a pior divergência possível num documento de prestação
+   * de contas.
+   *
+   * Sai mesmo com setor em aberto: a comissão precisa acompanhar o andamento.
+   * O que não pode é sair sem dizer isso, e por isso o PDF traz a ressalva.
+   */
+  async gerarRelatorioFinal(orgaoId: string, inventarioId: string): Promise<{ buffer: Buffer; nomeArquivo: string }> {
+    const inv = await this.carregar(orgaoId, inventarioId);
+    const orgao = await this.orgaoRepo.findOne({
+      where: { id: orgaoId },
+      select: ['id', 'nome', 'nome_fantasia', 'cidade', 'uf'],
+    });
+
+    const setores: SetorNoRelatorio[] = [];
+    let inicio: Date | null = null;
+    let fim: Date | null = null;
+    for (const s of inv.setores) {
+      const [bens, leituras, emOutraSala] = await Promise.all([
+        this.bensDoSetor(s),
+        this.leituraRepo.find({ where: { inventario_setor_id: s.id }, relations: ['bem'] }),
+        this.localizadosEmOutraSala(s),
+      ]);
+      const confirmadosFora = new Map<string, string>();
+      emOutraSala.forEach((v, k) => {
+        if (v.confirmado) confirmadosFora.set(k, v.setor_nome);
+      });
+      setores.push({
+        nome: s.setor_nome,
+        responsavel: s.responsavel_nome,
+        fechado: s.status === StatusInventarioSetor.FECHADO,
+        fechado_por: s.fechado_por,
+        dados: montarTermoSetor({ bens: bens as any, leituras: leituras as any, localizadosEmOutraSala: confirmadosFora }),
+      });
+      if (s.iniciado_em && (!inicio || s.iniciado_em < inicio)) inicio = s.iniciado_em;
+      if (s.fechado_em && (!fim || s.fechado_em > fim)) fim = s.fechado_em;
+    }
+
+    const agora = new Date();
+    const buffer = gerarRelatorioFinalPdf(
+      {
+        orgao_nome: orgao?.nome_fantasia || orgao?.nome || '',
+        inventario_nome: inv.nome,
+        inventario_ano: inv.ano,
+        portaria: inv.portaria,
+        processo: inv.processo,
+        comissao_texto: inv.comissao,
+        membros: inv.membros,
+        autoridade_nome: inv.autoridade_nome,
+        autoridade_cargo: inv.autoridade_cargo,
+        periodo: periodoConferencia(inicio, fim || agora),
+        cidade_uf: [(orgao as any)?.cidade, (orgao as any)?.uf].filter(Boolean).join('/') || '',
+        data_extenso: agora.toLocaleDateString('pt-BR', {
+          timeZone: 'America/Bahia',
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric',
+        }),
+      },
+      montarRelatorioFinal(setores),
+    );
+    return { buffer, nomeArquivo: `relatorio_inventario_${inv.ano}.pdf` };
   }
 
   /**
