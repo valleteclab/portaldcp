@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Put, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Body, Param, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -24,6 +25,25 @@ export class PatrimonioInventarioController {
   @Get(':id')
   obter(@Param('orgaoId') orgaoId: string, @Param('id') id: string) {
     return this.service.obter(orgaoId, id);
+  }
+
+  /** Relatório Final da Comissão (PDF). */
+  @Get(':id/relatorio')
+  async relatorio(
+    @Param('orgaoId') orgaoId: string,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, nomeArquivo } = await this.service.gerarRelatorioFinal(orgaoId, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${nomeArquivo}"`);
+    res.send(buffer);
+  }
+
+  /** Dados da comissão que o relatório final exige (portaria, membros, autoridade). */
+  @Patch(':id/comissao')
+  atualizarComissao(@Param('orgaoId') orgaoId: string, @Param('id') id: string, @Body() body: any) {
+    return this.service.atualizarComissao(orgaoId, id, body);
   }
 
   @Get(':id/divergencias')
