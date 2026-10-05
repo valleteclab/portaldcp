@@ -30,6 +30,7 @@ import { FotoBem, OrigemFotoBem } from './entities/foto-bem.entity';
 import { ehTagDeTerceiro, plaquetaDeEpcAscii } from './codigo-tag.util';
 import {
   exigeConfirmacaoPresenca,
+  leituraContaNoRelatorio,
   localizadoEmOutroSetor,
   mensagemPendencias,
   pendentesDeConfirmacao,
@@ -222,7 +223,11 @@ export class PatrimonioInventarioService {
     const lidos = new Set(leituras.filter((l) => l.bem_id && l.situacao === SituacaoLeitura.ENCONTRADO).map((l) => l.bem_id));
     const confirmadoFora = (b: BemPatrimonial) => emOutraSala.get(b.id)?.confirmado === true;
     const achado = (b: BemPatrimonial) => lidos.has(b.id) || confirmadoFora(b);
-    const cont = (sit: SituacaoLeitura) => leituras.filter((l) => l.situacao === sit).length;
+    // Leitura que o conferente negou ("não está nesta sala") é ruído de antena:
+    // não pode entrar na contagem de divergências nem ir para a comissão como
+    // transferência a fazer. Fica gravada, só para auditoria.
+    const valem = leituras.filter((l) => leituraContaNoRelatorio(l));
+    const cont = (sit: SituacaoLeitura) => valem.filter((l) => l.situacao === sit).length;
     return {
       ...invSetor,
       link: `${appUrl()}/inventario/${invSetor.token_acesso}`,
@@ -236,7 +241,9 @@ export class PatrimonioInventarioService {
         desconhecidos: cont(SituacaoLeitura.DESCONHECIDO),
         sem_plaqueta: cont(SituacaoLeitura.SEM_PLAQUETA),
         baixados_presentes: cont(SituacaoLeitura.BAIXADO_PRESENTE),
-        leituras: leituras.length,
+        /** Leituras negadas pelo conferente (vieram de outra sala). */
+        descartadas: leituras.length - valem.length,
+        leituras: valem.length,
       },
     };
   }
