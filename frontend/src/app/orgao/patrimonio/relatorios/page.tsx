@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { BarChart3, AlertTriangle, Wrench, Clock, ShieldCheck, ShieldAlert } from "lucide-react"
+import Link from "next/link"
+import { ArrowLeft, BarChart3, AlertTriangle, Wrench, Clock, ShieldCheck, ShieldAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -82,9 +83,12 @@ export default function RelatoriosPatrimonioPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Relatórios de Patrimônio</h1>
-        <p className="text-muted-foreground">Visão consolidada do patrimônio do órgão</p>
+      <div className="flex items-center gap-3">
+        <Link href="/orgao/patrimonio"><Button variant="ghost" size="icon" aria-label="Voltar"><ArrowLeft className="h-5 w-5" /></Button></Link>
+        <div>
+          <h1 className="text-2xl font-bold">Relatórios de Patrimônio</h1>
+          <p className="text-muted-foreground">Visão consolidada do patrimônio do órgão</p>
+        </div>
       </div>
 
       {/* Cards de resumo */}

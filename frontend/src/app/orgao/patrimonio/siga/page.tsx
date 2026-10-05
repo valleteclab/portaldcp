@@ -516,15 +516,24 @@ function SecaoArquivo({ resumo, configPendente, onEnviado }: { resumo: ResumoSig
 
 // ─── Baixas a lançar ───────────────────────────────────────────────
 
+const POR_PAGINA_BAIXAS = 20
+
 function SecaoBaixas({ onAlterado }: { onAlterado: () => void }) {
   const [baixas, setBaixas] = useState<Awaited<ReturnType<typeof sigaPatrimonio.baixasALancar>>>([])
   const [marcando, setMarcando] = useState<string | null>(null)
   const [msg, setMsg] = useState<Mensagem>(null)
+  // A rota devolve a lista inteira: pagina aqui para a tela não virar rolagem infinita.
+  const [pagina, setPagina] = useState(1)
 
   const carregar = useCallback(() => {
     sigaPatrimonio.baixasALancar().then(setBaixas).catch((e) => setMsg({ tipo: "erro", texto: e.message }))
   }, [])
   useEffect(() => { carregar() }, [carregar])
+
+  const totalPaginas = Math.max(1, Math.ceil(baixas.length / POR_PAGINA_BAIXAS))
+  // Marcar a última baixa da página esvaziaria a tela: recua uma.
+  useEffect(() => { if (pagina > totalPaginas) setPagina(totalPaginas) }, [pagina, totalPaginas])
+  const visiveis = baixas.slice((pagina - 1) * POR_PAGINA_BAIXAS, pagina * POR_PAGINA_BAIXAS)
 
   async function marcar(id: string) {
     setMarcando(id)
@@ -543,7 +552,7 @@ function SecaoBaixas({ onAlterado }: { onAlterado: () => void }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Baixas a lançar na tela do SIGA</CardTitle>
+        <CardTitle>Baixas a lançar na tela do SIGA{baixas.length > 0 ? ` (${baixas.length})` : ""}</CardTitle>
         <CardDescription>Bens já enviados ao SIGA que foram baixados depois. Lance a baixa digitando no SIGA e marque aqui.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -562,7 +571,7 @@ function SecaoBaixas({ onAlterado }: { onAlterado: () => void }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {baixas.map((b) => (
+              {visiveis.map((b) => (
                 <TableRow key={b.id}>
                   <TableCell className="font-mono">{b.plaqueta || "—"}</TableCell>
                   <TableCell>{b.descricao}</TableCell>
@@ -578,6 +587,7 @@ function SecaoBaixas({ onAlterado }: { onAlterado: () => void }) {
             </TableBody>
           </Table>
         )}
+        {totalPaginas > 1 && <Paginacao pagina={pagina} total={totalPaginas} onChange={setPagina} />}
       </CardContent>
     </Card>
   )
