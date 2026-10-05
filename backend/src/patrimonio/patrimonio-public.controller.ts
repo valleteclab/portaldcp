@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Res, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Throttle } from '@nestjs/throttler';
@@ -143,6 +144,26 @@ export class PatrimonioPublicController {
   @Post('inventario/:token/recomecar')
   recomecarSetor(@Param('token') token: string, @Body() body: any) {
     return this.inventario.recomecarSetor(token, { nome: body?.nome, motivo: body?.motivo });
+  }
+
+  /** Baixa o Termo de Conferência do setor (PDF), depois de finalizado. */
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Get('inventario/:token/termo')
+  async baixarTermo(@Param('token') token: string, @Res() res: Response) {
+    const { buffer, nomeArquivo } = await this.inventario.gerarTermoSetor(token);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${nomeArquivo}"`);
+    res.send(buffer);
+  }
+
+  /**
+   * Manda o termo por WhatsApp para o número digitado pelo conferente.
+   * Limite baixo: o link do setor é público e isto dispara mensagem.
+   */
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Post('inventario/:token/termo/whatsapp')
+  enviarTermoWhatsApp(@Param('token') token: string, @Body() body: any) {
+    return this.inventario.enviarTermoWhatsApp(token, { telefone: body?.telefone, nome: body?.nome });
   }
 
   @Throttle({ default: { limit: 20, ttl: 60000 } })
