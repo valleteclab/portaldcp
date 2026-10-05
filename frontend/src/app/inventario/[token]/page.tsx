@@ -16,6 +16,21 @@ const Scanner = dynamic(
 )
 
 const PUB = `${API_URL}/api/patrimonio-pub`
+/** "hoje às 14:32" / "ontem às 09:10" / "em 02/10 às 16:05" — hora de Brasília. */
+function horaCurta(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const fmt = (o: Intl.DateTimeFormatOptions) => d.toLocaleString('pt-BR', { timeZone: 'America/Bahia', ...o })
+  const dia = fmt({ day: '2-digit', month: '2-digit' })
+  const agora = new Date()
+  const hoje = agora.toLocaleString('pt-BR', { timeZone: 'America/Bahia', day: '2-digit', month: '2-digit' })
+  const ontem = new Date(agora.getTime() - 86400000).toLocaleString('pt-BR', { timeZone: 'America/Bahia', day: '2-digit', month: '2-digit' })
+  const hora = fmt({ hour: '2-digit', minute: '2-digit' })
+  if (dia === hoje) return `hoje às ${hora}`
+  if (dia === ontem) return `ontem às ${hora}`
+  return `em ${dia} às ${hora}`
+}
+
 const LS_NOME = 'inventario_nome_conferente'
 const LS_MUDO = 'inventario_mudo'
 
@@ -24,7 +39,7 @@ const somDe = (situacao?: Situacao | null): Som =>
   situacao === 'ENCONTRADO' || situacao === 'SEM_PLAQUETA' ? 'ok' : situacao === 'OUTRO_SETOR' || situacao === 'BAIXADO_PRESENTE' ? 'outro' : 'erro'
 
 type Situacao = 'ENCONTRADO' | 'OUTRO_SETOR' | 'DESCONHECIDO' | 'SEM_PLAQUETA' | 'BAIXADO_PRESENTE'
-type Bem = { id: string; plaqueta: string | null; descricao: string; categoria: string | null; estado_conservacao: string | null; foto_url: string | null; marca?: string | null; modelo?: string | null; situacao?: Situacao | null; lido_em?: string | null; localizado_em_outra_sala?: string | null }
+type Bem = { id: string; plaqueta: string | null; descricao: string; categoria: string | null; estado_conservacao: string | null; foto_url: string | null; marca?: string | null; modelo?: string | null; situacao?: Situacao | null; lido_em?: string | null; localizado_em_outra_sala?: string | null; avistado_em_outra_sala?: { setor_nome: string; confirmado: boolean; lido_em: string } | null }
 type Leitura = { id: string; situacao: Situacao; origem: string; codigo_lido: string; setor_cadastro_nome: string | null; estado_conservacao: string | null; observacao: string | null; created_at: string; foto_url?: string | null; presenca_confirmada?: boolean | null; exige_confirmacao?: boolean; bem: Bem | null }
 type Dados = {
   orgao: { nome: string; logo_url: string | null }
@@ -900,6 +915,11 @@ export default function ConferenciaSetorPage() {
               <span className="flex-1 min-w-0">
                 <span className="block text-sm truncate">{b.descricao}</span>
                 <span className="block text-xs text-slate-400 truncate">{[b.categoria, b.marca, b.modelo].filter(Boolean).join(' · ')}</span>
+                {b.avistado_em_outra_sala && !b.avistado_em_outra_sala.confirmado && (
+                  <span className="mt-1 block text-[11px] text-sky-300">
+                    Lido em {b.avistado_em_outra_sala.setor_nome} {horaCurta(b.avistado_em_outra_sala.lido_em)} — aguardando aquela sala confirmar
+                  </span>
+                )}
               </span>
               {!fechado && <span className="text-[11px] text-slate-400 shrink-0">conferir</span>}
             </button>

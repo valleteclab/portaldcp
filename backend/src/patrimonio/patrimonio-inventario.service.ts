@@ -41,6 +41,14 @@ function appUrl(): string {
   return (process.env.APP_URL || process.env.FRONTEND_URL || 'https://portaldcp.com.br').replace(/\/$/, '');
 }
 
+/** Um bem deste setor visto em outra sala da mesma campanha. */
+interface AvistamentoEmOutraSala {
+  setor_nome: string;
+  /** Já respondido "está aqui" no fechamento daquela sala. */
+  confirmado: boolean;
+  lido_em: Date;
+}
+
 export interface LeituraInput {
   codigo: string;
   origem?: OrigemLeitura;
@@ -180,8 +188,8 @@ export class PatrimonioInventarioService {
    *
    * Devolve bem_id -> nome da sala onde ele foi confirmado.
    */
-  private async localizadosEmOutraSala(invSetor: InventarioSetor): Promise<Map<string, string>> {
-    const mapa = new Map<string, string>();
+  private async localizadosEmOutraSala(invSetor: InventarioSetor): Promise<Map<string, AvistamentoEmOutraSala>> {
+    const mapa = new Map<string, AvistamentoEmOutraSala>();
     if (!invSetor.setor_id) return mapa;
     const leituras = await this.leituraRepo
       .createQueryBuilder('l')
@@ -190,11 +198,17 @@ export class PatrimonioInventarioService {
       .where('l.inventario_id = :inv', { inv: invSetor.inventario_id })
       .andWhere('l.inventario_setor_id <> :setor', { setor: invSetor.id })
       .andWhere('l.situacao = :sit', { sit: SituacaoLeitura.OUTRO_SETOR })
-      .andWhere('l.presenca_confirmada = true')
+      .andWhere('l.presenca_confirmada IS DISTINCT FROM false')
       .andWhere('l.bem_id IS NOT NULL')
+      .orderBy('l.created_at', 'DESC')
       .getRawAndEntities();
     leituras.entities.forEach((l, i) => {
-      if (l.bem_id) mapa.set(l.bem_id, leituras.raw[i]?.s_setor_nome || 'outra sala');
+      if (!l.bem_id || mapa.has(l.bem_id)) return;
+      mapa.set(l.bem_id, {
+        setor_nome: leituras.raw[i]?.s_setor_nome || 'outra sala',
+        confirmado: l.presenca_confirmada === true,
+        lido_em: l.created_at,
+      });
     });
     return mapa;
   }
@@ -206,7 +220,8 @@ export class PatrimonioInventarioService {
       this.localizadosEmOutraSala(invSetor),
     ]);
     const lidos = new Set(leituras.filter((l) => l.bem_id && l.situacao === SituacaoLeitura.ENCONTRADO).map((l) => l.bem_id));
-    const achado = (b: BemPatrimonial) => lidos.has(b.id) || emOutraSala.has(b.id);
+    const confirmadoFora = (b: BemPatrimonial) => emOutraSala.get(b.id)?.confirmado === true;
+    const achado = (b: BemPatrimonial) => lidos.has(b.id) || confirmadoFora(b);
     const cont = (sit: SituacaoLeitura) => leituras.filter((l) => l.situacao === sit).length;
     return {
       ...invSetor,
@@ -215,7 +230,7 @@ export class PatrimonioInventarioService {
         total: bens.length,
         encontrados: bens.filter((b) => lidos.has(b.id)).length,
         /** Achados, porém em outra sala: pedem transferência, não busca. */
-        em_outra_sala: bens.filter((b) => !lidos.has(b.id) && emOutraSala.has(b.id)).length,
+        em_outra_sala: bens.filter((b) => !lidos.has(b.id) && confirmadoFora(b)).length,
         nao_localizados: bens.filter((b) => !achado(b)).length,
         outro_setor: cont(SituacaoLeitura.OUTRO_SETOR),
         desconhecidos: cont(SituacaoLeitura.DESCONHECIDO),
@@ -441,8 +456,22 @@ export class PatrimonioInventarioService {
         ...bem(b),
         situacao: porBem.get(b.id)?.situacao || null,
         lido_em: porBem.get(b.id)?.created_at || null,
-        /** Achado e confirmado em outra sala desta campanha: não procure aqui. */
-        localizado_em_outra_sala: !porBem.has(b.id) ? emOutraSala.get(b.id) || null : null,
+        /**
+         * Visto em outra sala desta campanha. Confirmado, sai dos pendentes.
+         * Ainda sem resposta, continua sendo cobrado aqui — mas vira aviso,
+         * para a equipe não varrer a sala atrás de um bem que outra equipe
+         * acabou de ler (duas equipes conferindo no mesmo dia é o normal).
+         */
+        localizado_em_outra_sala:
+          !porBem.has(b.id) && emOutraSala.get(b.id)?.confirmado ? emOutraSala.get(b.id)!.setor_nome : null,
+        avistado_em_outra_sala:
+          !porBem.has(b.id) && emOutraSala.get(b.id)
+            ? {
+                setor_nome: emOutraSala.get(b.id)!.setor_nome,
+                confirmado: emOutraSala.get(b.id)!.confirmado,
+                lido_em: emOutraSala.get(b.id)!.lido_em,
+              }
+            : null,
       })),
       leituras: leituras.map((l) => ({
         id: l.id,
