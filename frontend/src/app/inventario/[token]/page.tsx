@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import {
   Camera, Keyboard, Loader2, X, CheckCircle2, AlertTriangle, HelpCircle, PackagePlus,
-  ClipboardCheck, RefreshCw, WifiOff, Search, ScanLine, Volume2, VolumeX,
+  ClipboardCheck, RefreshCw, WifiOff, Search, ScanLine, Volume2, VolumeX, ArrowLeft,
 } from 'lucide-react'
 import { API_URL } from '@/lib/api'
 import { confirmarAcao } from "@/components/DialogoGlobal"
@@ -396,6 +396,21 @@ export default function ConferenciaSetorPage() {
     setVarrendo(true)
     setModoTeclado(true)
     setAba('pendentes')
+  }
+
+  /**
+   * Sair da varredura sem fechar nada: para quem entrou por engano ou quer
+   * voltar à lista. Antes só havia "Encerrar varredura", que monta o resumo da
+   * sala — quem só queria voltar ficava preso na tela.
+   *
+   * O que já foi lido sobe antes de sair; sair não pode custar leitura.
+   */
+  const sairDaVarredura = async () => {
+    varrendoRef.current = false
+    if (bufferVarredura.current.length) await enviarLote()
+    setVarrendo(false)
+    setModoTeclado(false)
+    carregar()
   }
 
   const encerrarVarredura = async () => {
@@ -934,6 +949,9 @@ export default function ConferenciaSetorPage() {
             <button onClick={() => setScannerAberto(true)} className="rounded-2xl bg-slate-800 py-4 font-semibold flex items-center justify-center gap-2"><Camera className="w-5 h-5" /> Ler QR</button>
             <button onClick={encerrarVarredura} className="rounded-2xl bg-amber-500 text-slate-900 font-bold py-4 flex items-center justify-center gap-2"><ClipboardCheck className="w-5 h-5" /> Encerrar varredura</button>
           </div>
+          <button onClick={sairDaVarredura} className="mt-2 w-full rounded-xl bg-slate-800 py-2.5 text-sm text-slate-300 flex items-center justify-center gap-2">
+            <ArrowLeft className="w-4 h-4" /> Voltar sem encerrar
+          </button>
         </nav>
       )}
       {!fechado && !varrendo && !resumoVarredura && (
