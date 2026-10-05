@@ -1252,6 +1252,29 @@ export default function ConferenciaSetorPage() {
               <p className="text-[11px] text-amber-200/70 mt-1">
                 O leitor RFID atravessa parede e pega etiqueta de outros ambientes. O que você marcar como de fora é descartado.
               </p>
+              {/*
+                Numa sala vizinha movimentada o leitor traz dezenas de tags, e
+                quase sempre a resposta é a mesma para todas. Responder uma a uma
+                faria o conferente desistir da conferência.
+              */}
+              {aConfirmar.length > 2 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRespostas(Object.fromEntries(aConfirmar.map((l) => [l.id, false])))}
+                    className="flex-1 min-w-[140px] rounded-lg bg-slate-700 text-slate-100 py-2.5 text-xs font-semibold"
+                  >
+                    Nenhum está nesta sala
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRespostas(Object.fromEntries(aConfirmar.map((l) => [l.id, true])))}
+                    className="flex-1 min-w-[140px] rounded-lg bg-slate-700 text-slate-100 py-2.5 text-xs font-semibold"
+                  >
+                    Todos estão aqui
+                  </button>
+                </div>
+              )}
               <div className="mt-3 space-y-2">
                 {aConfirmar.map((l) => {
                   const r = respostas[l.id]
@@ -1387,15 +1410,26 @@ export default function ConferenciaSetorPage() {
   )
 }
 
+/**
+ * Folha que sobe de baixo. Tem altura máxima e rola por dentro: sem isso, uma
+ * lista longa (dezenas de bens de outro setor para confirmar) crescia para fora
+ * do visor e a tela parecia travada — não havia como chegar no botão.
+ * O título fica fixo no topo enquanto o conteúdo rola.
+ */
 function Modal({ titulo, onClose, children }: { titulo: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60" onClick={onClose}>
-      <div className="w-full max-w-md bg-slate-800 rounded-t-3xl p-5 pb-[max(20px,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
+      <div
+        className="w-full max-w-md max-h-[88vh] flex flex-col bg-slate-800 rounded-t-3xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0 border-b border-slate-700/60">
           <h2 className="font-bold">{titulo}</h2>
-          <button onClick={onClose} className="text-slate-400"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="Fechar" className="text-slate-400 p-1 -m-1"><X className="w-5 h-5" /></button>
         </div>
-        {children}
+        <div className="overflow-y-auto overscroll-contain px-5 pt-4 pb-[max(20px,env(safe-area-inset-bottom))]">
+          {children}
+        </div>
       </div>
     </div>
   )
