@@ -195,7 +195,12 @@ export function Sidebar({ userType }: SidebarProps) {
     // Painel para TV (link sem login para a TV do setor) — o administrador gera em Configurações
     { href: "/orgao/configuracoes?tab=painel-tv", label: "Painel para TV", icon: Tv, modulo: ModuloSistema.LICITACOES, requerRole: 'ADMIN' },
     // Aprovações: documentos da fase interna (fluxo por etapa) para todos; demais abas conforme a permissão
-    { href: "/orgao/aprovacoes", label: "Aprovações", icon: CheckCircle, modulo: ModuloSistema.PROCESSOS },
+    // Central de Aprovações: NÃO é tela do processo eletrônico. Aprova contrato,
+    // requisição, medição e OS — o dia a dia do órgão. Travar por módulo aqui
+    // tiraria do cliente o que ele mais usa; quem filtra é a permissão de cada
+    // aba, e as abas novas (documentos do processo, assinaturas) se escondem
+    // pelo módulo delas, dentro da página.
+    { href: "/orgao/aprovacoes", label: "Aprovações", icon: CheckCircle },
     { href: "/orgao/atas", label: "Atas de Registro de Preços", icon: BookMarked, modulo: ModuloSistema.ATAS },
     { href: "/orgao/credenciamentos", label: "Credenciamentos", icon: Users, modulo: ModuloSistema.CREDENCIAMENTO },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
