@@ -72,6 +72,7 @@ const MODULOS = [
   { codigo: 'FROTA', nome: 'Frota e Combustível', descricao: 'Controle de frota de veículos e consumo de combustível', icon: Car },
   { codigo: 'EMAILS', nome: 'Caixa de Entrada', descricao: 'Caixa de entrada de e-mails do órgão', icon: Mail },
   { codigo: 'PATRIMONIO', nome: 'Patrimônio', descricao: 'Controle de bens patrimoniais, manutenções, locações e etiquetas', icon: Landmark },
+  { codigo: 'PROCESSOS', nome: 'Processo Eletrônico', descricao: 'Tramitação de processos, painel de andamento e Central de Aprovações', icon: FileText },
 ]
 
 export default function AdminModulosPage() {

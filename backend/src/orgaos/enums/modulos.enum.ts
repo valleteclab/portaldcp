@@ -17,6 +17,8 @@ export enum ModuloSistema {
   FROTA = 'FROTA',
   EMAILS = 'EMAILS',
   PATRIMONIO = 'PATRIMONIO',
+  /** Processo eletrônico: tramitação, andamento e a Central de Aprovações. */
+  PROCESSOS = 'PROCESSOS',
 }
 
 export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
@@ -38,5 +40,6 @@ export const MODULOS_DESCRICAO: Record<ModuloSistema, string> = {
   [ModuloSistema.FROTA]: 'Controle de Frota e Combustível',
   [ModuloSistema.EMAILS]: 'Caixa de Entrada de E-mails',
   [ModuloSistema.PATRIMONIO]: 'Controle de Patrimônio',
+  [ModuloSistema.PROCESSOS]: 'Processo Eletrônico e Aprovações',
 };
 

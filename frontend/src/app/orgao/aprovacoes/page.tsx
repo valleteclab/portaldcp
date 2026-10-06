@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao';
 import { CaixaDocumentosAprovacao } from '@/components/fase-interna/CaixaDocumentosAprovacao';
 import { CaixaAssinaturas, carregarAssinaturasPendentes } from '@/components/fase-interna/CaixaAssinaturas';
+import { ModuloSistema, useModulosOrgao } from '@/hooks/useModulosOrgao';
 import {
   Loader2,
   CheckCircle,
@@ -302,6 +303,7 @@ export default function CentralAprovacoesPage() {
   const [medicoes, setMedicoes] = useState<MedicaoPendente[]>([]);
   const [ordensServico, setOrdensServico] = useState<OSPendente[]>([]);
 
+  const { temAcesso } = useModulosOrgao();
   // Assinaturas (homologação E1): quantas esperam o usuário do login — badge da aba
   const [assinaturasPendentes, setAssinaturasPendentes] = useState(0);
   useEffect(() => {
@@ -1023,8 +1025,11 @@ export default function CentralAprovacoesPage() {
   const abasDaCentral = [
     { valor: 'contratos', visivel: podeLiberarContratos, pendentes: contratos.length },
     { valor: 'demandas', visivel: podeAprovarDemandas, pendentes: pendentesPlanejamento },
-    { valor: 'documentos', visivel: true, pendentes: pendentesDocumentos },
-    { valor: 'assinaturas', visivel: true, pendentes: assinaturasPendentes },
+    // Abas que vieram com o processo eletrônico e o portal de assinaturas: só
+    // aparecem para quem contratou cada um. As demais são do dia a dia e
+    // seguem a permissão do usuário, como sempre.
+    { valor: 'documentos', visivel: temAcesso(ModuloSistema.PROCESSOS), pendentes: pendentesDocumentos },
+    { valor: 'assinaturas', visivel: temAcesso(ModuloSistema.PORTAL_ASSINATURAS), pendentes: assinaturasPendentes },
     { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
     { valor: 'medicoes', visivel: true, pendentes: medicoes.length },
     { valor: 'ordens-servico', visivel: true, pendentes: ordensServico.length },

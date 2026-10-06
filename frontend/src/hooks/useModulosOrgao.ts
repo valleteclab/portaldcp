@@ -20,7 +20,8 @@ export type ModuloSistema =
   | 'WHATSAPP_CHAT'
   | 'FROTA'
   | 'EMAILS'
-  | 'PATRIMONIO';
+  | 'PATRIMONIO'
+  | 'PROCESSOS';
 
 // Constantes para uso como valores (não apenas tipos)
 export const ModuloSistema = {
@@ -42,6 +43,7 @@ export const ModuloSistema = {
   FROTA: 'FROTA' as ModuloSistema,
   EMAILS: 'EMAILS' as ModuloSistema,
   PATRIMONIO: 'PATRIMONIO' as ModuloSistema,
+  PROCESSOS: 'PROCESSOS' as ModuloSistema,
 } as const;
 
 export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: string }> = {
@@ -63,6 +65,7 @@ export const MODULOS_INFO: Record<ModuloSistema, { nome: string; descricao: stri
   FROTA: { nome: 'Frota e Combustível', descricao: 'Controle de frota de veículos e consumo de combustível' },
   EMAILS: { nome: 'Caixa de Entrada', descricao: 'Caixa de entrada de e-mails do órgão' },
   PATRIMONIO: { nome: 'Patrimônio', descricao: 'Controle de Bens Patrimoniais' },
+  PROCESSOS: { nome: 'Processo Eletrônico', descricao: 'Tramitação, Andamento e Central de Aprovações' },
 };
 
 export function useModulosOrgao() {

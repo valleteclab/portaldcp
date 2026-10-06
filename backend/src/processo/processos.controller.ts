@@ -9,6 +9,8 @@ import { ProcessoService } from './processo.service';
 import { ProcessoTramitacaoService } from './processo-tramitacao.service';
 import { validarAberturaDireta } from './processo-regras';
 import { temTramitacaoPropria } from './processo-tramitacao-regras';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * PROCESSO ELETRÔNICO — API genérica (`/api/processos`).
@@ -22,6 +24,7 @@ import { temTramitacaoPropria } from './processo-tramitacao-regras';
  */
 @Controller('processos')
 @SomenteOrgao()
+@RequireModule(ModuloSistema.PROCESSOS)
 export class ProcessosController {
   constructor(
     private readonly processos: ProcessoService,
