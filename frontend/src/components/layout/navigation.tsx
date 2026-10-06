@@ -184,10 +184,10 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
     // Licitação (E8): um caminho por ato — a sala da sessão abre do processo
     // "Tudo é processo": a lista de todos os tipos (licitação, aditivo, renovação, avulso) é a entrada
-    { href: "/orgao/processo", label: "Processos", icon: FileText, modulos: [ModuloSistema.CONTRATOS, ModuloSistema.LICITACOES] },
-    { href: "/orgao/workflows", label: "Workflows", icon: GitBranch },
+    { href: "/orgao/processo", label: "Processos", icon: FileText, modulo: ModuloSistema.PROCESSOS },
+    { href: "/orgao/workflows", label: "Workflows", icon: GitBranch, modulo: ModuloSistema.PROCESSOS },
     // Painel do gestor: fila única (licitações, aditivos, renovações, avulsos e pedidos) com caminho, posse e gargalos
-    { href: "/orgao/andamento", label: "Andamento", icon: Activity, modulos: [ModuloSistema.CONTRATOS, ModuloSistema.LICITACOES] },
+    { href: "/orgao/andamento", label: "Andamento", icon: Activity, modulo: ModuloSistema.PROCESSOS },
     { href: "/orgao/licitacoes", label: "Licitações", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/fase-interna/processos/novo", label: "Novo processo", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     // Fase interna (Entrega 2): a entrada da área é a caixa de tarefas do usuário
@@ -195,7 +195,7 @@ export function Sidebar({ userType }: SidebarProps) {
     // Painel para TV (link sem login para a TV do setor) — o administrador gera em Configurações
     { href: "/orgao/configuracoes?tab=painel-tv", label: "Painel para TV", icon: Tv, modulo: ModuloSistema.LICITACOES, requerRole: 'ADMIN' },
     // Aprovações: documentos da fase interna (fluxo por etapa) para todos; demais abas conforme a permissão
-    { href: "/orgao/aprovacoes", label: "Aprovações", icon: CheckCircle },
+    { href: "/orgao/aprovacoes", label: "Aprovações", icon: CheckCircle, modulo: ModuloSistema.PROCESSOS },
     { href: "/orgao/atas", label: "Atas de Registro de Preços", icon: BookMarked, modulo: ModuloSistema.ATAS },
     { href: "/orgao/credenciamentos", label: "Credenciamentos", icon: Users, modulo: ModuloSistema.CREDENCIAMENTO },
     { href: "/orgao/pncp", label: "Integração PNCP", icon: Send, modulo: ModuloSistema.PNCP },
@@ -210,7 +210,7 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/almoxarifado/recebimentos", label: "Recebimentos", icon: Package, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/fiscal/dossie", label: "Dossiê do Fiscal", icon: FileCheck, modulo: ModuloSistema.ALMOXARIFADO },
     { href: "/orgao/almoxarifado/aprovacoes", label: "Aprovações Requisições", icon: CheckCircle, modulo: ModuloSistema.ALMOXARIFADO, requerAprovador: true },
-    { href: "/orgao/relatorios", label: "Relatórios", icon: BarChart3 },
+    { href: "/orgao/relatorios", label: "Relatórios", icon: BarChart3, modulo: ModuloSistema.CONTRATOS },
     { href: "/orgao/portal-assinaturas", label: "Portal de Assinaturas", icon: FilePen, modulo: ModuloSistema.PORTAL_ASSINATURAS },
     { href: "/orgao/frota", label: "Frota e Combustível", icon: Car, modulo: ModuloSistema.FROTA },
     { href: "/orgao/frota/posto", label: "Painel do Posto", icon: Fuel, modulo: ModuloSistema.FROTA },
