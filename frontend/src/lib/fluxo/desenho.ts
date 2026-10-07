@@ -31,6 +31,8 @@ export interface EtapaDesenho {
   avisos: Avisos | null
   notificar: Notificar | null
   obrigatoria_lei?: string | null
+  /** Modelo de documento escolhido para a etapa ("Documento produzido"); nulo = o padrão. */
+  modelo_documento_id: string | null
 }
 
 export interface Desenho {
@@ -60,6 +62,7 @@ export interface ItemCatalogo {
   obrigatoria_lei: { fundamento: string; dispensa: string | null } | null
   automatico: boolean
   disponivel: boolean
+  tipo_documento: string | null
 }
 
 export interface OpcoesDesenho {

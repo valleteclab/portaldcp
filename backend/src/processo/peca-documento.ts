@@ -137,6 +137,8 @@ export interface ContextoDaPeca {
   pecas: Array<{ titulo: string; folhas: string; texto: string | null }>;
   autor_nome: string;
   autor_cargo: string | null;
+  /** Modelo escolhido no desenho do fluxo para esta etapa (vai primeiro na lista). */
+  modelo_preferido_id?: string | null;
 }
 
 export function moeda(v: number | null | undefined): string | null {

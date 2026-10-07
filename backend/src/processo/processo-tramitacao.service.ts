@@ -500,6 +500,8 @@ export class ProcessoTramitacaoService {
     // Etapa de um nó do fluxo de processo (`no:<acao_id>`): não está nas etapas padrão
     // do ADITIVO/RENOVACAO; o modelo/rascunho tratam como peça avulsa (sem tipo de peça fixo).
     const ehEtapaDeNoDeFluxo = !!chaveEtapa && chaveEtapa.startsWith('no:');
+    // Etapa do fluxo desenhado: o documento que ela produz e o modelo escolhido no desenho
+    const doNo = ehEtapaDeNoDeFluxo ? await this.workflow.documentoDaEtapa(p.orgao_id, p.id, chaveEtapa!.slice(3)) : null;
     const etapa = chaveEtapa && !ehEtapaDeNoDeFluxo ? (await this.etapasDoProcesso(p)).find((e) => e.chave === chaveEtapa) ?? null : null;
     if (chaveEtapa && !ehEtapaDeNoDeFluxo && (!etapa || etapa.resultado)) throw new BadRequestException('Etapa inválida para redigir peça.');
     const [org] = await this.ds.query(`SELECT nome FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
@@ -514,9 +516,10 @@ export class ProcessoTramitacaoService {
       tipo_processo: p.tipo,
       objeto: p.objeto,
       // Ofício sem etapa: a peça é o próprio ofício (modelo e rascunho da IA de ofício)
-      etapa_rotulo: etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça avulsa'),
-      tipo_peca: etapa?.tipo_peca ?? (p.tipo === TipoProcesso.OFICIO ? TIPO_PECA_OFICIO : null),
-      titulo_peca: etapa?.titulo_peca ?? etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça'),
+      etapa_rotulo: doNo?.nome ?? etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça avulsa'),
+      tipo_peca: doNo ? doNo.tipo_documento : etapa?.tipo_peca ?? (p.tipo === TipoProcesso.OFICIO ? TIPO_PECA_OFICIO : null),
+      titulo_peca: doNo?.nome ?? etapa?.titulo_peca ?? etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça'),
+      modelo_preferido_id: doNo?.modelo_documento_id ?? null,
       contrato: c ? { numero: c.numero_contrato, objeto: c.objeto ?? null, fornecedor: c.fornecedor_razao_social ?? null, valor_global: c.valor_global !== null && c.valor_global !== undefined ? Number(c.valor_global) : null } : null,
       pecas: pecas.map((x) => ({
         titulo: x.titulo,
@@ -544,6 +547,8 @@ export class ProcessoTramitacaoService {
           .addOrderBy('m.updated_at', 'DESC')
           .getMany()
       : [];
+    // O modelo escolhido no desenho do fluxo vai primeiro (é o que abre no editor)
+    if (c.modelo_preferido_id) cadastrados.sort((a, b) => Number(b.id === c.modelo_preferido_id) - Number(a.id === c.modelo_preferido_id));
     const modelos = cadastrados
       .map((m) => ({ id: m.id, nome: m.nome, padrao_sistema: m.padrao_sistema, do_orgao: !!m.orgao_id, html: aplicarVariaveisDaPeca(htmlDoModelo(m.secoes || []), c) }))
       .filter((m) => m.html.trim());

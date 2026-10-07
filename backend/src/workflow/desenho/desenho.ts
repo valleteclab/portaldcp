@@ -23,6 +23,8 @@ export interface EtapaDesenho {
   aceita_documento_externo: boolean;
   avisos: unknown;
   notificar: unknown;
+  /** Modelo de documento escolhido para a etapa ("Documento produzido"). */
+  modelo_documento_id: string | null;
 }
 
 /** Tipos de processo e as etapas que a lei exige no desenho deles. */
@@ -71,6 +73,7 @@ export function normalizarEtapas(corpo: unknown): EtapaDesenho[] {
       aceita_documento_externo: def.documento.aceita_externo ? e?.aceita_documento_externo !== false : false,
       avisos: e?.avisos,
       notificar: e?.notificar,
+      modelo_documento_id: def.tipo_documento && e?.modelo_documento_id ? String(e.modelo_documento_id) : null,
     };
   });
   etapas.forEach((e, i) => {

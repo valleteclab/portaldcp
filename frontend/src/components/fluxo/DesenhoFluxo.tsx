@@ -18,6 +18,7 @@ import {
   type OpcoesDesenho,
   type TipoResponsavel,
 } from "@/lib/fluxo/desenho"
+import { SimulacaoFluxo } from "./SimulacaoFluxo"
 
 /**
  * DESENHAR O FLUXO (mockup aprovado em 06/10/2026, tela "Contratação 2"):
@@ -46,6 +47,9 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [arrastandoSobre, setArrastandoSobre] = useState<number | null>(null)
+  const [testando, setTestando] = useState(false)
+  // Modelos de documento por tipo ("Documento produzido"), buscados quando a etapa daquele tipo é aberta
+  const [modelos, setModelos] = useState<Map<string, Array<{ id: string; nome: string; do_orgao: boolean }>>>(new Map())
 
   function aplicar(d: Desenho, manterSelecao?: number) {
     setDesenho(d)
@@ -79,6 +83,13 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
   const exigidas = new Set(TIPOS_EXIGIDOS(tipoProcesso))
   const travada = (e: EtapaDesenho) => exigidas.has(e.tipo) && !!porTipo.get(e.tipo)?.obrigatoria_lei
   const etapa = etapas.find((e) => e.chave === selecionada) ?? null
+  const tipoDocumento = etapa ? porTipo.get(etapa.tipo)?.tipo_documento ?? null : null
+  useEffect(() => {
+    if (!tipoDocumento || modelos.has(tipoDocumento)) return
+    apiFluxo<Array<{ id: string; nome: string; do_orgao: boolean }>>(`/desenhos/modelos?tipo=${encodeURIComponent(tipoDocumento)}`)
+      .then((lista) => setModelos((m) => new Map(m).set(tipoDocumento, lista)))
+      .catch(() => setModelos((m) => new Map(m).set(tipoDocumento, [])))
+  }, [tipoDocumento, modelos])
   const indice = etapa ? etapas.indexOf(etapa) : -1
   const ativa = desenho?.versoes.find((v) => v.status === "PUBLICADO") ?? null
 
@@ -104,6 +115,7 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
       aceita_documento_externo: def.documento.aceita_externo,
       avisos: null,
       notificar: tipo === "NOTIFICAR" ? { destinatarios: [], canais: [], mensagem: "" } : null,
+      modelo_documento_id: null,
     }
     mudar((l) => [...l.slice(0, posicao), nova, ...l.slice(posicao)])
     setSelecionada(nova.chave)
@@ -217,6 +229,11 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {etapas.length ? (
+            <button type="button" onClick={() => setTestando((v) => !v)} aria-expanded={testando} className="rounded-lg border border-[#CBD3DA] bg-white px-4 py-2.5 text-sm font-medium text-slate-700">
+              {testando ? "Fechar teste" : "Testar com processo fictício"}
+            </button>
+          ) : null}
           {editavel ? (
             <>
               <button type="button" onClick={salvar} disabled={!sujo || salvando} className="rounded-lg border border-[#CBD3DA] bg-white px-4 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-50">
@@ -264,6 +281,8 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
           {exigidas.size ? <span className="text-xs text-[#8A5A00]">Exige por lei: {[...exigidas].map((t) => porTipo.get(t)?.rotulo ?? t).join(" e ")}</span> : null}
         </div>
       )}
+
+      {testando ? <SimulacaoFluxo etapas={etapas} catalogo={porTipo} opcoes={opcoes} modelos={modelos} onFechar={() => setTestando(false)} /> : null}
 
       {/* Paleta */}
       {editavel ? (
@@ -371,6 +390,7 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
             podeRemover={editavel && !(travada(etapa) && etapas.filter((x) => x.tipo === etapa.tipo).length === 1)}
             editavel={editavel}
             opcoes={opcoes}
+            modelos={tipoDocumento ? modelos.get(tipoDocumento) ?? null : null}
             onAlterar={alterarEtapa}
             onMover={(d) => mover(etapa.chave, d < 0 ? indice - 1 : indice + 2)}
             primeira={indice === 0}
@@ -479,6 +499,7 @@ function PainelEtapa({
   podeRemover,
   editavel,
   opcoes,
+  modelos,
   onAlterar,
   onMover,
   primeira,
@@ -492,6 +513,7 @@ function PainelEtapa({
   podeRemover: boolean
   editavel: boolean
   opcoes: OpcoesDesenho
+  modelos: Array<{ id: string; nome: string; do_orgao: boolean }> | null
   onAlterar: (p: Partial<EtapaDesenho>) => void
   onMover: (direcao: -1 | 1) => void
   primeira: boolean
@@ -628,6 +650,24 @@ function PainelEtapa({
             ) : (
               <p className="text-sm text-[#5A6675]">Nenhum {etapa.responsavel_tipo === "SETOR" ? "setor" : "usuário"} cadastrado no órgão.</p>
             )}
+          </div>
+        ) : null}
+
+        {definicao?.tipo_documento ? (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="etapa-modelo" className={rotulo}>
+              Documento produzido
+            </label>
+            <select id="etapa-modelo" className={campo} value={etapa.modelo_documento_id ?? ""} onChange={(e) => onAlterar({ modelo_documento_id: e.target.value || null })} disabled={modelos === null}>
+              <option value="">{modelos === null ? "Carregando modelos..." : "Modelo padrão (o mais recente do órgão ou do sistema)"}</option>
+              {(modelos ?? []).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.nome}
+                  {m.do_orgao ? " — do órgão" : " — do sistema"}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-[#5A6675]">Os modelos ficam em Configurações › Modelos de documento. O editor da etapa já abre com o escolhido.</span>
           </div>
         ) : null}
 

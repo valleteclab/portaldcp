@@ -13,6 +13,7 @@ interface ItemCatalogo {
   tipo: string
   rotulo: string
   documento: { produz: boolean; aceita_externo: boolean }
+  tipo_documento?: string | null
 }
 
 interface DemandaResumo {
@@ -118,7 +119,8 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
 
   const definicao = catalogo.find((c) => c.tipo === no.tipo)
   const produzDocumento = definicao?.documento.produz ?? false
-  const etapaDoNo: Etapa = { chave: `no:${no.chave}`, rotulo: no.titulo, ordem: 1, estado: "ATUAL", tipo_peca: null, titulo_peca: no.titulo }
+  // tipo_peca = documento que a etapa produz: o editor oferece os modelos dele (o escolhido no desenho vem primeiro)
+  const etapaDoNo: Etapa = { chave: `no:${no.chave}`, rotulo: no.titulo, ordem: 1, estado: "ATUAL", tipo_peca: definicao?.tipo_documento ?? null, titulo_peca: no.titulo }
 
   async function concluir(resposta?: Record<string, unknown>) {
     setErro(null)

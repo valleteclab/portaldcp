@@ -471,6 +471,19 @@ export class WorkflowService {
     return { aceitaDocumentoExterno: (acao?.configuracao as any)?.aceita_documento_externo !== false };
   }
 
+  /** Nome, tipo de documento e modelo escolhido no desenho para a etapa de um fluxo ligado ao processo (nulo se não é). */
+  async documentoDaEtapa(orgaoId: string, processoId: string, acaoId: string) {
+    const instancias = await this.instancias.find({ where: { orgao_id: orgaoId, vinculo_tipo: VINCULO_PROCESSO, vinculo_id: processoId } });
+    for (const i of instancias) {
+      const modelo = await this.obter(orgaoId, i.workflow_id);
+      const acao = this.passos(modelo).find((p) => p.acao.id === acaoId)?.acao;
+      if (acao) {
+        return { nome: acao.nome, tipo_documento: definicaoDoNo(acao.tipo)?.tipo_documento ?? null, modelo_documento_id: ((acao.configuracao as any)?.modelo_documento_id as string | undefined) ?? null };
+      }
+    }
+    return null;
+  }
+
   /**
    * Indefere a tarefa (decisão de uma etapa de APROVACAO) e ENCERRA a
    * execução — ao contrário da devolução, não há etapa seguinte. Método
