@@ -191,6 +191,21 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
   }
 
   const ehPrimeiraEtapa = andamento.nos[0]?.chave === no.chave
+
+  // Quem não responde pela etapa só acompanha: sem botões (a etapa é de outro setor ou pessoa)
+  if (andamento.pode_agir === false)
+    return (
+      <section className={`${s.bloco} ${s.neutro}`} aria-labelledby="painel-etapa-fluxo">
+        <div className={s.eyebrow} id="painel-etapa-fluxo">
+          Etapa em andamento
+        </div>
+        <h2>{no.titulo}</h2>
+        <p className={s.texto} style={{ marginTop: 6 }}>
+          Aguardando providência de {no.responsavel ?? "outro setor"}
+          {no.prazo_em ? ` · prazo ${no.atrasada ? "vencido em" : "até"} ${diaMes(no.prazo_em)}` : ""}.
+        </p>
+      </section>
+    )
   const ehAprovacao = no.tipo === "APROVACAO"
 
   return (

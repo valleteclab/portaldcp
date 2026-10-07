@@ -125,7 +125,7 @@ export class ProcessosController {
   /** Andamento para a tela de acompanhamento: nós concluídos, em andamento e a realizar (fluxo desenhado ou tramitação livre). */
   @Get(':id/andamento')
   async andamento(@AtorAtual() ator: Ator, @Param('id') id: string) {
-    return this.andamentoProcesso.andamento(await this.processos.obter(ator, id));
+    return this.andamentoProcesso.andamento(await this.processos.obter(ator, id), ator);
   }
 
   /** Fluxo: retrato (modelo, versão, marcas) e etapas calculadas — o mesmo de `/fase-interna/:id/etapas`. */

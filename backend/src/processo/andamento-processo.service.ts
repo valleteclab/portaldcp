@@ -4,6 +4,7 @@ import { WorkflowService } from '../workflow/workflow.service';
 import type { WorkflowAcao } from '../workflow/workflow.entities';
 import { andamentoDoFluxo, andamentoLivre, type Andamento } from '../workflow/andamento/andamento';
 import { TipoProcesso, type Processo } from './entities/processo.entity';
+import type { Ator } from '../auth/acesso/ator';
 
 const ROTULO_RESPONSAVEL: Record<string, string> = {
   SOLICITANTE: 'Solicitante',
@@ -23,11 +24,11 @@ export class AndamentoProcessoService {
     private readonly workflow: WorkflowService,
   ) {}
 
-  async andamento(p: Processo): Promise<Andamento> {
+  async andamento(p: Processo, ator?: Ator): Promise<Andamento> {
     const execucao = await this.workflow.execucaoDoProcesso(p.orgao_id, p.id);
     if (execucao) {
       const nomes = await this.nomesDosResponsaveis(p.orgao_id, execucao.passos.map((x) => x.acao));
-      return andamentoDoFluxo({
+      const a = andamentoDoFluxo({
         fluxo: { id: execucao.modelo.id, nome: execucao.modelo.nome, versao: execucao.instancia.workflow_versao },
         instancia_id: execucao.instancia.id,
         status_instancia: execucao.instancia.status,
@@ -35,6 +36,9 @@ export class AndamentoProcessoService {
         tarefas: execucao.tarefas,
         agora: new Date(),
       });
+      const aberta = a.atual?.tarefa_id ? execucao.tarefas.find((t) => t.id === a.atual!.tarefa_id) : null;
+      a.pode_agir = !!(ator && aberta && (await this.workflow.podeAgirNaTarefa(p.orgao_id, execucao.instancia, aberta, ator)));
+      return a;
     }
     const [movimentacoes, pecas] = await Promise.all([
       this.ds.query(`SELECT tipo, created_at, para_setor_nome, para_usuario_nome, recebida_em FROM processo_movimentacoes WHERE processo_id = $1::uuid ORDER BY sequencia ASC`, [p.id]),

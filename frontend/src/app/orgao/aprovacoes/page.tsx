@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao';
 import { CaixaDocumentosAprovacao } from '@/components/fase-interna/CaixaDocumentosAprovacao';
+import { CaixaEtapasFluxo } from '@/components/fluxo/CaixaEtapasFluxo';
 import { CaixaAssinaturas, carregarAssinaturasPendentes } from '@/components/fase-interna/CaixaAssinaturas';
 import { ModuloSistema, useModulosOrgao } from '@/hooks/useModulosOrgao';
 import {
@@ -284,7 +285,12 @@ export default function CentralAprovacoesPage() {
   // 1ª carga de cada aba (para escolher a aba com pendência)
   const [carregadas, setCarregadas] = useState<Record<string, boolean>>({});
   const marcarCarregada = (aba: string) => setCarregadas(c => (c[aba] ? c : { ...c, [aba]: true }));
+  const contarEtapas = useCallback((n: number) => {
+    setPendentesEtapas(n);
+    setCarregadas(c => (c.etapas ? c : { ...c, etapas: true }));
+  }, []);
   const [pendentesDocumentos, setPendentesDocumentos] = useState(0);
+  const [pendentesEtapas, setPendentesEtapas] = useState(0);
 
   // Permissões
   const [podeAprovarRequisicoes, setPodeAprovarRequisicoes] = useState(false);
@@ -1028,6 +1034,7 @@ export default function CentralAprovacoesPage() {
     // Abas que vieram com o processo eletrônico e o portal de assinaturas: só
     // aparecem para quem contratou cada um. As demais são do dia a dia e
     // seguem a permissão do usuário, como sempre.
+    { valor: 'etapas', visivel: temAcesso(ModuloSistema.PROCESSOS), pendentes: pendentesEtapas },
     { valor: 'documentos', visivel: temAcesso(ModuloSistema.PROCESSOS), pendentes: pendentesDocumentos },
     { valor: 'assinaturas', visivel: temAcesso(ModuloSistema.PORTAL_ASSINATURAS), pendentes: assinaturasPendentes },
     { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
@@ -1230,6 +1237,15 @@ export default function CentralAprovacoesPage() {
               )}
             </TabsTrigger>
           )}
+          {temAcesso(ModuloSistema.PROCESSOS) && (
+            <TabsTrigger value="etapas" className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4" />
+              Etapas de processo
+              {pendentesEtapas > 0 && (
+                <Badge className="ml-1 bg-green-700 text-white text-xs px-1.5 py-0">{pendentesEtapas}</Badge>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger value="documentos" className="flex items-center gap-2">
             <FileCheck className="h-4 w-4" />
             Documentos do processo
@@ -1268,6 +1284,11 @@ export default function CentralAprovacoesPage() {
             )}
           </TabsTrigger>
         </TabsList>
+
+        {/* ============ TAB ETAPAS DE PROCESSO (aprovações dos fluxos desenhados) ==== */}
+        <TabsContent value="etapas" className="space-y-4">
+          <CaixaEtapasFluxo onContagem={contarEtapas} />
+        </TabsContent>
 
         {/* ============ TAB DOCUMENTOS DO PROCESSO (fluxos de aprovação) ==== */}
         <TabsContent value="documentos" className="space-y-4">

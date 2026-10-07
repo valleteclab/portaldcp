@@ -30,6 +30,8 @@ export interface Andamento {
   total: number
   atual: NoAndamento | null
   encerrado: boolean
+  /** Quem está vendo pode concluir/devolver a etapa atual (fluxo desenhado). */
+  pode_agir?: boolean
 }
 
 const DIA = 24 * 60 * 60 * 1000

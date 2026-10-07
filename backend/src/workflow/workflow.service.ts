@@ -7,6 +7,7 @@ import { definicaoDoNo } from './nos/catalogo-nos';
 import { RegistroNos, VINCULO_PROCESSO, type ContextoNo } from './nos/executor-no';
 import { TeamsService } from './avisos/teams.service';
 import { normalizarAvisos, normalizarNotificar } from './avisos/destinatarios';
+import { ehResponsavelDaTarefa } from './responsavel';
 
 @Injectable()
 export class WorkflowService {
@@ -472,6 +473,53 @@ export class WorkflowService {
     const acao = await this.acoes.findOne({ where: { id: acaoId } });
     // Desenho pode exigir o documento feito no sistema (sem anexar PDF pronto)
     return { aceitaDocumentoExterno: (acao?.configuracao as any)?.aceita_documento_externo !== false };
+  }
+
+  /** Quem é o ator para a regra de responsável (lotação vem do cadastro, nunca do corpo). */
+  private async quemE(orgaoId: string, ator: Ator) {
+    const atorId = ator.usuarioId ?? ator.id;
+    const [u] = ator.usuarioId
+      ? await this.dataSource.query(`SELECT setor_id::text AS setor_id FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2 AND ativo = true`, [ator.usuarioId, orgaoId])
+      : [];
+    return { ehLoginDoOrgao: ator.tipo === 'ORGAO', atorId, usuarioId: ator.usuarioId ?? null, setorId: (u?.setor_id as string | undefined) ?? null };
+  }
+
+  /** O ator pode concluir/devolver esta tarefa? (para mostrar ou esconder os botões) */
+  async podeAgirNaTarefa(orgaoId: string, instancia: { iniciado_por_id: string | null }, tarefa: { responsavel_tipo: string; responsaveis: unknown }, ator: Ator) {
+    return ehResponsavelDaTarefa(tarefa, instancia, await this.quemE(orgaoId, ator));
+  }
+
+  /**
+   * Etapas abertas do fluxo que dependem do ator (Central de Aprovações e
+   * caixas de tarefas): só do órgão do token, só execuções em andamento.
+   * `tipo` filtra pelo tipo da etapa (ex.: APROVACAO).
+   */
+  async minhasEtapas(orgaoId: string, ator: Ator, tipo?: string | null) {
+    const linhas: any[] = await this.dataSource.query(
+      `SELECT t.id::text AS tarefa_id, t.instancia_id::text AS instancia_id, t.responsavel_tipo, t.responsaveis, t.prazo_em, t.created_at,
+              i.iniciado_por_id, i.vinculo_tipo, i.vinculo_id::text AS processo_id, a.nome AS etapa, a.tipo,
+              p.numero AS processo_numero, p.objeto AS processo_objeto
+         FROM workflow_tarefas t
+         JOIN workflow_instancias i ON i.id = t.instancia_id
+         JOIN workflow_acoes a ON a.id = t.acao_id
+         LEFT JOIN processos p ON i.vinculo_tipo = 'PROCESSO' AND p.id = i.vinculo_id AND p.orgao_id = i.orgao_id
+        WHERE i.orgao_id::text = $1 AND i.status = 'EM_ANDAMENTO' AND t.status = 'ABERTA'
+          AND ($2::text IS NULL OR a.tipo = $2::text)
+        ORDER BY t.prazo_em ASC NULLS LAST, t.created_at ASC`,
+      [orgaoId, tipo ? String(tipo).toUpperCase() : null],
+    );
+    const quem = await this.quemE(orgaoId, ator);
+    return linhas
+      .filter((l) => ehResponsavelDaTarefa(l, l, quem))
+      .map((l) => ({
+        tarefa_id: l.tarefa_id,
+        instancia_id: l.instancia_id,
+        etapa: l.etapa,
+        tipo: l.tipo,
+        prazo_em: l.prazo_em,
+        desde: l.created_at,
+        processo: l.processo_id && l.processo_numero ? { id: l.processo_id, numero: l.processo_numero, objeto: l.processo_objeto } : null,
+      }));
   }
 
   /** Tarefa de uma execução do órgão, com a ação (etapa) dela — 404 se não for do órgão. */
