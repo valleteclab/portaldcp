@@ -430,7 +430,9 @@ export class WorkflowService {
     const modelo = await this.obter(orgaoId, instancia.workflow_id);
     const passos = this.passos(modelo);
     const atual = passos.findIndex((passo) => passo.acao.id === tarefa.acao_id);
-    const anterior = passos[atual - 1];
+    // "Devolve para" configurado no desenho (etapa anterior escolhida); senão, a etapa imediatamente anterior
+    const destinoDesenho = (passos[atual]?.acao.configuracao as any)?.devolver_para;
+    const anterior = (destinoDesenho && passos.slice(0, Math.max(0, atual)).find((p) => p.acao.id === destinoDesenho)) || passos[atual - 1];
     if (!anterior) throw new BadRequestException('A primeira etapa não pode ser devolvida');
     const atorId = ator.usuarioId ?? ator.id;
     const reaberta = await this.dataSource.transaction(async (manager) => {
@@ -464,6 +466,9 @@ export class WorkflowService {
     const tarefa = await this.tarefas.findOne({ where: { instancia_id: instancia.id, acao_id: acaoId, status: 'ABERTA' } });
     if (!tarefa) throw new BadRequestException('Esta etapa não está em andamento no fluxo do processo.');
     await this.chaveDoResponsavel(orgaoId, instancia, tarefa, ator);
+    const acao = await this.acoes.findOne({ where: { id: acaoId } });
+    // Desenho pode exigir o documento feito no sistema (sem anexar PDF pronto)
+    return { aceitaDocumentoExterno: (acao?.configuracao as any)?.aceita_documento_externo !== false };
   }
 
   /**

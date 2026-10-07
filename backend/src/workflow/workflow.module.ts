@@ -11,6 +11,7 @@ import { TeamsService } from './avisos/teams.service';
 import { AvisosService } from './avisos/avisos.service';
 import { VesperaPrazoScheduler } from './avisos/vespera-prazo.scheduler';
 import { NotificarExecutor } from './nos/notificar.executor';
+import { DesenhoFluxoService } from './desenho/desenho-fluxo.service';
 import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
 
 @Module({
@@ -20,7 +21,7 @@ import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
     WhatsAppModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd],
+  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService],
   exports: [WorkflowService, RegistroNos, TeamsService],
 })
 export class WorkflowModule {}

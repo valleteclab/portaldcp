@@ -1,206 +1,158 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Bell, CheckCircle2, ClipboardList, FileInput, FileText, GitBranch, Loader2, Mail, MessageCircle, Plus, Send, Settings2, Smartphone, UserCheck } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { ArrowLeft, Loader2, Plus } from "lucide-react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { API_URL, authFetch } from "@/lib/api"
-import { PainelAcao } from "@/components/workflow/PainelAcao"
-import { PainelReacao } from "@/components/workflow/PainelReacao"
+import { ModuleGuard } from "@/components/ModuleGuard"
+import { ModuloSistema } from "@/hooks/useModulosOrgao"
+import { DesenhoFluxo } from "@/components/fluxo/DesenhoFluxo"
+import { CanaisAvisoOrgao } from "@/components/fluxo/CanaisAvisoOrgao"
+import { apiFluxo, rotuloTipoProcesso, TIPOS_PROCESSO_FLUXO, type Desenho, type FluxoResumo } from "@/lib/fluxo/desenho"
 
-type Reacao = { id: string; tipo: string; nome: string; configuracao: Record<string, unknown> }
-type Acao = { id: string; nome: string; tipo: string; formulario_id?: string | null; responsavel_tipo?: string; responsavel_valor?: string | null; prazo_dias_uteis: number | null; configuracao?: { responsaveis?: string[]; regra_conclusao?: string; quantidade_minima?: number } | null; reacoes: Reacao[] }
-type Fase = { id: string; nome: string; cor: string; ordem: number; acoes: Acao[] }
-type Campo = { id: string; rotulo: string; tipo: string; obrigatorio: boolean }
-type Formulario = { id: string; nome: string; campos: Campo[] }
-type Workflow = { id: string; nome: string; descricao: string | null; status: string; versao: number; fases: Fase[]; formularios: Formulario[] }
+/**
+ * FLUXOS DE PROCESSO — lista dos fluxos do órgão e a tela "Desenhar o fluxo"
+ * (mockup aprovado em 06/10/2026). `?fluxo=<id>` abre o editor daquela versão.
+ */
+function Fluxos() {
+  const router = useRouter()
+  const busca = useSearchParams()
+  const fluxoId = busca.get("fluxo")
+  const abrir = useCallback((id: string | null) => router.push(id ? `/orgao/configuracoes/fluxos?fluxo=${encodeURIComponent(id)}` : "/orgao/configuracoes/fluxos"), [router])
 
-const BASE = `${API_URL}/api/workflows`
-
-async function requisicao(url: string, init?: RequestInit) {
-  const resposta = await authFetch(url, init)
-  const corpo = await resposta.json().catch(() => null)
-  if (!resposta.ok) throw new Error(Array.isArray(corpo?.message) ? corpo.message.join(" ") : corpo?.message || `Erro ${resposta.status}`)
-  return corpo
+  if (fluxoId) return <DesenhoFluxo key={fluxoId} fluxoId={fluxoId} onTrocarFluxo={(id) => abrir(id)} />
+  return <ListaFluxos onAbrir={abrir} />
 }
 
-const ACAO = {
-  FORMULARIO: { nome: "Preenchimento de formulário", cor: "#0891b2", Icone: ClipboardList },
-  APROVACAO: { nome: "Aprovação", cor: "#eab308", Icone: UserCheck },
-  DOCUMENTO: { nome: "Envio de documento", cor: "#0ea5e9", Icone: FileInput },
-  TAREFA: { nome: "Tarefa", cor: "#6366f1", Icone: CheckCircle2 },
-  NOTIFICAR: { nome: "Notificar", cor: "#f59e0b", Icone: Bell },
-} as const
-
-const REACAO = {
-  EMAIL: { nome: "Enviar e-mail", Icone: Mail },
-  WHATSAPP: { nome: "Enviar WhatsApp", Icone: Smartphone },
-  NOTIFICACAO: { nome: "Notificação interna", Icone: Bell },
-  GERAR_DOCUMENTO: { nome: "Gerar documento", Icone: FileText },
-  AVANCAR: { nome: "Avançar no fluxo", Icone: Send },
-} as const
-
-export default function WorkflowsPage() {
-  const [lista, setLista] = useState<Workflow[]>([])
-  const [workflow, setWorkflow] = useState<Workflow | null>(null)
-  const [carregando, setCarregando] = useState(true)
-  const [nomeNovo, setNomeNovo] = useState("")
+function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
+  const [fluxos, setFluxos] = useState<FluxoResumo[] | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [novo, setNovo] = useState(false)
+  const [nome, setNome] = useState("")
+  const [tipo, setTipo] = useState("CONTRATACAO")
   const [criando, setCriando] = useState(false)
-  const [formulariosAbertos, setFormulariosAbertos] = useState(false)
-  const [faseMenu, setFaseMenu] = useState<string | null>(null)
-  const [acaoEditando, setAcaoEditando] = useState<Acao | null>(null)
-  const [acaoDaReacao, setAcaoDaReacao] = useState<Acao | null>(null)
-  const [canais, setCanais] = useState<{ whatsapp: boolean; teams: Array<{ id: string; nome: string; webhook_mascarado: string }> } | null>(null)
-  const [canaisAbertos, setCanaisAbertos] = useState(false)
-  const [novoCanalNome, setNovoCanalNome] = useState("")
-  const [novoCanalUrl, setNovoCanalUrl] = useState("")
-  const [salvandoCanal, setSalvandoCanal] = useState(false)
 
-  const carregarCanais = useCallback(async () => {
-    try { setCanais(await requisicao(`${BASE}/canais-aviso`)) } catch { /* não bloqueia a tela de desenho */ }
+  useEffect(() => {
+    apiFluxo<FluxoResumo[]>("/desenhos")
+      .then(setFluxos)
+      .catch((e) => setErro(e instanceof Error ? e.message : "Não foi possível carregar os fluxos."))
   }, [])
-  useEffect(() => void carregarCanais(), [carregarCanais])
 
-  const adicionarCanalTeams = async () => {
-    if (!novoCanalNome.trim() || !novoCanalUrl.trim()) return toast.error("Informe o nome do canal e a URL do webhook")
-    setSalvandoCanal(true)
+  async function criar() {
+    setCriando(true)
     try {
-      await requisicao(`${BASE}/teams-canais`, { method: "POST", body: JSON.stringify({ nome: novoCanalNome, webhook_url: novoCanalUrl }) })
-      setNovoCanalNome(""); setNovoCanalUrl(""); await carregarCanais(); toast.success("Canal do Teams adicionado")
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao adicionar canal") } finally { setSalvandoCanal(false) }
-  }
-  const testarCanalTeams = async (id: string) => {
-    try { const r = await requisicao(`${BASE}/teams-canais/${id}/testar`, { method: "POST" }); r.sucesso ? toast.success(r.mensagem) : toast.error(r.mensagem) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao testar canal") }
-  }
-  const removerCanalTeams = async (id: string) => {
-    if (!window.confirm("Remover este canal do Teams?")) return
-    try { await requisicao(`${BASE}/teams-canais/${id}`, { method: "DELETE" }); await carregarCanais() } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao remover canal") }
+      const d = await apiFluxo<Desenho>("/desenhos", { metodo: "POST", corpo: { nome: nome.trim(), tipo_processo: tipo || null } })
+      onAbrir(d.modelo.id)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Não foi possível criar o fluxo.")
+      setCriando(false)
+    }
   }
 
-  const listar = useCallback(async () => {
-    setCarregando(true)
-    try { setLista(await requisicao(BASE)) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao carregar processos") } finally { setCarregando(false) }
-  }, [])
-  useEffect(() => void listar(), [listar])
-
-  const abrir = async (id: string) => {
-    try { setWorkflow(await requisicao(`${BASE}/${id}`)) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao abrir processo") }
-  }
-  const recarregar = async () => { if (workflow) await abrir(workflow.id) }
-  const criar = async () => {
-    if (!nomeNovo.trim()) return toast.error("Digite o nome do processo")
-    setCriando(true)
-    try { const criado = await requisicao(BASE, { method: "POST", body: JSON.stringify({ nome: nomeNovo }) }); setNomeNovo(""); setWorkflow(criado); await listar() } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao criar") } finally { setCriando(false) }
-  }
-  const criarModeloAditivo = async () => {
-    setCriando(true)
-    try { const modelo = await requisicao(`${BASE}/modelos-prontos/aditivo`, { method: "POST" }); setWorkflow(modelo); await listar(); toast.success("Modelo de aditivo preparado para revisão") } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao criar modelo") } finally { setCriando(false) }
-  }
-  const adicionarFase = async () => {
-    if (!workflow) return
-    const nome = window.prompt("Nome da nova fase:", "Análise")?.trim(); if (!nome) return
-    await requisicao(`${BASE}/${workflow.id}/fases`, { method: "POST", body: JSON.stringify({ nome }) }); await recarregar()
-  }
-  const adicionarAcao = async (fase: Fase, tipo: keyof typeof ACAO) => {
-    if (!workflow) return
-    const nome = window.prompt("Nome da ação:", ACAO[tipo].nome)?.trim(); if (!nome) return
-    const criada = await requisicao(`${BASE}/${workflow.id}/fases/${fase.id}/acoes`, { method: "POST", body: JSON.stringify({ tipo, nome }) }); await recarregar(); setAcaoEditando({ ...criada, reacoes: [] })
-    setFaseMenu(null)
-  }
-  const adicionarReacao = (acao: Acao) => setAcaoDaReacao(acao)
-  const criarFormulario = async () => {
-    if (!workflow) return
-    const nome = window.prompt("Nome do formulário:", "Formulário da solicitação")?.trim(); if (!nome) return
-    await requisicao(`${BASE}/${workflow.id}/formularios`, { method: "POST", body: JSON.stringify({ nome }) }); await recarregar(); setFormulariosAbertos(true)
-  }
-  const adicionarCampo = async (formulario: Formulario) => {
-    if (!workflow) return
-    const rotulo = window.prompt("Nome do campo:", "Descrição")?.trim(); if (!rotulo) return
-    const tipo = (window.prompt("Tipo: TEXTO, TEXTO_LONGO, NUMERO, MOEDA, DATA, LISTA, ARQUIVO, USUARIO ou SETOR", "TEXTO") || "TEXTO").toUpperCase()
-    const obrigatorio = window.confirm("Este campo é obrigatório?")
-    await requisicao(`${BASE}/${workflow.id}/formularios/${formulario.id}/campos`, { method: "POST", body: JSON.stringify({ rotulo, tipo, obrigatorio }) }); await recarregar()
-  }
-  const publicar = async () => {
-    if (!workflow) return
-    try { await requisicao(`${BASE}/${workflow.id}`, { method: "PATCH", body: JSON.stringify({ status: "PUBLICADO" }) }); toast.success("Processo publicado"); await recarregar() } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao publicar") }
-  }
-  if (carregando && !workflow) return <div className="flex justify-center py-20"><Loader2 className="h-7 w-7 animate-spin" /></div>
-
-  if (!workflow) return <div className="mx-auto max-w-6xl space-y-6">
-    <div className="flex flex-wrap items-end justify-between gap-3"><div><Link href="/orgao/configuracoes" className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Configurações</Link><h1 className="mt-2 text-3xl font-bold">Gestão de processos e workflow</h1><p className="mt-1 text-slate-600">Crie processos com formulários, aprovações, documentos e automações.</p></div><Button variant="outline" asChild><Link href="/orgao/workflows">Abrir execuções</Link></Button></div>
-    <Card><CardContent className="flex flex-wrap gap-3 p-5"><Input className="max-w-md" placeholder="Ex.: Solicitação de compras" value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && criar()} /><Button onClick={criar} disabled={criando}>{criando ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}Criar processo</Button><Button variant="outline" onClick={criarModeloAditivo} disabled={criando}><FileText className="mr-2 h-4 w-4" />Usar modelo: Solicitação de aditivo</Button></CardContent></Card>
-    <div className="grid gap-4 md:grid-cols-3">{lista.map((item) => <button key={item.id} onClick={() => abrir(item.id)} className="rounded-xl border bg-white p-5 text-left shadow-sm hover:border-blue-500"><div className="flex items-start justify-between"><GitBranch className="h-7 w-7 text-blue-700" /><span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "PUBLICADO" ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>{item.status}</span></div><h2 className="mt-4 font-semibold text-slate-900">{item.nome}</h2><p className="mt-1 text-sm text-slate-500">Versão {item.versao}</p></button>)}</div>
-  </div>
-
-  const acoesDoProcesso = workflow.fases.flatMap((fase) =>
-    fase.acoes.map((acao) => ({ acao, faseNome: fase.nome })),
-  )
-  const responsavelDefinido = (acao: Acao) =>
-    acao.responsavel_tipo === "SOLICITANTE" ||
-    Boolean(acao.responsavel_valor) ||
-    Boolean(acao.configuracao?.responsaveis?.length)
-  const acoesPendentes = acoesDoProcesso.filter(({ acao }) => !responsavelDefinido(acao))
-
-  return <div className="space-y-5 pb-16">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div><button onClick={() => setWorkflow(null)} className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Todos os processos</button><h1 className="mt-1 text-2xl font-bold">{workflow.nome}</h1><p className="text-sm text-slate-500">Versão {workflow.versao} · {workflow.status}</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setCanaisAbertos(!canaisAbertos)}><Bell className="mr-2 h-4 w-4" />Canais de aviso</Button><Button variant="outline" onClick={() => setFormulariosAbertos(!formulariosAbertos)}><ClipboardList className="mr-2 h-4 w-4" />Formulários</Button><Button variant="outline" onClick={adicionarFase}><Plus className="mr-2 h-4 w-4" />Fase</Button>{workflow.status === "PUBLICADO" && <Button variant="outline" asChild><Link href="/orgao/workflows">Iniciar processo</Link></Button>}<Button onClick={publicar}>Publicar</Button></div></div>
-
-    {canaisAbertos && <Card><CardContent className="p-5">
-      <h2 className="font-semibold">Canais de aviso do órgão</h2>
-      <p className="mt-1 text-sm text-slate-500">Usados pelos avisos de cada etapa e pelo nó Notificar.</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <div className="flex items-center gap-2 rounded-lg border p-3"><Smartphone className={`h-5 w-5 ${canais?.whatsapp ? "text-green-600" : "text-slate-400"}`} /><div><p className="text-sm font-semibold">WhatsApp</p><p className="text-xs text-slate-500">{canais?.whatsapp ? "Conectado" : "Não conectado"}</p></div></div>
-        <div className="flex items-center gap-2 rounded-lg border p-3"><Mail className="h-5 w-5 text-blue-600" /><div><p className="text-sm font-semibold">E-mail</p><p className="text-xs text-slate-500">Conectado</p></div></div>
+  return (
+    <div className="flex flex-col gap-5 text-[#0F172A]">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <Link href="/orgao/configuracoes" className="inline-flex w-fit items-center gap-1 text-sm text-[#1B4A63] hover:underline">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />Configurações
+          </Link>
+          <h1 className="text-2xl font-bold">Fluxos de processo</h1>
+          <p className="text-sm text-[#5A6675]">O caminho que cada tipo de processo segue: etapas, responsáveis, prazos e avisos.</p>
+        </div>
+        <button type="button" onClick={() => setNovo((v) => !v)} aria-expanded={novo} className="flex items-center gap-2 rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white">
+          <Plus className="h-4 w-4" aria-hidden="true" />Novo fluxo
+        </button>
       </div>
-      <div className="mt-4 rounded-lg border p-3">
-        <p className="text-sm font-semibold">Microsoft Teams</p>
-        <p className="mt-1 text-xs text-slate-500">Canal do app &quot;Workflows&quot; do Teams — crie com &quot;Post to a channel when a webhook request is received&quot; e cole a URL aqui.</p>
-        <div className="mt-2 space-y-2">{canais?.teams.map((c) => <div key={c.id} className="flex items-center justify-between rounded bg-slate-50 px-3 py-2 text-sm"><span>{c.nome} <span className="text-xs text-slate-400">{c.webhook_mascarado}</span></span><div className="flex gap-2"><button className="text-xs font-semibold text-blue-700" onClick={() => testarCanalTeams(c.id)}>Enviar teste</button><button className="text-xs font-semibold text-red-600" onClick={() => removerCanalTeams(c.id)}>Remover</button></div></div>)}{!canais?.teams.length && <p className="text-xs text-slate-400">Nenhum canal cadastrado.</p>}</div>
-        <div className="mt-3 flex flex-wrap gap-2"><Input className="max-w-[160px]" placeholder="Nome do canal" value={novoCanalNome} onChange={(e) => setNovoCanalNome(e.target.value)} /><Input className="max-w-xs" placeholder="URL do webhook" value={novoCanalUrl} onChange={(e) => setNovoCanalUrl(e.target.value)} /><Button size="sm" onClick={adicionarCanalTeams} disabled={salvandoCanal}>{salvandoCanal ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />}Adicionar canal</Button></div>
-      </div>
-    </CardContent></Card>}
 
-    {formulariosAbertos && <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Formulários do processo</h2><p className="text-sm text-slate-500">Os campos preenchidos ficam disponíveis para ações e mensagens.</p></div><Button size="sm" onClick={criarFormulario}><Plus className="mr-1 h-4 w-4" />Formulário</Button></div><div className="mt-4 grid gap-3 md:grid-cols-3">{workflow.formularios.map((form) => <div key={form.id} className="rounded-lg border p-4"><div className="flex justify-between"><strong>{form.nome}</strong><button onClick={() => adicionarCampo(form)} className="text-sm text-blue-700">+ Campo</button></div><div className="mt-3 space-y-1">{form.campos.map((campo) => <div key={campo.id} className="rounded bg-slate-50 px-2 py-1 text-sm">{campo.rotulo} <span className="text-xs text-slate-400">{campo.tipo}{campo.obrigatorio ? " · obrigatório" : ""}</span></div>)}</div></div>)}</div></CardContent></Card>}
-
-    <div className="overflow-x-auto pb-4"><div className="flex min-w-max items-start gap-4">{workflow.fases.map((fase) => <section key={fase.id} className="w-80 rounded-xl border border-slate-200 bg-slate-50 shadow-sm"><div className="rounded-t-xl border-b bg-white px-4 py-3" style={{ borderTop: `5px solid ${fase.cor}` }}><div className="flex items-center justify-between"><h2 className="font-bold text-slate-800">{fase.nome}</h2><Settings2 className="h-4 w-4 text-slate-400" /></div><button onClick={() => setFaseMenu(faseMenu === fase.id ? null : fase.id)} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-700"><Plus className="h-4 w-4" />AÇÃO</button>{faseMenu === fase.id && <div className="mt-2 grid grid-cols-2 gap-1 rounded-lg border bg-white p-2 shadow-lg">{Object.entries(ACAO).map(([tipo, item]) => <button key={tipo} onClick={() => adicionarAcao(fase, tipo as keyof typeof ACAO)} className="rounded p-2 text-left text-xs hover:bg-blue-50"><item.Icone className="mb-1 h-4 w-4" style={{ color: item.cor }} />{item.nome}</button>)}</div>}</div><div className="space-y-3 p-3">{fase.acoes.map((acao) => { const visual = ACAO[acao.tipo as keyof typeof ACAO] ?? ACAO.TAREFA; const Icone = visual.Icone; return <article key={acao.id} className="overflow-hidden rounded-lg border bg-white shadow-sm"><div className="border-l-4 p-3" style={{ borderLeftColor: visual.cor }}><div className="flex gap-2"><Icone className="mt-0.5 h-4 w-4 shrink-0" style={{ color: visual.cor }} /><div><div className="text-xs font-semibold uppercase text-slate-400">{visual.nome}</div><h3 className="font-semibold text-slate-800">{acao.nome}</h3></div></div></div><div className="border-t bg-slate-50 px-3 py-2"><div className="flex items-center justify-between"><span className="text-xs font-semibold uppercase text-slate-400">Reações</span><button onClick={() => adicionarReacao(acao)} className="text-xs font-semibold text-blue-700">+ REAÇÃO</button></div><div className="mt-2 space-y-1">{acao.reacoes.map((reacao) => { const item = REACAO[reacao.tipo as keyof typeof REACAO]; const RIcone = item?.Icone ?? Bell; return <div key={reacao.id} className="flex items-center gap-2 rounded bg-white px-2 py-1.5 text-sm"><RIcone className={`h-4 w-4 ${reacao.tipo === "WHATSAPP" ? "text-green-600" : "text-blue-600"}`} />{reacao.nome}</div> })}</div></div></article>})}{fase.acoes.length === 0 && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-slate-400">Adicione a primeira ação</div>}</div></section>)}<button onClick={adicionarFase} className="flex h-32 w-48 items-center justify-center rounded-xl border-2 border-dashed text-sm font-semibold text-slate-500 hover:border-blue-500 hover:text-blue-700"><Plus className="mr-2 h-4 w-4" />Nova fase</button></div></div>
-    <Card className={acoesPendentes.length ? "border-amber-300" : "border-emerald-300"}>
-      <CardContent className="p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-slate-900">Responsáveis das ações</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Escolha uma pessoa, várias pessoas, um ou vários setores ou o próprio solicitante.
-            </p>
+      {novo ? (
+        <section className="flex flex-col gap-3 rounded-xl border border-[#E3E7EC] bg-white p-5" aria-labelledby="novo-fluxo">
+          <h2 id="novo-fluxo" className="text-[15px] font-bold">
+            Novo fluxo
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="novo-fluxo-nome" className="text-[13px] font-semibold text-slate-700">
+                Nome
+              </label>
+              <input id="novo-fluxo-nome" value={nome} maxLength={160} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Contratação — Câmara" className="rounded-lg border border-[#CBD3DA] px-3 py-2 text-[15px]" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="novo-fluxo-tipo" className="text-[13px] font-semibold text-slate-700">
+                Para qual tipo de processo
+              </label>
+              <select id="novo-fluxo-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} className="rounded-lg border border-[#CBD3DA] bg-white px-3 py-2 text-[15px]">
+                {TIPOS_PROCESSO_FLUXO.map((t) => (
+                  <option key={t.valor} value={t.valor}>
+                    {t.rotulo}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${acoesPendentes.length ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
-            {acoesPendentes.length ? `${acoesPendentes.length} pendente(s)` : "Tudo configurado"}
-          </span>
-        </div>
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {acoesDoProcesso.map(({ acao, faseNome }) => {
-            const definido = responsavelDefinido(acao)
-            return <button
-              key={acao.id}
-              type="button"
-              onClick={() => setAcaoEditando(acao)}
-              className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition hover:border-blue-500 hover:bg-blue-50 ${definido ? "bg-white" : "border-amber-300 bg-amber-50"}`}
-            >
-              <div className="min-w-0">
-                <p className="truncate text-xs text-slate-500">{faseNome}</p>
-                <p className="truncate text-sm font-semibold text-slate-800">{acao.nome}</p>
-              </div>
-              <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-semibold ${definido ? "bg-emerald-100 text-emerald-700" : "bg-amber-200 text-amber-900"}`}>
-                {definido ? "Configurar" : "Definir responsável"}
-              </span>
+          <p className="text-xs text-[#5A6675]">Contratação, aditivo e renovação exigem parecer jurídico e publicação — o fluxo só é ativado com essas etapas.</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={criar} disabled={criando || nome.trim().length < 3} className="rounded-lg bg-[#1B4A63] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              {criando ? "Criando…" : "Criar e desenhar"}
             </button>
-          })}
-        </div>
-      </CardContent>
-    </Card>
-    {acaoEditando && <PainelAcao workflowId={workflow.id} acao={acaoEditando} formularios={workflow.formularios} aoFechar={() => setAcaoEditando(null)} aoSalvar={recarregar} />}
-    {acaoDaReacao && <PainelReacao workflowId={workflow.id} acaoId={acaoDaReacao.id} acaoNome={acaoDaReacao.nome} aoFechar={() => setAcaoDaReacao(null)} aoSalvar={recarregar} />}
-    <div className="fixed bottom-5 right-5 rounded-full bg-green-600 p-3 text-white shadow-lg" title="WhatsApp integrado"><MessageCircle className="h-5 w-5" /></div>
-  </div>
+            <button type="button" onClick={() => setNovo(false)} className="rounded-lg border border-[#CBD3DA] px-4 py-2 text-sm">
+              Cancelar
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      <div className="flex flex-wrap items-start gap-5">
+        <section className="flex min-w-0 flex-[999_1_560px] flex-col gap-3" aria-label="Fluxos do órgão">
+          {erro ? <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{erro}</p> : null}
+          {!fluxos && !erro ? (
+            <p className="flex items-center gap-2 text-sm text-slate-600">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Carregando…
+            </p>
+          ) : null}
+          {fluxos && !fluxos.length ? <p className="rounded-xl border border-dashed border-[#CBD3DA] bg-white p-8 text-center text-sm text-[#5A6675]">Nenhum fluxo ainda. Crie o primeiro em “Novo fluxo”.</p> : null}
+          {(fluxos ?? []).map((f) => (
+            <div key={f.familia_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#E3E7EC] bg-white p-4">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <b className="text-[15px]">{f.nome}</b>
+                <span className="text-sm text-[#5A6675]">
+                  {rotuloTipoProcesso(f.tipo_processo)}
+                  {f.ativo ? ` · versão ${f.ativo.versao} ativa` : " · nenhuma versão ativa"}
+                  {f.rascunho ? ` · rascunho da versão ${f.rascunho.versao}` : ""}
+                  {f.em_andamento ? ` · ${f.em_andamento} em andamento` : ""}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                {f.rascunho ? (
+                  <button type="button" onClick={() => onAbrir(f.rascunho!.id)} className="rounded-lg bg-[#1B4A63] px-3.5 py-2 text-sm font-semibold text-white">
+                    Continuar rascunho
+                  </button>
+                ) : null}
+                {f.ativo ? (
+                  <button type="button" onClick={() => onAbrir(f.ativo!.id)} className="rounded-lg border border-[#CBD3DA] px-3.5 py-2 text-sm">
+                    Ver versão ativa
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </section>
+        <aside className="flex min-w-0 flex-[1_1_300px] flex-col">
+          <CanaisAvisoOrgao />
+        </aside>
+      </div>
+    </div>
+  )
+}
+
+export default function FluxosPage() {
+  return (
+    <ModuleGuard modulo={ModuloSistema.PROCESSOS}>
+      <div className="mx-auto w-full max-w-[1216px] px-4 py-6">
+        <Suspense fallback={null}>
+          <Fluxos />
+        </Suspense>
+      </div>
+    </ModuleGuard>
+  )
 }
