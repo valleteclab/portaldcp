@@ -40,6 +40,7 @@ export class WorkflowController {
   @Put(':id/desenho') salvarDesenho(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.desenhos.salvar(adminDoOrgao(ator), id, body); }
   @Post(':id/nova-versao') novaVersao(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.desenhos.novaVersao(adminDoOrgao(ator), id, ator.usuarioId ?? ator.id); }
   @Post(':id/ativar') ativar(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.desenhos.ativar(adminDoOrgao(ator), id); }
+  @Post(':id/desativar') desativar(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.desenhos.desativar(adminDoOrgao(ator), id); }
   @Get() listar(@AtorAtual() ator: Ator) { return this.service.listar(orgaoDo(ator)); }
   @Post() criar(@AtorAtual() ator: Ator, @Body() body: any) { return this.service.criar(orgaoDo(ator), ator.usuarioId ?? ator.id, body); }
   @Post('modelos-prontos/aditivo') modeloAditivo(@AtorAtual() ator: Ator) { return this.service.criarModeloAditivo(orgaoDo(ator), ator.usuarioId ?? ator.id); }

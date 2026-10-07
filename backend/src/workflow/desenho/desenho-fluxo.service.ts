@@ -41,6 +41,7 @@ export class DesenhoFluxoService {
     return [...familias.values()]
       .map((vs) => {
         const ativo = vs.find((v) => v.status === 'PUBLICADO') ?? null;
+        const desativado = ativo ? null : (vs.find((v) => v.status === 'DESATIVADO') ?? null);
         const rascunho = vs.find((v) => v.status === 'RASCUNHO') ?? null;
         const atual = rascunho ?? ativo ?? vs[0];
         return {
@@ -48,6 +49,7 @@ export class DesenhoFluxoService {
           nome: atual.nome,
           tipo_processo: atual.tipo_processo,
           ativo: ativo ? { id: ativo.id, versao: ativo.versao } : null,
+          desativado: desativado ? { id: desativado.id, versao: desativado.versao } : null,
           rascunho: rascunho ? { id: rascunho.id, versao: rascunho.versao } : null,
           em_andamento: vs.reduce((t, v) => t + Number(v.em_andamento || 0), 0),
           atualizado_em: vs.reduce((d, v) => (new Date(v.updated_at) > d ? new Date(v.updated_at) : d), new Date(0)),
@@ -264,19 +266,31 @@ export class DesenhoFluxoService {
     return this.desenho(orgaoId, novoId);
   }
 
-  /** Ativa o rascunho: confere as travas e substitui a versão ativa da família. */
+  /** Ativa o rascunho (ou reativa a versão desativada): confere as travas e substitui a versão ativa da família. */
   async ativar(orgaoId: string, id: string) {
     const m = await this.workflow.obter(orgaoId, id);
-    if (m.status !== 'RASCUNHO') throw new ConflictException('Só um rascunho pode ser ativado.');
+    if (m.status !== 'RASCUNHO' && m.status !== 'DESATIVADO') throw new ConflictException('Só um rascunho ou uma versão desativada pode ser ativada.');
     const erros = this.pendenciasParaAtivar(m);
     if (erros.length) throw new BadRequestException({ message: 'O fluxo ainda não pode ser ativado.', erros });
     await this.ds.transaction(async (mg) => {
       await mg.query(
-        `UPDATE workflow_modelos SET status = 'SUBSTITUIDO', updated_at = now() WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2 AND status = 'PUBLICADO'`,
-        [orgaoId, this.familia(m)],
+        `UPDATE workflow_modelos SET status = 'SUBSTITUIDO', updated_at = now()
+          WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2 AND status IN ('PUBLICADO', 'DESATIVADO') AND id::text <> $3`,
+        [orgaoId, this.familia(m), m.id],
       );
       await mg.update(WorkflowModelo, { id: m.id }, { status: 'PUBLICADO' });
     });
+    return this.desenho(orgaoId, id);
+  }
+
+  /**
+   * Desativa a versão ativa: nenhum processo novo começa por ela (nem pelo início
+   * automático da contratação). Os que já estão em andamento seguem nela até o fim.
+   */
+  async desativar(orgaoId: string, id: string) {
+    const m = await this.workflow.obter(orgaoId, id);
+    if (m.status !== 'PUBLICADO') throw new ConflictException('Só a versão ativa pode ser desativada.');
+    await this.ds.getRepository(WorkflowModelo).update({ id: m.id }, { status: 'DESATIVADO' });
     return this.desenho(orgaoId, id);
   }
 

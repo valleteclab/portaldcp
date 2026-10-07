@@ -112,6 +112,8 @@ export class WorkflowService {
     if (body?.nome !== undefined) modelo.nome = String(body.nome).trim() || modelo.nome;
     if (body?.descricao !== undefined) modelo.descricao = String(body.descricao).trim() || null;
     if (body?.status === 'PUBLICADO') {
+      // Fluxo do desenho (com tipo de processo): ativar só pela tela "Fluxos de processo", que confere as travas da lei e troca a versão
+      if (modelo.tipo_processo) throw new BadRequestException('Ative este fluxo pela tela Fluxos de processo.');
       const erros: string[] = [];
       if (!modelo.fases.length) erros.push('Crie ao menos uma fase.');
       for (const fase of modelo.fases) {

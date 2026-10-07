@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Loader2, Lock, Trash2 } from "lucide-react"
 import {
   apiFluxo,
   ErroFluxo,
+  rotuloStatusVersao,
   rotuloTipoProcesso,
   TIPOS_PROCESSO_FLUXO,
   type Avisos,
@@ -45,6 +46,7 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
   const [selecionada, setSelecionada] = useState<string | null>(null)
   const [sujo, setSujo] = useState(false)
   const [salvando, setSalvando] = useState(false)
+  const [confirmandoDesativar, setConfirmandoDesativar] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [arrastandoSobre, setArrastandoSobre] = useState<number | null>(null)
   const [testando, setTestando] = useState(false)
@@ -175,6 +177,20 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
     }
   }
 
+  async function desativar() {
+    if (!desenho) return
+    setSalvando(true)
+    try {
+      aplicar(await apiFluxo<Desenho>(`/${desenho.modelo.id}/desativar`, { metodo: "POST" }))
+      setConfirmandoDesativar(false)
+      toast.success("Fluxo desativado. Os processos novos não seguem mais este fluxo.")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Não foi possível desativar.")
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   async function novaVersao() {
     if (!desenho) return
     setSalvando(true)
@@ -190,7 +206,8 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
   if (erro) return <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{erro}</p>
   if (!desenho) return <p className="flex items-center gap-2 text-sm text-slate-600"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Abrindo o fluxo…</p>
 
-  const statusRotulo = desenho.modelo.status === "RASCUNHO" ? "rascunho" : desenho.modelo.status === "PUBLICADO" ? "ativa" : "substituída"
+  const statusRotulo = rotuloStatusVersao(desenho.modelo.status)
+  const desativada = desenho.modelo.status === "DESATIVADO"
   const nomeDe = (tipo: TipoResponsavel, id: string) => (tipo === "SETOR" ? opcoes.setores : opcoes.usuarios).find((x) => x.id === id)?.nome ?? "—"
   const resumoResponsavel = (e: EtapaDesenho) =>
     porTipo.get(e.tipo)?.automatico ? "Automático" : e.responsavel_tipo === "SOLICITANTE" ? "Solicitante" : e.responsaveis.length ? e.responsaveis.map((id) => nomeDe(e.responsavel_tipo, id)).join(", ") : "Sem responsável"
@@ -218,14 +235,14 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
               <h1 className="text-2xl font-bold">{desenho.modelo.nome}</h1>
             )}
             <span
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusRotulo === "rascunho" ? "bg-[#FFF4DE] text-[#8A5A00]" : statusRotulo === "ativa" ? "bg-[#E8F5EE] text-[#2E7A55]" : "bg-slate-100 text-slate-600"}`}
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusRotulo === "rascunho" ? "bg-[#FFF4DE] text-[#8A5A00]" : statusRotulo === "ativa" ? "bg-[#E8F5EE] text-[#2E7A55]" : desativada ? "bg-[#FDF3F1] text-[#9B2C1F]" : "bg-slate-100 text-slate-600"}`}
             >
               Versão {desenho.modelo.versao} · {statusRotulo}
             </span>
           </div>
           <p className="text-sm text-[#5A6675]">
             {rotuloTipoProcesso(desenho.modelo.tipo_processo)}
-            {ativa ? ` · Versão ${ativa.versao} ativa em ${ativa.em_andamento} ${ativa.em_andamento === 1 ? "processo" : "processos"} em andamento` : " · Nenhuma versão ativa ainda"}
+            {ativa ? ` · Versão ${ativa.versao} ativa em ${ativa.em_andamento} ${ativa.em_andamento === 1 ? "processo" : "processos"} em andamento` : desenho.versoes.some((v) => v.status === "DESATIVADO") ? " · Fluxo desativado" : " · Nenhuma versão ativa ainda"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -244,18 +261,64 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
               </button>
             </>
           ) : desenho.modelo.status === "PUBLICADO" ? (
-            <button type="button" onClick={novaVersao} disabled={salvando} className="rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
-              Criar nova versão para alterar
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setConfirmandoDesativar(true)}
+                disabled={salvando || confirmandoDesativar}
+                className="rounded-lg border border-[#E4B4AE] bg-white px-4 py-2.5 text-sm font-medium text-[#9B2C1F] disabled:opacity-50"
+              >
+                Desativar
+              </button>
+              <button type="button" onClick={novaVersao} disabled={salvando} className="rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                Criar nova versão para alterar
+              </button>
+            </>
+          ) : desativada ? (
+            <>
+              <button type="button" onClick={novaVersao} disabled={salvando} className="rounded-lg border border-[#CBD3DA] bg-white px-4 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-60">
+                Criar nova versão para alterar
+              </button>
+              <button type="button" onClick={ativar} disabled={salvando} className="rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                {salvando ? "Aguarde…" : `Reativar versão ${desenho.modelo.versao}`}
+              </button>
+            </>
           ) : null}
         </div>
       </div>
+
+      {confirmandoDesativar ? (
+        <section role="alertdialog" aria-labelledby="desativar-titulo" className="flex flex-col gap-3 rounded-xl border border-[#E4B4AE] bg-[#FDF3F1] p-4">
+          <h2 id="desativar-titulo" className="text-[15px] font-bold text-[#9B2C1F]">
+            Desativar o fluxo “{desenho.modelo.nome}”?
+          </h2>
+          <ul className="list-disc pl-5 text-sm text-[#5A2A22]">
+            <li>Os processos novos deixam de seguir este fluxo{desenho.modelo.tipo_processo === "CONTRATACAO" ? ", inclusive os abertos a partir do DFD" : ""}.</li>
+            <li>
+              {ativa?.em_andamento
+                ? `${ativa.em_andamento} ${ativa.em_andamento === 1 ? "processo em andamento continua" : "processos em andamento continuam"} nesta versão até o fim.`
+                : "Nenhum processo está em andamento nesta versão."}
+            </li>
+            <li>O fluxo pode ser reativado depois, sem refazer o desenho.</li>
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={desativar} disabled={salvando} className="rounded-lg bg-[#9B2C1F] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+              {salvando ? "Aguarde…" : "Confirmar desativação"}
+            </button>
+            <button type="button" onClick={() => setConfirmandoDesativar(false)} disabled={salvando} className="rounded-lg border border-[#CBD3DA] bg-white px-4 py-2.5 text-sm font-medium text-slate-700">
+              Cancelar
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {!editavel ? (
         <p className="rounded-lg border border-[#E3E7EC] bg-[#F6F7F9] p-3 text-sm text-[#5A6675]">
           {desenho.modelo.status === "PUBLICADO"
             ? "Esta é a versão ativa: só leitura. Para alterar, crie uma nova versão — os processos em andamento continuam nesta até o fim."
-            : "Versão substituída: só leitura. Os processos que começaram nela continuam nela até o fim."}
+            : desativada
+              ? "Versão desativada: nenhum processo novo segue este fluxo. Os que já estavam em andamento continuam nela até o fim. Reative para voltar a usá-la."
+              : "Versão substituída: só leitura. Os processos que começaram nela continuam nela até o fim."}
         </p>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
@@ -431,7 +494,7 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
                     Versão {v.versao}
                   </button>
                   <span className="text-xs text-[#5A6675]">
-                    {v.status === "RASCUNHO" ? "rascunho" : v.status === "PUBLICADO" ? "ativa" : "substituída"}
+                    {rotuloStatusVersao(v.status)}
                     {v.em_andamento ? ` · ${v.em_andamento} em andamento` : ""}
                   </span>
                 </li>
