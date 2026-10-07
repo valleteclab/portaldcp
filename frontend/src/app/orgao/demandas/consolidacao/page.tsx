@@ -119,6 +119,11 @@ type Ordem = 'ANTIGOS' | 'VALOR' | 'SETOR'
 
 function DfdConsolidadoContent() {
   const router = useRouter()
+  // Veio da etapa DFD de um processo (?processo=): o DFD montado volta para lá
+  const [processoDestino, setProcessoDestino] = useState<string | null>(null)
+  useEffect(() => {
+    setProcessoDestino(new URLSearchParams(window.location.search).get('processo'))
+  }, [])
   const anoAtual = new Date().getFullYear()
   const [ano, setAno] = useState(anoAtual)
   // O aviso "demanda aprovada — monte o DFD" e a pendência em Minhas tarefas trazem o exercício no link (?ano=)
@@ -291,7 +296,7 @@ function DfdConsolidadoContent() {
       const j = await r.json().catch(() => null)
       if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
       // A tela do DFD mostra a faixa de sucesso e o próximo passo em destaque
-      router.push(rotaDoDfd(j.id, { montado: true }))
+      router.push(rotaDoDfd(j.id, { montado: true, processo: processoDestino }))
     } catch (e: unknown) {
       toast.error(`DFD não montado: ${e instanceof Error ? e.message : String(e)}`)
       setMontando(false)

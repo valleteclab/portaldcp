@@ -116,6 +116,10 @@ export class DfdConsolidado {
   @Column({ type: 'uuid', nullable: true })
   licitacao_id: string | null;
 
+  /** Processo eletrônico (fluxo desenhado) em que este DFD foi juntado na etapa DFD — alternativa à licitação. */
+  @Column({ type: 'uuid', nullable: true })
+  processo_id: string | null;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   criado_por_id: string | null;
 

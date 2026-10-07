@@ -57,9 +57,11 @@ export function passoDoDfd(status: string, exigeAprovacao: boolean): { atual: Pa
 /** Ação que a tela do DFD executa ao abrir (`?acao=`): vinda do botão da lista. */
 export type AcaoNaTelaDoDfd = 'abrir-processo' | 'enviar'
 
-export function rotaDoDfd(id: string, extra?: { acao?: AcaoNaTelaDoDfd; montado?: boolean }): string {
+export function rotaDoDfd(id: string, extra?: { acao?: AcaoNaTelaDoDfd; montado?: boolean; processo?: string | null }): string {
   const q: string[] = []
   if (extra?.montado) q.push('montado=1')
+  // Processo eletrônico cuja etapa DFD espera este DFD (a tela oferece "Juntar ao processo")
+  if (extra?.processo) q.push(`processo=${encodeURIComponent(extra.processo)}`)
   if (extra?.acao) q.push(`acao=${extra.acao}`)
   return `/orgao/demandas/dfd/${id}${q.length ? `?${q.join('&')}` : ''}`
 }

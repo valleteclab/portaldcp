@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { API_URL, authFetch } from "@/lib/api"
 import { pedirTextoAcao } from "@/components/DialogoGlobal"
 import { diaMes } from "@/lib/fluxo/andamento"
@@ -19,6 +20,14 @@ interface DemandaResumo {
   descricao_sucinta_objeto: string | null
   unidade_requisitante: string
   status: string
+}
+
+interface DfdDisponivel {
+  id: string
+  ano: number
+  numero: number
+  status: string
+  objeto: string
 }
 
 interface RespostaWorkflow<T> {
@@ -62,6 +71,8 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
   const [escrevendo, setEscrevendo] = useState(false)
   const [demandas, setDemandas] = useState<DemandaResumo[] | null>(null)
   const [demandaEscolhida, setDemandaEscolhida] = useState("")
+  const [dfds, setDfds] = useState<DfdDisponivel[] | null>(null)
+  const [dfdEscolhido, setDfdEscolhido] = useState("")
   const [erro, setErro] = useState<string | null>(null)
   const [pendencias, setPendencias] = useState<string[] | null>(null)
   const [processando, setProcessando] = useState(false)
@@ -85,6 +96,19 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
       .then((r) => (r.ok ? (r.json() as Promise<DemandaResumo[]>) : Promise.reject()))
       .then((d) => vivo && setDemandas(Array.isArray(d) ? d : []))
       .catch(() => vivo && setDemandas([]))
+    return () => {
+      vivo = false
+    }
+  }, [no?.tipo])
+
+  useEffect(() => {
+    if (no?.tipo !== "DFD") return
+    let vivo = true
+    // Opcional: sem o módulo Demandas (403), a opção do DFD consolidado some e fica só escrever/anexar.
+    authFetch(`${API_URL}/api/dfds-consolidados/disponiveis-para-processo`)
+      .then((r) => (r.ok ? (r.json() as Promise<DfdDisponivel[]>) : Promise.reject()))
+      .then((d) => vivo && setDfds(Array.isArray(d) ? d : []))
+      .catch(() => vivo && setDfds(null))
     return () => {
       vivo = false
     }
@@ -138,6 +162,29 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
     onAtualizar()
   }
 
+  async function juntarDfd() {
+    if (!dfdEscolhido) return
+    setErro(null)
+    setPendencias(null)
+    setProcessando(true)
+    try {
+      const r = await authFetch(`${API_URL}/api/dfds-consolidados/${dfdEscolhido}/juntar-ao-processo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ processo_id: processoId }),
+      })
+      const j = await r.json().catch(() => null)
+      if (!r.ok) {
+        const m = j?.message
+        setErro(Array.isArray(m) ? m.join(" ") : m || "Não foi possível juntar o DFD ao processo.")
+        return
+      }
+      onAtualizar()
+    } finally {
+      setProcessando(false)
+    }
+  }
+
   const ehPrimeiraEtapa = andamento.nos[0]?.chave === no.chave
   const ehAprovacao = no.tipo === "APROVACAO"
 
@@ -183,6 +230,39 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
             <button type="button" className={`${s.botao} ${s.secundario}`} onClick={() => concluir({ demanda_id: demandaEscolhida })} disabled={!demandaEscolhida || processando}>
               Vincular esta demanda e concluir
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {no.tipo === "DFD" && dfds !== null ? (
+        <div className={s.formulario} style={{ marginTop: 10 }}>
+          <p className={s.texto}>
+            <b>DFD consolidado</b> — reúna as demandas dos setores num DFD só (art. 12, VII, da Lei 14.133) e junte-o aos autos como documento desta etapa.
+          </p>
+          {dfds.length ? (
+            <>
+              <label className={s.rotulo} htmlFor="dfd-consolidado">
+                DFD já montado
+              </label>
+              <select id="dfd-consolidado" className={s.campo} value={dfdEscolhido} onChange={(e) => setDfdEscolhido(e.target.value)}>
+                <option value="">Escolha o DFD</option>
+                {dfds.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    DFD nº {d.numero}/{d.ano} — {d.objeto}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : null}
+          <div className={s.acoes}>
+            {dfds.length ? (
+              <button type="button" className={`${s.botao} ${s.primario}`} onClick={juntarDfd} disabled={!dfdEscolhido || processando}>
+                {processando ? "Juntando..." : "Juntar este DFD ao processo"}
+              </button>
+            ) : null}
+            <Link href={`/orgao/demandas/consolidacao?processo=${encodeURIComponent(processoId)}`} className={`${s.botao} ${s.secundario}`}>
+              Montar DFD com as demandas
+            </Link>
           </div>
         </div>
       ) : null}

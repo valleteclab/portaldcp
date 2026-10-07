@@ -24,6 +24,14 @@ import {
   valorTotalDosItens,
 } from './consolidacao-dfd';
 import { gerarPdfDfdConsolidado } from './dfd-consolidado-pdf';
+import { ProcessoTramitacaoService } from '../../processo/processo-tramitacao.service';
+import { WorkflowService } from '../../workflow/workflow.service';
+import { contarPaginasPdf } from '../../fase-interna/folhas-autos';
+import { diretorioDeGravacao } from '../../common/arquivos/arquivos';
+import { randomUUID } from 'crypto';
+import { acaoDaEtapaDfdAberta } from './etapa-dfd-do-processo';
+import * as fs from 'fs';
+import * as path from 'path';
 import { STATUS_DFD_ATIVO, StatusDfd } from './dfd-consolidado.entity';
 
 type Autor = { id: string | null; nome: string | null; cargo: string | null };
@@ -65,6 +73,7 @@ export interface DfdLinha {
   devolucao: any;
   historico: any[];
   licitacao_id: string | null;
+  processo_id: string | null;
   criado_por_id: string | null;
   criado_por_nome: string | null;
   created_at: Date;
@@ -92,6 +101,8 @@ export class DfdConsolidadoService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly planejamento: PlanejamentoFluxoService,
     private readonly notificacoes: NotificacoesService,
+    private readonly tramitacao: ProcessoTramitacaoService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   // ==========================================================================
@@ -158,7 +169,7 @@ export class DfdConsolidadoService {
                   unidade_planejamento_id::text AS unidade_planejamento_id, unidade_planejamento_nome, responsavel_id::text AS responsavel_id,
                   responsavel_nome, responsavel_cargo, to_char(data_pretendida, 'YYYY-MM-DD') AS data_pretendida, prioridade,
                   item_pca_id::text AS item_pca_id, itens, ajustes, valor_total_estimado, exige_aprovacao, aprovacao, devolucao, historico,
-                  licitacao_id::text AS licitacao_id, criado_por_id, criado_por_nome, created_at, updated_at
+                  licitacao_id::text AS licitacao_id, processo_id::text AS processo_id, criado_por_id, criado_por_nome, created_at, updated_at
              FROM dfds_consolidados WHERE id::text = $1`,
           [id],
         )
@@ -691,9 +702,13 @@ export class DfdConsolidadoService {
   async reservarParaProcesso(id: string, orgaoId: string | null): Promise<{ dfd: DfdLinha; anterior: StatusDfd; demandas: DemandaCarregada[] }> {
     const dfd = await this.carregar(id);
     if (orgaoId && dfd.orgao_id !== orgaoId) throw new NotFoundException('DFD não encontrado');
-    if (dfd.status === 'EM_PROCESSO' || dfd.licitacao_id) {
-      const [l] = dfd.licitacao_id ? await this.ds.query(`SELECT numero_processo FROM licitacoes WHERE id::text = $1`, [dfd.licitacao_id]) : [];
-      throw new ConflictException(`O ${rotuloDfd(dfd)} já abriu o processo ${l?.numero_processo ?? ''}`.trim());
+    if (dfd.status === 'EM_PROCESSO' || dfd.licitacao_id || dfd.processo_id) {
+      const [l] = dfd.licitacao_id
+        ? await this.ds.query(`SELECT numero_processo FROM licitacoes WHERE id::text = $1`, [dfd.licitacao_id])
+        : dfd.processo_id
+          ? await this.ds.query(`SELECT numero AS numero_processo FROM processos WHERE id::text = $1`, [dfd.processo_id])
+          : [];
+      throw new ConflictException(`O ${rotuloDfd(dfd)} já está no processo ${l?.numero_processo ?? ''}`.trim());
     }
     const p = await this.planejamento.vigente(dfd.orgao_id);
     if (p.aprovacao_dfd.exigida && dfd.status !== 'APROVADO') {
@@ -707,7 +722,7 @@ export class DfdConsolidadoService {
     const demandas = await this.conferirDisponiveis(dfd.orgao_id, ids, { excetoDfd: id });
     const r = await this.ds.query(
       `UPDATE dfds_consolidados SET status = 'EM_PROCESSO', exige_aprovacao = $3, updated_at = now()
-        WHERE id::text = $1 AND status = $2 AND licitacao_id IS NULL RETURNING id`,
+        WHERE id::text = $1 AND status = $2 AND licitacao_id IS NULL AND processo_id IS NULL RETURNING id`,
       [id, dfd.status, p.aprovacao_dfd.exigida],
     );
     if (!(Array.isArray(r?.[0]) ? r[0].length : r?.length)) throw new ConflictException('O DFD mudou de situação — atualize a tela.');
@@ -724,6 +739,62 @@ export class DfdConsolidadoService {
     await this.ds.query(
       `UPDATE dfds_consolidados SET licitacao_id = $2, status = 'EM_PROCESSO', historico = historico || $3::jsonb, updated_at = now() WHERE id::text = $1`,
       [id, licitacaoId, JSON.stringify([this.historico(autor, 'PROCESSO_ABERTO', `Processo ${numeroProcesso} aberto a partir do DFD`)])],
+    );
+  }
+
+  /**
+   * ETAPA DFD DO FLUXO (processo eletrônico): junta este DFD consolidado aos
+   * autos do processo como o documento da etapa DFD em andamento — o PDF do
+   * DFD (com as demandas reunidas, art. 12, VII) vira a peça `no:<acao_id>`,
+   * o que satisfaz a pendência da etapa. Mesmas regras de "abrir processo"
+   * (2ª aprovação, demandas ainda disponíveis, um processo só); quem junta
+   * precisa ser o responsável pela etapa (conferido no juntar). Se a juntada
+   * falhar, o DFD volta à situação anterior.
+   */
+  async juntarAoProcessoEletronico(id: string, processoId: string, ator: Ator) {
+    const orgaoId = ator.orgaoId;
+    if (!orgaoId) throw new ForbiddenException('Ação exclusiva do órgão');
+    if (!ehUuid(processoId)) throw new BadRequestException('Processo inválido');
+    const [processo] = await this.ds.query(`SELECT id::text AS id, numero FROM processos WHERE id::text = $1 AND orgao_id::text = $2`, [processoId, orgaoId]);
+    if (!processo) throw new NotFoundException('Processo não encontrado');
+    const acaoId = acaoDaEtapaDfdAberta(await this.workflow.execucaoDoProcesso(orgaoId, processoId));
+    if (!acaoId) throw new BadRequestException('O processo não está na etapa DFD do fluxo.');
+
+    const { dfd, anterior } = await this.reservarParaProcesso(id, orgaoId);
+    try {
+      const autor = await this.autor(ator);
+      await this.ds.query(
+        `UPDATE dfds_consolidados SET processo_id = $2, historico = historico || $3::jsonb, updated_at = now() WHERE id::text = $1`,
+        [id, processoId, JSON.stringify([this.historico(autor, 'PROCESSO_ABERTO', `Juntado ao processo ${processo.numero} na etapa DFD`)])],
+      );
+      const { buffer } = await this.pdf(id);
+      const nome = `dfd-${dfd.numero}-${dfd.ano}-${randomUUID()}.pdf`;
+      const dir = path.join(diretorioDeGravacao('processo'), processoId);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, nome), buffer);
+      await this.tramitacao.juntar(ator, processoId, {
+        titulo: `${rotuloDfd(dfd)} — ${dfd.objeto}`.slice(0, 300),
+        arquivo_url: `/api/uploads/processo/${processoId}/${nome}`,
+        arquivo_nome: `DFD-${dfd.numero}-${dfd.ano}.pdf`,
+        paginas: Math.max(1, await contarPaginasPdf(buffer)),
+        etapa: `no:${acaoId}`,
+        tipo_peca: 'DFD',
+      });
+    } catch (e) {
+      await this.ds.query(`UPDATE dfds_consolidados SET processo_id = NULL, status = $2, updated_at = now() WHERE id::text = $1 AND licitacao_id IS NULL`, [id, anterior]).catch(() => undefined);
+      throw e;
+    }
+    return { processo_id: processoId, numero_processo: processo.numero };
+  }
+
+  /** DFDs do órgão que ainda podem ir para um processo (não cancelados, sem processo). */
+  async disponiveisParaProcesso(orgaoId: string) {
+    return this.ds.query(
+      `SELECT id::text AS id, ano, numero, status, objeto, valor_total_estimado
+         FROM dfds_consolidados
+        WHERE orgao_id::text = $1 AND status IN ('RASCUNHO','AGUARDANDO_APROVACAO','APROVADO') AND licitacao_id IS NULL AND processo_id IS NULL
+        ORDER BY ano DESC, numero DESC LIMIT 200`,
+      [orgaoId],
     );
   }
 
@@ -816,6 +887,7 @@ export class DfdConsolidadoService {
     const ids = await this.idsDasDemandas(id);
     const demandas = await this.carregarDemandas(ids);
     const [proc] = dfd.licitacao_id ? await this.ds.query(`SELECT id::text AS id, numero_processo, fase::text AS fase FROM licitacoes WHERE id::text = $1`, [dfd.licitacao_id]) : [];
+    const [procEletronico] = dfd.processo_id ? await this.ds.query(`SELECT id::text AS id, numero, objeto FROM processos WHERE id::text = $1 AND orgao_id::text = $2`, [dfd.processo_id, dfd.orgao_id]) : [];
     const alertas = dfd.status === 'CANCELADO' ? [] : await this.alertas(dfd.orgao_id, dfd.ano, dfd.itens, { dfdId: id, demandaIds: ids, licitacaoId: dfd.licitacao_id });
     const perm = await this.permissoes(ator, dfd.orgao_id);
     const [pcaItem] = dfd.item_pca_id
@@ -845,6 +917,7 @@ export class DfdConsolidadoService {
         valor: valorTotalDosItens(d.itens.map((i) => ({ valor_total_estimado: Number(i.valor_total_estimado) || Number(i.quantidade_estimada) * Number(i.valor_unitario_estimado) || 0 }))),
       })),
       processo: proc ?? null,
+      processo_eletronico: procEletronico ?? null,
       item_pca: pcaItem ?? null,
       alertas,
       alerta: textoDoAlerta(alertas),
@@ -854,7 +927,7 @@ export class DfdConsolidadoService {
         enviar_aprovacao: dfd.status === 'RASCUNHO' && perm.pode_montar && perm.exige_aprovacao_dfd,
         aprovar: dfd.status === 'AGUARDANDO_APROVACAO' && perm.pode_aprovar_dfd,
         abrir_processo:
-          perm.pode_montar && !dfd.licitacao_id && (perm.exige_aprovacao_dfd ? dfd.status === 'APROVADO' : ['RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADO'].includes(dfd.status)),
+          perm.pode_montar && !dfd.licitacao_id && !dfd.processo_id && (perm.exige_aprovacao_dfd ? dfd.status === 'APROVADO' : ['RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADO'].includes(dfd.status)),
         cancelar: perm.pode_montar && ['RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADO'].includes(dfd.status),
       },
       opcoes: { setores, usuarios, itens_pca: itensPca },
@@ -866,7 +939,11 @@ export class DfdConsolidadoService {
     const ids = await this.idsDasDemandas(id);
     const demandas = await this.carregarDemandas(ids);
     const [orgao] = await this.ds.query(`SELECT nome, cidade, uf FROM orgaos WHERE id::text = $1`, [dfd.orgao_id]);
-    const [proc] = dfd.licitacao_id ? await this.ds.query(`SELECT numero_processo FROM licitacoes WHERE id::text = $1`, [dfd.licitacao_id]) : [];
+    const [proc] = dfd.licitacao_id
+      ? await this.ds.query(`SELECT numero_processo FROM licitacoes WHERE id::text = $1`, [dfd.licitacao_id])
+      : dfd.processo_id
+        ? await this.ds.query(`SELECT numero AS numero_processo FROM processos WHERE id::text = $1`, [dfd.processo_id])
+        : [];
     let pca: string | null = null;
     if (dfd.item_pca_id) {
       const [i] = await this.ds.query(

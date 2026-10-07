@@ -80,6 +80,7 @@ interface Dfd {
   historico: Array<{ em: string; por_nome: string | null; acao: string; texto: string }>
   demandas: Array<{ id: string; unidade_requisitante: string; descricao_sucinta_objeto: string | null; status: string; data_aprovacao: string | null; aprovado_por: string | null; n_itens: number; valor: number }>
   processo: { id: string; numero_processo: string; fase: string } | null
+  processo_eletronico: { id: string; numero: string; objeto: string } | null
   alertas: Parecido[]
   permissoes: {
     pode_montar: boolean
@@ -138,6 +139,9 @@ function DfdDetalhe() {
   const router = useRouter()
   const pathname = usePathname()
   const busca = useSearchParams()
+  // Processo eletrônico que espera este DFD na etapa DFD do fluxo — guardado antes de a URL ser limpa
+  const [processoDestino] = useState<string | null>(() => busca.get('processo'))
+  const [juntando, setJuntando] = useState(false)
   const [dfd, setDfd] = useState<Dfd | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -321,6 +325,27 @@ function DfdDetalhe() {
     }
   }
 
+  async function juntarAoProcesso() {
+    if (!dfd || !processoDestino) return
+    if (!(await confirmarAcao({ titulo: 'Juntar ao processo', mensagem: `Juntar o ${dfd.rotulo} aos autos do processo, como documento da etapa DFD? As demandas ficam travadas neste DFD.`, confirmarRotulo: 'Juntar' }))) return
+    if (!(await salvarSeSujo())) return
+    setJuntando(true)
+    try {
+      const r = await authFetch(`${API_URL}/api/dfds-consolidados/${dfd.id}/juntar-ao-processo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processo_id: processoDestino }),
+      })
+      const j = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
+      toast.success(`${dfd.rotulo} juntado ao processo ${j.numero_processo}.`)
+      router.push(`/orgao/processo/${processoDestino}`)
+    } catch (e: unknown) {
+      toast.error(`Não foi possível juntar: ${e instanceof Error ? e.message : String(e)}`)
+      setJuntando(false)
+    }
+  }
+
   /** Botão da ação do próximo passo (cartão do topo e resumo lateral). */
   const botaoDoPasso = (tamanho: 'default' | 'lg' = 'default', largo = false) => {
     const cls = largo ? 'w-full' : ''
@@ -379,6 +404,9 @@ function DfdDetalhe() {
             {dfd.processo && (
               <> · processo <Link href={`/orgao/processos/${dfd.processo.id}`} className="text-blue-800 underline">{dfd.processo.numero_processo}</Link></>
             )}
+            {dfd.processo_eletronico && (
+              <> · processo <Link href={`/orgao/processo/${dfd.processo_eletronico.id}`} className="text-blue-800 underline">{dfd.processo_eletronico.numero}</Link></>
+            )}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -390,6 +418,18 @@ function DfdDetalhe() {
       </header>
 
       <GuiaDfd atual={guia.atual} concluidos={guia.concluidos} links={{ 1: '/orgao/demandas/consolidacao' }} />
+
+      {/* Veio da etapa DFD de um processo: o próximo passo é juntar o DFD aos autos dele */}
+      {processoDestino && !dfd.processo && !dfd.processo_eletronico && dfd.status !== 'CANCELADO' && (
+        <div className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-950 flex items-center gap-3 flex-wrap">
+          <p className="flex-1 min-w-[240px]">
+            <b>DFD para a etapa DFD de um processo.</b> Confira os itens e junte o DFD aos autos — ele vira o documento da etapa, com as demandas reunidas (art. 12, VII).
+          </p>
+          <Button onClick={juntarAoProcesso} disabled={juntando || salvando}>
+            {juntando ? 'Juntando…' : 'Juntar ao processo'}
+          </Button>
+        </div>
+      )}
 
       {/* Depois de "Montar DFD": faixa de sucesso */}
       {montado && (
