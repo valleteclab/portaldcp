@@ -26,6 +26,31 @@ export function mascararWebhook(url: string): string {
 }
 
 /**
+ * Domínios em que o Teams/Power Automate gera a URL do webhook de canal. O
+ * servidor faz POST para essa URL: aceitar qualquer endereço permitiria
+ * apontar para serviços internos (SSRF). Fora destes domínios, recusa.
+ */
+const DOMINIOS_WEBHOOK_TEAMS = ['.webhook.office.com', '.logic.azure.com', '.powerplatform.com'];
+
+/** Mensagem de erro para 400, ou null quando a URL é um webhook do Teams aceitável. */
+export function problemaNoWebhookTeams(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(String(url ?? '').trim());
+  } catch {
+    return 'URL do webhook inválida.';
+  }
+  if (u.protocol !== 'https:') return 'A URL do webhook precisa começar com https://.';
+  if (u.username || u.password) return 'A URL do webhook não pode conter usuário ou senha.';
+  if (u.port && u.port !== '443') return 'A URL do webhook não pode usar outra porta.';
+  const host = u.hostname.toLowerCase();
+  if (!DOMINIOS_WEBHOOK_TEAMS.some((d) => host.endsWith(d))) {
+    return 'Use a URL gerada pelo app Workflows do Teams (domínios logic.azure.com, powerplatform.com ou webhook.office.com).';
+  }
+  return null;
+}
+
+/**
  * Payload do app "Workflows" do Teams ("Post to a channel when a webhook
  * request is received"): um Adaptive Card dentro de `attachments`. Função
  * pura — sem rede — para ser testada isoladamente.
@@ -79,7 +104,8 @@ export class TeamsService {
     const nome = String(body?.nome ?? '').trim();
     const webhookUrl = String(body?.webhook_url ?? '').trim();
     if (!nome) throw new BadRequestException('Informe o nome do canal');
-    if (!webhookUrl.startsWith('https://')) throw new BadRequestException('Informe a URL do webhook gerada pelo app Workflows do Teams');
+    const problema = problemaNoWebhookTeams(webhookUrl);
+    if (problema) throw new BadRequestException(problema);
     const registro = await this.canais.save(this.canais.create({ orgao_id: orgaoId, nome, webhook_url: encryptText(webhookUrl), criado_por_id: autorId }));
     return { id: registro.id, nome: registro.nome, webhook_mascarado: mascararWebhook(webhookUrl), created_at: registro.created_at };
   }
@@ -100,7 +126,10 @@ export class TeamsService {
   async enviarCard(orgaoId: string, canalId: string, dados: DadosCardAviso): Promise<boolean> {
     try {
       const webhook = await this.webhookDoCanal(orgaoId, canalId);
-      await axios.post(webhook, montarAdaptiveCard(dados), { timeout: 10_000 });
+      // Confere de novo no envio (registro antigo ou alterado no banco) e não segue redirecionamento
+      const problema = problemaNoWebhookTeams(webhook);
+      if (problema) throw new Error(problema);
+      await axios.post(webhook, montarAdaptiveCard(dados), { timeout: 10_000, maxRedirects: 0 });
       return true;
     } catch (e) {
       this.logger.warn(`Falha ao enviar aviso ao Teams (órgão ${orgaoId}, canal ${canalId}): ${(e as Error).message}`);

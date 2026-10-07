@@ -1,4 +1,4 @@
-import { mascararWebhook, montarAdaptiveCard } from './teams.service';
+import { mascararWebhook, montarAdaptiveCard, problemaNoWebhookTeams } from './teams.service';
 
 describe('mascararWebhook', () => {
   it('nunca devolve a URL inteira, só os últimos caracteres', () => {
@@ -36,5 +36,27 @@ describe('montarAdaptiveCard', () => {
     const card = payload.attachments[0].content;
     expect(card.body[1].facts).toHaveLength(3);
     expect(card.actions).toBeUndefined();
+  });
+});
+
+describe('problemaNoWebhookTeams', () => {
+  it('aceita as URLs que o Teams/Workflows gera', () => {
+    expect(problemaNoWebhookTeams('https://prod-12.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=x')).toBeNull();
+    expect(problemaNoWebhookTeams('https://default123.environment.api.powerplatform.com/powerautomate/automations/direct/workflows/abc')).toBeNull();
+    expect(problemaNoWebhookTeams('https://empresa.webhook.office.com/webhookb2/abc')).toBeNull();
+  });
+
+  it('recusa endereço interno ou de outro domínio (SSRF)', () => {
+    expect(problemaNoWebhookTeams('https://localhost/x')).not.toBeNull();
+    expect(problemaNoWebhookTeams('https://169.254.169.254/latest/meta-data')).not.toBeNull();
+    expect(problemaNoWebhookTeams('https://logic.azure.com.atacante.com/x')).not.toBeNull();
+    expect(problemaNoWebhookTeams('https://exemplo.com/?h=x.logic.azure.com')).not.toBeNull();
+  });
+
+  it('recusa http, porta diferente e credenciais na URL', () => {
+    expect(problemaNoWebhookTeams('http://prod-1.logic.azure.com/x')).not.toBeNull();
+    expect(problemaNoWebhookTeams('https://prod-1.logic.azure.com:8080/x')).not.toBeNull();
+    expect(problemaNoWebhookTeams('https://u:s@prod-1.logic.azure.com/x')).not.toBeNull();
+    expect(problemaNoWebhookTeams('não é url')).not.toBeNull();
   });
 });
