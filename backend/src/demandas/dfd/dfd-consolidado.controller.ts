@@ -99,6 +99,12 @@ export class DfdConsolidadoController {
     return this.dfds.previa(orgaoId, ids, body?.ajustes ?? {});
   }
 
+  /** DFDs que ainda podem ser juntados a um processo eletrônico (etapa DFD do fluxo). */
+  @Get('disponiveis-para-processo')
+  disponiveisParaProcesso(@AtorAtual() ator: Ator) {
+    return this.dfds.disponiveisParaProcesso(this.orgao(ator));
+  }
+
   @Get(':id')
   async obter(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.exigirDfd(ator, id, 'leitura');
@@ -185,6 +191,18 @@ export class DfdConsolidadoController {
    * alerta de parecidos (atenção). "Fase interna feita fora": a tela usa
    * `POST /api/fase-interna/externa/processo` com `dfd_id`.
    */
+  /**
+   * Junta o DFD ao processo eletrônico, como documento da etapa DFD em andamento
+   * no fluxo. Corpo: { processo_id }. Só a unidade de planejamento; e quem junta
+   * precisa ser o responsável pela etapa (conferido na juntada).
+   */
+  @Post(':id/juntar-ao-processo')
+  async juntarAoProcesso(@Param('id') id: string, @AtorAtual() ator: Ator, @Body() body: any) {
+    const orgaoId = await this.exigirDfd(ator, id);
+    await this.dfds.exigirMontar(ator, orgaoId);
+    return this.dfds.juntarAoProcessoEletronico(id, String(body?.processo_id ?? ''), ator);
+  }
+
   @Post(':id/abrir-processo')
   async abrirProcesso(@Param('id') id: string, @AtorAtual() ator: Ator, @Body() body: any) {
     const orgaoId = await this.exigirDfd(ator, id);
