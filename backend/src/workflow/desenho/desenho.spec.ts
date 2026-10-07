@@ -4,22 +4,26 @@ const etapa = (chave: string, tipo: string, extra: Record<string, unknown> = {})
 
 describe('normalizarEtapas', () => {
   it('aceita a sequência e usa o rótulo do catálogo quando falta nome', () => {
-    const r = normalizarEtapas({ etapas: [etapa('a', 'DEMANDA'), etapa('novo-1', 'parecer_juridico', { nome: '  Parecer da Procuradoria ', prazo_dias_uteis: '5' })] });
+    const r = normalizarEtapas({ etapas: [etapa('a', 'DFD'), etapa('novo-1', 'parecer_juridico', { nome: '  Parecer da Procuradoria ', prazo_dias_uteis: '5' })] });
     expect(r.map((e) => [e.chave, e.tipo, e.nome, e.prazo_dias_uteis])).toEqual([
-      ['a', 'DEMANDA', 'Demanda', null],
+      ['a', 'DFD', 'DFD', null],
       ['novo-1', 'PARECER_JURIDICO', 'Parecer da Procuradoria', 5],
     ]);
   });
 
+  it('a Demanda saiu do fluxo: a mensagem orienta a começar pelo DFD', () => {
+    expect(() => normalizarEtapas({ etapas: [etapa('a', 'DEMANDA')] })).toThrow('Comece o desenho pelo DFD');
+  });
+
   it('recusa tipo indisponível, chave repetida e prazo inválido', () => {
     expect(() => normalizarEtapas({ etapas: [etapa('a', 'DECISAO')] })).toThrow('indisponível');
-    expect(() => normalizarEtapas({ etapas: [etapa('a', 'DEMANDA'), etapa('a', 'DFD')] })).toThrow('repetida');
-    expect(() => normalizarEtapas({ etapas: [etapa('a', 'DEMANDA', { prazo_dias_uteis: 2.5 })] })).toThrow('prazo');
+    expect(() => normalizarEtapas({ etapas: [etapa('a', 'ETP'), etapa('a', 'DFD')] })).toThrow('repetida');
+    expect(() => normalizarEtapas({ etapas: [etapa('a', 'DFD', { prazo_dias_uteis: 2.5 })] })).toThrow('prazo');
     expect(() => normalizarEtapas({})).toThrow('lista');
   });
 
   it('solicitante não tem lista de responsáveis', () => {
-    expect(normalizarEtapas({ etapas: [etapa('a', 'DEMANDA', { responsavel_tipo: 'SOLICITANTE', responsaveis: ['x'] })] })[0].responsaveis).toEqual([]);
+    expect(normalizarEtapas({ etapas: [etapa('a', 'DFD', { responsavel_tipo: 'SOLICITANTE', responsaveis: ['x'] })] })[0].responsaveis).toEqual([]);
   });
 
   it('devolver só para etapa anterior', () => {
@@ -42,7 +46,7 @@ describe('documento produzido', () => {
 
 describe('errosParaAtivar', () => {
   it('contratação sem parecer e publicação não ativa', () => {
-    const e = errosParaAtivar('CONTRATACAO', normalizarEtapas({ etapas: [etapa('a', 'DEMANDA')] }));
+    const e = errosParaAtivar('CONTRATACAO', normalizarEtapas({ etapas: [etapa('a', 'DFD')] }));
     expect(e).toEqual(expect.arrayContaining([expect.stringContaining('Parecer jurídico'), expect.stringContaining('Publicação')]));
   });
 
@@ -52,7 +56,7 @@ describe('errosParaAtivar', () => {
   });
 
   it('fluxo completo ativa', () => {
-    expect(errosParaAtivar('CONTRATACAO', normalizarEtapas({ etapas: [etapa('a', 'DEMANDA'), etapa('b', 'PARECER_JURIDICO'), etapa('c', 'PUBLICACAO')] }))).toEqual([]);
+    expect(errosParaAtivar('CONTRATACAO', normalizarEtapas({ etapas: [etapa('a', 'DFD'), etapa('b', 'PARECER_JURIDICO'), etapa('c', 'PUBLICACAO')] }))).toEqual([]);
   });
 });
 

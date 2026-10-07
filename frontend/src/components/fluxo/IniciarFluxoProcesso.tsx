@@ -14,7 +14,7 @@ interface ModeloResumo {
 /**
  * Oferece ligar um fluxo desenhado a este processo (item 4 do pedido):
  * escolher um fluxo PUBLICADO do órgão, ou usar o modelo pronto
- * "Contratação — demanda ao DFD" (Demanda → Aprovação → DFD) para testar.
+ * "Contratação — DFD e aprovação" (DFD → Aprovação do DFD) para testar.
  */
 export function IniciarFluxoProcesso({ processoId, onIniciado }: { processoId: string; onIniciado: () => void }) {
   const [modelos, setModelos] = useState<ModeloResumo[]>([])
@@ -101,7 +101,7 @@ export function IniciarFluxoProcesso({ processoId, onIniciado }: { processoId: s
             {iniciando ? "Iniciando..." : "Iniciar fluxo"}
           </button>
           <button type="button" className={`${s.botao} ${s.secundario}`} onClick={usarModeloDeTeste} disabled={criandoModelo || iniciando}>
-            {criandoModelo ? "Criando..." : "Usar modelo: Demanda → Aprovação → DFD"}
+            {criandoModelo ? "Criando..." : "Usar modelo de teste: DFD → Aprovação do DFD"}
           </button>
         </div>
       </div>

@@ -83,18 +83,18 @@ export class WorkflowService {
    * iniciar e rodar sem precisar configurar setor/usuário antes. Já publicado.
    */
   async criarModeloDemandaDfd(orgaoId: string, autorId: string | null) {
-    const nome = 'Contratação — demanda ao DFD';
+    const nome = 'Contratação — DFD e aprovação';
     const existente = await this.modelos.findOne({ where: { orgao_id: orgaoId, nome } });
     if (existente) return this.obter(orgaoId, existente.id);
     const id = await this.dataSource.transaction(async (manager) => {
       const modelo = await manager.save(
         WorkflowModelo,
-        manager.create(WorkflowModelo, { orgao_id: orgaoId, criado_por_id: autorId, nome, descricao: 'Da demanda do setor requisitante à formalização do DFD, com aprovação no meio.', status: 'PUBLICADO' }),
+        manager.create(WorkflowModelo, { orgao_id: orgaoId, criado_por_id: autorId, nome, descricao: 'Modelo de teste: o DFD (com as demandas já aprovadas na Central) e a aprovação dele.', status: 'PUBLICADO' }),
       );
-      const nomesFases = ['Demanda', 'Aprovação', 'DFD'];
-      const tipos = ['DEMANDA', 'APROVACAO', 'DFD'];
-      const cores = ['#0891b2', '#eab308', '#7c3aed'];
-      const prazos = [3, 2, 5];
+      const nomesFases = ['DFD', 'Aprovação do DFD'];
+      const tipos = ['DFD', 'APROVACAO'];
+      const cores = ['#7c3aed', '#eab308'];
+      const prazos = [5, 2];
       const fases = await manager.save(WorkflowFase, nomesFases.map((f, i) => manager.create(WorkflowFase, { workflow_id: modelo.id, nome: f, ordem: i + 1, cor: cores[i] })));
       for (let i = 0; i < fases.length; i++) {
         await manager.save(

@@ -51,6 +51,7 @@ export function normalizarEtapas(corpo: unknown): EtapaDesenho[] {
     chaves.add(chave);
     const tipo = String(e?.tipo ?? '').trim().toUpperCase();
     const def = definicaoDoNo(tipo);
+    if (tipo === 'DEMANDA') throw new Error(`Etapa ${i + 1}: a Demanda saiu do fluxo — a demanda e a aprovação dela são feitas antes do processo (Demandas e Central de Aprovações). Comece o desenho pelo DFD.`);
     if (!def || !def.disponivel) throw new Error(`Etapa ${i + 1}: tipo de etapa indisponível (${tipo || 'vazio'}).`);
     const nome = String(e?.nome ?? '').trim().slice(0, 160) || def.rotulo;
     const rt = String(e?.responsavel_tipo ?? 'SETOR').toUpperCase();
