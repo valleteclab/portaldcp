@@ -33,6 +33,7 @@ import {
   estilos as s,
 } from "@/components/processo/BlocosProcesso"
 import { AndamentoFluxo } from "@/components/fluxo/AndamentoFluxo"
+import { BlocoOficio } from "@/components/processo/BlocoOficio"
 import { PainelEtapaFluxo } from "@/components/fluxo/PainelEtapaFluxo"
 import { IniciarFluxoProcesso } from "@/components/fluxo/IniciarFluxoProcesso"
 import type { Andamento } from "@/lib/fluxo/andamento"
@@ -162,7 +163,10 @@ export default function TelaDoProcessoPage() {
 
   const encerrado = processo.situacao === "ENCERRADO"
   const propria = temTramitacaoPropria(processo.tipo)
-  const ehAvulso = processo.tipo === "AVULSO"
+  // Ofício segue como avulso depois de assinado (receber, responder, encaminhar, arquivar)
+  const ehOficio = processo.tipo === "OFICIO"
+  const oficioPendente = ehOficio && !!autos && !autos.juntadas.some((j) => j.tipo_peca === "OFICIO")
+  const ehAvulso = processo.tipo === "AVULSO" || ehOficio
   const ehLicitacao = processo.tipo === "CONTRATACAO" && !!processo.referencia_id
   const temFluxo = !!fluxo?.disponivel && !!fluxo.tem_fluxo && !!fluxo.etapas?.length
   const etapaAtual = temFluxo ? fluxo?.etapa_atual ?? null : null
@@ -199,7 +203,7 @@ export default function TelaDoProcessoPage() {
 
       {andamento?.modo === "FLUXO" ? <PainelEtapaFluxo processoId={processo.id} andamento={andamento} onAtualizar={() => carregar(true)} /> : null}
 
-      {propria && !encerrado && andamento && andamento.modo !== "FLUXO" ? (
+      {propria && !ehOficio && !encerrado && andamento && andamento.modo !== "FLUXO" ? (
         <IniciarFluxoProcesso processoId={processo.id} onIniciado={() => carregar(true)} />
       ) : null}
 
@@ -239,6 +243,8 @@ export default function TelaDoProcessoPage() {
         </section>
       ) : encerrado ? (
         <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
+      ) : podeAgir && oficioPendente ? (
+        <BlocoOficio processoId={processo.id} onEnviado={() => carregar(true)} />
       ) : podeAgir ? (
         <>
           {andamento?.modo === "FLUXO" ? null : temFluxo && etapaAtual ? (

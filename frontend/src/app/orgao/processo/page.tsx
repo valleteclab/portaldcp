@@ -24,6 +24,7 @@ export default function ListaProcessosPage() {
   const [buscaAplicada, setBuscaAplicada] = useState("")
 
   const [novo, setNovo] = useState(false)
+  const [tipoNovo, setTipoNovo] = useState<"OFICIO" | "AVULSO">("OFICIO")
   const [objeto, setObjeto] = useState("")
   const [criando, setCriando] = useState(false)
   const [erroNovo, setErroNovo] = useState<string | null>(null)
@@ -56,7 +57,7 @@ export default function ListaProcessosPage() {
       const p = await chamarProcessos<ProcessoResumo>("", {
         metodo: "POST",
         padrao: "Não foi possível abrir o processo.",
-        corpo: { tipo: "AVULSO", objeto: objeto.trim() },
+        corpo: { tipo: tipoNovo, objeto: objeto.trim() },
       })
       router.push(`/orgao/processo/${p.id}`)
     } catch (e) {
@@ -77,12 +78,41 @@ export default function ListaProcessosPage() {
       {novo ? (
         <section className={s.bloco} aria-labelledby="novo-processo">
           <div className={s.eyebrow} id="novo-processo">
-            Novo processo avulso
+            Novo processo
           </div>
           <div className={s.formulario} style={{ marginTop: 8 }}>
-            <p className={s.texto}>
-              Para um assunto que não é licitação nem contrato (ofício, solicitação, consulta). Depois de aberto, você envia para o setor que deve tratar.
-            </p>
+            <fieldset style={{ border: 0, padding: 0, margin: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              <legend className={s.rotulo} style={{ marginBottom: 6 }}>
+                O que você vai abrir?
+              </legend>
+              {(
+                [
+                  { valor: "OFICIO", nome: "Ofício", texto: "Escreve, assina e envia para outro setor. O número sai na sequência do seu setor." },
+                  { valor: "AVULSO", nome: "Processo avulso", texto: "Qualquer outro assunto que precise de autos e tramitação." },
+                ] as const
+              ).map((op) => (
+                <label
+                  key={op.valor}
+                  htmlFor={`novo-tipo-${op.valor}`}
+                  className={s.bloco}
+                  style={{ margin: 0, cursor: "pointer", borderWidth: tipoNovo === op.valor ? 2 : 1, borderColor: tipoNovo === op.valor ? "var(--azul)" : undefined }}
+                >
+                  <input
+                    id={`novo-tipo-${op.valor}`}
+                    type="radio"
+                    name="novo-tipo"
+                    value={op.valor}
+                    checked={tipoNovo === op.valor}
+                    onChange={() => setTipoNovo(op.valor)}
+                    style={{ marginRight: 8 }}
+                  />
+                  <b>{op.nome}</b>
+                  <span className={s.texto} style={{ display: "block", marginTop: 4 }}>
+                    {op.texto}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
             <label className={s.rotulo} htmlFor="novo-objeto">
               Assunto
             </label>
@@ -92,7 +122,7 @@ export default function ListaProcessosPage() {
               value={objeto}
               maxLength={500}
               onChange={(e) => setObjeto(e.target.value)}
-              placeholder="Ex.: Solicitação de manutenção do ar-condicionado da sala 3"
+              placeholder={tipoNovo === "OFICIO" ? "Ex.: Remanejamento de mobiliário para a sala das comissões" : "Ex.: Solicitação de manutenção do ar-condicionado da sala 3"}
             />
             {erroNovo ? (
               <div className={s.erro} role="alert">
@@ -101,7 +131,7 @@ export default function ListaProcessosPage() {
             ) : null}
             <div className={s.acoes}>
               <button type="button" className={`${s.botao} ${s.primario}`} onClick={criar} disabled={criando}>
-                {criando ? "Abrindo..." : "Abrir processo"}
+                {criando ? "Abrindo..." : tipoNovo === "OFICIO" ? "Escrever ofício" : "Abrir processo"}
               </button>
               <button type="button" className={`${s.botao} ${s.secundario}`} onClick={() => setNovo(false)} disabled={criando}>
                 Cancelar
@@ -133,6 +163,7 @@ export default function ListaProcessosPage() {
             <option value="ADITIVO">Termo aditivo</option>
             <option value="RENOVACAO">Renovação de contrato</option>
             <option value="AVULSO">Avulso</option>
+            <option value="OFICIO">Ofício</option>
           </select>
           <select className={s.campo} value={situacao} onChange={(e) => setSituacao(e.target.value)} aria-label="Situação">
             <option value="ABERTO">Em andamento</option>

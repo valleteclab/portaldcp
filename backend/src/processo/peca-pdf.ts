@@ -21,6 +21,8 @@ export interface DadosPdfPeca {
   autor_cargo?: string | null;
   juntada_em: Date;
   ia_modelo?: string | null;
+  /** Documento assinado (ofício): o rodapé diz "assinado eletronicamente" em vez de só "juntada". */
+  assinatura_eletronica?: boolean;
   /** Logo do órgão (PNG ou JPG) para o cabeçalho; ignorada no papel timbrado. */
   logo?: { bytes: Buffer; tipo: 'png' | 'jpg' } | null;
   /** Sem logo nem nome do órgão no cabeçalho: o órgão imprime em papel timbrado. */
@@ -115,7 +117,9 @@ export async function gerarPdfPeca(d: DadosPdfPeca): Promise<Buffer> {
   paragrafo(d.autor_nome, 10.5, negrito, 'left', 0);
   if (d.autor_cargo) paragrafo(d.autor_cargo, 9.5, fonte, 'left', 0, MARGEM, largura, CINZA);
   y -= 18;
-  const rodape = [`Peça juntada eletronicamente aos autos em ${dataHoraBrasilia(d.juntada_em)} (horário de Brasília) por ${d.autor_nome}.`];
+  const rodape = d.assinatura_eletronica
+    ? [`Documento assinado eletronicamente por ${d.autor_nome}${d.autor_cargo ? `, ${d.autor_cargo}` : ''}, em ${dataHoraBrasilia(d.juntada_em)} (horário de Brasília), com fundamento na Lei nº 14.063/2020.`]
+    : [`Peça juntada eletronicamente aos autos em ${dataHoraBrasilia(d.juntada_em)} (horário de Brasília) por ${d.autor_nome}.`];
   if (d.ia_modelo) rodape.push(`Rascunho inicial preparado com apoio de inteligência artificial (${d.ia_modelo}) e revisado pelo servidor que assina.`);
   for (const r of rodape) paragrafo(r, 8.5, fonte, 'left', 2, MARGEM, largura, CINZA);
 

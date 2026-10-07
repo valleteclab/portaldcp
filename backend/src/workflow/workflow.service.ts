@@ -5,6 +5,8 @@ import type { Ator } from '../auth/acesso/ator';
 import { WorkflowAcao, WorkflowCampo, WorkflowFase, WorkflowFormulario, WorkflowHistorico, WorkflowInstancia, WorkflowModelo, WorkflowReacao, WorkflowTarefa } from './workflow.entities';
 import { definicaoDoNo } from './nos/catalogo-nos';
 import { RegistroNos, VINCULO_PROCESSO, type ContextoNo } from './nos/executor-no';
+import { TeamsService } from './avisos/teams.service';
+import { normalizarAvisos, normalizarNotificar } from './avisos/destinatarios';
 
 @Injectable()
 export class WorkflowService {
@@ -22,6 +24,7 @@ export class WorkflowService {
     @InjectRepository(WorkflowHistorico) private readonly historico: Repository<WorkflowHistorico>,
     private readonly dataSource: DataSource,
     private readonly registro: RegistroNos,
+    private readonly teams: TeamsService,
   ) {}
 
   listar(orgaoId: string) { return this.modelos.find({ where: { orgao_id: orgaoId }, order: { updated_at: 'DESC' } }); }
@@ -198,8 +201,40 @@ export class WorkflowService {
       configuracao.regra_conclusao = regra;
       if (regra === 'MINIMO') configuracao.quantidade_minima = Math.max(1, Number(body.quantidade_minima ?? 1));
     }
+    if (body?.avisos !== undefined) {
+      try {
+        const avisos = normalizarAvisos(body.avisos);
+        if (avisos.teams_canal_id) await this.validarTeamsCanal(orgaoId, avisos.teams_canal_id);
+        configuracao.avisos = avisos;
+      } catch (e) { throw new BadRequestException((e as Error).message); }
+    }
+    if (body?.notificar !== undefined) {
+      try {
+        const notificar = normalizarNotificar(body.notificar);
+        await this.validarDestinatarios(orgaoId, notificar.destinatarios);
+        if (notificar.teams_canal_id) await this.validarTeamsCanal(orgaoId, notificar.teams_canal_id);
+        configuracao.notificar = notificar;
+      } catch (e) { throw new BadRequestException((e as Error).message); }
+    }
     acao.configuracao = configuracao;
     return this.acoes.save(acao);
+  }
+
+  private async validarTeamsCanal(orgaoId: string, canalId: string) {
+    if (!(await this.teams.pertenceAoOrgao(orgaoId, canalId))) throw new BadRequestException('Canal do Teams não pertence a este órgão');
+  }
+
+  private async validarDestinatarios(orgaoId: string, destinatarios: Array<{ tipo: string; id?: string }>) {
+    for (const tipo of ['SETOR', 'USUARIO'] as const) {
+      const ids = [...new Set(destinatarios.filter((d) => d.tipo === tipo && d.id).map((d) => d.id as string))];
+      if (!ids.length) continue;
+      const tabela = tipo === 'SETOR' ? 'setores' : 'usuarios';
+      const encontrados: Array<{ id: string }> = await this.dataSource.query(
+        `SELECT id::text AS id FROM ${tabela} WHERE orgao_id::text = $1 AND id::text = ANY($2::text[])`,
+        [orgaoId, ids],
+      );
+      if (encontrados.length !== ids.length) throw new BadRequestException('Há destinatário selecionado que não pertence a este órgão');
+    }
   }
 
   async atualizarReacao(orgaoId: string, workflowId: string, reacaoId: string, body: any) {

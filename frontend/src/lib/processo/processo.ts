@@ -9,7 +9,7 @@ import { API_URL, authFetch } from "@/lib/api"
  * a tela mostra só leitura e leva à licitação.
  */
 
-export type TipoProcesso = "CONTRATACAO" | "ADITIVO" | "RENOVACAO" | "PAGAMENTO" | "AVULSO"
+export type TipoProcesso = "CONTRATACAO" | "ADITIVO" | "RENOVACAO" | "PAGAMENTO" | "AVULSO" | "OFICIO"
 export type SituacaoProcesso = "ABERTO" | "ENCERRADO"
 
 export const ROTULO_TIPO: Record<string, string> = {
@@ -18,6 +18,7 @@ export const ROTULO_TIPO: Record<string, string> = {
   RENOVACAO: "Renovação de contrato",
   PAGAMENTO: "Pagamento",
   AVULSO: "Avulso",
+  OFICIO: "Ofício",
 }
 
 export function rotuloDoTipo(tipo: string | null | undefined): string {
@@ -26,7 +27,7 @@ export function rotuloDoTipo(tipo: string | null | undefined): string {
 
 /** Tipos com tramitação própria nesta API (os demais seguem pela licitação). */
 export function temTramitacaoPropria(tipo: string): boolean {
-  return tipo === "ADITIVO" || tipo === "RENOVACAO" || tipo === "AVULSO"
+  return tipo === "ADITIVO" || tipo === "RENOVACAO" || tipo === "AVULSO" || tipo === "OFICIO"
 }
 
 export interface ProcessoResumo {

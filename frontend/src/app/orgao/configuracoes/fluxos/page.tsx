@@ -32,6 +32,7 @@ const ACAO = {
   APROVACAO: { nome: "Aprovação", cor: "#eab308", Icone: UserCheck },
   DOCUMENTO: { nome: "Envio de documento", cor: "#0ea5e9", Icone: FileInput },
   TAREFA: { nome: "Tarefa", cor: "#6366f1", Icone: CheckCircle2 },
+  NOTIFICAR: { nome: "Notificar", cor: "#f59e0b", Icone: Bell },
 } as const
 
 const REACAO = {
@@ -52,6 +53,32 @@ export default function WorkflowsPage() {
   const [faseMenu, setFaseMenu] = useState<string | null>(null)
   const [acaoEditando, setAcaoEditando] = useState<Acao | null>(null)
   const [acaoDaReacao, setAcaoDaReacao] = useState<Acao | null>(null)
+  const [canais, setCanais] = useState<{ whatsapp: boolean; teams: Array<{ id: string; nome: string; webhook_mascarado: string }> } | null>(null)
+  const [canaisAbertos, setCanaisAbertos] = useState(false)
+  const [novoCanalNome, setNovoCanalNome] = useState("")
+  const [novoCanalUrl, setNovoCanalUrl] = useState("")
+  const [salvandoCanal, setSalvandoCanal] = useState(false)
+
+  const carregarCanais = useCallback(async () => {
+    try { setCanais(await requisicao(`${BASE}/canais-aviso`)) } catch { /* não bloqueia a tela de desenho */ }
+  }, [])
+  useEffect(() => void carregarCanais(), [carregarCanais])
+
+  const adicionarCanalTeams = async () => {
+    if (!novoCanalNome.trim() || !novoCanalUrl.trim()) return toast.error("Informe o nome do canal e a URL do webhook")
+    setSalvandoCanal(true)
+    try {
+      await requisicao(`${BASE}/teams-canais`, { method: "POST", body: JSON.stringify({ nome: novoCanalNome, webhook_url: novoCanalUrl }) })
+      setNovoCanalNome(""); setNovoCanalUrl(""); await carregarCanais(); toast.success("Canal do Teams adicionado")
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao adicionar canal") } finally { setSalvandoCanal(false) }
+  }
+  const testarCanalTeams = async (id: string) => {
+    try { const r = await requisicao(`${BASE}/teams-canais/${id}/testar`, { method: "POST" }); r.sucesso ? toast.success(r.mensagem) : toast.error(r.mensagem) } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao testar canal") }
+  }
+  const removerCanalTeams = async (id: string) => {
+    if (!window.confirm("Remover este canal do Teams?")) return
+    try { await requisicao(`${BASE}/teams-canais/${id}`, { method: "DELETE" }); await carregarCanais() } catch (e) { toast.error(e instanceof Error ? e.message : "Erro ao remover canal") }
+  }
 
   const listar = useCallback(async () => {
     setCarregando(true)
@@ -118,7 +145,22 @@ export default function WorkflowsPage() {
   const acoesPendentes = acoesDoProcesso.filter(({ acao }) => !responsavelDefinido(acao))
 
   return <div className="space-y-5 pb-16">
-    <div className="flex flex-wrap items-start justify-between gap-4"><div><button onClick={() => setWorkflow(null)} className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Todos os processos</button><h1 className="mt-1 text-2xl font-bold">{workflow.nome}</h1><p className="text-sm text-slate-500">Versão {workflow.versao} · {workflow.status}</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setFormulariosAbertos(!formulariosAbertos)}><ClipboardList className="mr-2 h-4 w-4" />Formulários</Button><Button variant="outline" onClick={adicionarFase}><Plus className="mr-2 h-4 w-4" />Fase</Button>{workflow.status === "PUBLICADO" && <Button variant="outline" asChild><Link href="/orgao/workflows">Iniciar processo</Link></Button>}<Button onClick={publicar}>Publicar</Button></div></div>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><button onClick={() => setWorkflow(null)} className="inline-flex items-center gap-1 text-sm text-blue-700 hover:underline"><ArrowLeft className="h-4 w-4" />Todos os processos</button><h1 className="mt-1 text-2xl font-bold">{workflow.nome}</h1><p className="text-sm text-slate-500">Versão {workflow.versao} · {workflow.status}</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setCanaisAbertos(!canaisAbertos)}><Bell className="mr-2 h-4 w-4" />Canais de aviso</Button><Button variant="outline" onClick={() => setFormulariosAbertos(!formulariosAbertos)}><ClipboardList className="mr-2 h-4 w-4" />Formulários</Button><Button variant="outline" onClick={adicionarFase}><Plus className="mr-2 h-4 w-4" />Fase</Button>{workflow.status === "PUBLICADO" && <Button variant="outline" asChild><Link href="/orgao/workflows">Iniciar processo</Link></Button>}<Button onClick={publicar}>Publicar</Button></div></div>
+
+    {canaisAbertos && <Card><CardContent className="p-5">
+      <h2 className="font-semibold">Canais de aviso do órgão</h2>
+      <p className="mt-1 text-sm text-slate-500">Usados pelos avisos de cada etapa e pelo nó Notificar.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="flex items-center gap-2 rounded-lg border p-3"><Smartphone className={`h-5 w-5 ${canais?.whatsapp ? "text-green-600" : "text-slate-400"}`} /><div><p className="text-sm font-semibold">WhatsApp</p><p className="text-xs text-slate-500">{canais?.whatsapp ? "Conectado" : "Não conectado"}</p></div></div>
+        <div className="flex items-center gap-2 rounded-lg border p-3"><Mail className="h-5 w-5 text-blue-600" /><div><p className="text-sm font-semibold">E-mail</p><p className="text-xs text-slate-500">Conectado</p></div></div>
+      </div>
+      <div className="mt-4 rounded-lg border p-3">
+        <p className="text-sm font-semibold">Microsoft Teams</p>
+        <p className="mt-1 text-xs text-slate-500">Canal do app &quot;Workflows&quot; do Teams — crie com &quot;Post to a channel when a webhook request is received&quot; e cole a URL aqui.</p>
+        <div className="mt-2 space-y-2">{canais?.teams.map((c) => <div key={c.id} className="flex items-center justify-between rounded bg-slate-50 px-3 py-2 text-sm"><span>{c.nome} <span className="text-xs text-slate-400">{c.webhook_mascarado}</span></span><div className="flex gap-2"><button className="text-xs font-semibold text-blue-700" onClick={() => testarCanalTeams(c.id)}>Enviar teste</button><button className="text-xs font-semibold text-red-600" onClick={() => removerCanalTeams(c.id)}>Remover</button></div></div>)}{!canais?.teams.length && <p className="text-xs text-slate-400">Nenhum canal cadastrado.</p>}</div>
+        <div className="mt-3 flex flex-wrap gap-2"><Input className="max-w-[160px]" placeholder="Nome do canal" value={novoCanalNome} onChange={(e) => setNovoCanalNome(e.target.value)} /><Input className="max-w-xs" placeholder="URL do webhook" value={novoCanalUrl} onChange={(e) => setNovoCanalUrl(e.target.value)} /><Button size="sm" onClick={adicionarCanalTeams} disabled={salvandoCanal}>{salvandoCanal ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />}Adicionar canal</Button></div>
+      </div>
+    </CardContent></Card>}
 
     {formulariosAbertos && <Card><CardContent className="p-5"><div className="flex items-center justify-between"><div><h2 className="font-semibold">Formulários do processo</h2><p className="text-sm text-slate-500">Os campos preenchidos ficam disponíveis para ações e mensagens.</p></div><Button size="sm" onClick={criarFormulario}><Plus className="mr-1 h-4 w-4" />Formulário</Button></div><div className="mt-4 grid gap-3 md:grid-cols-3">{workflow.formularios.map((form) => <div key={form.id} className="rounded-lg border p-4"><div className="flex justify-between"><strong>{form.nome}</strong><button onClick={() => adicionarCampo(form)} className="text-sm text-blue-700">+ Campo</button></div><div className="mt-3 space-y-1">{form.campos.map((campo) => <div key={campo.id} className="rounded bg-slate-50 px-2 py-1 text-sm">{campo.rotulo} <span className="text-xs text-slate-400">{campo.tipo}{campo.obrigatorio ? " · obrigatório" : ""}</span></div>)}</div></div>)}</div></CardContent></Card>}
 

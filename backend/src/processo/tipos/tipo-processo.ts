@@ -78,6 +78,7 @@ export interface DefinicaoTipoProcesso {
 export const ORDEM_TIPOS: TipoProcesso[] = [
   TipoProcesso.CONTRATACAO,
   TipoProcesso.AVULSO,
+  TipoProcesso.OFICIO,
   TipoProcesso.ADITIVO,
   TipoProcesso.RENOVACAO,
   TipoProcesso.PAGAMENTO,
@@ -120,6 +121,26 @@ export function definicaoAvulso(): DefinicaoTipoProcesso {
     abertura_direta: true,
     tem_fluxo: false,
     catalogoDocumentos: () => [],
+    camposCondicao: () => [],
+    requisitosLegais: async () => [],
+    aoConcluirUltimaEtapa: async () => undefined,
+  };
+}
+
+/**
+ * OFÍCIO: processo livre (sem fluxo desenhado) — escreve, assina e envia. O
+ * número do ofício sai ao juntar o documento (sequência do setor, por ano).
+ */
+export function definicaoOficio(): DefinicaoTipoProcesso {
+  return {
+    tipo: TipoProcesso.OFICIO,
+    rotulo: 'Ofício',
+    descricao: 'Escreve, assina e envia para outro setor. O número sai na sequência do setor ao enviar.',
+    referencia_tipo: null,
+    implementado: true,
+    abertura_direta: true,
+    tem_fluxo: false,
+    catalogoDocumentos: () => [{ codigo: 'OFICIO', titulo: 'Ofício', etapa: null, fundamento: null }],
     camposCondicao: () => [],
     requisitosLegais: async () => [],
     aoConcluirUltimaEtapa: async () => undefined,
