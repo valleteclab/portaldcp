@@ -46,7 +46,7 @@ export const CATALOGO_NOS: readonly DefinicaoNo[] = [
   { tipo: 'FORMULARIO', rotulo: 'Formulário', descricao: 'Responsável preenche os campos definidos no fluxo.', grupo: 'GERAL', documento: doc(false), obrigatoria_lei: null, automatico: false, disponivel: true },
   { tipo: 'DOCUMENTO', rotulo: 'Documento', descricao: 'Redigir ou anexar um documento qualquer.', grupo: 'GERAL', documento: doc(true), obrigatoria_lei: null, automatico: false, disponivel: true },
   { tipo: 'OFICIO', rotulo: 'Ofício', descricao: 'Redigir, assinar e enviar um ofício.', grupo: 'GERAL', documento: doc(true), obrigatoria_lei: null, automatico: false, disponivel: false },
-  { tipo: 'NOTIFICAR', rotulo: 'Notificar', descricao: 'Avisa pessoas ou setores por WhatsApp, e-mail ou Teams e segue.', grupo: 'GERAL', documento: doc(false), obrigatoria_lei: null, automatico: true, disponivel: false },
+  { tipo: 'NOTIFICAR', rotulo: 'Notificar', descricao: 'Avisa pessoas ou setores por WhatsApp, e-mail ou Teams e segue.', grupo: 'GERAL', documento: doc(false), obrigatoria_lei: null, automatico: true, disponivel: true },
   { tipo: 'DECISAO', rotulo: 'Decisão', descricao: 'Escolhe o caminho conforme uma condição.', grupo: 'GERAL', documento: doc(false), obrigatoria_lei: null, automatico: false, disponivel: false },
 ];
 
