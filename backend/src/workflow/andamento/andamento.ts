@@ -41,6 +41,8 @@ export interface Andamento {
   total: number;
   atual: NoAndamento | null;
   encerrado: boolean;
+  /** Quem está vendo pode concluir/devolver a etapa atual (fluxo desenhado). Preenchido pelo serviço. */
+  pode_agir?: boolean;
 }
 
 const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
