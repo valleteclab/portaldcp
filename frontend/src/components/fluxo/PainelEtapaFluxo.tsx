@@ -8,6 +8,7 @@ import { diaMes } from "@/lib/fluxo/andamento"
 import type { Andamento } from "@/lib/fluxo/andamento"
 import { FormularioPeca, estilos as s } from "@/components/processo/BlocosProcesso"
 import type { Etapa } from "@/lib/processo/processo"
+import { ChecklistEtapa, TrazidoEtapasAnteriores } from "./ChecklistEtapa"
 
 interface ItemCatalogo {
   tipo: string
@@ -77,6 +78,8 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
   const [erro, setErro] = useState<string | null>(null)
   const [pendencias, setPendencias] = useState<string[] | null>(null)
   const [processando, setProcessando] = useState(false)
+  // Sobe quando um documento é juntado: o checklist e o "trazido" se atualizam
+  const [versaoDoc, setVersaoDoc] = useState(0)
 
   useEffect(() => {
     let vivo = true
@@ -278,6 +281,7 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
             rotuloBotao="Juntar documento da etapa"
             onJuntada={() => {
               setEscrevendo(false)
+              setVersaoDoc((v) => v + 1)
               onAtualizar()
             }}
             onCancelar={() => setEscrevendo(false)}
@@ -285,11 +289,14 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
         ) : (
           <div className={s.acoes} style={{ marginTop: 10 }}>
             <button type="button" className={`${s.botao} ${s.secundario}`} onClick={() => setEscrevendo(true)}>
-              Escrever ou anexar o documento desta etapa
+              Escrever, completar com IA ou anexar o documento desta etapa
             </button>
           </div>
         )
       ) : null}
+
+      <ChecklistEtapa instanciaId={instanciaId} tarefaId={no.tarefa_id} versaoDocumento={versaoDoc} />
+      <TrazidoEtapasAnteriores processoId={processoId} versao={versaoDoc} />
 
       <div className={s.acoes} style={{ marginTop: 12 }}>
         {ehAprovacao ? (

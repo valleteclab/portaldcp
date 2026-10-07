@@ -509,6 +509,21 @@ export class ProcessoTramitacaoService {
       ? await this.ds.query(`SELECT numero_contrato, objeto, fornecedor_razao_social, valor_global FROM contratos WHERE id::text = $1`, [p.contrato_id])
       : [];
     const pecas = await this.pecas(p);
+    // DFD consolidado juntado como PDF não tem texto na peça: entra resumido para a IA
+    const dfds: Array<{ numero: number; ano: number; objeto: string; justificativa: string | null; itens: any[]; valor_total_estimado: string }> = await this.ds.query(
+      `SELECT numero, ano, objeto, justificativa, itens, valor_total_estimado FROM dfds_consolidados WHERE processo_id = $1::uuid AND orgao_id::text = $2`,
+      [p.id, p.orgao_id],
+    );
+    const resumoDfds = dfds.map((d) => ({
+      titulo: `DFD nº ${d.numero}/${d.ano} (consolidado)`,
+      folhas: 'nos autos',
+      texto: [
+        `Objeto: ${d.objeto}.`,
+        d.justificativa ? `Justificativa: ${d.justificativa}` : null,
+        `Valor total estimado: R$ ${Number(d.valor_total_estimado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`,
+        `Itens: ${(Array.isArray(d.itens) ? d.itens : []).slice(0, 30).map((i: any) => `${i.descricao} — ${Number(i.quantidade)} ${i.unidade_medida ?? ''}${Array.isArray(i.origens) && i.origens.length ? ` (setores: ${i.origens.map((o: any) => o.setor).join(', ')})` : ''}`).join('; ')}.`,
+      ].filter(Boolean).join(' ').slice(0, 1500),
+    }));
     return {
       orgao_nome: org?.nome || 'Órgão',
       setor_nome: await this.nomeDoSetor(perfil.setor_id),
@@ -521,11 +536,14 @@ export class ProcessoTramitacaoService {
       titulo_peca: doNo?.nome ?? etapa?.titulo_peca ?? etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça'),
       modelo_preferido_id: doNo?.modelo_documento_id ?? null,
       contrato: c ? { numero: c.numero_contrato, objeto: c.objeto ?? null, fornecedor: c.fornecedor_razao_social ?? null, valor_global: c.valor_global !== null && c.valor_global !== undefined ? Number(c.valor_global) : null } : null,
-      pecas: pecas.map((x) => ({
-        titulo: x.titulo,
-        folhas: x.folha_inicial === x.folha_final ? `fl. ${x.folha_inicial}` : `fls. ${x.folha_inicial}–${x.folha_final}`,
-        texto: x.texto ? x.texto.slice(0, 1500) : null,
-      })),
+      pecas: [
+        ...pecas.map((x) => ({
+          titulo: x.titulo,
+          folhas: x.folha_inicial === x.folha_final ? `fl. ${x.folha_inicial}` : `fls. ${x.folha_inicial}–${x.folha_final}`,
+          texto: x.texto ? x.texto.slice(0, 1500) : null,
+        })),
+        ...resumoDfds,
+      ],
       autor_nome: perfil.nome,
       autor_cargo: perfil.cargo,
     };

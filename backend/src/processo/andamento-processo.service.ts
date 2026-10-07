@@ -45,6 +45,30 @@ export class AndamentoProcessoService {
     return andamentoLivre({ movimentacoes, pecas, encerramento: p.situacao === 'ENCERRADO' && p.encerrado_em ? { em: p.encerrado_em } : null, esperada });
   }
 
+  /**
+   * "Trazido das etapas anteriores" (mockup, tela Contratação 1): o DFD
+   * consolidado com as demandas reunidas e o valor, e os documentos já
+   * juntados pelas etapas do fluxo.
+   */
+  async trazido(p: Processo) {
+    const [dfd] = await this.ds.query(
+      `SELECT f.id::text AS id, f.numero, f.ano, f.valor_total_estimado,
+              (SELECT COUNT(*)::int FROM dfds_consolidados_demandas d WHERE d.dfd_id = f.id) AS demandas,
+              (SELECT COALESCE(array_agg(DISTINCT d.setor) FILTER (WHERE d.setor IS NOT NULL), '{}') FROM dfds_consolidados_demandas d WHERE d.dfd_id = f.id) AS setores
+         FROM dfds_consolidados f WHERE f.processo_id = $1::uuid AND f.orgao_id::text = $2 ORDER BY f.created_at DESC LIMIT 1`,
+      [p.id, p.orgao_id],
+    );
+    const documentos = await this.ds.query(
+      `SELECT titulo, created_at FROM processo_pecas WHERE processo_id = $1::uuid AND etapa LIKE 'no:%' ORDER BY numero_peca ASC`,
+      [p.id],
+    );
+    return {
+      processo_id: p.id,
+      dfd: dfd ? { id: dfd.id, rotulo: `DFD nº ${dfd.numero}/${dfd.ano}`, demandas: Number(dfd.demandas), setores: dfd.setores ?? [], valor_total: Number(dfd.valor_total_estimado) || 0 } : null,
+      documentos,
+    };
+  }
+
   private idsDe(acao: WorkflowAcao): string[] {
     const lista = Array.isArray(acao.configuracao?.responsaveis) ? (acao.configuracao!.responsaveis as unknown[]).map(String) : [];
     return lista.length ? lista : acao.responsavel_valor ? [acao.responsavel_valor] : [];

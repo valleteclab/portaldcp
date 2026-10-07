@@ -12,6 +12,8 @@ import { AvisosService } from './avisos/avisos.service';
 import { VesperaPrazoScheduler } from './avisos/vespera-prazo.scheduler';
 import { NotificarExecutor } from './nos/notificar.executor';
 import { DesenhoFluxoService } from './desenho/desenho-fluxo.service';
+import { ChecklistEtapaService } from './checklist/checklist-etapa.service';
+import { IaModule } from '../ia/ia.module';
 import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
 
 @Module({
@@ -19,9 +21,10 @@ import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
     TypeOrmModule.forFeature([WorkflowModelo, WorkflowFase, WorkflowAcao, WorkflowFormulario, WorkflowCampo, WorkflowReacao, WorkflowInstancia, WorkflowTarefa, WorkflowHistorico, WorkflowTeamsCanal]),
     EmailModule,
     WhatsAppModule,
+    IaModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService],
+  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService],
   exports: [WorkflowService, RegistroNos, TeamsService],
 })
 export class WorkflowModule {}

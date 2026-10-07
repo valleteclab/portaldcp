@@ -248,12 +248,26 @@ export const PROMPT_SISTEMA_PECA =
   'O que você não souber com certeza, escreva como lacuna: <mark>o que falta informar</mark>. Nunca inclua dados pessoais (CPF, e-mail, telefone). ' +
   'Responda APENAS com um objeto JSON válido, sem texto antes ou depois.';
 
+/**
+ * Estrutura obrigatória por tipo de peça no rascunho da IA. ETP: os 13
+ * elementos do art. 18, § 1º (I, IV, VI, VIII e XIII obrigatórios pelo § 2º;
+ * os demais, quando não se aplicarem, com a justificativa).
+ */
+const ESTRUTURA_DA_PECA: Record<string, string[]> = {
+  ETP: [
+    'Estrutura: um <h3> para cada elemento do art. 18, § 1º, nesta ordem: I – Descrição da necessidade; II – Previsão no plano de contratações anual; III – Requisitos da contratação; IV – Estimativa das quantidades, com memória de cálculo; V – Levantamento de mercado; VI – Estimativa do valor da contratação; VII – Descrição da solução como um todo; VIII – Justificativa para o parcelamento ou não; IX – Resultados pretendidos; X – Providências prévias; XI – Contratações correlatas e/ou interdependentes; XII – Impactos ambientais; XIII – Posicionamento conclusivo sobre a adequação da contratação.',
+    'Os elementos I, IV, VI, VIII e XIII são obrigatórios (art. 18, § 2º). Nos demais, se não se aplicarem, escreva a justificativa em vez de omitir.',
+    'Use o DFD, as demandas reunidas e a pesquisa de preço que estão nos autos; o que não estiver nos autos vira lacuna.',
+  ],
+};
+
 export function montarPromptDaPeca(c: ContextoDaPeca, orientacao?: string | null): { sistema: string; usuario: string } {
   const linhas = [
     `Peça a redigir: ${c.titulo_peca} (etapa "${c.etapa_rotulo}" de um processo de ${rotuloTipo(c.tipo_processo)}).`,
     'Formato: HTML simples — <h3> para o título centralizado, <p> para parágrafos, <ul>/<ol>/<li> para listas, <strong> para ênfase, <mark> para lacunas. Sem <html>, <body>, estilos ou markdown.',
     'Comece pelo título da peça e termine antes da assinatura (o sistema põe local, data e assinatura).',
     orientacao ? `Orientação de quem pediu: ${orientacao}` : null,
+    ...(ESTRUTURA_DA_PECA[c.tipo_peca ?? ''] ?? []),
     'Responda com um JSON com as chaves "titulo" (texto) e "html".',
     '',
     'CONTEXTO DO PROCESSO:',

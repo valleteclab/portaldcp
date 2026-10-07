@@ -358,7 +358,10 @@ export class WorkflowService {
       : regra === 'MINIMO'
         ? Math.max(1, Math.min(tarefa.quantidade_minima ?? 1, responsaveis.length || 1))
         : 1;
-    tarefa.resposta = { ...(tarefa.resposta ?? {}), ...(body?.resposta ?? {}), _conclusoes: conclusoes };
+    // O checklist só muda pelas rotas próprias (com origem e autor); o corpo do concluir não o altera
+    const { checklist: _ignorado, ...respostaLivre } = (body?.resposta ?? {}) as Record<string, unknown>;
+    void _ignorado;
+    tarefa.resposta = { ...(tarefa.resposta ?? {}), ...respostaLivre, _conclusoes: conclusoes };
     if (!identidade.administrador && conclusoes.length < exigidas) {
       await this.tarefas.save(tarefa);
       await this.historico.save(this.historico.create({ instancia_id: instanciaId, evento: 'CONCLUSAO_REGISTRADA', descricao: `Conclusão registrada (${conclusoes.length}/${exigidas})`, ator_id: atorId, detalhes: { regra, conclusoes: conclusoes.length, exigidas } }));
@@ -469,6 +472,27 @@ export class WorkflowService {
     const acao = await this.acoes.findOne({ where: { id: acaoId } });
     // Desenho pode exigir o documento feito no sistema (sem anexar PDF pronto)
     return { aceitaDocumentoExterno: (acao?.configuracao as any)?.aceita_documento_externo !== false };
+  }
+
+  /** Tarefa de uma execução do órgão, com a ação (etapa) dela — 404 se não for do órgão. */
+  async tarefaDaInstancia(orgaoId: string, instanciaId: string, tarefaId: string) {
+    const instancia = await this.instancias.findOne({ where: { id: instanciaId, orgao_id: orgaoId } });
+    if (!instancia) throw new NotFoundException('Execução não encontrada');
+    const tarefa = await this.tarefas.findOne({ where: { id: tarefaId, instancia_id: instanciaId } });
+    if (!tarefa) throw new NotFoundException('Tarefa não encontrada');
+    const modelo = await this.obter(orgaoId, instancia.workflow_id);
+    const acao = this.passos(modelo).find((p) => p.acao.id === tarefa.acao_id)?.acao;
+    if (!acao) throw new NotFoundException('Etapa não encontrada');
+    return { instancia, tarefa, acao };
+  }
+
+  /** Mesma regra de quem conclui: só o responsável pela tarefa aberta (ou o login do órgão). */
+  async exigirResponsavelDaTarefa(orgaoId: string, instanciaId: string, tarefaId: string, ator: Ator) {
+    const r = await this.tarefaDaInstancia(orgaoId, instanciaId, tarefaId);
+    if (r.tarefa.status !== 'ABERTA') throw new BadRequestException('Esta etapa não está mais em andamento.');
+    await this.chaveDoResponsavel(orgaoId, r.instancia, r.tarefa, ator);
+    const [u] = ator.usuarioId ? await this.dataSource.query(`SELECT nome FROM usuarios WHERE id::text = $1`, [ator.usuarioId]) : [];
+    return { ...r, nomeDoAtor: (u?.nome as string | undefined) ?? 'Órgão' };
   }
 
   /** Nome, tipo de documento e modelo escolhido no desenho para a etapa de um fluxo ligado ao processo (nulo se não é). */

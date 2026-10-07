@@ -232,6 +232,12 @@ export class ProcessosController {
   }
 
   /** Encerra um processo sem conteúdo. Corpo: { motivo? }. Só quem está com ele (ou o administrador do órgão). */
+  /** "Trazido das etapas anteriores": DFD consolidado (demandas, valor) e documentos das etapas já juntados. */
+  @Get(':id/trazido')
+  async trazido(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.andamentoProcesso.trazido(await this.processos.obter(ator, id));
+  }
+
   /** Rascunho da peça em elaboração (ofício): ler e salvar. */
   @Get(':id/rascunho')
   rascunho(@AtorAtual() ator: Ator, @Param('id') id: string) {
