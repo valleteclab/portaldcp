@@ -113,6 +113,7 @@ export function FormularioPeca({
   rotuloBotao,
   onJuntada,
   onCancelar,
+  tipoPeca,
 }: {
   processoId: string
   /** Etapa atual do fluxo (conclui a etapa); null para peça avulsa. */
@@ -121,6 +122,8 @@ export function FormularioPeca({
   rotuloBotao: string
   onJuntada: () => void
   onCancelar: () => void
+  /** Tipo da peça sem etapa (ex.: OFICIO, que recebe número ao assinar). */
+  tipoPeca?: string
 }) {
   const sufixo = etapa?.chave ?? "avulsa"
   const [caminho, setCaminho] = useState<"escrever" | "ia" | "anexar">("escrever")
@@ -237,7 +240,7 @@ export function FormularioPeca({
           arquivo_nome,
           paginas: !noEditor && arquivo ? Math.max(1, Number(paginas) || 1) : undefined,
           etapa: etapa?.chave,
-          tipo_peca: etapa?.tipo_peca || undefined,
+          tipo_peca: etapa?.tipo_peca || tipoPeca || undefined,
         },
       })
       onJuntada()
