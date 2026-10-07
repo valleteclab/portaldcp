@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Ip, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Ip, NotFoundException, Param, Post, Put, Query } from '@nestjs/common';
 import { PecasLicitacaoService } from './pecas-licitacao.service';
 import { PainelGestorService } from './painel-gestor.service';
 import { AndamentoProcessoService } from './andamento-processo.service';
@@ -232,6 +232,17 @@ export class ProcessosController {
   }
 
   /** Encerra um processo sem conteúdo. Corpo: { motivo? }. Só quem está com ele (ou o administrador do órgão). */
+  /** Rascunho da peça em elaboração (ofício): ler e salvar. */
+  @Get(':id/rascunho')
+  rascunho(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.tramite.rascunho(ator, id);
+  }
+
+  @Put(':id/rascunho')
+  salvarRascunho(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.tramite.salvarRascunho(ator, id, body);
+  }
+
   @Post(':id/encerrar')
   async encerrar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
     return this.conteudo.visao(await this.tramite.encerrar(ator, id, body?.motivo ?? null));

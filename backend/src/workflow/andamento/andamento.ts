@@ -155,6 +155,8 @@ export function andamentoLivre(entrada: {
   movimentacoes: MovimentacaoLivre[];
   pecas: PecaLivre[];
   encerramento: { em: Date | string } | null;
+  /** Próximo passo esperado, desenhado como "a realizar" (ofício enviado: a resposta). */
+  esperada?: { titulo: string } | null;
 }): Andamento {
   const movs = [...entrada.movimentacoes].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const ultima = movs.length ? movs[movs.length - 1] : null;
@@ -193,6 +195,22 @@ export function andamentoLivre(entrada: {
       responsavel: destino(ultima),
       situacao: 'EM_ANDAMENTO',
       desde: iso(desde),
+      concluida_em: null,
+      prazo_em: null,
+      atrasada: false,
+      devolvida: false,
+      obrigatoria_lei: null,
+      tarefa_id: null,
+    });
+  }
+  if (!entrada.encerramento && ultima && entrada.esperada) {
+    nos.push({
+      chave: 'esperada',
+      titulo: entrada.esperada.titulo,
+      tipo: 'ESPERADA',
+      responsavel: destino(ultima),
+      situacao: 'A_REALIZAR',
+      desde: null,
       concluida_em: null,
       prazo_em: null,
       atrasada: false,

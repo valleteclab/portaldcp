@@ -37,7 +37,7 @@ export function AndamentoFluxo({ andamento }: { andamento: Andamento | null }) {
       <div className={s.legenda} aria-hidden="true">
         <span><i className={`${s.amostra} ${s.feita}`} />Concluída</span>
         <span><i className={`${s.amostra} ${s.atual}`} />Em andamento</span>
-        {livre ? null : <span><i className={`${s.amostra} ${s.futura}`} />A realizar</span>}
+        {andamento.nos.some((n) => n.situacao === "A_REALIZAR") ? <span><i className={`${s.amostra} ${s.futura}`} />A realizar</span> : null}
         {livre ? null : <span><Cadeado />Obrigatória por lei</span>}
         {andamento.nos.some((n) => n.atrasada) ? <span><i className={`${s.amostra} ${s.atrasadaAmostra}`} />Prazo vencido</span> : null}
       </div>
