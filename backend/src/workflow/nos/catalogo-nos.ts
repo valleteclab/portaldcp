@@ -32,7 +32,9 @@ export interface DefinicaoNo {
 const doc = (produz: boolean) => ({ produz, aceita_externo: produz });
 
 export const CATALOGO_NOS: readonly DefinicaoNo[] = [
-  { tipo: 'DEMANDA', rotulo: 'Demanda', descricao: 'Pedido do setor requisitante: o que precisa e por quê.', grupo: 'CONTRATACAO', documento: doc(true), obrigatoria_lei: null, automatico: false, disponivel: true, tipo_documento: null },
+  // Fora do desenho (decisão de 07/10): a demanda e a aprovação dela acontecem antes do processo (módulo Demandas +
+  // Central de Aprovações); o processo nasce do DFD. Fica no catálogo só para os fluxos que já a usam continuarem.
+  { tipo: 'DEMANDA', rotulo: 'Demanda', descricao: 'Pedido do setor requisitante: o que precisa e por quê.', grupo: 'CONTRATACAO', documento: doc(true), obrigatoria_lei: null, automatico: false, disponivel: false, tipo_documento: null },
   { tipo: 'APROVACAO', rotulo: 'Aprovação', descricao: 'Autoridade aprova, devolve ou indefere com motivo.', grupo: 'GERAL', documento: doc(false), obrigatoria_lei: null, automatico: false, disponivel: true, tipo_documento: null },
   { tipo: 'DFD', rotulo: 'DFD', descricao: 'Documento de formalização da demanda; pode reunir demandas de vários setores.', grupo: 'CONTRATACAO', documento: doc(true), obrigatoria_lei: null, automatico: false, disponivel: true, tipo_documento: 'DFD' },
   { tipo: 'PESQUISA_PRECO', rotulo: 'Pesquisa de preço', descricao: 'Estimativa do valor com fontes do art. 23.', grupo: 'CONTRATACAO', documento: doc(true), obrigatoria_lei: null, automatico: false, disponivel: true, tipo_documento: 'PP' },
