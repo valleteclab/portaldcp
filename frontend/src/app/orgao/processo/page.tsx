@@ -5,6 +5,30 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { chamarProcessos, dataHora, rotuloDoTipo, textoDoErro, type ProcessoResumo } from "@/lib/processo/processo"
 import { TemaProcesso, estilos as s } from "@/components/processo/BlocosProcesso"
+import { ModuloSistema, useModulosOrgao } from "@/hooks/useModulosOrgao"
+import { API_URL, authFetch } from "@/lib/api"
+
+type TipoNovo = "OFICIO" | "CONTRATACAO" | "ADITIVO" | "RENOVACAO" | "AVULSO"
+
+/**
+ * Tipos do "Novo processo" (mockup aprovado em 06/10/2026). Livre = a pessoa
+ * escolhe para quem enviar a cada passo; Com fluxo = o caminho já vem do órgão.
+ * Cada tipo só aparece se o órgão tem o módulo dele.
+ */
+const OPCOES_NOVO: Array<{ valor: TipoNovo; nome: string; selo: "Livre" | "Com fluxo"; texto: string; modulo?: ModuloSistema }> = [
+  { valor: "OFICIO", nome: "Ofício", selo: "Livre", texto: "Escreve, assina e envia para outro setor. O número sai na sequência do seu setor." },
+  { valor: "CONTRATACAO", nome: "Contratação", selo: "Com fluxo", texto: "Da demanda à publicação: licitação, dispensa ou inexigibilidade.", modulo: ModuloSistema.LICITACOES },
+  { valor: "ADITIVO", nome: "Aditivo de contrato", selo: "Com fluxo", texto: "Prazo, valor ou quantidade de um contrato vigente.", modulo: ModuloSistema.CONTRATOS },
+  { valor: "RENOVACAO", nome: "Renovação de contrato", selo: "Com fluxo", texto: "Prorrogação de um contrato por novo período.", modulo: ModuloSistema.CONTRATOS },
+  { valor: "AVULSO", nome: "Processo avulso", selo: "Livre", texto: "Qualquer outro assunto que precise de autos e tramitação." },
+]
+
+interface ContratoOpcao {
+  id: string
+  numero_contrato: string
+  objeto?: string | null
+  status?: string | null
+}
 
 function textoEstaCom(p: ProcessoResumo): string {
   if (p.situacao === "ENCERRADO") return "—"
@@ -14,7 +38,7 @@ function textoEstaCom(p: ProcessoResumo): string {
   return c.recebida ? quem : `${quem} (a receber)`
 }
 
-/** Lista de processos do órgão (módulo Processo eletrônico) + abertura de processo avulso. */
+/** Lista de processos do órgão (módulo Processo eletrônico) + "Novo processo" com todos os tipos. */
 export default function ListaProcessosPage() {
   const router = useRouter()
   const [resultado, setResultado] = useState<{ chave: string; itens: ProcessoResumo[]; erro: string | null } | null>(null)
@@ -24,7 +48,12 @@ export default function ListaProcessosPage() {
   const [buscaAplicada, setBuscaAplicada] = useState("")
 
   const [novo, setNovo] = useState(false)
-  const [tipoNovo, setTipoNovo] = useState<"OFICIO" | "AVULSO">("OFICIO")
+  const [tipoNovo, setTipoNovo] = useState<TipoNovo>("OFICIO")
+  const [contratos, setContratos] = useState<ContratoOpcao[] | null>(null)
+  const [contratoId, setContratoId] = useState("")
+  const { temAcesso, loading: carregandoModulos } = useModulosOrgao()
+  const opcoes = OPCOES_NOVO.filter((o) => !o.modulo || carregandoModulos || temAcesso(o.modulo))
+  const ehDeContrato = tipoNovo === "ADITIVO" || tipoNovo === "RENOVACAO"
   const [objeto, setObjeto] = useState("")
   const [criando, setCriando] = useState(false)
   const [erroNovo, setErroNovo] = useState<string | null>(null)
@@ -49,15 +78,39 @@ export default function ListaProcessosPage() {
     }
   }, [chave, tipo, situacao, buscaAplicada])
 
+  // Aditivo e renovação nascem de um contrato: a lista só é buscada quando o tipo é escolhido
+  useEffect(() => {
+    if (!ehDeContrato || contratos !== null) return
+    let vivo = true
+    authFetch(`${API_URL}/api/contratos?limit=500`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((j) => {
+        if (!vivo) return
+        const lista: ContratoOpcao[] = Array.isArray(j) ? j : j?.data || []
+        setContratos(lista.slice().sort((a, b) => String(b.numero_contrato).localeCompare(String(a.numero_contrato), "pt-BR", { numeric: true })))
+      })
+      .catch(() => vivo && setContratos([]))
+    return () => {
+      vivo = false
+    }
+  }, [ehDeContrato, contratos])
+
   async function criar() {
     setErroNovo(null)
-    if (objeto.trim().length < 5) return setErroNovo("Descreva o assunto do processo (pelo menos 5 letras).")
+    // Contratação: segue para o assistente que já existe (DFD, pesquisa, ETP, TR… e a licitação)
+    if (tipoNovo === "CONTRATACAO") return router.push("/orgao/fase-interna/processos/novo")
+    const contrato = ehDeContrato ? contratos?.find((c) => c.id === contratoId) ?? null : null
+    if (ehDeContrato && !contrato) return setErroNovo("Escolha o contrato.")
+    const assunto =
+      objeto.trim() ||
+      (contrato ? (tipoNovo === "ADITIVO" ? `Termo aditivo ao contrato nº ${contrato.numero_contrato}` : `Renovação do contrato nº ${contrato.numero_contrato}`) : "")
+    if (assunto.length < 5) return setErroNovo("Descreva o assunto do processo (pelo menos 5 letras).")
     setCriando(true)
     try {
       const p = await chamarProcessos<ProcessoResumo>("", {
         metodo: "POST",
         padrao: "Não foi possível abrir o processo.",
-        corpo: { tipo: tipoNovo, objeto: objeto.trim() },
+        corpo: { tipo: tipoNovo, objeto: assunto, contrato_id: contrato?.id },
       })
       router.push(`/orgao/processo/${p.id}`)
     } catch (e) {
@@ -85,12 +138,7 @@ export default function ListaProcessosPage() {
               <legend className={s.rotulo} style={{ marginBottom: 6 }}>
                 O que você vai abrir?
               </legend>
-              {(
-                [
-                  { valor: "OFICIO", nome: "Ofício", texto: "Escreve, assina e envia para outro setor. O número sai na sequência do seu setor." },
-                  { valor: "AVULSO", nome: "Processo avulso", texto: "Qualquer outro assunto que precise de autos e tramitação." },
-                ] as const
-              ).map((op) => (
+              {opcoes.map((op) => (
                 <label
                   key={op.valor}
                   htmlFor={`novo-tipo-${op.valor}`}
@@ -107,23 +155,69 @@ export default function ListaProcessosPage() {
                     style={{ marginRight: 8 }}
                   />
                   <b>{op.nome}</b>
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      background: op.selo === "Livre" ? "var(--linha2)" : "var(--azul-fundo)",
+                      color: op.selo === "Livre" ? "var(--tinta2)" : "var(--azul-tinta)",
+                    }}
+                  >
+                    {op.selo}
+                  </span>
                   <span className={s.texto} style={{ display: "block", marginTop: 4 }}>
                     {op.texto}
                   </span>
                 </label>
               ))}
             </fieldset>
-            <label className={s.rotulo} htmlFor="novo-objeto">
-              Assunto
-            </label>
-            <textarea
-              id="novo-objeto"
-              className={s.campo}
-              value={objeto}
-              maxLength={500}
-              onChange={(e) => setObjeto(e.target.value)}
-              placeholder={tipoNovo === "OFICIO" ? "Ex.: Remanejamento de mobiliário para a sala das comissões" : "Ex.: Solicitação de manutenção do ar-condicionado da sala 3"}
-            />
+            <p className={s.texto} style={{ margin: 0 }}>
+              <b>Livre</b> — você escolhe para quem enviar a cada passo. <b>Com fluxo</b> — o caminho já vem definido pelo órgão.
+            </p>
+            {tipoNovo === "CONTRATACAO" ? (
+              <p className={s.texto}>A contratação abre no assistente da fase interna: demanda, DFD, pesquisa de preço, ETP, TR e a escolha da modalidade.</p>
+            ) : (
+              <>
+                {ehDeContrato ? (
+                  <>
+                    <label className={s.rotulo} htmlFor="novo-contrato">
+                      Contrato
+                    </label>
+                    <select id="novo-contrato" className={s.campo} value={contratoId} onChange={(e) => setContratoId(e.target.value)} disabled={contratos === null}>
+                      <option value="">{contratos === null ? "Carregando contratos..." : contratos.length ? "Escolha o contrato" : "Nenhum contrato encontrado"}</option>
+                      {(contratos ?? []).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.numero_contrato}
+                          {c.objeto ? ` — ${c.objeto.slice(0, 80)}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : null}
+                <label className={s.rotulo} htmlFor="novo-objeto">
+                  {ehDeContrato ? "Assunto (opcional)" : "Assunto"}
+                </label>
+                <textarea
+                  id="novo-objeto"
+                  className={s.campo}
+                  value={objeto}
+                  maxLength={500}
+                  onChange={(e) => setObjeto(e.target.value)}
+                  placeholder={
+                    tipoNovo === "OFICIO"
+                      ? "Ex.: Remanejamento de mobiliário para a sala das comissões"
+                      : ehDeContrato
+                        ? "Em branco: “Termo aditivo ao contrato nº …” ou “Renovação do contrato nº …”"
+                        : "Ex.: Solicitação de manutenção do ar-condicionado da sala 3"
+                  }
+                />
+              </>
+            )}
             {erroNovo ? (
               <div className={s.erro} role="alert">
                 {erroNovo}
@@ -131,7 +225,7 @@ export default function ListaProcessosPage() {
             ) : null}
             <div className={s.acoes}>
               <button type="button" className={`${s.botao} ${s.primario}`} onClick={criar} disabled={criando}>
-                {criando ? "Abrindo..." : tipoNovo === "OFICIO" ? "Escrever ofício" : "Abrir processo"}
+                {criando ? "Abrindo..." : tipoNovo === "OFICIO" ? "Escrever ofício" : tipoNovo === "CONTRATACAO" ? "Continuar para a contratação" : "Abrir processo"}
               </button>
               <button type="button" className={`${s.botao} ${s.secundario}`} onClick={() => setNovo(false)} disabled={criando}>
                 Cancelar
