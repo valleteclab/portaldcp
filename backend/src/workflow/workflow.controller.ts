@@ -7,6 +7,7 @@ import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 import { CATALOGO_NOS } from './nos/catalogo-nos';
 import { TeamsService } from './avisos/teams.service';
 import { DesenhoFluxoService } from './desenho/desenho-fluxo.service';
+import { ChecklistEtapaService } from './checklist/checklist-etapa.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 const orgaoDo = (ator: Ator) => { if (!ator?.orgaoId) throw new BadRequestException('Acesso exclusivo do órgão'); return ator.orgaoId; };
@@ -17,7 +18,7 @@ const adminDoOrgao = (ator: Ator) => { const orgaoId = orgaoDo(ator); if (ator.t
 @Controller('workflows')
 @RequireModule(ModuloSistema.PROCESSOS)
 export class WorkflowController {
-  constructor(private readonly service: WorkflowService, private readonly teams: TeamsService, private readonly whatsapp: WhatsAppService, private readonly desenhos: DesenhoFluxoService) {}
+  constructor(private readonly service: WorkflowService, private readonly teams: TeamsService, private readonly whatsapp: WhatsAppService, private readonly desenhos: DesenhoFluxoService, private readonly checklist: ChecklistEtapaService) {}
   /** Etapas que podem ser arrastadas para o desenho (paleta), com a trava legal de cada uma. */
   @Get('catalogo-nos') catalogo() { return CATALOGO_NOS; }
   /** "Canais de aviso do órgão" da tela de desenho: o que já está conectado. */
@@ -47,6 +48,10 @@ export class WorkflowController {
   @Get('execucoes/:instanciaId') execucao(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string) { return this.service.obterInstancia(orgaoDo(ator), instanciaId); }
   @Post('execucoes/:instanciaId/tarefas/:tarefaId/concluir') concluir(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.concluirTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
   @Post('execucoes/:instanciaId/tarefas/:tarefaId/devolver') devolver(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.devolverTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
+  // Checklist do documento da etapa (ETP: art. 18, § 1º): ver, marcar e pedir a leitura do documento pela IA
+  @Get('execucoes/:instanciaId/tarefas/:tarefaId/checklist') verChecklist(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string) { return this.checklist.obter(orgaoDo(ator), instanciaId, tarefaId); }
+  @Put('execucoes/:instanciaId/tarefas/:tarefaId/checklist') marcarChecklist(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.checklist.marcar(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
+  @Post('execucoes/:instanciaId/tarefas/:tarefaId/checklist/analisar') analisarChecklist(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string) { return this.checklist.analisar(orgaoDo(ator), instanciaId, tarefaId, ator); }
   @Post('execucoes/:instanciaId/tarefas/:tarefaId/indeferir') indeferir(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.indeferirTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
   @Get(':id') obter(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.service.obter(orgaoDo(ator), id); }
   @Patch(':id') atualizar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.atualizar(orgaoDo(ator), id, body); }
