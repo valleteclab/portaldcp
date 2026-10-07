@@ -417,6 +417,21 @@ export class WorkflowService {
   }
 
   /**
+   * Quem pode juntar o documento de uma etapa do fluxo (`etapa = 'no:<acao_id>'`)
+   * fora da posse da tramitação: a etapa precisa estar ABERTA na execução em
+   * andamento DESTE processo e o ator precisa ser responsável por ela — a mesma
+   * regra de quem conclui. Sem isso, `no:<qualquer id>` abriria os autos de
+   * qualquer processo do órgão para qualquer usuário.
+   */
+  async exigirResponsavelDaEtapaDoProcesso(orgaoId: string, processoId: string, acaoId: string, ator: Ator) {
+    const instancia = await this.instancias.findOne({ where: { orgao_id: orgaoId, vinculo_tipo: VINCULO_PROCESSO, vinculo_id: processoId, status: 'EM_ANDAMENTO' } });
+    if (!instancia) throw new BadRequestException('Este processo não tem fluxo em andamento.');
+    const tarefa = await this.tarefas.findOne({ where: { instancia_id: instancia.id, acao_id: acaoId, status: 'ABERTA' } });
+    if (!tarefa) throw new BadRequestException('Esta etapa não está em andamento no fluxo do processo.');
+    await this.chaveDoResponsavel(orgaoId, instancia, tarefa, ator);
+  }
+
+  /**
    * Indefere a tarefa (decisão de uma etapa de APROVACAO) e ENCERRA a
    * execução — ao contrário da devolução, não há etapa seguinte. Método
    * aditivo: não muda o comportamento de concluir/devolver existentes.

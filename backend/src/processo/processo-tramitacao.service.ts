@@ -40,6 +40,7 @@ import {
   textoDaPeca,
 } from './peca-documento';
 import { gerarPdfPeca } from './peca-pdf';
+import { WorkflowService } from '../workflow/workflow.service';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -74,6 +75,7 @@ export class ProcessoTramitacaoService {
     private readonly notificacoes: NotificacoesService,
     private readonly ia: IaService,
     @InjectRepository(ModeloDocumento) private readonly modelosRepo: Repository<ModeloDocumento>,
+    private readonly workflow: WorkflowService,
   ) {}
 
   // ==========================================================================
@@ -324,6 +326,8 @@ export class ProcessoTramitacaoService {
     // a conclusão da etapa é controlada pelo motor de workflow (concluir/devolver/indeferir),
     // não pelas etapas padrão do ADITIVO/RENOVACAO — por isso pula a validação abaixo.
     const ehEtapaDeNoDeFluxo = !!chaveEtapa && chaveEtapa.startsWith('no:');
+    // ...mas só para o responsável pela etapa aberta no fluxo deste processo (403/400 caso contrário)
+    if (ehEtapaDeNoDeFluxo) await this.workflow.exigirResponsavelDaEtapaDoProcesso(p.orgao_id, p.id, chaveEtapa!.slice(3), ator);
     const iaModelo = html ? String(body?.ia_modelo ?? '').trim().slice(0, 100) || null : null;
     const peca = await this.ds.transaction(async (m) => {
       await this.travar(m, p.id);
