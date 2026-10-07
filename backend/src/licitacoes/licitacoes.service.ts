@@ -1,3 +1,4 @@
+import { WorkflowService } from '../workflow/workflow.service';
 import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -116,6 +117,7 @@ export class LicitacoesService {
     private readonly dfds: DfdConsolidadoService,
     // Processo eletrônico: a licitação é o primeiro TIPO de processo — nasce com a autuação, na mesma transação
     private readonly processos: ProcessoService,
+    private readonly workflow: WorkflowService,
     private readonly auditLog: AuditLogService,
     // Gerador único do nº do processo administrativo (sequencial por órgão/ano)
     private readonly numeros: NumeroProcessoService,
@@ -483,6 +485,16 @@ export class LicitacoesService {
     });
     // E6.5: demandas → EM_CONTRATACAO (todas as do DFD); item do PCA → LICITACAO_INICIADA
     await this.resultado.aoCriarProcesso(licitacaoSalva.id);
+    // Fluxo desenhado (07/10/2026): a contratação aberta pelo DFD já nasce seguindo o fluxo de Contratação ativo
+    try {
+      const [proc] = await this.dataSource.query(
+        `SELECT id::text AS id FROM processos WHERE referencia_tipo = 'LICITACAO' AND referencia_id::text = $1 AND orgao_id::text = $2`,
+        [licitacaoSalva.id, licitacaoSalva.orgao_id],
+      );
+      if (proc) await this.workflow.iniciarFluxoDaContratacao(licitacaoSalva.orgao_id, proc.id, String(atorAcesso?.usuarioId ?? atorAcesso?.id ?? ator.id ?? ""));
+    } catch (e) {
+      this.logger.warn(`Fluxo da contratação ${licitacaoSalva.id} não iniciou sozinho: ${e instanceof Error ? e.message : e}`);
+    }
 
     // 7. Itens do processo = itens consolidados do DFD
     const itensLicitacao = itens.map((item, i) =>

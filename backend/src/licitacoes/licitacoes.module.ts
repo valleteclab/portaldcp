@@ -1,3 +1,4 @@
+import { WorkflowModule } from '../workflow/workflow.module';
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Licitacao } from './entities/licitacao.entity';
@@ -50,6 +51,7 @@ import { ProcessoModule } from '../processo/processo.module';
     DfdModule,
     // Gerador único do nº do processo administrativo (por órgão/ano)
     NumeroProcessoModule,
+    WorkflowModule,
     ProcessoModule,
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
