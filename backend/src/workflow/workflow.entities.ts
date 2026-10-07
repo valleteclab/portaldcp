@@ -9,6 +9,10 @@ export class WorkflowModelo {
   @Column({ type: 'text', nullable: true }) descricao: string | null;
   @Column({ type: 'varchar', length: 20, default: 'RASCUNHO' }) status: string;
   @Column({ type: 'int', default: 1 }) versao: number;
+  /** Tipo de processo para o qual o fluxo serve (CONTRATACAO, ADITIVO, RENOVACAO, AVULSO): define as etapas exigidas por lei. */
+  @Column({ type: 'varchar', length: 30, nullable: true }) tipo_processo: string | null;
+  /** Versões do mesmo fluxo compartilham a família (a 1ª versão é a própria: nulo = id). RASCUNHO → PUBLICADO → SUBSTITUIDO. */
+  @Column({ type: 'uuid', nullable: true }) familia_id: string | null;
   @Column({ type: 'varchar', length: 100, nullable: true }) criado_por_id: string | null;
   @OneToMany(() => WorkflowFase, (fase) => fase.workflow) fases: WorkflowFase[];
   @OneToMany(() => WorkflowFormulario, (formulario) => formulario.workflow) formularios: WorkflowFormulario[];

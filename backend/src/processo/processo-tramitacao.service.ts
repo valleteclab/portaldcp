@@ -314,7 +314,8 @@ export class ProcessoTramitacaoService {
    * com folhas na ordem de juntada. Só quem está com o processo. Com `etapa`,
    * a peça conclui a etapa ATUAL do processo.
    */
-  async juntar(ator: Ator, id: string, body: any) {
+  /** `interno.documentoDoSistema`: PDF gerado pelo próprio sistema (ex.: DFD consolidado) — não conta como "feito fora". Nunca vem do corpo da requisição. */
+  async juntar(ator: Ator, id: string, body: any, interno?: { documentoDoSistema?: boolean }) {
     const p = await this.carregar(ator, id);
     this.exigirAberto(p);
     // Peça feita no editor: HTML limpo, sem lacuna aberta; o texto corrido vale para a validação e a busca
@@ -329,7 +330,10 @@ export class ProcessoTramitacaoService {
     // não pelas etapas padrão do ADITIVO/RENOVACAO — por isso pula a validação abaixo.
     const ehEtapaDeNoDeFluxo = !!chaveEtapa && chaveEtapa.startsWith('no:');
     // ...mas só para o responsável pela etapa aberta no fluxo deste processo (403/400 caso contrário)
-    if (ehEtapaDeNoDeFluxo) await this.workflow.exigirResponsavelDaEtapaDoProcesso(p.orgao_id, p.id, chaveEtapa!.slice(3), ator);
+    if (ehEtapaDeNoDeFluxo) {
+      const regra = await this.workflow.exigirResponsavelDaEtapaDoProcesso(p.orgao_id, p.id, chaveEtapa!.slice(3), ator);
+      if (!html && !interno?.documentoDoSistema && !regra.aceitaDocumentoExterno) throw new BadRequestException('Esta etapa exige o documento feito no sistema: escreva no editor (pode usar a IA).');
+    }
     const iaModelo = html ? String(body?.ia_modelo ?? '').trim().slice(0, 100) || null : null;
     const peca = await this.ds.transaction(async (m) => {
       await this.travar(m, p.id);

@@ -779,7 +779,7 @@ export class DfdConsolidadoService {
         paginas: Math.max(1, await contarPaginasPdf(buffer)),
         etapa: `no:${acaoId}`,
         tipo_peca: 'DFD',
-      });
+      }, { documentoDoSistema: true });
     } catch (e) {
       await this.ds.query(`UPDATE dfds_consolidados SET processo_id = NULL, status = $2, updated_at = now() WHERE id::text = $1 AND licitacao_id IS NULL`, [id, anterior]).catch(() => undefined);
       throw e;
