@@ -6,6 +6,27 @@
 - Após cada `git push`, **sempre criar a PR automaticamente** para o repositório `valleteclab/portaldcp` com base `main`
 - A PR deve ter título descritivo, resumo das mudanças e plano de testes
 
+## Deploy: dois ambientes, dois branches
+
+| Branch | Vai para | Como |
+|---|---|---|
+| `main` | Railway (`www.portaldcp.com.br`) — homologação | automático a cada merge |
+| `producao` | VPS (`compras.cmlem.ba.gov.br`) — a Câmara | `bash deploy-vps.sh`, só quando o dono mandar |
+
+**Nada chega à VPS sem passar pelo Railway e ser promovido para `producao`.**
+O `main` recebe tudo que se desenvolve, validado ou não; por isso nunca sobe
+direto para a VPS. O `deploy-vps.sh` usa `producao` por padrão e **recusa**
+`BRANCH=main` sem `CONFIRMO_MAIN=sim`.
+
+Promover = levar para `producao` só o que o dono validou no Railway. Antes de
+qualquer deploy, conferir o que vai junto
+(`git log --oneline <HEAD da VPS>..origin/producao`) — o próprio script mostra
+essa lista antes de subir.
+
+Por que existe: em 04/10/2026 um deploy do `main` levou de uma vez 204 commits
+não validados — onze dias de trabalho de várias frentes — para a produção da
+Câmara.
+
 ## Convenções do projeto
 
 - Frontend: Next.js 16 + React 19 + TypeScript, em `frontend/`
