@@ -309,6 +309,30 @@ export class WorkflowService {
     return instancia;
   }
 
+  /**
+   * Início automático (decisão de 07/10/2026): o processo de contratação aberto
+   * pelo DFD segue o fluxo de Contratação ativo do órgão — se houver exatamente
+   * um (nenhum ou vários: fica o "Iniciar fluxo" manual). A primeira etapa, se
+   * for o DFD e já estiver pronta, conclui sozinha.
+   */
+  async iniciarFluxoDaContratacao(orgaoId: string, processoId: string, atorId: string) {
+    const ativos = await this.modelos.find({ where: { orgao_id: orgaoId, status: 'PUBLICADO', tipo_processo: 'CONTRATACAO' } });
+    if (ativos.length !== 1) return null;
+    const instancia = await this.iniciar(orgaoId, ativos[0].id, atorId, { processo_id: processoId });
+    const primeiro = this.passos(await this.obter(orgaoId, ativos[0].id))[0];
+    if (primeiro?.acao.tipo === 'DFD') {
+      const tarefa = await this.tarefas.findOne({ where: { instancia_id: instancia.id, acao_id: primeiro.acao.id, status: 'ABERTA' } });
+      if (tarefa) {
+        try {
+          await this.avancar(instancia, tarefa, null);
+        } catch (e) {
+          this.logger.log(`DFD do processo ${processoId} ainda com pendência; a etapa fica aberta: ${(e as Error).message}`);
+        }
+      }
+    }
+    return instancia;
+  }
+
   listarInstancias(orgaoId: string) { return this.instancias.find({ where: { orgao_id: orgaoId }, order: { updated_at: 'DESC' } }); }
 
   async obterInstancia(orgaoId: string, id: string) {
