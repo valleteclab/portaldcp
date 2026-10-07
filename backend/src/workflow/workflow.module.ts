@@ -4,6 +4,7 @@ import { WorkflowAcao, WorkflowCampo, WorkflowFase, WorkflowFormulario, Workflow
 import { WorkflowController } from './workflow.controller';
 import { WorkflowService } from './workflow.service';
 import { RegistroNos } from './nos/executor-no';
+import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
 
-@Module({ imports: [TypeOrmModule.forFeature([WorkflowModelo, WorkflowFase, WorkflowAcao, WorkflowFormulario, WorkflowCampo, WorkflowReacao, WorkflowInstancia, WorkflowTarefa, WorkflowHistorico])], controllers: [WorkflowController], providers: [WorkflowService, RegistroNos], exports: [WorkflowService, RegistroNos] })
+@Module({ imports: [TypeOrmModule.forFeature([WorkflowModelo, WorkflowFase, WorkflowAcao, WorkflowFormulario, WorkflowCampo, WorkflowReacao, WorkflowInstancia, WorkflowTarefa, WorkflowHistorico])], controllers: [WorkflowController], providers: [WorkflowService, RegistroNos, ExecutorDemandaDfd], exports: [WorkflowService, RegistroNos] })
 export class WorkflowModule {}

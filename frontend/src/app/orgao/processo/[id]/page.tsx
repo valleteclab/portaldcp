@@ -33,6 +33,8 @@ import {
   estilos as s,
 } from "@/components/processo/BlocosProcesso"
 import { AndamentoFluxo } from "@/components/fluxo/AndamentoFluxo"
+import { PainelEtapaFluxo } from "@/components/fluxo/PainelEtapaFluxo"
+import { IniciarFluxoProcesso } from "@/components/fluxo/IniciarFluxoProcesso"
 import type { Andamento } from "@/lib/fluxo/andamento"
 
 /**
@@ -195,6 +197,12 @@ export default function TelaDoProcessoPage() {
 
       <AndamentoFluxo andamento={andamento} />
 
+      {andamento?.modo === "FLUXO" ? <PainelEtapaFluxo processoId={processo.id} andamento={andamento} onAtualizar={() => carregar(true)} /> : null}
+
+      {propria && !encerrado && andamento && andamento.modo !== "FLUXO" ? (
+        <IniciarFluxoProcesso processoId={processo.id} onIniciado={() => carregar(true)} />
+      ) : null}
+
       <BlocoEstaCom
         posse={posse}
         encerrado={encerrado}
@@ -233,7 +241,7 @@ export default function TelaDoProcessoPage() {
         <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
       ) : podeAgir ? (
         <>
-          {temFluxo && etapaAtual ? (
+          {andamento?.modo === "FLUXO" ? null : temFluxo && etapaAtual ? (
             <BlocoSuaVez key={etapaAtual.chave} processoId={processo.id} etapa={etapaAtual} posse={posse} linkTermo={linkTermo} onJuntada={() => carregar(true)} />
           ) : ehAvulso ? (
             <BlocoPecaAvulsa processoId={processo.id} onJuntada={() => carregar(true)} />

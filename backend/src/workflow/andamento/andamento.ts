@@ -28,6 +28,8 @@ export interface NoAndamento {
   devolvida: boolean;
   /** Fundamento legal quando a etapa é obrigatória por lei (cadeado). */
   obrigatoria_lei: string | null;
+  /** Tarefa aberta desta etapa (fluxo desenhado, situação EM_ANDAMENTO) — id para concluir/devolver/indeferir. */
+  tarefa_id: string | null;
 }
 
 export interface Andamento {
@@ -69,8 +71,9 @@ export interface PassoDoFluxo {
 }
 
 export interface TarefaDoFluxo {
+  id: string;
   acao_id: string;
-  status: string; // ABERTA | CONCLUIDA | DEVOLVIDA
+  status: string; // ABERTA | CONCLUIDA | DEVOLVIDA | INDEFERIDA
   created_at: Date | string;
   concluida_em: Date | string | null;
   prazo_em: Date | string | null;
@@ -97,7 +100,8 @@ export function andamentoDoFluxo(entrada: {
   const nos = entrada.passos.map((p): NoAndamento => {
     const t = ultima.get(p.acao_id);
     const status = t?.status ?? null;
-    const situacao: SituacaoNo = status === 'ABERTA' ? 'EM_ANDAMENTO' : status === 'CONCLUIDA' ? 'CONCLUIDA' : 'A_REALIZAR';
+    // INDEFERIDA conta como concluída na fila (a etapa foi decidida; quem encerra o fluxo é o status da instância).
+    const situacao: SituacaoNo = status === 'ABERTA' ? 'EM_ANDAMENTO' : status === 'CONCLUIDA' || status === 'INDEFERIDA' ? 'CONCLUIDA' : 'A_REALIZAR';
     const prazo = situacao === 'EM_ANDAMENTO' ? iso(t?.prazo_em) : null;
     return {
       chave: p.acao_id,
@@ -111,12 +115,13 @@ export function andamentoDoFluxo(entrada: {
       atrasada: !!prazo && new Date(prazo).getTime() < entrada.agora.getTime(),
       devolvida: status === 'DEVOLVIDA',
       obrigatoria_lei: travaLegal(p.tipo),
+      tarefa_id: situacao === 'EM_ANDAMENTO' ? (t?.id ?? null) : null,
     };
   });
   return fechar('FLUXO', nos, {
     fluxo: entrada.fluxo,
     instancia_id: entrada.instancia_id,
-    encerrado: entrada.status_instancia === 'CONCLUIDA',
+    encerrado: entrada.status_instancia === 'CONCLUIDA' || entrada.status_instancia === 'INDEFERIDA',
   });
 }
 
@@ -159,7 +164,7 @@ export function andamentoLivre(entrada: {
   const eventos: Evento[] = [];
   const concluido = (chave: string, titulo: string, tipo: string, responsavel: string | null, quando: Date | string): Evento => ({
     quando: new Date(quando).getTime(),
-    no: { chave, titulo, tipo, responsavel, situacao: 'CONCLUIDA', desde: iso(quando), concluida_em: iso(quando), prazo_em: null, atrasada: false, devolvida: false, obrigatoria_lei: null },
+    no: { chave, titulo, tipo, responsavel, situacao: 'CONCLUIDA', desde: iso(quando), concluida_em: iso(quando), prazo_em: null, atrasada: false, devolvida: false, obrigatoria_lei: null, tarefa_id: null },
   });
 
   movs.forEach((m, i) => {
@@ -193,6 +198,7 @@ export function andamentoLivre(entrada: {
       atrasada: false,
       devolvida: false,
       obrigatoria_lei: null,
+      tarefa_id: null,
     });
   }
   return fechar('LIVRE', nos, { encerrado: !!entrada.encerramento });

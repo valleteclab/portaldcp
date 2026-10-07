@@ -8,7 +8,7 @@ const passos: PassoDoFluxo[] = [
   { acao_id: 'a2', titulo: 'Aprovação', tipo: 'APROVACAO', responsavel: 'Diretoria Geral' },
   { acao_id: 'a3', titulo: 'Parecer jurídico', tipo: 'PARECER_JURIDICO', responsavel: 'Procuradoria' },
 ];
-const tarefa = (acao_id: string, status: string, created_at: string, extra: Partial<TarefaDoFluxo> = {}): TarefaDoFluxo => ({ acao_id, status, created_at, concluida_em: null, prazo_em: null, ...extra });
+const tarefa = (acao_id: string, status: string, created_at: string, extra: Partial<TarefaDoFluxo> = {}): TarefaDoFluxo => ({ id: `t-${acao_id}-${status}`, acao_id, status, created_at, concluida_em: null, prazo_em: null, ...extra });
 
 describe('andamentoDoFluxo', () => {
   it('mostra concluída, em andamento e a realizar na ordem do desenho', () => {
@@ -52,6 +52,26 @@ describe('andamentoDoFluxo', () => {
     const a = andamentoDoFluxo({ fluxo, instancia_id: 'i1', status_instancia: 'CONCLUIDA', passos: passos.slice(0, 1), agora, tarefas: [tarefa('a1', 'CONCLUIDA', '2026-10-01T10:00:00Z')] });
     expect(a.encerrado).toBe(true);
     expect(a.atual).toBeNull();
+  });
+
+  it('a etapa em andamento expõe o id da tarefa; as demais não', () => {
+    const a = andamentoDoFluxo({
+      fluxo, instancia_id: 'i1', status_instancia: 'EM_ANDAMENTO', passos, agora,
+      tarefas: [tarefa('a1', 'CONCLUIDA', '2026-10-01T10:00:00Z'), tarefa('a2', 'ABERTA', '2026-10-02T10:00:00Z')],
+    });
+    expect(a.atual?.tarefa_id).toBe('t-a2-ABERTA');
+    expect(a.nos.map((n) => n.tarefa_id)).toEqual([null, 't-a2-ABERTA', null]);
+  });
+
+  it('indeferimento encerra a execução e a etapa indeferida conta como concluída na fila', () => {
+    const a = andamentoDoFluxo({
+      fluxo, instancia_id: 'i1', status_instancia: 'INDEFERIDA', passos,
+      tarefas: [tarefa('a1', 'CONCLUIDA', '2026-10-01T10:00:00Z'), tarefa('a2', 'INDEFERIDA', '2026-10-02T10:00:00Z')],
+      agora,
+    });
+    expect(a.encerrado).toBe(true);
+    expect(a.atual).toBeNull();
+    expect(a.nos.map((n) => n.situacao)).toEqual(['CONCLUIDA', 'CONCLUIDA', 'A_REALIZAR']);
   });
 });
 
