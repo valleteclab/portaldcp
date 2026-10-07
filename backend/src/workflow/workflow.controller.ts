@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { AtorAtual } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { WorkflowService } from './workflow.service';
@@ -31,6 +31,7 @@ export class WorkflowController {
   @Delete('teams-canais/:canalId') removerTeamsCanal(@AtorAtual() ator: Ator, @Param('canalId') canalId: string) { return this.teams.remover(adminDoOrgao(ator), canalId); }
   @Post('teams-canais/:canalId/testar') testarTeamsCanal(@AtorAtual() ator: Ator, @Param('canalId') canalId: string) { return this.teams.testar(adminDoOrgao(ator), canalId); }
   // --- Desenho do fluxo (tela "Desenhar o fluxo"): ler é para todos do órgão; criar, alterar e ativar só o administrador ---
+  @Get('desenhos/modelos') modelosDesenho(@AtorAtual() ator: Ator, @Query('tipo') tipo: string) { return this.desenhos.modelos(orgaoDo(ator), String(tipo ?? '').toUpperCase()); }
   @Get('desenhos/opcoes') opcoesDesenho(@AtorAtual() ator: Ator) { return this.desenhos.opcoes(orgaoDo(ator)); }
   @Get('desenhos') listarDesenhos(@AtorAtual() ator: Ator) { return this.desenhos.listar(orgaoDo(ator)); }
   @Post('desenhos') criarDesenho(@AtorAtual() ator: Ator, @Body() body: any) { return this.desenhos.criar(adminDoOrgao(ator), ator.usuarioId ?? ator.id, body); }

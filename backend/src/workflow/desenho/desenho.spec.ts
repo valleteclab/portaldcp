@@ -33,6 +33,13 @@ describe('normalizarEtapas', () => {
   });
 });
 
+describe('documento produzido', () => {
+  it('guarda o modelo só nas etapas que produzem documento com modelo', () => {
+    const r = normalizarEtapas({ etapas: [etapa('a', 'PARECER_JURIDICO', { modelo_documento_id: 'm1' }), etapa('b', 'APROVACAO', { modelo_documento_id: 'm2' })] });
+    expect(r.map((e) => e.modelo_documento_id)).toEqual(['m1', null]);
+  });
+});
+
 describe('errosParaAtivar', () => {
   it('contratação sem parecer e publicação não ativa', () => {
     const e = errosParaAtivar('CONTRATACAO', normalizarEtapas({ etapas: [etapa('a', 'DEMANDA')] }));

@@ -92,6 +92,7 @@ export class DesenhoFluxoService {
           notificar: c.notificar ?? null,
           obrigatoria_lei: travaLegal(a.tipo),
           formulario_id: a.formulario_id,
+          modelo_documento_id: typeof c.modelo_documento_id === 'string' ? c.modelo_documento_id : null,
         };
       });
   }
@@ -163,6 +164,14 @@ export class DesenhoFluxoService {
     const porId = new Map(acoesAtuais.map((a) => [a.id, a]));
     for (const e of etapas) if (!e.chave.startsWith('novo-') && !porId.has(e.chave)) throw new BadRequestException('Etapa não pertence a este fluxo.');
     await this.validarReferencias(orgaoId, etapas);
+    for (const e of etapas) {
+      if (!e.modelo_documento_id) continue;
+      const [mod] = await this.ds.query(
+        `SELECT 1 FROM modelos_documento WHERE id::text = $1 AND tipo::text = $2 AND (orgao_id IS NULL OR orgao_id::text = $3)`,
+        [e.modelo_documento_id, definicaoDoNo(e.tipo)?.tipo_documento ?? '', orgaoId],
+      );
+      if (!mod) throw new BadRequestException(`O modelo escolhido para "${e.nome}" não serve para esta etapa.`);
+    }
     for (const c of configs.values()) {
       const canais = [(c.avisos as any)?.teams_canal_id, (c.notificar as any)?.teams_canal_id].filter(Boolean) as string[];
       for (const canal of canais) if (!(await this.teams.pertenceAoOrgao(orgaoId, canal))) throw new BadRequestException('Canal do Teams não pertence a este órgão.');
@@ -195,6 +204,7 @@ export class DesenhoFluxoService {
           avisos: c.avisos ?? undefined,
           notificar: c.notificar ?? undefined,
           devolver_para: null as string | null,
+          modelo_documento_id: e.modelo_documento_id,
         };
         const dados = { fase_id: faseId, ordem: 1, nome: e.nome, tipo: e.tipo, responsavel_tipo: e.responsavel_tipo, responsavel_valor: null, prazo_dias_uteis: e.prazo_dias_uteis, configuracao };
         if (existente) {
@@ -268,6 +278,16 @@ export class DesenhoFluxoService {
       await mg.update(WorkflowModelo, { id: m.id }, { status: 'PUBLICADO' });
     });
     return this.desenho(orgaoId, id);
+  }
+
+  /** Modelos de documento de um tipo (os do sistema e os do órgão) para o "Documento produzido" da etapa. */
+  async modelos(orgaoId: string, tipo: string) {
+    if (!/^[A-Z_]{1,40}$/.test(tipo)) return [];
+    return this.ds.query(
+      `SELECT id::text AS id, nome, (orgao_id IS NOT NULL) AS do_orgao FROM modelos_documento
+        WHERE tipo::text = $1 AND ativo = true AND (orgao_id IS NULL OR orgao_id::text = $2) ORDER BY (orgao_id IS NULL), nome`,
+      [tipo, orgaoId],
+    );
   }
 
   /** Opções do painel da etapa: setores, pessoas ativas e canais do Teams do órgão (só do órgão do token). */
