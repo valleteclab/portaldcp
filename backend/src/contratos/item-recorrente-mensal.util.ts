@@ -31,12 +31,21 @@ export interface ResumoRecorrente {
 
 const arred2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Item com execução periódica (TRIMESTRAL, SEMESTRAL, ANUAL…) NÃO é "por mês":
+ * ali `quantidade_meses` é o número de execuções (limpeza da fachada 4× no ano,
+ * 001/2026 TOYOLEM). Cada medição mede uma execução cheia, qualquer que seja o
+ * período — não se lê em meses nem descarta o "não utilizado".
+ */
 export function ehItemRecorrenteMensal(item: {
   unidade_medida?: string | null;
   quantidade_meses?: number | string | null;
+  frequencia_execucao?: string | null;
 }): boolean {
   const meses = Number(item.quantidade_meses || 0);
   const unidade = String(item.unidade_medida || '').trim().toUpperCase();
+  const frequencia = String(item.frequencia_execucao || '').trim().toUpperCase();
+  if (frequencia && frequencia !== 'MENSAL') return false;
   return meses > 1 && unidade !== 'MENSAL';
 }
 
