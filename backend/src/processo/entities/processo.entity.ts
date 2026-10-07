@@ -18,6 +18,8 @@ export enum TipoProcesso {
   PAGAMENTO = 'PAGAMENTO',
   /** Processo sem fluxo: só autuação, tramitação e juntada de documentos. */
   AVULSO = 'AVULSO',
+  /** Ofício: escreve, assina e envia a outro setor; numerado por setor e ano. Livre (sem fluxo). */
+  OFICIO = 'OFICIO',
 }
 
 export type SituacaoProcesso = 'ABERTO' | 'ENCERRADO';

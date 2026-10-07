@@ -2,10 +2,10 @@ import { PerfilTramitacao, podeAtuarNoDestino } from '../fase-interna/tramitacao
 
 /**
  * TRAMITAÇÃO GENÉRICA DO PROCESSO — regras puras (sem banco).
- * Vale para os processos sem licitação (ADITIVO, RENOVACAO, AVULSO).
+ * Vale para os processos sem licitação (ADITIVO, RENOVACAO, AVULSO, OFICIO).
  */
 
-export const TIPOS_COM_TRAMITACAO_PROPRIA = ['ADITIVO', 'RENOVACAO', 'AVULSO'] as const;
+export const TIPOS_COM_TRAMITACAO_PROPRIA = ['ADITIVO', 'RENOVACAO', 'AVULSO', 'OFICIO'] as const;
 
 export function temTramitacaoPropria(tipo: string): boolean {
   return (TIPOS_COM_TRAMITACAO_PROPRIA as readonly string[]).includes(tipo);

@@ -154,6 +154,14 @@ const refContrato = (c: ContextoDaPeca) =>
   c.contrato ? `contrato nº ${c.contrato.numero}${c.contrato.fornecedor ? `, firmado com ${escapar(c.contrato.fornecedor)}` : ''}` : 'contrato <mark>número do contrato</mark>';
 
 const MODELOS: Record<string, Modelo> = {
+  OFICIO: (c) =>
+    `<h3 style="text-align:center">OFÍCIO Nº [número do ofício]</h3>` +
+    (c.setor_nome ? `<p>${escapar(c.setor_nome)}</p>` : '') +
+    `<p>Ao(À) <mark>setor ou autoridade de destino</mark></p>` +
+    `<p><strong>Assunto:</strong> ${escapar(c.objeto)}</p>` +
+    `<p>Senhor(a),</p>` +
+    `<p><mark>texto do ofício: o que se comunica ou solicita, e por quê</mark>.</p>` +
+    `<p>Atenciosamente,</p>`,
   PEDIDO_ADITIVO: (c) =>
     `<h3 style="text-align:center">PEDIDO DE TERMO ADITIVO</h3>` +
     `<p>Ao <mark>setor responsável pela reserva de recurso</mark>.</p>` +

@@ -8,7 +8,8 @@ import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { escolherDestinatarios, PerfilTramitacao } from '../fase-interna/tramitacao-regras';
 import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
-import { Processo } from './entities/processo.entity';
+import { Processo, TipoProcesso } from './entities/processo.entity';
+import { anoDeBrasilia, chaveSequenciaOficio, numerarTexto, numeroDoOficio, tituloDoOficio, TIPO_PECA_OFICIO } from './oficio';
 import { ProcessoMovimentacao, ProcessoPeca } from './entities/processo-tramitacao.entity';
 import { calcularEtapas, EtapaCalculada, etapaAtual, etapasPadraoDe, sugerirSetor } from './tipos/etapas-padrao';
 import {
@@ -21,6 +22,7 @@ import {
   validarDestino,
   validarPeca,
   folhasDaPeca,
+  TIPOS_COM_TRAMITACAO_PROPRIA,
 } from './processo-tramitacao-regras';
 import { ProcessoService } from './processo.service';
 import { textoDeAutuacao } from './processo-regras';
@@ -336,13 +338,33 @@ export class ProcessoTramitacaoService {
         if (alvo.estado !== 'ATUAL') throw new BadRequestException('Esta não é a etapa atual do processo.');
         tipoPeca = tipoPeca ?? alvo.tipo_peca;
       }
+      // Ofício: o número sai agora, na sequência do setor de quem assina (por ano, fuso de Brasília)
+      const ehOficio = p.tipo === TipoProcesso.OFICIO && tipoPeca === TIPO_PECA_OFICIO;
+      let titulo = v.dados.titulo;
+      let texto = v.dados.texto;
+      let htmlFinal = html;
+      let numeroDocumento: string | null = null;
+      if (ehOficio) {
+        const ano = anoDeBrasilia(new Date());
+        await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [chaveSequenciaOficio(p.orgao_id, perfil.setor_id ?? null, ano)]);
+        const [seq] = await m.query(
+          `SELECT COUNT(*)::int AS n FROM processo_pecas
+            WHERE orgao_id = $1::uuid AND tipo_peca = $2 AND setor_autor_id IS NOT DISTINCT FROM $3::uuid
+              AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'America/Sao_Paulo') = $4`,
+          [p.orgao_id, TIPO_PECA_OFICIO, perfil.setor_id ?? null, ano],
+        );
+        numeroDocumento = numeroDoOficio(Number(seq?.n ?? 0) + 1, ano);
+        titulo = tituloDoOficio(numeroDocumento);
+        if (htmlFinal) htmlFinal = numerarTexto(htmlFinal, numeroDocumento);
+        if (texto) texto = numerarTexto(texto, numeroDocumento);
+      }
       const [u] = await m.query(
         `SELECT COALESCE(MAX(numero_peca), 0) AS n, COALESCE(MAX(folha_final), 0) AS f FROM processo_pecas WHERE processo_id = $1::uuid`,
         [p.id],
       );
       const numeroPeca = Number(u.n) + 1;
       let arquivo = { arquivo_url: v.dados.arquivo_url, arquivo_nome: v.dados.arquivo_nome, paginas: v.dados.paginas };
-      if (html) arquivo = await this.gerarArquivoDaPeca(p, perfil, numeroPeca, v.dados.titulo, html, iaModelo);
+      if (htmlFinal) arquivo = await this.gerarArquivoDaPeca(p, perfil, numeroPeca, titulo, htmlFinal, iaModelo, ehOficio);
       const folhas = folhasDaPeca(Number(u.f), arquivo.paginas);
       const repo = m.getRepository(ProcessoPeca);
       return repo.save(
@@ -352,14 +374,16 @@ export class ProcessoTramitacaoService {
           numero_peca: numeroPeca,
           etapa: chaveEtapa,
           tipo_peca: tipoPeca,
-          titulo: v.dados.titulo,
-          texto: v.dados.texto,
-          texto_html: html || null,
+          titulo,
+          texto,
+          texto_html: htmlFinal || null,
           origem: html ? (iaModelo ? 'IA' : 'EDITOR') : 'ARQUIVO',
           ia_modelo: iaModelo,
           arquivo_url: arquivo.arquivo_url,
           arquivo_nome: arquivo.arquivo_nome,
           ...folhas,
+          setor_autor_id: perfil.setor_id ?? null,
+          numero_documento: numeroDocumento,
           criado_por_id: perfil.usuario_id ?? ator.id,
           criado_por_nome: perfil.nome,
         }),
@@ -389,7 +413,7 @@ export class ProcessoTramitacaoService {
          JOIN LATERAL (SELECT * FROM processo_movimentacoes x WHERE x.processo_id = p.id ORDER BY x.sequencia DESC LIMIT 1) m ON true
         WHERE p.orgao_id::text = $1 AND p.situacao = 'ABERTO' AND p.tipo::text = ANY($2::text[])
         ORDER BY m.created_at DESC`,
-      [orgaoId, ['ADITIVO', 'RENOVACAO', 'AVULSO']],
+      [orgaoId, [...TIPOS_COM_TRAMITACAO_PROPRIA]],
     );
     const minhas = linhas.filter((l) => {
       if (perfil.admin_orgao) return true;
@@ -414,7 +438,7 @@ export class ProcessoTramitacaoService {
   }
 
   /** PDF da peça feita no sistema, gravado na pasta privada `processo/<id>/`. */
-  private async gerarArquivoDaPeca(p: Processo, perfil: Perfil, numeroPeca: number, titulo: string, html: string, iaModelo: string | null) {
+  private async gerarArquivoDaPeca(p: Processo, perfil: Perfil, numeroPeca: number, titulo: string, html: string, iaModelo: string | null, assinatura = false) {
     const [org] = await this.ds.query(`SELECT nome, cidade, uf, logo_url, pecas_papel_timbrado FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
     const pdf = await gerarPdfPeca({
       orgao_nome: org?.nome || 'Órgão',
@@ -430,6 +454,7 @@ export class ProcessoTramitacaoService {
       autor_cargo: perfil.cargo,
       juntada_em: new Date(),
       ia_modelo: iaModelo,
+      assinatura_eletronica: assinatura,
     });
     const nome = `peca-${numeroPeca}-${randomUUID()}.pdf`;
     const dir = path.join(diretorioDeGravacao('processo'), p.id);
@@ -470,9 +495,10 @@ export class ProcessoTramitacaoService {
       numero_processo: p.numero,
       tipo_processo: p.tipo,
       objeto: p.objeto,
-      etapa_rotulo: etapa?.rotulo ?? 'Peça avulsa',
-      tipo_peca: etapa?.tipo_peca ?? null,
-      titulo_peca: etapa?.titulo_peca ?? etapa?.rotulo ?? 'Peça',
+      // Ofício sem etapa: a peça é o próprio ofício (modelo e rascunho da IA de ofício)
+      etapa_rotulo: etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça avulsa'),
+      tipo_peca: etapa?.tipo_peca ?? (p.tipo === TipoProcesso.OFICIO ? TIPO_PECA_OFICIO : null),
+      titulo_peca: etapa?.titulo_peca ?? etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça'),
       contrato: c ? { numero: c.numero_contrato, objeto: c.objeto ?? null, fornecedor: c.fornecedor_razao_social ?? null, valor_global: c.valor_global !== null && c.valor_global !== undefined ? Number(c.valor_global) : null } : null,
       pecas: pecas.map((x) => ({
         titulo: x.titulo,
