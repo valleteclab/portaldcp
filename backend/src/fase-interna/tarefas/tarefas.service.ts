@@ -1,3 +1,4 @@
+import { licitacaoConduzidaPeloFluxo } from '../../workflow/ponte/ponte-fase-interna';
 import {
   BadRequestException,
   ConflictException,
@@ -494,6 +495,16 @@ export class TarefasService {
     // mais se o dado mudar); a devolução termina quando quem devolveu conclui
     if (fluxo.ctx && FASES_INTERNAS.includes(lic.fase)) await this.gravarDecisoesEDevolucoes(fluxo.ctx, passos);
     const abertas = await this.tarefaRepo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTA' } });
+    // Ponte (07/10/2026): contratação conduzida pelo fluxo desenhado — as etapas são dele; aqui só se calcula
+    if (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId)) {
+      for (const t of abertas) {
+        await this.ds.query(
+          `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $2, updated_at = now() WHERE id::text = $1 AND status = 'ABERTA'`,
+          [t.id, 'O processo segue o fluxo desenhado: as etapas são conduzidas por ele.'],
+        );
+      }
+      return { etapas, config, criadas: 0 };
+    }
 
     const prazos = prazosDoModelo(fluxo.modelo);
     // F3: posse única — a tarefa da etapa de quem recebeu o processo passa ao destino do envio

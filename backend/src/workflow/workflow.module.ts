@@ -13,6 +13,7 @@ import { VesperaPrazoScheduler } from './avisos/vespera-prazo.scheduler';
 import { NotificarExecutor } from './nos/notificar.executor';
 import { DesenhoFluxoService } from './desenho/desenho-fluxo.service';
 import { ChecklistEtapaService } from './checklist/checklist-etapa.service';
+import { PonteFaseInternaService } from './ponte/ponte-fase-interna.service';
 import { IaModule } from '../ia/ia.module';
 import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
 
@@ -24,7 +25,7 @@ import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
     IaModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService],
+  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService, PonteFaseInternaService],
   exports: [WorkflowService, RegistroNos, TeamsService],
 })
 export class WorkflowModule {}

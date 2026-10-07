@@ -32,6 +32,8 @@ export interface Andamento {
   encerrado: boolean
   /** Quem está vendo pode concluir/devolver a etapa atual (fluxo desenhado). */
   pode_agir?: boolean
+  /** Contratação: as etapas abrem as telas da fase interna desta licitação. */
+  licitacao_id?: string | null
 }
 
 const DIA = 24 * 60 * 60 * 1000

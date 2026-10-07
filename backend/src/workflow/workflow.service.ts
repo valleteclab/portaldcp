@@ -8,6 +8,7 @@ import { RegistroNos, VINCULO_PROCESSO, type ContextoNo } from './nos/executor-n
 import { TeamsService } from './avisos/teams.service';
 import { normalizarAvisos, normalizarNotificar } from './avisos/destinatarios';
 import { ehResponsavelDaTarefa } from './responsavel';
+import { ehFaseInterna } from '../licitacoes/transicoes/fases';
 
 @Injectable()
 export class WorkflowService {
@@ -275,8 +276,15 @@ export class WorkflowService {
 
   /** Processo do órgão ao qual a execução vai se ligar; um processo tem no máximo uma execução em andamento. */
   private async validarProcesso(orgaoId: string, processoId: string) {
-    const [processo] = await this.dataSource.query(`SELECT id FROM processos WHERE id::text = $1 AND orgao_id::text = $2`, [processoId, orgaoId]);
+    const [processo] = await this.dataSource.query(
+      `SELECT p.id, p.tipo, l.fase::text AS fase FROM processos p
+         LEFT JOIN licitacoes l ON p.referencia_tipo = 'LICITACAO' AND l.id = p.referencia_id
+        WHERE p.id::text = $1 AND p.orgao_id::text = $2`,
+      [processoId, orgaoId],
+    );
     if (!processo) throw new NotFoundException('Processo não encontrado');
+    // Contratação: o fluxo conduz a fase interna (a fase externa segue na tela da licitação)
+    if (processo.tipo === 'CONTRATACAO' && !ehFaseInterna(processo.fase)) throw new BadRequestException('A fase interna desta contratação já terminou: o fluxo só pode ser iniciado durante ela.');
     const emAndamento = await this.instancias.count({ where: { orgao_id: orgaoId, vinculo_tipo: VINCULO_PROCESSO, vinculo_id: processoId, status: 'EM_ANDAMENTO' } });
     if (emAndamento) throw new BadRequestException('Este processo já tem um fluxo em andamento');
   }

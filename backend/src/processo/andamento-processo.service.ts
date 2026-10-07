@@ -38,6 +38,7 @@ export class AndamentoProcessoService {
       });
       const aberta = a.atual?.tarefa_id ? execucao.tarefas.find((t) => t.id === a.atual!.tarefa_id) : null;
       a.pode_agir = !!(ator && aberta && (await this.workflow.podeAgirNaTarefa(p.orgao_id, execucao.instancia, aberta, ator)));
+      a.licitacao_id = p.tipo === TipoProcesso.CONTRATACAO && p.referencia_tipo === 'LICITACAO' ? p.referencia_id : null;
       return a;
     }
     const [movimentacoes, pecas] = await Promise.all([
