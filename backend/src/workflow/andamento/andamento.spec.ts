@@ -95,6 +95,21 @@ describe('andamentoLivre', () => {
     expect(a.modo).toBe('LIVRE');
   });
 
+  it('ofício enviado: a resposta aparece como etapa a realizar, com quem recebeu', () => {
+    const a = andamentoLivre({
+      movimentacoes: [abertura, { tipo: 'ENVIO', created_at: '2026-10-06T13:41:00Z', para_setor_nome: 'Setor de Patrimônio', para_usuario_nome: null, recebida_em: '2026-10-08T12:14:00Z' }],
+      pecas: [],
+      encerramento: null,
+      esperada: { titulo: 'Resposta' },
+    });
+    expect(a.nos.slice(-2).map((n) => [n.titulo, n.situacao, n.responsavel])).toEqual([
+      ['Recebido', 'EM_ANDAMENTO', 'Setor de Patrimônio'],
+      ['Resposta', 'A_REALIZAR', 'Setor de Patrimônio'],
+    ]);
+    const encerrado = andamentoLivre({ movimentacoes: [abertura], pecas: [], encerramento: { em: '2026-10-09T12:00:00Z' }, esperada: { titulo: 'Resposta' } });
+    expect(encerrado.nos.some((n) => n.titulo === 'Resposta')).toBe(false);
+  });
+
   it('enviado e ainda não recebido: aguardando recebimento desde o envio', () => {
     const a = andamentoLivre({
       movimentacoes: [abertura, { tipo: 'ENVIO', created_at: '2026-10-06T13:41:00Z', para_setor_nome: 'Setor de Patrimônio', para_usuario_nome: null, recebida_em: null }],

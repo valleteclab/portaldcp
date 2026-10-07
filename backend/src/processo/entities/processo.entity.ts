@@ -104,6 +104,13 @@ export class Processo {
   @Column({ type: 'text', nullable: true })
   motivo_encerramento: string | null;
 
+  /**
+   * Rascunho da peça em elaboração (ofício: texto, título e setor de destino),
+   * salvo pelo "Salvar rascunho" — some quando a peça é assinada e juntada.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  rascunho_peca: { titulo: string | null; html: string; para_setor_id: string | null; salvo_em: string; salvo_por: string } | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

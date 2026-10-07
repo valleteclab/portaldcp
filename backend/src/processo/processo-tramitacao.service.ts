@@ -368,6 +368,7 @@ export class ProcessoTramitacaoService {
           [p.orgao_id, TIPO_PECA_OFICIO, perfil.setor_id ?? null, ano],
         );
         numeroDocumento = numeroDoOficio(Number(seq?.n ?? 0) + 1, ano);
+        await m.query(`UPDATE processos SET rascunho_peca = NULL WHERE id = $1::uuid`, [p.id]);
         titulo = tituloDoOficio(numeroDocumento);
         if (htmlFinal) htmlFinal = numerarTexto(htmlFinal, numeroDocumento);
         if (texto) texto = numerarTexto(texto, numeroDocumento);
@@ -601,6 +602,45 @@ export class ProcessoTramitacaoService {
   }
 
   /** Encerra o processo sem conteúdo; só quem está com ele (ou o administrador do órgão). */
+  /** Rascunho da peça em elaboração (só quem está com o processo vê e grava). */
+  async rascunho(ator: Ator, id: string) {
+    const p = await this.carregar(ator, id);
+    await this.exigirQuemEstaCom(ator, p);
+    const [r] = await this.ds.query(`SELECT rascunho_peca FROM processos WHERE id = $1::uuid`, [p.id]);
+    return { processo_id: p.id, rascunho: r?.rascunho_peca ?? null };
+  }
+
+  async salvarRascunho(ator: Ator, id: string, body: any) {
+    const p = await this.carregar(ator, id);
+    this.exigirAberto(p);
+    const perfil = await this.exigirQuemEstaCom(ator, p);
+    const html = htmlDaPecaSeguro(body?.html ?? '');
+    const paraSetor = typeof body?.para_setor_id === 'string' && body.para_setor_id.trim() ? body.para_setor_id.trim() : null;
+    if (paraSetor) {
+      const [s] = await this.ds.query(`SELECT 1 FROM setores WHERE id::text = $1 AND orgao_id::text = $2`, [paraSetor, p.orgao_id]);
+      if (!s) throw new BadRequestException('Setor de destino não pertence ao órgão.');
+    }
+    const rascunho = {
+      titulo: String(body?.titulo ?? '').trim().slice(0, 300) || null,
+      html,
+      para_setor_id: paraSetor,
+      salvo_em: new Date().toISOString(),
+      salvo_por: perfil.nome,
+    };
+    await this.ds.query(`UPDATE processos SET rascunho_peca = $2::jsonb WHERE id = $1::uuid`, [p.id, JSON.stringify(rascunho)]);
+    return { processo_id: p.id, rascunho };
+  }
+
+  /** Mesma regra do juntar: quem está com o processo (ou o administrador do órgão). */
+  private async exigirQuemEstaCom(ator: Ator, p: Processo) {
+    const perfil = await this.perfil(ator, p.orgao_id);
+    const atual = await this.atual(p);
+    if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
+      throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode ver ou alterar o rascunho.');
+    }
+    return perfil;
+  }
+
   async encerrar(ator: Ator, id: string, motivo: string | null) {
     const p = await this.processos.obter(ator, id);
     if (temTramitacaoPropria(p.tipo) && p.situacao !== 'ENCERRADO') {

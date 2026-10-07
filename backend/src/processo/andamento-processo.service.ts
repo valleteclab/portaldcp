@@ -3,7 +3,7 @@ import { DataSource } from 'typeorm';
 import { WorkflowService } from '../workflow/workflow.service';
 import type { WorkflowAcao } from '../workflow/workflow.entities';
 import { andamentoDoFluxo, andamentoLivre, type Andamento } from '../workflow/andamento/andamento';
-import type { Processo } from './entities/processo.entity';
+import { TipoProcesso, type Processo } from './entities/processo.entity';
 
 const ROTULO_RESPONSAVEL: Record<string, string> = {
   SOLICITANTE: 'Solicitante',
@@ -40,7 +40,9 @@ export class AndamentoProcessoService {
       this.ds.query(`SELECT tipo, created_at, para_setor_nome, para_usuario_nome, recebida_em FROM processo_movimentacoes WHERE processo_id = $1::uuid ORDER BY sequencia ASC`, [p.id]),
       this.ds.query(`SELECT titulo, created_at, criado_por_nome FROM processo_pecas WHERE processo_id = $1::uuid ORDER BY numero_peca ASC`, [p.id]),
     ]);
-    return andamentoLivre({ movimentacoes, pecas, encerramento: p.situacao === 'ENCERRADO' && p.encerrado_em ? { em: p.encerrado_em } : null });
+    // Ofício enviado: a resposta (ou o arquivamento) é o passo esperado de quem recebeu
+    const esperada = p.tipo === TipoProcesso.OFICIO && movimentacoes.some((m: { tipo: string }) => m.tipo === 'ENVIO') ? { titulo: 'Resposta' } : null;
+    return andamentoLivre({ movimentacoes, pecas, encerramento: p.situacao === 'ENCERRADO' && p.encerrado_em ? { em: p.encerrado_em } : null, esperada });
   }
 
   private idsDe(acao: WorkflowAcao): string[] {

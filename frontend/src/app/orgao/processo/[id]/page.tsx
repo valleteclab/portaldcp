@@ -33,10 +33,10 @@ import {
   estilos as s,
 } from "@/components/processo/BlocosProcesso"
 import { AndamentoFluxo } from "@/components/fluxo/AndamentoFluxo"
-import { BlocoOficio } from "@/components/processo/BlocoOficio"
+import { BlocoOficio, BlocoProvidenciaOficio } from "@/components/processo/BlocoOficio"
 import { PainelEtapaFluxo } from "@/components/fluxo/PainelEtapaFluxo"
 import { IniciarFluxoProcesso } from "@/components/fluxo/IniciarFluxoProcesso"
-import type { Andamento } from "@/lib/fluxo/andamento"
+import { haQuantoTempo, type Andamento } from "@/lib/fluxo/andamento"
 
 /**
  * Tela do processo (genérica): mostra ONDE o processo está e o PRÓXIMO PASSO.
@@ -167,6 +167,13 @@ export default function TelaDoProcessoPage() {
   const ehOficio = processo.tipo === "OFICIO"
   const oficioPendente = ehOficio && !!autos && !autos.juntadas.some((j) => j.tipo_peca === "OFICIO")
   const ehAvulso = processo.tipo === "AVULSO" || ehOficio
+  const oficioJaEnviado = ehOficio && !!tram?.movimentacoes?.some((m) => m.tipo !== "ABERTURA")
+  // Selo do cabeçalho (mockup): onde está e há quanto tempo — "ETP · Setor de Compras · há 3 dias" / "No Setor de Patrimônio · há 2 dias"
+  const ondeEsta = !encerrado && andamento?.atual
+    ? andamento.modo === "FLUXO"
+      ? [andamento.atual.titulo, andamento.atual.responsavel, haQuantoTempo(andamento.atual.desde)].filter(Boolean).join(" · ")
+      : [andamento.atual.titulo === "Aguardando recebimento" ? `Aguardando recebimento em ${andamento.atual.responsavel ?? ""}`.trim() : `No ${andamento.atual.responsavel ?? "órgão"}`, haQuantoTempo(andamento.atual.desde)].filter(Boolean).join(" · ")
+    : null
   const ehLicitacao = processo.tipo === "CONTRATACAO" && !!processo.referencia_id
   const temFluxo = !!fluxo?.disponivel && !!fluxo.tem_fluxo && !!fluxo.etapas?.length
   const etapaAtual = temFluxo ? fluxo?.etapa_atual ?? null : null
@@ -190,6 +197,7 @@ export default function TelaDoProcessoPage() {
           <span className={s.tipo}>{rotuloDoTipo(processo.tipo)}</span>
           <span>Processo nº {processo.numero}</span>
           <span className={`${s.chip} ${encerrado ? s.chipOk : s.chipEspera}`}>{encerrado ? "Encerrado" : "Em andamento"}</span>
+          {ondeEsta ? <span className={s.chip}>{ondeEsta}</span> : null}
           {processo.contrato_id ? (
             <Link className={s.link} href={`/orgao/contratos/${processo.contrato_id}`}>
               Contrato {contrato?.numero_contrato ?? "vinculado"}
@@ -245,6 +253,13 @@ export default function TelaDoProcessoPage() {
         <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
       ) : podeAgir && oficioPendente ? (
         <BlocoOficio processoId={processo.id} onEnviado={() => carregar(true)} />
+      ) : podeAgir && ehOficio && oficioJaEnviado ? (
+        <BlocoProvidenciaOficio
+          processoId={processo.id}
+          remetente={tram?.atual ? { setor_id: tram.atual.de_setor_id, setor_nome: tram.atual.de_setor_nome } : null}
+          posse={posse}
+          onFeito={() => carregar(true)}
+        />
       ) : podeAgir ? (
         <>
           {andamento?.modo === "FLUXO" ? null : temFluxo && etapaAtual ? (

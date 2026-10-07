@@ -114,6 +114,8 @@ export function FormularioPeca({
   onJuntada,
   onCancelar,
   tipoPeca,
+  htmlInicial,
+  onSalvarRascunho,
 }: {
   processoId: string
   /** Etapa atual do fluxo (conclui a etapa); null para peça avulsa. */
@@ -124,6 +126,10 @@ export function FormularioPeca({
   onCancelar: () => void
   /** Tipo da peça sem etapa (ex.: OFICIO, que recebe número ao assinar). */
   tipoPeca?: string
+  /** Texto já salvo como rascunho: tem precedência sobre o modelo. */
+  htmlInicial?: string | null
+  /** Mostra "Salvar rascunho" (o texto fica no processo até ser assinado). */
+  onSalvarRascunho?: (dados: { titulo: string; html: string }) => Promise<void>
 }) {
   const sufixo = etapa?.chave ?? "avulsa"
   const [caminho, setCaminho] = useState<"escrever" | "ia" | "anexar">("escrever")
@@ -138,6 +144,7 @@ export function FormularioPeca({
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [paginas, setPaginas] = useState("1")
   const [enviando, setEnviando] = useState(false)
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
   // Modelo da etapa: ponto de partida do editor (lacunas em destaque)
@@ -148,7 +155,7 @@ export function FormularioPeca({
         if (!vivo) return
         setModelo(m)
         setModeloId(m.modelo_id)
-        setHtml((atual) => atual || m.html)
+        setHtml((atual) => atual || htmlInicial || m.html)
         setAviso(m.modelos.length ? `Modelo "${m.modelos[0].nome}". ${DICA_LACUNA}` : `Texto padrão. ${DICA_LACUNA}`)
       })
       .catch(() => vivo && setModelo({ processo_id: processoId, etapa: etapa?.chave ?? null, titulo: tituloInicial, html: "", modelo_id: null, modelos: [], ia_disponivel: false }))
@@ -373,8 +380,8 @@ export function FormularioPeca({
               rodape="Local, data e assinatura eletrônica entram no PDF ao juntar."
               modelos={modelo?.modelos ?? []}
               modeloId={modeloId}
-              onEscolherModelo={etapa?.tipo_peca ? escolherModelo : undefined}
-              onSalvarModelo={etapa?.tipo_peca ? salvarComoModelo : undefined}
+              onEscolherModelo={etapa?.tipo_peca || tipoPeca ? escolherModelo : undefined}
+              onSalvarModelo={etapa?.tipo_peca || tipoPeca ? salvarComoModelo : undefined}
             />
             <div className={s.acoes}>
               {aviso ? <span className={s.ou}>{aviso}</span> : null}
@@ -391,6 +398,27 @@ export function FormularioPeca({
           <button type="button" className={`${s.botao} ${s.primario}`} onClick={juntar} disabled={enviando}>
             {enviando ? "Juntando..." : rotuloBotao}
           </button>
+          {onSalvarRascunho && caminho !== "anexar" ? (
+            <button
+              type="button"
+              className={`${s.botao} ${s.secundario}`}
+              disabled={enviando || salvandoRascunho}
+              onClick={async () => {
+                setSalvandoRascunho(true)
+                setErro(null)
+                try {
+                  await onSalvarRascunho({ titulo: titulo.trim(), html })
+                  setAviso("Rascunho salvo. Você pode continuar depois, de qualquer aparelho.")
+                } catch (e) {
+                  setErro(textoDoErro(e, "Não foi possível salvar o rascunho."))
+                } finally {
+                  setSalvandoRascunho(false)
+                }
+              }}
+            >
+              {salvandoRascunho ? "Salvando..." : "Salvar rascunho"}
+            </button>
+          ) : null}
           <button type="button" className={`${s.botao} ${s.secundario}`} onClick={onCancelar} disabled={enviando}>
             Cancelar
           </button>
