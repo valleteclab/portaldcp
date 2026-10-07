@@ -3,7 +3,12 @@
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/opt/portaldcp}"
-BRANCH="${BRANCH:-main}"
+# Produção sobe o branch `producao`, NUNCA o `main`.
+# O `main` recebe tudo que se desenvolve e vai sozinho para o Railway
+# (homologação). Para a VPS só vai o que foi validado lá e promovido para
+# `producao`. Em 04/10/2026 um deploy do `main` levou 204 commits não
+# validados para a Câmara de uma vez — este padrão existe por causa disso.
+BRANCH="${BRANCH:-producao}"
 REPO_URL="${REPO_URL:-https://github.com/valleteclab/portaldcp.git}"
 
 # Serviços que possuem build e são recriados no deploy.
@@ -48,6 +53,27 @@ fi
 
 echo "[2/6] Atualizando código (--autostash p/ edições locais)..."
 git fetch origin
+
+# Subir o `main` direto na produção exige confirmação explícita.
+if [ "$BRANCH" = "main" ] && [ "${CONFIRMO_MAIN:-}" != "sim" ]; then
+  echo ""
+  echo "[BLOQUEADO] BRANCH=main sobe para a produção tudo que está no main,"
+  echo "inclusive o que ainda não foi validado no Railway."
+  echo "O caminho normal é promover para 'producao' e rodar sem BRANCH."
+  echo "Se for mesmo intencional: CONFIRMO_MAIN=sim BRANCH=main bash deploy-vps.sh"
+  exit 1
+fi
+
+# Mostra o que vai subir ANTES de subir. Quem roda o deploy tem que ver o
+# tamanho da mudança — não descobrir depois, pelo cliente.
+ATUAL="$(git rev-parse HEAD 2>/dev/null || echo '')"
+if [ -n "$ATUAL" ] && git rev-parse --verify --quiet "origin/$BRANCH" >/dev/null; then
+  PENDENTES="$(git rev-list --count --no-merges "$ATUAL..origin/$BRANCH" 2>/dev/null || echo '?')"
+  echo "Vão subir $PENDENTES commit(s) de origin/$BRANCH:"
+  git log --oneline --no-merges "$ATUAL..origin/$BRANCH" 2>/dev/null | head -30 || true
+  echo ""
+fi
+
 git checkout "$BRANCH"
 git pull --rebase --autostash origin "$BRANCH"
 
