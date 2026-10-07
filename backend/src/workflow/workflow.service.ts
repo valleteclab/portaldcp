@@ -484,6 +484,11 @@ export class WorkflowService {
     return { ehLoginDoOrgao: ator.tipo === 'ORGAO', atorId, usuarioId: ator.usuarioId ?? null, setorId: (u?.setor_id as string | undefined) ?? null };
   }
 
+  /** O processo tem fluxo em andamento? (enquanto tiver, o envio é feito pelas etapas, não à mão) */
+  async temFluxoEmAndamento(orgaoId: string, processoId: string): Promise<boolean> {
+    return (await this.instancias.count({ where: { orgao_id: orgaoId, vinculo_tipo: VINCULO_PROCESSO, vinculo_id: processoId, status: 'EM_ANDAMENTO' } })) > 0;
+  }
+
   /** O ator pode concluir/devolver esta tarefa? (para mostrar ou esconder os botões) */
   async podeAgirNaTarefa(orgaoId: string, instancia: { iniciado_por_id: string | null }, tarefa: { responsavel_tipo: string; responsaveis: unknown }, ator: Ator) {
     return ehResponsavelDaTarefa(tarefa, instancia, await this.quemE(orgaoId, ator));

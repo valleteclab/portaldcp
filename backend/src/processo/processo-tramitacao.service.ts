@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { ModeloDocumento } from '../fase-interna/entities/modelo-documento.entity';
@@ -43,6 +43,8 @@ import {
 } from './peca-documento';
 import { gerarPdfPeca } from './peca-pdf';
 import { WorkflowService } from '../workflow/workflow.service';
+import { RegistroNos, type EventoFluxo } from '../workflow/nos/executor-no';
+import { definicaoDoNo } from '../workflow/nos/catalogo-nos';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -68,7 +70,7 @@ interface Destino {
  * precisam ser do mesmo órgão. A CONTRATAÇÃO continua nas rotas da fase interna.
  */
 @Injectable()
-export class ProcessoTramitacaoService {
+export class ProcessoTramitacaoService implements OnModuleInit {
   private readonly logger = new Logger(ProcessoTramitacaoService.name);
 
   constructor(
@@ -78,7 +80,65 @@ export class ProcessoTramitacaoService {
     private readonly ia: IaService,
     @InjectRepository(ModeloDocumento) private readonly modelosRepo: Repository<ModeloDocumento>,
     private readonly workflow: WorkflowService,
+    private readonly registro: RegistroNos,
   ) {}
+
+  // ==========================================================================
+  // Tramitação acompanha o fluxo desenhado
+  // ==========================================================================
+
+  /** Quando uma etapa do fluxo começa, o processo vai para quem responde por ela. */
+  onModuleInit(): void {
+    this.registro.registrarOuvinte({ aoEvento: (e) => this.aoEventoDoFluxo(e) });
+  }
+
+  private async aoEventoDoFluxo(e: EventoFluxo): Promise<void> {
+    if (e.tipo !== 'TAREFA_CRIADA' || !e.ctx.processoId) return;
+    if (definicaoDoNo(e.ctx.acao.tipo)?.automatico) return; // nó automático (Notificar) não muda a posse
+    const { tarefa, instancia, acao, orgaoId, processoId } = e.ctx;
+    const lista = Array.isArray(tarefa.responsaveis) ? tarefa.responsaveis.map(String) : [];
+    const tipo = String(tarefa.responsavel_tipo).toUpperCase();
+    const alvo = tipo === 'SETOR' ? { para_setor_id: lista[0] } : tipo === 'USUARIO' ? { para_usuario_id: lista[0] } : tipo === 'SOLICITANTE' ? { para_usuario_id: instancia.iniciado_por_id } : null;
+    if (!alvo || !Object.values(alvo)[0]) return;
+    const [p] = await this.ds.query(`SELECT * FROM processos WHERE id = $1::uuid AND orgao_id::text = $2`, [processoId, orgaoId]);
+    if (!p || p.situacao !== 'ABERTO' || !temTramitacaoPropria(p.tipo)) return;
+    let destino: Destino;
+    try {
+      destino = await this.resolverDestino(orgaoId, alvo);
+    } catch {
+      return; // responsável que não é pessoa do órgão (ex.: login do próprio órgão): a posse fica onde está
+    }
+    await this.ds.transaction(async (m) => {
+      await this.travar(m, processoId!);
+      const atual = await this.atual({ id: processoId! }, m);
+      if (atual && atual.para_setor_id === destino.para_setor_id && atual.para_usuario_id === destino.para_usuario_id && atual.recebida_em) return;
+      const repo = m.getRepository(ProcessoMovimentacao);
+      await repo.save(
+        repo.create({
+          processo_id: processoId!,
+          orgao_id: orgaoId,
+          sequencia: (atual?.sequencia ?? 0) + 1,
+          tipo: 'ENVIO',
+          de_setor_id: atual?.para_setor_id ?? null,
+          de_setor_nome: atual?.para_setor_nome ?? null,
+          de_usuario_id: null,
+          de_usuario_nome: 'Fluxo do processo',
+          ...destino,
+          despacho: `Encaminhado pelo fluxo: etapa “${acao.nome}”.`,
+          recebida_em: new Date(),
+          recebida_por_id: null,
+          recebida_por_nome: 'Fluxo do processo',
+        }),
+      );
+    });
+  }
+
+  /** Enquanto houver fluxo em andamento, envio, devolução e encerramento são feitos pelas etapas. */
+  private async exigirSemFluxo(p: Processo) {
+    if (await this.workflow.temFluxoEmAndamento(p.orgao_id, p.id)) {
+      throw new ConflictException('Este processo segue um fluxo: ele anda pelas etapas (concluir, devolver ou indeferir), não pelo envio manual.');
+    }
+  }
 
   // ==========================================================================
   // Apoio
@@ -212,6 +272,7 @@ export class ProcessoTramitacaoService {
   async enviar(ator: Ator, id: string, body: any) {
     const p = await this.carregar(ator, id);
     this.exigirAberto(p);
+    await this.exigirSemFluxo(p);
     const erro = validarDestino(body ?? {});
     if (erro) throw new BadRequestException(erro);
     const perfil = await this.perfil(ator, p.orgao_id);
@@ -270,6 +331,7 @@ export class ProcessoTramitacaoService {
   /** Devolve a quem enviou (o remetente da movimentação atual). */
   async devolver(ator: Ator, id: string, body: any) {
     const p = await this.carregar(ator, id);
+    await this.exigirSemFluxo(p);
     this.exigirAberto(p);
     const erro = validarDespacho(body?.despacho);
     if (erro) throw new BadRequestException(erro);
@@ -666,6 +728,7 @@ export class ProcessoTramitacaoService {
 
   async encerrar(ator: Ator, id: string, motivo: string | null) {
     const p = await this.processos.obter(ator, id);
+    await this.exigirSemFluxo(p);
     if (temTramitacaoPropria(p.tipo) && p.situacao !== 'ENCERRADO') {
       const perfil = await this.perfil(ator, p.orgao_id);
       const atual = await this.atual(p);

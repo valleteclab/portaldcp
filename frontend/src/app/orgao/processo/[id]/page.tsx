@@ -168,6 +168,8 @@ export default function TelaDoProcessoPage() {
   const oficioPendente = ehOficio && !!autos && !autos.juntadas.some((j) => j.tipo_peca === "OFICIO")
   const ehAvulso = processo.tipo === "AVULSO" || ehOficio
   const oficioJaEnviado = ehOficio && !!tram?.movimentacoes?.some((m) => m.tipo !== "ABERTURA")
+  // Com fluxo em andamento o processo anda pelas etapas: sem envio, devolução ou encerramento à mão
+  const fluxoEmAndamento = andamento?.modo === "FLUXO" && !andamento.encerrado
   // Selo do cabeçalho (mockup): onde está e há quanto tempo — "ETP · Setor de Compras · há 3 dias" / "No Setor de Patrimônio · há 2 dias"
   const ondeEsta = !encerrado && andamento?.atual
     ? andamento.modo === "FLUXO"
@@ -251,7 +253,7 @@ export default function TelaDoProcessoPage() {
         </section>
       ) : encerrado ? (
         <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
-      ) : podeAgir && oficioPendente ? (
+      ) : fluxoEmAndamento ? null : podeAgir && oficioPendente ? (
         <BlocoOficio processoId={processo.id} onEnviado={() => carregar(true)} />
       ) : podeAgir && ehOficio && oficioJaEnviado ? (
         <BlocoProvidenciaOficio
