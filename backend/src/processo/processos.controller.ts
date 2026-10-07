@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Headers, Ip, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { PecasLicitacaoService } from './pecas-licitacao.service';
 import { PainelGestorService } from './painel-gestor.service';
+import { AndamentoProcessoService } from './andamento-processo.service';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ProcessoConteudoService } from './processo-conteudo.service';
@@ -33,6 +34,7 @@ export class ProcessosController {
     private readonly tramite: ProcessoTramitacaoService,
     private readonly pecasLicitacao: PecasLicitacaoService,
     private readonly painelGestor: PainelGestorService,
+    private readonly andamentoProcesso: AndamentoProcessoService,
   ) {}
 
   /** Tipos de processo (registro em dados + catálogo de documentos e campos de condição de cada um). */
@@ -118,6 +120,12 @@ export class ProcessosController {
   @Get(':id/tramitacao')
   async tramitacao(@AtorAtual() ator: Ator, @Param('id') id: string) {
     return this.conteudo.tramitacao(await this.processos.obter(ator, id), ator);
+  }
+
+  /** Andamento para a tela de acompanhamento: nós concluídos, em andamento e a realizar (fluxo desenhado ou tramitação livre). */
+  @Get(':id/andamento')
+  async andamento(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.andamentoProcesso.andamento(await this.processos.obter(ator, id));
   }
 
   /** Fluxo: retrato (modelo, versão, marcas) e etapas calculadas — o mesmo de `/fase-interna/:id/etapas`. */

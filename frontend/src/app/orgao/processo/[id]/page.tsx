@@ -32,6 +32,8 @@ import {
   TemaProcesso,
   estilos as s,
 } from "@/components/processo/BlocosProcesso"
+import { AndamentoFluxo } from "@/components/fluxo/AndamentoFluxo"
+import type { Andamento } from "@/lib/fluxo/andamento"
 
 /**
  * Tela do processo (genérica): mostra ONDE o processo está e o PRÓXIMO PASSO.
@@ -47,6 +49,7 @@ export default function TelaDoProcessoPage() {
   const [posse, setPosse] = useState<ComQuemEsta | null>(null)
   const [fluxo, setFluxo] = useState<Fluxo | null>(null)
   const [autos, setAutos] = useState<Autos | null>(null)
+  const [andamento, setAndamento] = useState<Andamento | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [recebendo, setRecebendo] = useState(false)
@@ -60,6 +63,8 @@ export default function TelaDoProcessoPage() {
       try {
         const p = await chamarProcessos<ProcessoVisao>(`/${id}`, { padrao: "Não foi possível abrir o processo." })
         setProcesso(p)
+        // Andamento é complemento: se falhar, a tela segue sem ele
+        chamarProcessos<Andamento>(`/${id}/andamento`).then(setAndamento).catch(() => setAndamento(null))
         if (temTramitacaoPropria(p.tipo)) {
           const [t, f, a] = await Promise.all([
             chamarProcessos<Tramitacao>(`/${id}/tramitacao`),
@@ -188,6 +193,8 @@ export default function TelaDoProcessoPage() {
         </div>
       </header>
 
+      <AndamentoFluxo andamento={andamento} />
+
       <BlocoEstaCom
         posse={posse}
         encerrado={encerrado}
@@ -244,7 +251,7 @@ export default function TelaDoProcessoPage() {
         <BlocoAguardando posse={posse} encerrado={false} motivo={null} />
       )}
 
-      {propria || ehLicitacao ? <BlocoEtapas fluxo={fluxo} /> : null}
+      {(propria || ehLicitacao) && andamento?.modo !== "FLUXO" ? <BlocoEtapas fluxo={fluxo} /> : null}
       {ehLicitacao && !encerrado ? <BlocoPublicacaoLicitacao licitacaoId={processo.referencia_id!} modalidade={licitacao?.modalidade ?? null} /> : null}
       {ehLicitacao ? <BlocoDadosLicitacao licitacaoId={processo.referencia_id!} lic={licitacao} /> : null}
 

@@ -14,6 +14,8 @@ import { ProcessoService } from './processo.service';
 import { ProcessosController } from './processos.controller';
 import { PecasLicitacaoService } from './pecas-licitacao.service';
 import { PainelGestorService } from './painel-gestor.service';
+import { AndamentoProcessoService } from './andamento-processo.service';
+import { WorkflowModule } from '../workflow/workflow.module';
 
 /**
  * PROCESSO ELETRÔNICO (fundação — decisão do dono de 28/09/2026).
@@ -24,9 +26,9 @@ import { PainelGestorService } from './painel-gestor.service';
  * a base, e a licitação é o primeiro tipo que se apoia nele.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Processo, TipoProcessoRegistro, ProcessoMovimentacao, ProcessoPeca, ModeloDocumento]), NumeroProcessoModule, NotificacoesModule, IaModule],
+  imports: [TypeOrmModule.forFeature([Processo, TipoProcessoRegistro, ProcessoMovimentacao, ProcessoPeca, ModeloDocumento]), NumeroProcessoModule, NotificacoesModule, IaModule, WorkflowModule],
   controllers: [ProcessosController],
-  providers: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PecasLicitacaoService, PainelGestorService, MigracaoProcessoBootService],
+  providers: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PecasLicitacaoService, PainelGestorService, MigracaoProcessoBootService, AndamentoProcessoService],
   exports: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PainelGestorService, MigracaoProcessoBootService],
 })
 export class ProcessoModule {}

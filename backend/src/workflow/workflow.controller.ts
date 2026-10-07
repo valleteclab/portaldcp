@@ -2,12 +2,19 @@ import { BadRequestException, Body, Controller, Get, Param, Patch, Post } from '
 import { AtorAtual } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { WorkflowService } from './workflow.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { CATALOGO_NOS } from './nos/catalogo-nos';
 
 const orgaoDo = (ator: Ator) => { if (!ator?.orgaoId) throw new BadRequestException('Acesso exclusivo do órgão'); return ator.orgaoId; };
 
+/** Fluxos de processo: desenho e execução. Parte do Processo Eletrônico — desliga junto com ele. */
 @Controller('workflows')
+@RequireModule(ModuloSistema.PROCESSOS)
 export class WorkflowController {
   constructor(private readonly service: WorkflowService) {}
+  /** Etapas que podem ser arrastadas para o desenho (paleta), com a trava legal de cada uma. */
+  @Get('catalogo-nos') catalogo() { return CATALOGO_NOS; }
   @Get() listar(@AtorAtual() ator: Ator) { return this.service.listar(orgaoDo(ator)); }
   @Post() criar(@AtorAtual() ator: Ator, @Body() body: any) { return this.service.criar(orgaoDo(ator), ator.usuarioId ?? ator.id, body); }
   @Post('modelos-prontos/aditivo') modeloAditivo(@AtorAtual() ator: Ator) { return this.service.criarModeloAditivo(orgaoDo(ator), ator.usuarioId ?? ator.id); }
