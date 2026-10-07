@@ -43,6 +43,8 @@ export interface Andamento {
   encerrado: boolean;
   /** Quem está vendo pode concluir/devolver a etapa atual (fluxo desenhado). Preenchido pelo serviço. */
   pode_agir?: boolean;
+  /** Contratação: licitação cujas telas da fase interna as etapas abrem (ponte). */
+  licitacao_id?: string | null;
 }
 
 const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);

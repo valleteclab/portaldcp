@@ -1,3 +1,4 @@
+import { licitacaoConduzidaPeloFluxo } from '../workflow/ponte/ponte-fase-interna';
 import {
   Injectable,
   Logger,
@@ -319,6 +320,10 @@ export class TramitacaoService {
     const prazo = this.validarPrazo(params.prazo_dias_uteis);
     const finalidade = String(params.finalidade ?? '').trim().slice(0, 300) || null;
     const etapas = this.validarEtapas(params.etapas);
+    // Ponte: com fluxo desenhado em andamento, o processo anda pelas etapas — envio manual recusado
+    if (!params.automatico && (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), lic.id))) {
+      throw new ConflictException('Este processo segue um fluxo: ele anda pelas etapas (concluir, devolver ou indeferir), não pelo envio manual.');
+    }
     // F3: envio manual espera a sincronização em curso do processo (posse inicial, envio automático)
     if (!params.automatico) await this.esperarAntes(lic.id);
 
@@ -680,6 +685,9 @@ export class TramitacaoService {
       throw new BadRequestException('Esta tramitação não pode ser devolvida');
     }
     await this.exigirQuemEstaComOProcesso(perfil, tramitacao, 'devolvê-lo');
+    if (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), lic.id)) {
+      throw new ConflictException('Este processo segue um fluxo: a devolução é feita pela etapa do fluxo.');
+    }
     if (tramitacao.posse_inicial) {
       throw new BadRequestException('A posse inicial (autuação) não se devolve: envie o processo ao destino com um despacho.');
     }

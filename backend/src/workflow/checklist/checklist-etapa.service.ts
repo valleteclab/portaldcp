@@ -7,6 +7,7 @@ import { paginasDoArquivo } from '../../fase-interna/conformidade/texto-pdf';
 import { WorkflowService } from '../workflow.service';
 import { CATALOGO_NOS, definicaoDoNo } from '../nos/catalogo-nos';
 import { RegistroNos, type ContextoNo } from '../nos/executor-no';
+import { PonteFaseInternaService } from '../ponte/ponte-fase-interna.service';
 import { aplicarLeituraDaIa, checklistDoDocumento, marcarItem, pendenciasDoChecklist, resumoDoChecklist, type EstadoChecklist, type ItemChecklist } from './checklist-documento';
 
 /** Etapas com executor próprio (não entram no executor genérico de documento). */
@@ -31,12 +32,17 @@ export class ChecklistEtapaService implements OnModuleInit {
     private readonly workflow: WorkflowService,
     private readonly registro: RegistroNos,
     private readonly ia: IaService,
+    private readonly ponte: PonteFaseInternaService,
   ) {}
 
   onModuleInit(): void {
     for (const def of CATALOGO_NOS) {
       if (!def.documento.produz || COM_EXECUTOR_PROPRIO.has(def.tipo) || this.registro.executor(def.tipo)) continue;
       this.registro.registrarExecutor({ tipo: def.tipo, pendencias: (ctx) => this.pendencias(ctx) });
+    }
+    // Publicação: na contratação, só conclui com a licitação publicada (tela da licitação)
+    if (!this.registro.executor('PUBLICACAO')) {
+      this.registro.registrarExecutor({ tipo: 'PUBLICACAO', pendencias: async (ctx) => (await this.ponte.pendencias(ctx.processoId, 'PUBLICACAO')) ?? [] });
     }
   }
 
@@ -54,6 +60,9 @@ export class ChecklistEtapaService implements OnModuleInit {
 
   private async pendencias(ctx: ContextoNo): Promise<string[]> {
     if (!ctx.processoId) return []; // fluxo sem processo (legado) não tem autos para o documento
+    // Contratação (ponte): o documento é o da tela da fase interna
+    const daPonte = await this.ponte.pendencias(ctx.processoId, ctx.acao.tipo);
+    if (daPonte) return daPonte;
     const pend: string[] = [];
     if (!(await this.pecaDaEtapa(ctx.processoId, ctx.acao.id))) pend.push(`Falta o documento da etapa "${ctx.acao.nome}": escreva, use a IA ou anexe.`);
     pend.push(...pendenciasDoChecklist(this.itensDe(ctx.acao.tipo), (ctx.tarefa.resposta as any)?.checklist ?? null));

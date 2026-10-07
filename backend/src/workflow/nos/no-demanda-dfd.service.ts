@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { RegistroNos, type ContextoNo } from './executor-no';
+import { PonteFaseInternaService } from '../ponte/ponte-fase-interna.service';
 
 /**
  * Chave de etapa usada em `processo_pecas.etapa` para o documento de um nó do
@@ -42,6 +43,7 @@ export class ExecutorDemandaDfd implements OnModuleInit {
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
     private readonly registro: RegistroNos,
+    private readonly ponte: PonteFaseInternaService,
   ) {}
 
   onModuleInit(): void {
@@ -65,6 +67,8 @@ export class ExecutorDemandaDfd implements OnModuleInit {
   }
 
   private async pendenciasDemanda(ctx: ContextoNo): Promise<string[]> {
+    const daPonte = await this.ponte.pendencias(ctx.processoId, 'DEMANDA');
+    if (daPonte) return daPonte;
     const demandaId = typeof ctx.tarefa.resposta?.demanda_id === 'string' ? (ctx.tarefa.resposta.demanda_id as string) : null;
     return pendenciasDemandaPura({
       processoLigado: !!ctx.processoId,
@@ -75,6 +79,8 @@ export class ExecutorDemandaDfd implements OnModuleInit {
   }
 
   private async pendenciasDfd(ctx: ContextoNo): Promise<string[]> {
+    const daPonte = await this.ponte.pendencias(ctx.processoId, 'DFD');
+    if (daPonte) return daPonte;
     return pendenciasDfdPura({ processoLigado: !!ctx.processoId, temDocumento: await this.temDocumento(ctx) });
   }
 }

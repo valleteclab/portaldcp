@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { RegistroNos, type EventoFluxo } from '../workflow/nos/executor-no';
+import { definicaoDoNo } from '../workflow/nos/catalogo-nos';
 import { ModuleRef } from '@nestjs/core';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -33,7 +35,7 @@ export interface PosseResumida {
  * esqueleto) devolvem estruturas vazias com `disponivel: false`.
  */
 @Injectable()
-export class ProcessoConteudoService {
+export class ProcessoConteudoService implements OnModuleInit {
   private readonly logger = new Logger(ProcessoConteudoService.name);
 
   constructor(
@@ -41,7 +43,34 @@ export class ProcessoConteudoService {
     private readonly moduleRef: ModuleRef,
     private readonly processos: ProcessoService,
     private readonly tramitacaoPropria: ProcessoTramitacaoService,
+    private readonly registro: RegistroNos,
   ) {}
+
+  /** Ponte: na contratação com fluxo desenhado, a posse da fase interna vai para quem responde pela etapa. */
+  onModuleInit(): void {
+    this.registro.registrarOuvinte({ aoEvento: (e) => this.posseDaContratacao(e) });
+  }
+
+  private async posseDaContratacao(e: EventoFluxo): Promise<void> {
+    if (e.tipo !== 'TAREFA_CRIADA' || !e.ctx.processoId || definicaoDoNo(e.ctx.acao.tipo)?.automatico) return;
+    const { tarefa, instancia, acao, orgaoId, processoId } = e.ctx;
+    const [p] = await this.ds.query(`SELECT tipo, referencia_tipo, referencia_id::text AS referencia_id FROM processos WHERE id::text = $1 AND orgao_id::text = $2`, [processoId, orgaoId]);
+    if (!p || p.tipo !== TipoProcesso.CONTRATACAO || p.referencia_tipo !== 'LICITACAO' || !p.referencia_id) return;
+    const lista = Array.isArray(tarefa.responsaveis) ? tarefa.responsaveis.map(String) : [];
+    const tipo = String(tarefa.responsavel_tipo).toUpperCase();
+    const para = tipo === 'SETOR' ? { setor_id: lista[0] } : tipo === 'USUARIO' ? { usuario_id: lista[0] } : tipo === 'SOLICITANTE' ? { usuario_id: instancia.iniciado_por_id } : null;
+    if (!para || !Object.values(para)[0]) return;
+    const tram = this.servico<any>('../fase-interna/tramitacao.service', 'TramitacaoService');
+    if (!tram) return;
+    const atual = await tram.comQuemEsta(p.referencia_id).catch(() => null);
+    if (atual && ((para as any).setor_id ? atual.setor?.id === (para as any).setor_id && !atual.usuario : atual.usuario?.id === (para as any).usuario_id)) return;
+    const ator: Ator = { tipo: 'ORGAO', id: orgaoId, orgaoId, usuarioId: null, fornecedorId: null, admin: false, role: null };
+    try {
+      await tram.enviar({ licitacaoId: p.referencia_id, para, automatico: true, despacho: `Encaminhado pelo fluxo: etapa “${acao.nome}”.`, ator });
+    } catch (err) {
+      this.logger.warn(`Posse da contratação ${p.referencia_id} não acompanhou o fluxo: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 
   private servico<T>(caminho: string, nome: string): T | null {
     // eslint-disable-next-line @typescript-eslint/no-require-imports

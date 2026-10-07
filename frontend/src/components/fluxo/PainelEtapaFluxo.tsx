@@ -9,6 +9,7 @@ import type { Andamento } from "@/lib/fluxo/andamento"
 import { FormularioPeca, estilos as s } from "@/components/processo/BlocosProcesso"
 import type { Etapa } from "@/lib/processo/processo"
 import { ChecklistEtapa, TrazidoEtapasAnteriores } from "./ChecklistEtapa"
+import { telaDaFaseInterna } from "@/lib/fluxo/ponte"
 
 interface ItemCatalogo {
   tipo: string
@@ -191,6 +192,8 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
   }
 
   const ehPrimeiraEtapa = andamento.nos[0]?.chave === no.chave
+  // Contratação (ponte): a etapa abre a tela da fase interna que já existe
+  const ponte = andamento.licitacao_id ? telaDaFaseInterna(no.tipo, andamento.licitacao_id) : null
 
   // Quem não responde pela etapa só acompanha: sem botões (a etapa é de outro setor ou pessoa)
   if (andamento.pode_agir === false)
@@ -233,7 +236,18 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
         </div>
       ) : null}
 
-      {no.tipo === "DEMANDA" && demandas && demandas.length > 0 ? (
+      {ponte ? (
+        <div className={s.formulario} style={{ marginTop: 10 }}>
+          <p className={s.texto}>Esta etapa é feita na tela da fase interna. Quando o documento estiver pronto lá, volte aqui e conclua a etapa.</p>
+          <div className={s.acoes}>
+            <Link href={ponte.href} className={`${s.botao} ${s.primario}`}>
+              {ponte.rotulo}
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
+      {!andamento.licitacao_id && no.tipo === "DEMANDA" && demandas && demandas.length > 0 ? (
         <div className={s.formulario} style={{ marginTop: 10 }}>
           <label className={s.rotulo} htmlFor="demanda-vinculada">
             Vincular uma demanda já cadastrada (em vez de redigir)
@@ -254,7 +268,7 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
         </div>
       ) : null}
 
-      {no.tipo === "DFD" && dfds !== null ? (
+      {!andamento.licitacao_id && no.tipo === "DFD" && dfds !== null ? (
         <div className={s.formulario} style={{ marginTop: 10 }}>
           <p className={s.texto}>
             <b>DFD consolidado</b> — reúna as demandas dos setores num DFD só (art. 12, VII, da Lei 14.133) e junte-o aos autos como documento desta etapa.
@@ -287,7 +301,7 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
         </div>
       ) : null}
 
-      {produzDocumento ? (
+      {produzDocumento && !andamento.licitacao_id ? (
         escrevendo ? (
           <FormularioPeca
             processoId={processoId}
@@ -310,7 +324,7 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
         )
       ) : null}
 
-      <ChecklistEtapa instanciaId={instanciaId} tarefaId={no.tarefa_id} versaoDocumento={versaoDoc} />
+      {!andamento.licitacao_id ? <ChecklistEtapa instanciaId={instanciaId} tarefaId={no.tarefa_id} versaoDocumento={versaoDoc} /> : null}
       <TrazidoEtapasAnteriores processoId={processoId} versao={versaoDoc} />
 
       <div className={s.acoes} style={{ marginTop: 12 }}>
