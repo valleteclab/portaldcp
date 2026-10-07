@@ -17,6 +17,14 @@ describe('item recorrente mensal (quantidade × meses)', () => {
     expect(ehItemRecorrenteMensal({ unidade_medida: 'PESSOA', quantidade_meses: null })).toBe(false);
   });
 
+  it('execução periódica (trimestral, semestral…) conta execuções, não meses — 001/2026 TOYOLEM', () => {
+    expect(ehItemRecorrenteMensal({ unidade_medida: 'SERVIÇO', quantidade_meses: 4, frequencia_execucao: 'TRIMESTRAL' })).toBe(false);
+    expect(ehItemRecorrenteMensal({ unidade_medida: 'SERVIÇO', quantidade_meses: 2, frequencia_execucao: 'SEMESTRAL' })).toBe(false);
+    expect(ehItemRecorrenteMensal({ unidade_medida: 'HORA', quantidade_meses: 5, frequencia_execucao: 'ANUAL' })).toBe(false);
+    expect(ehItemRecorrenteMensal({ unidade_medida: 'UN', quantidade_meses: 60, frequencia_execucao: 'MENSAL' })).toBe(true);
+    expect(ehItemRecorrenteMensal({ unidade_medida: 'UNIDADE', quantidade_meses: 12, frequencia_execucao: null })).toBe(true);
+  });
+
   it('meses do período: mês cheio vale 1, meio mês vale 0,5, teto em 1', () => {
     expect(mesesDoPeriodo('2026-09-01', '2026-09-30')).toBe(1);
     expect(mesesDoPeriodo('2026-08-31', '2026-09-29')).toBe(1);
