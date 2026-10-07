@@ -75,6 +75,36 @@ export class WorkflowService {
     return this.obter(orgaoId, id);
   }
 
+  /**
+   * Modelo pronto para testar os nós DEMANDA → APROVACAO → DFD (item 4 do
+   * pedido): responsável SOLICITANTE em todas as etapas, para dar para
+   * iniciar e rodar sem precisar configurar setor/usuário antes. Já publicado.
+   */
+  async criarModeloDemandaDfd(orgaoId: string, autorId: string | null) {
+    const nome = 'Contratação — demanda ao DFD';
+    const existente = await this.modelos.findOne({ where: { orgao_id: orgaoId, nome } });
+    if (existente) return this.obter(orgaoId, existente.id);
+    const id = await this.dataSource.transaction(async (manager) => {
+      const modelo = await manager.save(
+        WorkflowModelo,
+        manager.create(WorkflowModelo, { orgao_id: orgaoId, criado_por_id: autorId, nome, descricao: 'Da demanda do setor requisitante à formalização do DFD, com aprovação no meio.', status: 'PUBLICADO' }),
+      );
+      const nomesFases = ['Demanda', 'Aprovação', 'DFD'];
+      const tipos = ['DEMANDA', 'APROVACAO', 'DFD'];
+      const cores = ['#0891b2', '#eab308', '#7c3aed'];
+      const prazos = [3, 2, 5];
+      const fases = await manager.save(WorkflowFase, nomesFases.map((f, i) => manager.create(WorkflowFase, { workflow_id: modelo.id, nome: f, ordem: i + 1, cor: cores[i] })));
+      for (let i = 0; i < fases.length; i++) {
+        await manager.save(
+          WorkflowAcao,
+          manager.create(WorkflowAcao, { fase_id: fases[i].id, nome: nomesFases[i], tipo: tipos[i], ordem: 1, formulario_id: null, responsavel_tipo: 'SOLICITANTE', responsavel_valor: null, prazo_dias_uteis: prazos[i], configuracao: { responsaveis: [] } }),
+        );
+      }
+      return modelo.id;
+    });
+    return this.obter(orgaoId, id);
+  }
+
   async atualizar(orgaoId: string, id: string, body: any) {
     const modelo = await this.obter(orgaoId, id);
     if (body?.nome !== undefined) modelo.nome = String(body.nome).trim() || modelo.nome;
@@ -418,6 +448,55 @@ export class WorkflowService {
     });
     if (passos[atual]) await this.registro.emitir({ tipo: 'TAREFA_DEVOLVIDA', ctx: this.contexto(instancia, passos[atual].acao, tarefa, atorId) });
     await this.aposCriarTarefa(instancia, anterior.acao, reaberta, atorId);
+    return this.obterInstancia(orgaoId, instanciaId);
+  }
+
+  /**
+   * Quem pode juntar o documento de uma etapa do fluxo (`etapa = 'no:<acao_id>'`)
+   * fora da posse da tramitação: a etapa precisa estar ABERTA na execução em
+   * andamento DESTE processo e o ator precisa ser responsável por ela — a mesma
+   * regra de quem conclui. Sem isso, `no:<qualquer id>` abriria os autos de
+   * qualquer processo do órgão para qualquer usuário.
+   */
+  async exigirResponsavelDaEtapaDoProcesso(orgaoId: string, processoId: string, acaoId: string, ator: Ator) {
+    const instancia = await this.instancias.findOne({ where: { orgao_id: orgaoId, vinculo_tipo: VINCULO_PROCESSO, vinculo_id: processoId, status: 'EM_ANDAMENTO' } });
+    if (!instancia) throw new BadRequestException('Este processo não tem fluxo em andamento.');
+    const tarefa = await this.tarefas.findOne({ where: { instancia_id: instancia.id, acao_id: acaoId, status: 'ABERTA' } });
+    if (!tarefa) throw new BadRequestException('Esta etapa não está em andamento no fluxo do processo.');
+    await this.chaveDoResponsavel(orgaoId, instancia, tarefa, ator);
+  }
+
+  /**
+   * Indefere a tarefa (decisão de uma etapa de APROVACAO) e ENCERRA a
+   * execução — ao contrário da devolução, não há etapa seguinte. Método
+   * aditivo: não muda o comportamento de concluir/devolver existentes.
+   */
+  async indeferirTarefa(orgaoId: string, instanciaId: string, tarefaId: string, ator: Ator, body: any) {
+    const instancia = await this.instancias.findOne({ where: { id: instanciaId, orgao_id: orgaoId } });
+    if (!instancia) throw new NotFoundException('Execução não encontrada');
+    const tarefa = await this.tarefas.findOne({ where: { id: tarefaId, instancia_id: instanciaId, status: 'ABERTA' } });
+    if (!tarefa) throw new NotFoundException('Tarefa aberta não encontrada');
+    await this.chaveDoResponsavel(orgaoId, instancia, tarefa, ator);
+    const motivo = String(body?.motivo ?? '').trim();
+    if (!motivo) throw new BadRequestException('Informe o motivo do indeferimento');
+    const modelo = await this.obter(orgaoId, instancia.workflow_id);
+    const passos = this.passos(modelo);
+    const passo = passos.find((p) => p.acao.id === tarefa.acao_id);
+    const atorId = ator.usuarioId ?? ator.id;
+    const ctx = passo ? this.contexto(instancia, passo.acao, tarefa, atorId) : null;
+    await this.dataSource.transaction(async (manager) => {
+      tarefa.status = 'INDEFERIDA';
+      tarefa.resposta = { ...(tarefa.resposta ?? {}), decisao: 'INDEFERIDO', motivo };
+      tarefa.concluida_por_id = atorId;
+      tarefa.concluida_em = new Date();
+      await manager.save(tarefa);
+      instancia.status = 'INDEFERIDA';
+      instancia.fase_atual_id = null;
+      instancia.acao_atual_id = null;
+      await manager.save(instancia);
+      await manager.save(WorkflowHistorico, manager.create(WorkflowHistorico, { instancia_id: instanciaId, evento: 'INDEFERIDA', descricao: `Etapa indeferida${passo ? `: ${passo.acao.nome}` : ''} — ${motivo}`, ator_id: atorId, detalhes: { motivo, tarefa_id: tarefaId } }));
+    });
+    if (ctx) await this.registro.emitir({ tipo: 'FLUXO_CONCLUIDO', ctx });
     return this.obterInstancia(orgaoId, instanciaId);
   }
 }

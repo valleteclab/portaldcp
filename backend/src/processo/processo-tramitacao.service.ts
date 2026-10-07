@@ -42,6 +42,7 @@ import {
   textoDaPeca,
 } from './peca-documento';
 import { gerarPdfPeca } from './peca-pdf';
+import { WorkflowService } from '../workflow/workflow.service';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -76,6 +77,7 @@ export class ProcessoTramitacaoService {
     private readonly notificacoes: NotificacoesService,
     private readonly ia: IaService,
     @InjectRepository(ModeloDocumento) private readonly modelosRepo: Repository<ModeloDocumento>,
+    private readonly workflow: WorkflowService,
   ) {}
 
   // ==========================================================================
@@ -322,16 +324,24 @@ export class ProcessoTramitacaoService {
     if ('erro' in v) throw new BadRequestException(v.erro);
     const perfil = await this.perfil(ator, p.orgao_id);
     const chaveEtapa = String(body?.etapa ?? '').trim() || null;
+    // Documento de um nó do fluxo de processo (convenção `no:<acao_id>`, ver workflow/nos):
+    // a conclusão da etapa é controlada pelo motor de workflow (concluir/devolver/indeferir),
+    // não pelas etapas padrão do ADITIVO/RENOVACAO — por isso pula a validação abaixo.
+    const ehEtapaDeNoDeFluxo = !!chaveEtapa && chaveEtapa.startsWith('no:');
+    // ...mas só para o responsável pela etapa aberta no fluxo deste processo (403/400 caso contrário)
+    if (ehEtapaDeNoDeFluxo) await this.workflow.exigirResponsavelDaEtapaDoProcesso(p.orgao_id, p.id, chaveEtapa!.slice(3), ator);
     const iaModelo = html ? String(body?.ia_modelo ?? '').trim().slice(0, 100) || null : null;
     const peca = await this.ds.transaction(async (m) => {
       await this.travar(m, p.id);
       const atual = await this.atual(p, m);
-      if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
-        throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode juntar peças aos autos.');
+      if (!ehEtapaDeNoDeFluxo) {
+        if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
+          throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode juntar peças aos autos.');
+        }
+        if (atual && !atual.recebida_em && !perfil.admin_orgao) throw new ConflictException('Receba o processo antes de juntar peças.');
       }
-      if (atual && !atual.recebida_em && !perfil.admin_orgao) throw new ConflictException('Receba o processo antes de juntar peças.');
       let tipoPeca: string | null = String(body?.tipo_peca ?? '').trim().slice(0, 40) || null;
-      if (chaveEtapa) {
+      if (chaveEtapa && !ehEtapaDeNoDeFluxo) {
         const etapas = await this.etapasDoProcesso(p, m);
         const alvo = etapas.find((e) => e.chave === chaveEtapa);
         if (!alvo || alvo.resultado) throw new BadRequestException('Etapa inválida para juntar peça.');
@@ -482,8 +492,11 @@ export class ProcessoTramitacaoService {
   /** O que o modelo e a IA sabem do processo ao redigir a peça da etapa. */
   private async contextoDaPeca(ator: Ator, p: Processo, chaveEtapa: string | null): Promise<ContextoDaPeca> {
     const perfil = await this.perfil(ator, p.orgao_id);
-    const etapa = chaveEtapa ? (await this.etapasDoProcesso(p)).find((e) => e.chave === chaveEtapa) ?? null : null;
-    if (chaveEtapa && (!etapa || etapa.resultado)) throw new BadRequestException('Etapa inválida para redigir peça.');
+    // Etapa de um nó do fluxo de processo (`no:<acao_id>`): não está nas etapas padrão
+    // do ADITIVO/RENOVACAO; o modelo/rascunho tratam como peça avulsa (sem tipo de peça fixo).
+    const ehEtapaDeNoDeFluxo = !!chaveEtapa && chaveEtapa.startsWith('no:');
+    const etapa = chaveEtapa && !ehEtapaDeNoDeFluxo ? (await this.etapasDoProcesso(p)).find((e) => e.chave === chaveEtapa) ?? null : null;
+    if (chaveEtapa && !ehEtapaDeNoDeFluxo && (!etapa || etapa.resultado)) throw new BadRequestException('Etapa inválida para redigir peça.');
     const [org] = await this.ds.query(`SELECT nome FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
     const [c] = p.contrato_id
       ? await this.ds.query(`SELECT numero_contrato, objeto, fornecedor_razao_social, valor_global FROM contratos WHERE id::text = $1`, [p.contrato_id])

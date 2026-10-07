@@ -17,6 +17,8 @@ export interface NoAndamento {
   atrasada: boolean
   devolvida: boolean
   obrigatoria_lei: string | null
+  /** Tarefa aberta desta etapa (situação EM_ANDAMENTO) — id para concluir/devolver/indeferir. */
+  tarefa_id: string | null
 }
 
 export interface Andamento {

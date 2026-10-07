@@ -32,10 +32,12 @@ export class WorkflowController {
   @Get() listar(@AtorAtual() ator: Ator) { return this.service.listar(orgaoDo(ator)); }
   @Post() criar(@AtorAtual() ator: Ator, @Body() body: any) { return this.service.criar(orgaoDo(ator), ator.usuarioId ?? ator.id, body); }
   @Post('modelos-prontos/aditivo') modeloAditivo(@AtorAtual() ator: Ator) { return this.service.criarModeloAditivo(orgaoDo(ator), ator.usuarioId ?? ator.id); }
+  @Post('modelos-prontos/demanda-dfd') modeloDemandaDfd(@AtorAtual() ator: Ator) { return this.service.criarModeloDemandaDfd(orgaoDo(ator), ator.usuarioId ?? ator.id); }
   @Get('execucoes/listar') execucoes(@AtorAtual() ator: Ator) { return this.service.listarInstancias(orgaoDo(ator)); }
   @Get('execucoes/:instanciaId') execucao(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string) { return this.service.obterInstancia(orgaoDo(ator), instanciaId); }
   @Post('execucoes/:instanciaId/tarefas/:tarefaId/concluir') concluir(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.concluirTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
   @Post('execucoes/:instanciaId/tarefas/:tarefaId/devolver') devolver(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.devolverTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
+  @Post('execucoes/:instanciaId/tarefas/:tarefaId/indeferir') indeferir(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.indeferirTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
   @Get(':id') obter(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.service.obter(orgaoDo(ator), id); }
   @Patch(':id') atualizar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.atualizar(orgaoDo(ator), id, body); }
   @Post(':id/iniciar') iniciar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.iniciar(orgaoDo(ator), id, ator.usuarioId ?? ator.id, body); }
