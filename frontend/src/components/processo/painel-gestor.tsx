@@ -21,6 +21,8 @@ import { API_URL, authFetch } from '@/lib/api'
 import { soData } from '@/lib/processo/processo'
 import { pedirTextoAcao } from '@/components/DialogoGlobal'
 import { KanbanAndamento } from './painel-gestor-kanban'
+import { TempoPorEtapa } from '@/components/fluxo/TempoPorEtapa'
+import { ModuloSistema, useModulosOrgao } from '@/hooks/useModulosOrgao'
 import { toast } from 'sonner'
 
 export interface EtapaPainel {
@@ -61,6 +63,8 @@ export interface LinhaPainel {
   prazo: PrazoPainel | null
   link: string
   aberto_em: string | null
+  /** Processo que segue um fluxo desenhado: etapa e tempo vêm do fluxo, em dias úteis. */
+  fluxo?: { nome: string; versao: number; etapa: string | null; dias_uteis: number; prazo_dias_uteis: number | null; media_dias_uteis: number | null } | null
 }
 
 export interface GargaloPainel {
@@ -146,6 +150,7 @@ function ChipSituacao({ linha }: { linha: LinhaPainel }) {
     return <Badge className="bg-amber-100 text-amber-900 border-amber-200">Aguardando recebimento</Badge>
   }
   if (linha.estado === 'PARADO') {
+    if (linha.fluxo) return <Badge className="bg-red-100 text-red-800 border-red-200">Acima do prazo da etapa</Badge>
     return <Badge className="bg-red-100 text-red-800 border-red-200">Parado há {plural(linha.esta_com?.dias ?? 0, 'dia', 'dias')}</Badge>
   }
   return <Badge variant="secondary">Em andamento</Badge>
@@ -205,15 +210,26 @@ function LinhaProcesso({ linha, aberto, onAlternar, onAbrir, onCobrar }: {
         <span className="text-gray-600 truncate flex-1 min-w-[120px]">{linha.objeto}</span>
         <ChipSituacao linha={linha} />
       </div>
+      {linha.fluxo && <p className="text-xs text-gray-500">Fluxo: {linha.fluxo.nome} — versão {linha.fluxo.versao}</p>}
 
       {linha.etapas.length > 0 && <Caminho linha={linha} />}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
         <span>Localização: <b className="text-gray-900">{textoPosse(linha.esta_com)}</b></span>
-        {linha.situacao !== 'ENCERRADO' && (
+        {linha.situacao !== 'ENCERRADO' && !linha.fluxo && (
           <span className={`font-semibold ${diasCor}`}>há {plural(linha.esta_com?.dias ?? 0, 'dia', 'dias')}</span>
         )}
         <span>Etapa: <b className="text-gray-900">{linha.situacao === 'ENCERRADO' ? 'concluído' : proximaEtapa}</b></span>
+        {linha.situacao !== 'ENCERRADO' && linha.fluxo && (
+          <>
+            <span className={`font-semibold ${diasCor}`}>
+              na etapa há {linha.fluxo.prazo_dias_uteis ? `${linha.fluxo.dias_uteis} de ${linha.fluxo.prazo_dias_uteis}` : linha.fluxo.dias_uteis} {linha.fluxo.dias_uteis === 1 && !linha.fluxo.prazo_dias_uteis ? 'dia útil' : 'dias úteis'}
+            </span>
+            {linha.fluxo.media_dias_uteis !== null && (
+              <span>Média da etapa: <b className="text-gray-900">{String(linha.fluxo.media_dias_uteis).replace('.', ',')} dias úteis</b></span>
+            )}
+          </>
+        )}
         <span className="ml-auto flex gap-2">
           <Button size="sm" variant="outline" onClick={onAbrir}>Abrir</Button>
           {linha.estado === 'PARADO' && (
@@ -254,7 +270,7 @@ function LinhaProcesso({ linha, aberto, onAlternar, onAbrir, onCobrar }: {
   )
 }
 
-export function PainelGestorAndamento() {
+function FilaAndamento() {
   const router = useRouter()
   const [dados, setDados] = useState<PainelGestor | null>(null)
   const [carregando, setCarregando] = useState(true)
@@ -394,14 +410,7 @@ export function PainelGestorAndamento() {
   const totalAbertos = Object.values(dados.por_tipo).reduce((t, n) => t + n, 0)
 
   return (
-    <div className="max-w-7xl mx-auto py-2 sm:py-4 space-y-4 min-w-0 w-full">
-      <header className="min-w-0">
-        <div className="text-xs font-bold uppercase tracking-wide text-gray-500">Gestão</div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Andamento dos processos</h1>
-        <p className="text-sm text-gray-700 mt-1 max-w-3xl">
-          Onde cada processo está, com quem e há quanto tempo. Vermelho = parado além do combinado; laranja = perto do limite.
-        </p>
-      </header>
+    <div className="space-y-4 min-w-0 w-full">
 
       {/* KPIs — também filtram a fila */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2" role="group" aria-label="Resumo">
@@ -578,6 +587,50 @@ export function PainelGestorAndamento() {
           </section>
         </aside>
       </div>
+    </div>
+  )
+}
+
+type AbaAndamento = 'FILA' | 'TEMPO'
+
+/**
+ * Andamento: duas visões — a fila (onde cada processo está agora) e o tempo
+ * por etapa do fluxo (mockup aprovado 07/10/2026). A segunda só existe com o
+ * módulo Processo Eletrônico (os fluxos são dele).
+ */
+export function PainelGestorAndamento() {
+  const { temAcesso } = useModulosOrgao()
+  const podeTempo = temAcesso(ModuloSistema.PROCESSOS)
+  const [aba, setAba] = useState<AbaAndamento>('FILA')
+  const tempo = aba === 'TEMPO' && podeTempo
+  return (
+    <div className="max-w-7xl mx-auto py-2 sm:py-4 space-y-4 min-w-0 w-full">
+      <header className="min-w-0">
+        <div className="text-xs font-bold uppercase tracking-wide text-gray-500">Gestão</div>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Andamento dos processos</h1>
+        <p className="text-sm text-gray-700 mt-1 max-w-3xl">
+          {tempo
+            ? 'Quanto tempo cada etapa do fluxo leva de verdade, comparado com o prazo combinado. Conta só dias úteis.'
+            : 'Onde cada processo está, com quem e há quanto tempo. Vermelho = parado além do combinado; laranja = perto do limite.'}
+        </p>
+      </header>
+      {podeTempo && (
+        <div role="tablist" aria-label="Visão do andamento" className="flex gap-1 border-b border-gray-200">
+          {([['FILA', 'Fila (onde está agora)'], ['TEMPO', 'Tempo por etapa']] as const).map(([v, rotulo]) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={aba === v}
+              onClick={() => setAba(v)}
+              className={`px-4 py-2.5 text-sm -mb-px border-b-[3px] ${aba === v ? 'border-[#1351b4] font-bold text-[#1351b4]' : 'border-transparent font-medium text-gray-600 hover:text-gray-900'}`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+      {tempo ? <TempoPorEtapa /> : <FilaAndamento />}
     </div>
   )
 }
