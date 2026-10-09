@@ -108,6 +108,7 @@ import {
   textoObservacaoNaoEntregue,
 } from './item-recorrente-mensal.util';
 import { renumerarPorCompetencia } from './ordem-medicoes.util';
+import { retratoDeCicloAnteriorCongelado } from './retrato-ciclo-anterior.util';
 @Injectable()
 export class MedicaoService {
   private readonly logger = new Logger(MedicaoService.name);
@@ -5853,6 +5854,12 @@ export class MedicaoService {
       where: { contrato_id: contratoId, status: StatusMedicao.APROVADA },
       order: { numero_medicao: 'ASC' },
     });
+    // Renovação de ciclo: o retrato de medição do ciclo anterior não muda com
+    // aprovações do ciclo novo (ver retrato-ciclo-anterior.util)
+    const contrato = await this.contratoRepository.findOne({
+      where: { id: contratoId },
+      select: ['id', 'data_renovacao_ciclo'],
+    });
 
     let acumuladoCentavos = 0;
     for (const medicao of medicoesAprovadas) {
@@ -5866,21 +5873,29 @@ export class MedicaoService {
         acumuladoCentavos + valorMedicaoCentavos,
       ) as any;
 
-      try {
-        const execucaoFinanceira =
-          await this.calcularExecucaoFinanceiraFornecedor(
-            contratoId,
-            medicao.id,
+      const congelado = retratoDeCicloAnteriorCongelado(
+        medicao.periodo_inicio as any,
+        (contrato as any)?.data_renovacao_ciclo,
+        Array.isArray((medicao.execucao_financeira as any)?.itens) &&
+          (medicao.execucao_financeira as any).itens.length > 0,
+      );
+      if (!congelado) {
+        try {
+          const execucaoFinanceira =
+            await this.calcularExecucaoFinanceiraFornecedor(
+              contratoId,
+              medicao.id,
+            );
+          medicao.execucao_fiscal =
+            execucaoFinanceira?.execucao_fiscal || (null as any);
+          medicao.execucao_financeira = execucaoFinanceira
+            ? (this.montarSnapshotExecucaoFinanceira(execucaoFinanceira) as any)
+            : (null as any);
+        } catch (error) {
+          this.logger.warn(
+            `Erro ao recalcular acumulados da medicao ${medicao.id}: ${(error as any).message}`,
           );
-        medicao.execucao_fiscal =
-          execucaoFinanceira?.execucao_fiscal || (null as any);
-        medicao.execucao_financeira = execucaoFinanceira
-          ? (this.montarSnapshotExecucaoFinanceira(execucaoFinanceira) as any)
-          : (null as any);
-      } catch (error) {
-        this.logger.warn(
-          `Erro ao recalcular acumulados da medicao ${medicao.id}: ${(error as any).message}`,
-        );
+        }
       }
 
       await this.medicaoRepository.save(medicao);
