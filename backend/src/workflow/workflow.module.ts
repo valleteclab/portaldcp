@@ -16,6 +16,7 @@ import { ChecklistEtapaService } from './checklist/checklist-etapa.service';
 import { PonteFaseInternaService } from './ponte/ponte-fase-interna.service';
 import { IaModule } from '../ia/ia.module';
 import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
+import { TempoEtapasService } from './tempo/tempo-etapas.service';
 
 @Module({
   imports: [
@@ -25,7 +26,7 @@ import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
     IaModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService, PonteFaseInternaService],
-  exports: [WorkflowService, RegistroNos, TeamsService],
+  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService, PonteFaseInternaService, TempoEtapasService],
+  exports: [WorkflowService, RegistroNos, TeamsService, TempoEtapasService],
 })
 export class WorkflowModule {}

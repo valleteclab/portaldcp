@@ -9,16 +9,18 @@ import { TeamsService } from './avisos/teams.service';
 import { DesenhoFluxoService } from './desenho/desenho-fluxo.service';
 import { ChecklistEtapaService } from './checklist/checklist-etapa.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { TempoEtapasService } from './tempo/tempo-etapas.service';
 
 const orgaoDo = (ator: Ator) => { if (!ator?.orgaoId) throw new BadRequestException('Acesso exclusivo do órgão'); return ator.orgaoId; };
 /** Canal do Teams é configuração do órgão: só o login do órgão ou o usuário ADMIN dele cadastra, remove ou testa. */
-const adminDoOrgao = (ator: Ator) => { const orgaoId = orgaoDo(ator); if (ator.tipo === 'ORGAO' || ator.admin || String(ator.role ?? '').toUpperCase() === 'ADMIN') return orgaoId; throw new ForbiddenException('Só o administrador do órgão altera esta configuração'); };
+const ehAdminDoOrgao = (ator: Ator) => ator.tipo === 'ORGAO' || !!ator.admin || String(ator.role ?? '').toUpperCase() === 'ADMIN';
+const adminDoOrgao = (ator: Ator) => { const orgaoId = orgaoDo(ator); if (ehAdminDoOrgao(ator)) return orgaoId; throw new ForbiddenException('Só o administrador do órgão altera esta configuração'); };
 
 /** Fluxos de processo: desenho e execução. Parte do Processo Eletrônico — desliga junto com ele. */
 @Controller('workflows')
 @RequireModule(ModuloSistema.PROCESSOS)
 export class WorkflowController {
-  constructor(private readonly service: WorkflowService, private readonly teams: TeamsService, private readonly whatsapp: WhatsAppService, private readonly desenhos: DesenhoFluxoService, private readonly checklist: ChecklistEtapaService) {}
+  constructor(private readonly service: WorkflowService, private readonly teams: TeamsService, private readonly whatsapp: WhatsAppService, private readonly desenhos: DesenhoFluxoService, private readonly checklist: ChecklistEtapaService, private readonly tempo: TempoEtapasService) {}
   /** Etapas que podem ser arrastadas para o desenho (paleta), com a trava legal de cada uma. */
   @Get('catalogo-nos') catalogo() { return CATALOGO_NOS; }
   /** "Canais de aviso do órgão" da tela de desenho: o que já está conectado. */
@@ -32,6 +34,10 @@ export class WorkflowController {
   @Delete('teams-canais/:canalId') removerTeamsCanal(@AtorAtual() ator: Ator, @Param('canalId') canalId: string) { return this.teams.remover(adminDoOrgao(ator), canalId); }
   @Post('teams-canais/:canalId/testar') testarTeamsCanal(@AtorAtual() ator: Ator, @Param('canalId') canalId: string) { return this.teams.testar(adminDoOrgao(ator), canalId); }
   // --- Desenho do fluxo (tela "Desenhar o fluxo"): ler é para todos do órgão; criar, alterar e ativar só o administrador ---
+  /** Andamento › Tempo por etapa (antes de ':id'): versões com o que medir, visão geral e detalhe de uma etapa. Média por pessoa só para o administrador. */
+  @Get('tempo-etapas/opcoes') opcoesTempo(@AtorAtual() ator: Ator) { return this.tempo.opcoes(orgaoDo(ator)); }
+  @Get('tempo-etapas/etapa') detalheTempo(@AtorAtual() ator: Ator, @Query('fluxo') fluxo: string, @Query('etapa') etapa: string, @Query('dias') dias: string) { return this.tempo.detalhe(orgaoDo(ator), String(fluxo ?? ''), String(etapa ?? ''), dias, ehAdminDoOrgao(ator)); }
+  @Get('tempo-etapas') resumoTempo(@AtorAtual() ator: Ator, @Query('fluxo') fluxo: string, @Query('dias') dias: string) { return this.tempo.resumo(orgaoDo(ator), String(fluxo ?? ''), dias); }
   @Get('desenhos/modelos') modelosDesenho(@AtorAtual() ator: Ator, @Query('tipo') tipo: string) { return this.desenhos.modelos(orgaoDo(ator), String(tipo ?? '').toUpperCase()); }
   @Get('desenhos/opcoes') opcoesDesenho(@AtorAtual() ator: Ator) { return this.desenhos.opcoes(orgaoDo(ator)); }
   @Get('desenhos') listarDesenhos(@AtorAtual() ator: Ator) { return this.desenhos.listar(orgaoDo(ator)); }
