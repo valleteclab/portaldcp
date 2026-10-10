@@ -4470,7 +4470,12 @@ export class MedicaoService {
       orgao: contrato.orgao || null,
       orgao_nome: contrato.orgao?.nome || '',
       contrato_id: contrato.id,
-      contrato_numero: contrato.numero_contrato || '',
+      // Número do contrato DA ÉPOCA da medição, quando o retrato o guarda (ciclo
+      // anterior a uma renovação: "050/2023 3º AD"); senão, o número atual.
+      contrato_numero:
+        String((medicao.execucao_financeira as any)?.contrato_numero ?? '').trim() ||
+        contrato.numero_contrato ||
+        '',
       tipo_instrumento: contrato.tipo || 'CONTRATO',
       arredondar_calculo: contrato.arredondar_calculo ?? true,
       contrato_objeto:
