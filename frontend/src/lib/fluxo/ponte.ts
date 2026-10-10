@@ -37,3 +37,8 @@ export function telaDaFaseInterna(tipoEtapa: string | null | undefined, licitaca
   const rota = ROTA[tipo]
   return rota ? { href: `/orgao/processos/${licitacaoId}/fase-interna/${rota}`, rotulo: `Abrir ${ROTULO[tipo]} na fase interna` } : null
 }
+
+/** Tela da fase interna (segmento da rota: "dfd", "pesquisa"…) de um tipo de etapa; nulo = sem tela própria. */
+export function telaDoTipoDeEtapa(tipoEtapa: string | null | undefined): string | null {
+  return ROTA[String(tipoEtapa ?? "").toUpperCase()] ?? null
+}

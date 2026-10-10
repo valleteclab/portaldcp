@@ -524,11 +524,19 @@ function DocumentosDoProcesso({ licitacaoId, andamento }: { licitacaoId: string;
   const opcionais = itens.filter((i) => !i.obrigatorio)
   const prontas = obrigatorias.filter((i) => i.status === "OK").length
   const feitasOpcionais = opcionais.filter((i) => i.status === "OK" || i.status === "NAO_SE_APLICA").length
+  // Exigido pela lei, ainda não resolvido e sem etapa no fluxo: ninguém responde por ele no desenho
+  const resolvido = (it: ItemInstrucao) => it.status === "OK" || it.status === "NAO_SE_APLICA"
+  const semEtapa = (it: ItemInstrucao) => {
+    const tela = telaDaPeca(it.tipo)
+    return !tela || !etapaPorTela.has(tela)
+  }
+  const foraDoDesenho = obrigatorias.filter((i) => !resolvido(i) && semEtapa(i))
 
   const linha = (it: ItemInstrucao) => {
     const tela = telaDaPeca(it.tipo)
     const etapa = tela ? etapaPorTela.get(tela) : undefined
     const agora = etapa?.situacao === "EM_ANDAMENTO"
+    const naoNoFluxo = it.obrigatorio && !resolvido(it) && !etapa
     const situacao =
       it.status === "OK"
         ? "Pronto"
@@ -540,10 +548,12 @@ function DocumentosDoProcesso({ licitacaoId, andamento }: { licitacaoId: string;
               ? "Em aprovação"
               : it.status === "EM_ELABORACAO"
                 ? "Em elaboração"
-                : etapa?.responsavel
-                  ? `${etapa.responsavel}${agora ? " · agora" : ""}`
-                  : "A fazer"
-    const cor = it.status === "OK" ? "#16A34A" : it.status === "NAO_SE_APLICA" ? "#9CA3AF" : agora ? AZUL : "#9CA3AF"
+                : naoNoFluxo
+                  ? "Não está no fluxo"
+                  : etapa?.responsavel
+                    ? `${etapa.responsavel}${agora ? " · agora" : ""}`
+                    : "A fazer"
+    const cor = it.status === "OK" ? "#16A34A" : it.status === "NAO_SE_APLICA" ? "#9CA3AF" : agora ? AZUL : naoNoFluxo ? "#C2410C" : "#9CA3AF"
     return (
       <li key={it.tipo} className="flex items-center justify-between gap-3 border-t border-[#F1F3F6] py-2.5">
         <span className="flex min-w-0 items-center gap-2.5">
@@ -551,7 +561,9 @@ function DocumentosDoProcesso({ licitacaoId, andamento }: { licitacaoId: string;
           <span className={`text-sm ${it.status === "NAO_SE_APLICA" ? "text-gray-500 line-through" : ""}`}>{it.titulo}</span>
         </span>
         <span className="flex shrink-0 items-center gap-3">
-          <span className="text-xs text-gray-500">{situacao}</span>
+          <span className={`text-xs ${naoNoFluxo ? "font-semibold text-orange-800" : "text-gray-500"}`} title={naoNoFluxo ? "Exigido pelo art. 72 da Lei 14.133: inclua uma etapa no fluxo ou anexe o documento feito fora" : undefined}>
+            {situacao}
+          </span>
           {tela ? (
             <Link href={`/orgao/processos/${licitacaoId}/fase-interna/${tela}`} className="text-[13px] font-semibold text-[#1351b4] hover:underline">
               {agora && andamento.pode_agir ? "Abrir" : "Ver"}
@@ -573,6 +585,12 @@ function DocumentosDoProcesso({ licitacaoId, andamento }: { licitacaoId: string;
         </span>
       </div>
       <ul className="m-0 flex list-none flex-col p-0">{obrigatorias.map(linha)}</ul>
+      {foraDoDesenho.length ? (
+        <p role="note" className="m-0 rounded-lg border border-orange-300 bg-orange-50 px-4 py-2.5 text-sm text-orange-950">
+          <b>{foraDoDesenho.length === 1 ? "1 documento exigido pela lei não tem etapa" : `${foraDoDesenho.length} documentos exigidos pela lei não têm etapa`} no fluxo deste processo</b>
+          {" "}({foraDoDesenho.map((i) => i.titulo).join("; ")}). Inclua a etapa no desenho do fluxo, em Configurações › Fluxos de processo, ou anexe o documento feito fora na tela dele.
+        </p>
+      ) : null}
       {opcionais.length ? (
         <details className="border-t border-[#F1F3F6] pt-2.5">
           <summary className="cursor-pointer text-sm font-semibold text-[#1351b4]">
