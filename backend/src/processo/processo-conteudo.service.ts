@@ -143,7 +143,13 @@ export class ProcessoConteudoService implements OnModuleInit {
     const { licId, tram } = this.tramitacaoDaLicitacao(p);
     return tram.tramitar(
       licId,
-      { para_setor_id: body?.para_setor_id ?? null, para_usuario_id: body?.para_usuario_id ?? null, despacho: body?.despacho ?? null, prazo_dias_uteis: body?.prazo_dias_uteis ?? null },
+      {
+        para_setor_id: body?.para_setor_id ?? null,
+        para_usuario_id: body?.para_usuario_id ?? null,
+        despacho: body?.despacho ?? null,
+        prazo_dias_uteis: body?.prazo_dias_uteis ?? null,
+        justificativa_fora_do_fluxo: body?.justificativa_fora_do_fluxo ?? null,
+      },
       ator,
     );
   }
