@@ -21,6 +21,7 @@ import { dependentesAfetados, type PassoFluxo } from "@/lib/fase-interna/visao-f
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
 import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
+import { BarraEtapasFluxo, useFluxoDaLicitacao } from "@/components/fluxo/BarraEtapasFluxo"
 import { AvisoSomenteLeitura, PERMISSAO_LIVRE, PermissaoEtapaContext, permissaoDoPasso, type PermissaoTrabalho, type PermissoesTrabalho } from "@/lib/fase-interna/permissao-etapa"
 
 interface LicitacaoCabecalho {
@@ -87,6 +88,8 @@ export function EtapaShell({
   const [permissao, setPermissao] = useState<PermissaoTrabalho>(PERMISSAO_LIVRE)
   const ultima = useRef(criarUltimaCarga())
   const passoDaTela = ETAPAS_DA_BARRA.find((e) => e.tela === tela)?.passo ?? null
+  // Processo que segue um fluxo desenhado: a barra mostra as etapas DO FLUXO (não a sequência fixa da fase interna)
+  const fluxo = useFluxoDaLicitacao(licitacaoId)
 
   useEffect(() => {
     authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
@@ -172,7 +175,7 @@ export function EtapaShell({
     <div className="max-w-7xl mx-auto px-0 sm:px-2 py-4 space-y-4">
       {dialogo}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <Link href={`/orgao/processos/${licitacaoId}`} className="inline-flex items-center gap-1.5 text-sm text-blue-800 hover:underline">
+        <Link href={fluxo ? `/orgao/processo/${fluxo.processoId}` : `/orgao/processos/${licitacaoId}`} className="inline-flex items-center gap-1.5 text-sm text-blue-800 hover:underline">
           <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Voltar ao processo
         </Link>
         {lic?.numero_processo && (
@@ -183,6 +186,9 @@ export function EtapaShell({
         )}
       </div>
 
+      {fluxo ? (
+        <BarraEtapasFluxo licitacaoId={licitacaoId} processoId={fluxo.processoId} andamento={fluxo.andamento} telaAtual={tela} />
+      ) : (
       <nav aria-label="Etapas da fase interna" className="relative overflow-x-auto -mx-1 px-1">
         <ol className="flex items-center gap-1 min-w-max text-xs">
           {ETAPAS_DA_BARRA.filter((e) => !e.opcional || situacoes[e.passo] !== undefined || e.tela === tela).map((e, i, lista) => {
@@ -215,6 +221,7 @@ export function EtapaShell({
           })}
         </ol>
       </nav>
+      )}
 
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
