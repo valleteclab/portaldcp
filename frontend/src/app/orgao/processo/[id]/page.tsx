@@ -201,7 +201,7 @@ export default function TelaDoProcessoPage() {
           onReceber={receber}
           recebendo={recebendo}
           erroReceber={erroReceber}
-          linhaDoTempo={tram?.linha_do_tempo ?? []}
+          linhaDoTempo={(tram?.linha_do_tempo as unknown[] | undefined) ?? []}
           onAtualizar={() => carregar(true)}
         />
       </TemaProcesso>
