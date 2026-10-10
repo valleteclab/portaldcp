@@ -67,6 +67,50 @@ function rotaDaEtapa(no: NoAndamento, licitacaoId: string): string | null {
   return m ? m[1] : null
 }
 
+/** "ART75_II" → "Lei 14.133/2021, art. 75, II"; texto já escrito fica como está. */
+function rotuloFundamento(v: string | null | undefined): string | null {
+  const t = String(v ?? "").trim()
+  if (!t) return null
+  const m = t.match(/^ART(\d+)_([IVXL]+)$/i)
+  return m ? `Lei 14.133/2021, art. ${m[1]}, ${m[2].toUpperCase()}` : t
+}
+
+/**
+ * Linha do tempo da fase interna (tramitações: { tipo, data, de, para, por,
+ * despacho }) no formato da seção "Linha do tempo" (quando, título, por).
+ */
+interface PontaTramitacao {
+  setor_nome?: string | null
+  usuario_nome?: string | null
+}
+interface TramitacaoBruta {
+  tipo?: string
+  data?: string
+  de?: PontaTramitacao | null
+  para?: PontaTramitacao | null
+  por?: { nome?: string | null } | null
+  despacho?: string | null
+  motivo?: string | null
+}
+
+function eventosDaFaseInterna(brutos: unknown[]): EventoLinhaDoTempo[] {
+  const nome = (x: PontaTramitacao | null | undefined) => [x?.setor_nome, x?.usuario_nome].filter((v): v is string => typeof v === "string" && !!v.trim()).join(" · ") || null
+  return (Array.isArray(brutos) ? (brutos as TramitacaoBruta[]) : []).map((b) => {
+    const pelo = typeof b?.despacho === "string" && b.despacho.startsWith("Encaminhado pelo fluxo")
+    const titulo =
+      b?.tipo === "RECEBIMENTO"
+        ? `Recebido${nome(b?.para) ? ` por ${nome(b.para)}` : ""}`
+        : b?.tipo === "DEVOLUCAO"
+          ? `Devolvido${nome(b?.para) ? ` a ${nome(b.para)}` : ""}`
+          : b?.tipo === "ENVIO"
+            ? `Enviado${nome(b?.para) ? ` a ${nome(b.para)}` : ""}${pelo ? " pelo fluxo" : ""}`
+            : String(b?.tipo ?? "Registro")
+    const por = pelo ? "Sistema (fluxo)" : typeof b?.por?.nome === "string" ? b.por.nome : nome(b?.de)
+    const detalhe = typeof b?.despacho === "string" ? b.despacho : typeof b?.motivo === "string" ? b.motivo : null
+    return { quando: String(b?.data ?? ""), tipo: (b?.tipo ?? "ENVIO") as EventoLinhaDoTempo["tipo"], titulo, detalhe, por }
+  })
+}
+
 const moeda = (v: unknown) => {
   const n = Number(v)
   return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -92,7 +136,8 @@ export function ProcessoContratacaoFluxo({
   onReceber: () => void
   recebendo: boolean
   erroReceber: string | null
-  linhaDoTempo: EventoLinhaDoTempo[]
+  /** Linha do tempo crua da fase interna (GET :id/tramitacao → linha_do_tempo). */
+  linhaDoTempo: unknown[]
   onAtualizar: () => void
 }) {
   const licitacaoId = andamento.licitacao_id!
@@ -111,7 +156,7 @@ export function ProcessoContratacaoFluxo({
 
   const linhaMeta = [
     rotuloModalidade(licitacao?.modalidade) || null,
-    licitacao?.fundamento_legal || null,
+    rotuloFundamento(licitacao?.fundamento_legal),
     moeda(licitacao?.valor_total_estimado),
     `Processo nº ${processo.numero}`,
   ]
@@ -306,7 +351,7 @@ export function ProcessoContratacaoFluxo({
 
       <section aria-label="Mais informações" className="flex flex-col gap-2">
         <BlocoDadosLicitacao licitacaoId={licitacaoId} lic={licitacao} />
-        <SecaoLinhaDoTempo eventos={linhaDoTempo} />
+        <SecaoLinhaDoTempo eventos={eventosDaFaseInterna(linhaDoTempo)} />
       </section>
     </div>
   )
