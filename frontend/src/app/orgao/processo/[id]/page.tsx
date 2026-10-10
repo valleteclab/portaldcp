@@ -35,9 +35,8 @@ import {
 import { AndamentoFluxo } from "@/components/fluxo/AndamentoFluxo"
 import { BlocoOficio, BlocoProvidenciaOficio } from "@/components/processo/BlocoOficio"
 import { PainelEtapaFluxo } from "@/components/fluxo/PainelEtapaFluxo"
-import { IniciarFluxoProcesso } from "@/components/fluxo/IniciarFluxoProcesso"
+import { ProcessoContratacaoFluxo } from "@/components/processo/ProcessoContratacaoFluxo"
 import { haQuantoTempo, type Andamento } from "@/lib/fluxo/andamento"
-import { FASES_INTERNAS } from "@/lib/licitacao-rotulos"
 
 /**
  * Tela do processo (genérica): mostra ONDE o processo está e o PRÓXIMO PASSO.
@@ -189,6 +188,26 @@ export default function TelaDoProcessoPage() {
   const contrato = processo.conteudo?.contrato ?? null
   const licitacao = ehLicitacao && processo.conteudo && "modalidade" in processo.conteudo ? (processo.conteudo as ConteudoLicitacao) : null
 
+  // Contratação que segue o fluxo (mockup "Processo enxuto", 10/10/2026): onde está, com quem e uma ação
+  if (ehLicitacao && andamento?.modo === "FLUXO" && andamento.licitacao_id) {
+    return (
+      <TemaProcesso>
+        <ProcessoContratacaoFluxo
+          processo={processo}
+          licitacao={licitacao}
+          andamento={andamento}
+          posse={posse}
+          podeReceber={podeReceber}
+          onReceber={receber}
+          recebendo={recebendo}
+          erroReceber={erroReceber}
+          linhaDoTempo={tram?.linha_do_tempo ?? []}
+          onAtualizar={() => carregar(true)}
+        />
+      </TemaProcesso>
+    )
+  }
+
   return (
     <TemaProcesso>
       <header className={s.cabecalho}>
@@ -213,10 +232,6 @@ export default function TelaDoProcessoPage() {
       <AndamentoFluxo andamento={andamento} />
 
       {andamento?.modo === "FLUXO" ? <PainelEtapaFluxo processoId={processo.id} andamento={andamento} onAtualizar={() => carregar(true)} /> : null}
-
-      {((propria && !ehOficio) || (ehLicitacao && FASES_INTERNAS.includes(licitacao?.fase ?? ""))) && !encerrado && andamento && andamento.modo !== "FLUXO" ? (
-        <IniciarFluxoProcesso processoId={processo.id} onIniciado={() => carregar(true)} />
-      ) : null}
 
       <BlocoEstaCom
         posse={posse}

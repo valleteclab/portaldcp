@@ -266,21 +266,36 @@ export class DesenhoFluxoService {
     return this.desenho(orgaoId, novoId);
   }
 
-  /** Ativa o rascunho (ou reativa a versão desativada): confere as travas e substitui a versão ativa da família. */
+  /**
+   * Ativa o rascunho (ou reativa a versão desativada): confere as travas e
+   * substitui a versão ativa da família. Um fluxo ativo por tipo de processo:
+   * os outros fluxos ativos do mesmo tipo são desativados (com dois ativos o
+   * processo não sabe qual seguir e o início automático não acontece).
+   */
   async ativar(orgaoId: string, id: string) {
     const m = await this.workflow.obter(orgaoId, id);
     if (m.status !== 'RASCUNHO' && m.status !== 'DESATIVADO') throw new ConflictException('Só um rascunho ou uma versão desativada pode ser ativada.');
     const erros = this.pendenciasParaAtivar(m);
     if (erros.length) throw new BadRequestException({ message: 'O fluxo ainda não pode ser ativado.', erros });
+    const desativados: string[] = [];
     await this.ds.transaction(async (mg) => {
       await mg.query(
         `UPDATE workflow_modelos SET status = 'SUBSTITUIDO', updated_at = now()
           WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2 AND status IN ('PUBLICADO', 'DESATIVADO') AND id::text <> $3`,
         [orgaoId, this.familia(m), m.id],
       );
+      if (m.tipo_processo) {
+        const outros: Array<{ nome: string }> = await mg.query(
+          `UPDATE workflow_modelos SET status = 'DESATIVADO', updated_at = now()
+            WHERE orgao_id::text = $1 AND tipo_processo = $2 AND status = 'PUBLICADO' AND COALESCE(familia_id, id)::text <> $3
+            RETURNING nome`,
+          [orgaoId, m.tipo_processo, this.familia(m)],
+        ).then((r: any) => (Array.isArray(r?.[0]) ? r[0] : r));
+        desativados.push(...outros.map((o) => o.nome));
+      }
       await mg.update(WorkflowModelo, { id: m.id }, { status: 'PUBLICADO' });
     });
-    return this.desenho(orgaoId, id);
+    return { ...(await this.desenho(orgaoId, id)), desativados };
   }
 
   /**

@@ -739,7 +739,7 @@ export function BlocoPecaAvulsa({ processoId, onJuntada }: { processoId: string;
 export function BlocoAguardando({ posse, encerrado, motivo }: { posse: ComQuemEsta | null; encerrado: boolean; motivo: string | null }) {
   return (
     <section className={`${s.bloco} ${s.neutro}`}>
-      <div className={s.eyebrow}>{encerrado ? "Situação" : "Sua vez"}</div>
+      <div className={s.eyebrow}>{encerrado ? "Situação" : "Providência"}</div>
       {encerrado ? (
         <>
           <h2>Processo encerrado</h2>
