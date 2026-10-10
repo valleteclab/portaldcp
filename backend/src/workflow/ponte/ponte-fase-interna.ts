@@ -90,3 +90,29 @@ export async function licitacaoConduzidaPeloFluxo(consulta: Consulta, licitacaoI
   );
   return !!r;
 }
+
+/**
+ * ENVIO FORA DO FLUXO (mockup "Processo enxuto", 10/10/2026): com o fluxo em
+ * andamento o processo anda pelas etapas, mas quem está com ele pode mandá-lo a
+ * outro setor como exceção (consulta, diligência) — com justificativa, que vai
+ * ao despacho nos autos. A etapa do fluxo não muda; quem recebeu devolve.
+ */
+export const FINALIDADE_FORA_DO_FLUXO = 'Fora do fluxo';
+export const JUSTIFICATIVA_MINIMA = 10;
+
+/** Justificativa válida (já aparada) ou nulo. */
+export function justificativaForaDoFluxo(v: unknown): string | null {
+  const t = String(v ?? '').trim().slice(0, 2000);
+  return t.length >= JUSTIFICATIVA_MINIMA ? t : null;
+}
+
+/** Texto do despacho do envio fora do fluxo: a justificativa primeiro, depois o que mais foi escrito. */
+export function despachoForaDoFluxo(justificativa: string, despacho?: string | null): string {
+  const extra = String(despacho ?? '').trim();
+  return `Envio fora do fluxo. Justificativa: ${justificativa}${extra ? `\n\n${extra}` : ''}`.slice(0, 8000);
+}
+
+/** A tramitação foi um envio fora do fluxo (quem recebeu pode devolver mesmo com o fluxo andando). */
+export function ehEnvioForaDoFluxo(t: { finalidade?: string | null } | null | undefined): boolean {
+  return String(t?.finalidade ?? '').trim() === FINALIDADE_FORA_DO_FLUXO;
+}

@@ -1,4 +1,4 @@
-import { licitacaoConduzidaPeloFluxo } from '../workflow/ponte/ponte-fase-interna';
+import { despachoForaDoFluxo, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, JUSTIFICATIVA_MINIMA, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo } from '../workflow/ponte/ponte-fase-interna';
 import {
   Injectable,
   Logger,
@@ -62,6 +62,8 @@ export interface TramitarDto {
   data_ocorrencia?: string | null;
   /** F3: etapas (códigos do modelo) para as quais o processo vai — as tarefas delas passam ao destino. */
   etapas?: string[] | null;
+  /** Processo no fluxo desenhado: envio a outro setor como exceção, com justificativa (vai ao despacho). */
+  justificativa_fora_do_fluxo?: string | null;
 }
 
 /** Serviço interno (F3): enviar o processo a um setor/pessoa. */
@@ -80,6 +82,8 @@ export interface EnviarTramitacaoParams {
   etapas?: string[] | null;
   /** F3: false = sem aviso de chegada (padrão: avisa). */
   notificar?: boolean;
+  /** Processo no fluxo desenhado: envio a outro setor como exceção, com justificativa (vai ao despacho). */
+  justificativa_fora_do_fluxo?: string | null;
   /**
    * F3 (envio automático): só envia se a tramitação vigente ainda for esta
    * (null = sem tramitação). Mudou no meio do caminho → 409, nada é gravado.
@@ -293,6 +297,7 @@ export class TramitacaoService {
       prazo_dias_uteis: dto?.prazo_dias_uteis ?? dto?.prazo_dias ?? null,
       data_ocorrencia: dto?.data_ocorrencia ?? null,
       etapas: dto?.etapas ?? null,
+      justificativa_fora_do_fluxo: dto?.justificativa_fora_do_fluxo ?? null,
       ator,
       contexto,
     });
@@ -316,14 +321,19 @@ export class TramitacaoService {
     const lic = await this.licitacaoDoAtor(params.licitacaoId, params.ator);
     const perfil = await this.perfil(params.ator, lic.orgao_id);
     const destino = await this.resolverDestino(lic.orgao_id, params.para);
-    const texto = this.textoDoDespacho(params, destino.nome);
     const prazo = this.validarPrazo(params.prazo_dias_uteis);
-    const finalidade = String(params.finalidade ?? '').trim().slice(0, 300) || null;
     const etapas = this.validarEtapas(params.etapas);
-    // Ponte: com fluxo desenhado em andamento, o processo anda pelas etapas — envio manual recusado
-    if (!params.automatico && (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), lic.id))) {
-      throw new ConflictException('Este processo segue um fluxo: ele anda pelas etapas (concluir, devolver ou indeferir), não pelo envio manual.');
+    // Ponte: com fluxo desenhado em andamento, o processo anda pelas etapas — envio manual só
+    // como exceção, com justificativa no despacho (a etapa do fluxo não muda; quem recebe devolve)
+    const conduzido = !params.automatico && (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), lic.id));
+    const justificativa = conduzido ? justificativaForaDoFluxo(params.justificativa_fora_do_fluxo) : null;
+    if (conduzido && !justificativa) {
+      throw new ConflictException(
+        `Este processo segue um fluxo: ele anda pelas etapas (concluir, devolver ou indeferir). Para enviar a outro setor fora do fluxo, informe a justificativa (mínimo ${JUSTIFICATIVA_MINIMA} caracteres).`,
+      );
     }
+    const texto = justificativa ? despachoForaDoFluxo(justificativa, params.despacho) : this.textoDoDespacho(params, destino.nome);
+    const finalidade = justificativa ? FINALIDADE_FORA_DO_FLUXO : String(params.finalidade ?? '').trim().slice(0, 300) || null;
     // F3: envio manual espera a sincronização em curso do processo (posse inicial, envio automático)
     if (!params.automatico) await this.esperarAntes(lic.id);
 
@@ -685,7 +695,8 @@ export class TramitacaoService {
       throw new BadRequestException('Esta tramitação não pode ser devolvida');
     }
     await this.exigirQuemEstaComOProcesso(perfil, tramitacao, 'devolvê-lo');
-    if (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), lic.id)) {
+    // Com fluxo, a devolução é pela etapa — exceto quem recebeu um envio fora do fluxo, que devolve a quem mandou
+    if (!ehEnvioForaDoFluxo(tramitacao) && (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), lic.id))) {
       throw new ConflictException('Este processo segue um fluxo: a devolução é feita pela etapa do fluxo.');
     }
     if (tramitacao.posse_inicial) {

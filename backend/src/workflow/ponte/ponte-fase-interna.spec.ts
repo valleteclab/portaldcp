@@ -1,4 +1,4 @@
-import { licitacaoConduzidaPeloFluxo, pendenciasDaPonte, ROTA_DA_ETAPA } from './ponte-fase-interna';
+import { despachoForaDoFluxo, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, ROTA_DA_ETAPA } from './ponte-fase-interna';
 
 const base = { documentoPronto: false, publicada: false, temDemanda: false };
 
@@ -31,5 +31,26 @@ describe('ponte fluxo novo ↔ fase interna', () => {
     expect(await licitacaoConduzidaPeloFluxo(sim, 'lic-1')).toBe(true);
     expect(vistas[0]).toEqual(['lic-1']);
     expect(await licitacaoConduzidaPeloFluxo(async () => [], 'lic-1')).toBe(false);
+  });
+});
+
+describe('envio fora do fluxo (exceção com justificativa)', () => {
+  it('justificativa curta ou vazia não vale', () => {
+    expect(justificativaForaDoFluxo('')).toBeNull();
+    expect(justificativaForaDoFluxo('   urgente ')).toBeNull();
+    expect(justificativaForaDoFluxo('  Consulta ao Patrimônio sobre o tombamento  ')).toBe('Consulta ao Patrimônio sobre o tombamento');
+  });
+
+  it('despacho começa pela justificativa e guarda o texto extra', () => {
+    expect(despachoForaDoFluxo('Consulta ao Patrimônio sobre o tombamento')).toBe('Envio fora do fluxo. Justificativa: Consulta ao Patrimônio sobre o tombamento');
+    expect(despachoForaDoFluxo('Consulta ao Patrimônio sobre o tombamento', ' Favor responder até sexta. ')).toBe(
+      'Envio fora do fluxo. Justificativa: Consulta ao Patrimônio sobre o tombamento\n\nFavor responder até sexta.',
+    );
+  });
+
+  it('reconhece a tramitação fora do fluxo pela finalidade', () => {
+    expect(ehEnvioForaDoFluxo({ finalidade: FINALIDADE_FORA_DO_FLUXO })).toBe(true);
+    expect(ehEnvioForaDoFluxo({ finalidade: 'a reserva orçamentária' })).toBe(false);
+    expect(ehEnvioForaDoFluxo(null)).toBe(false);
   });
 });
