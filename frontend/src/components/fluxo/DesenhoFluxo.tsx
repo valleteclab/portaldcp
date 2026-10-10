@@ -167,8 +167,13 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
     if (sujo && !(await salvar())) return
     setSalvando(true)
     try {
-      aplicar(await apiFluxo<Desenho>(`/${desenho.modelo.id}/ativar`, { metodo: "POST" }))
-      toast.success(`Versão ${desenho.modelo.versao} ativada. Os novos processos seguem esta versão.`)
+      const ativado = await apiFluxo<Desenho & { desativados?: string[] }>(`/${desenho.modelo.id}/ativar`, { metodo: "POST" })
+      aplicar(ativado)
+      const outros = ativado.desativados ?? []
+      toast.success(
+        `Versão ${desenho.modelo.versao} ativada. Os novos processos seguem esta versão.` +
+          (outros.length ? ` Um fluxo ativo por tipo de processo: ${outros.join(", ")} foi desativado.` : ""),
+      )
     } catch (e) {
       const erros = e instanceof ErroFluxo ? e.erros : []
       toast.error(erros.length ? erros.join(" ") : e instanceof Error ? e.message : "Não foi possível ativar.")
@@ -469,6 +474,11 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
               <p className="text-sm leading-relaxed text-slate-700">
                 {ativa ? `Os ${ativa.em_andamento} processos em andamento continuam na versão ${ativa.versao} até o fim. ` : ""}Processos abertos depois seguem esta versão.
               </p>
+              {tipoProcesso ? (
+                <p className="text-sm leading-relaxed text-slate-700">
+                  Um fluxo ativo por tipo de processo: se outro fluxo de {rotuloTipoProcesso(tipoProcesso).toLowerCase()} estiver ativo, ele é desativado.
+                </p>
+              ) : null}
               {sujo ? <p className="text-sm text-[#8A5A00]">Há alterações não salvas — elas são salvas antes de ativar.</p> : null}
               {desenho.pendencias_para_ativar.length ? (
                 <div className="rounded-lg bg-[#FFF4DE] p-3 text-sm text-[#6B4700]">
