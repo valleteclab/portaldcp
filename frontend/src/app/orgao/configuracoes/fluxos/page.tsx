@@ -117,7 +117,7 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
                 <b className="text-[15px]">{f.nome}</b>
                 <span className="text-sm text-[#5A6675]">
                   {rotuloTipoProcesso(f.tipo_processo)}
-                  {f.ativo ? ` · versão ${f.ativo.versao} ativa` : " · nenhuma versão ativa"}
+                  {f.ativo ? ` · versão ${f.ativo.versao} ativa` : f.desativado ? ` · versão ${f.desativado.versao} desativada` : " · nenhuma versão ativa"}
                   {f.rascunho ? ` · rascunho da versão ${f.rascunho.versao}` : ""}
                   {f.em_andamento ? ` · ${f.em_andamento} em andamento` : ""}
                 </span>
@@ -131,6 +131,10 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
                 {f.ativo ? (
                   <button type="button" onClick={() => onAbrir(f.ativo!.id)} className="rounded-lg border border-[#CBD3DA] px-3.5 py-2 text-sm">
                     Ver versão ativa
+                  </button>
+                ) : f.desativado ? (
+                  <button type="button" onClick={() => onAbrir(f.desativado!.id)} className="rounded-lg border border-[#CBD3DA] px-3.5 py-2 text-sm">
+                    Ver versão desativada
                   </button>
                 ) : null}
               </div>

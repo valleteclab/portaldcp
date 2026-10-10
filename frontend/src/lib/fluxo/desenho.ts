@@ -44,11 +44,21 @@ export interface Desenho {
   versoes: Array<{ id: string; versao: number; status: string; em_andamento: number }>
 }
 
+/** Rótulo da situação de uma versão do fluxo. */
+export function rotuloStatusVersao(status: string): string {
+  if (status === "RASCUNHO") return "rascunho"
+  if (status === "PUBLICADO") return "ativa"
+  if (status === "DESATIVADO") return "desativada"
+  return "substituída"
+}
+
 export interface FluxoResumo {
   familia_id: string
   nome: string
   tipo_processo: string | null
   ativo: { id: string; versao: number } | null
+  /** Versão desativada (só quando não há ativa): pode ser reativada. */
+  desativado: { id: string; versao: number } | null
   rascunho: { id: string; versao: number } | null
   em_andamento: number
 }

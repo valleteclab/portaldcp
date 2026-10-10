@@ -470,7 +470,7 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
       // o mesmo DFD não abre outro processo
       const r2 = await criar(agente.token, dadosPadrao({ dfd_id: dfd.id }), seisPdfs());
       expect(r2.status).toBe(400);
-      expect(r2.body.message).toMatch(/já abriu o processo/);
+      expect(r2.body.message).toMatch(/já está no processo/);
     });
 
     it('só a unidade de planejamento abre o processo a partir da demanda (sem o papel → 403, nada criado)', async () => {
