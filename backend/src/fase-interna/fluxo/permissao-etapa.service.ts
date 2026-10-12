@@ -12,7 +12,7 @@ import { TarefasService, responsaveisDoModelo } from '../tarefas/tarefas.service
 import { EtapaDoModelo, ModeloFluxo, ResponsavelEtapa, dependenciasEfetivas } from './modelo-fluxo';
 import { ModeloFluxoService } from './modelo-fluxo.service';
 import { PerfilTrabalho, PosseParaTrabalho, ResultadoPermissao, avaliarPermissaoEtapa, ehCondutor, ehResponsavelPelaEtapa } from './permissao-etapa';
-import { licitacaoConduzidaPeloFluxo } from '../../workflow/ponte/ponte-fase-interna';
+import { licitacaoConduzidaPeloFluxo, motivoForaDaVez, vezDoPasso, type PassoDaExecucao } from '../../workflow/ponte/ponte-fase-interna';
 
 /** Documentos do órgão juntados ao processo (designação do agente e da equipe): fora da ordem das etapas. */
 const DOCUMENTOS_DO_ORGAO = ['DP', 'DEA'];
@@ -34,6 +34,8 @@ interface ContextoPermissao {
   falta_aprovacao: boolean;
   /** Processo conduzido pelo fluxo desenhado (workflow): a ordem das etapas é do fluxo, não das dependências do modelo da fase interna. */
   conduzido_pelo_fluxo: boolean;
+  /** Etapas da execução em andamento, na ordem do desenho (só quando conduzido pelo fluxo). */
+  passos_do_fluxo: PassoDaExecucao[];
   aprovador_rotulo: string | null;
   passos: PassoCalculado[];
   posse: (PosseParaTrabalho & { chefe: string | null }) | null;
@@ -177,6 +179,7 @@ export class PermissaoEtapaService implements OnModuleInit {
       modelo: fluxo.modelo,
       falta_aprovacao: !!ap?.exigida && fluxo.estado.demanda_aprovada === false,
       conduzido_pelo_fluxo: await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId),
+      passos_do_fluxo: await this.passosDoFluxo(licitacaoId),
       aprovador_rotulo: aprovadorRotulo,
       passos,
       posse,
@@ -198,6 +201,32 @@ export class PermissaoEtapaService implements OnModuleInit {
     return partes.length ? `quem é ${partes.join(' ou ')}` : 'quem conduz o processo';
   }
 
+  /**
+   * Etapas da execução do fluxo desenhado em andamento ligada à licitação, na
+   * ordem do desenho, com a situação pela tarefa mais recente de cada etapa.
+   * Vazio = não conduzido pelo fluxo.
+   */
+  private async passosDoFluxo(licitacaoId: string): Promise<PassoDaExecucao[]> {
+    const linhas: Array<{ tipo: string; nome: string; status: string | null }> = await this.ds.query(
+      `SELECT a.tipo, a.nome,
+              (SELECT t.status FROM workflow_tarefas t WHERE t.instancia_id = i.id AND t.acao_id = a.id ORDER BY t.created_at DESC LIMIT 1) AS status
+         FROM workflow_instancias i
+         JOIN processos p ON p.id = i.vinculo_id AND p.orgao_id = i.orgao_id
+         JOIN workflow_fases f ON f.workflow_id = i.workflow_id
+         JOIN workflow_acoes a ON a.fase_id = f.id
+        WHERE i.vinculo_tipo = 'PROCESSO' AND i.status = 'EM_ANDAMENTO'
+          AND p.referencia_tipo = 'LICITACAO' AND p.referencia_id::text = $1
+        ORDER BY i.created_at DESC, f.ordem ASC, a.ordem ASC`,
+      [licitacaoId],
+    );
+    return linhas.map((l, i) => ({
+      tipo: l.tipo,
+      nome: l.nome,
+      ordem: i + 1,
+      situacao: l.status === 'ABERTA' ? 'EM_ANDAMENTO' : l.status === 'CONCLUIDA' || l.status === 'INDEFERIDA' ? 'CONCLUIDA' : 'A_REALIZAR',
+    }));
+  }
+
   /** Dependências não concluídas de uma etapa que não está entre as ativas do processo (desligada ou sem peça). */
   private pendenciasFora(ctx: ContextoPermissao, etapa: EtapaDoModelo): string[] {
     const etapas = ctx.modelo.etapas.map((e) => (e.codigo === etapa.codigo ? { ...e, ligada: true } : e));
@@ -214,6 +243,16 @@ export class PermissaoEtapaService implements OnModuleInit {
     if (!etapa || !etapa.ligada) return { ...OK, passo: codigo };
     const calc = ctx.passos.find((p) => p.passo === codigo);
     const titulo = (c: string) => ctx.modelo.etapas.find((e) => e.codigo === c)?.titulo ?? c;
+    // Conduzido pelo fluxo desenhado: só a peça da etapa ATUAL se edita. Etapa concluída pede devolução; futura espera
+    // a vez. O administrador do órgão ainda pode (por privilégio), com o motivo guardado para a tela avisar.
+    if (ctx.conduzido_pelo_fluxo && ctx.passos_do_fluxo.length) {
+      const vez = vezDoPasso(ctx.passos_do_fluxo, codigo);
+      const motivo = motivoForaDaVez(vez, etapa.titulo);
+      if (motivo) {
+        if (perfil.privilegiado) return { pode: true, codigo: 'OK', motivo: null, por_privilegio: true, motivo_sem_privilegio: motivo, passo: codigo, titulo: etapa.titulo };
+        return { pode: false, codigo: 'FORA_DA_VEZ', motivo, por_privilegio: false, motivo_sem_privilegio: motivo, passo: codigo, titulo: etapa.titulo };
+      }
+    }
     // Conduzido pelo fluxo desenhado: quem diz se a etapa pode começar é o fluxo (a tarefa aberta e a posse que ele
     // entregou ao setor), não as dependências do modelo da fase interna — senão o ETP fica "somente leitura" porque o
     // DOCUMENTO DFD ainda está em elaboração, embora a ETAPA DFD do fluxo já tenha sido concluída.

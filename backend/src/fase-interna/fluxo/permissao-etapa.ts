@@ -68,7 +68,7 @@ export interface EntradaPermissao {
   diligencia_aberta?: boolean;
 }
 
-export type CodigoPermissao = 'OK' | 'AGUARDANDO_DEMANDA' | 'AGUARDANDO_ETAPAS' | 'NAO_RESPONSAVEL' | 'SEM_POSSE' | 'FORA_DO_MODELO';
+export type CodigoPermissao = 'OK' | 'AGUARDANDO_DEMANDA' | 'AGUARDANDO_ETAPAS' | 'NAO_RESPONSAVEL' | 'SEM_POSSE' | 'FORA_DO_MODELO' | 'FORA_DA_VEZ';
 
 export interface ResultadoPermissao {
   pode: boolean;

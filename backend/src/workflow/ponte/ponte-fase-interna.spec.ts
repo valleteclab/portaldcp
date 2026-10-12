@@ -54,3 +54,31 @@ describe('envio fora do fluxo (exceção com justificativa)', () => {
     expect(ehEnvioForaDoFluxo(null)).toBe(false);
   });
 });
+
+describe('vezDoPasso — só a etapa atual edita (12/10/2026)', () => {
+  const { vezDoPasso, motivoForaDaVez } = require('./ponte-fase-interna');
+  const passos = [
+    { tipo: 'DFD', nome: 'DFD', ordem: 1, situacao: 'CONCLUIDA' },
+    { tipo: 'ETP', nome: 'Estudo técnico preliminar', ordem: 2, situacao: 'EM_ANDAMENTO' },
+    { tipo: 'PESQUISA_PRECO', nome: 'Pesquisa de preços', ordem: 3, situacao: 'A_REALIZAR' },
+    { tipo: 'TR', nome: 'Termo de referência', ordem: 4, situacao: 'A_REALIZAR' },
+  ];
+
+  it('atual, concluída, futura e fora do desenho', () => {
+    expect(vezDoPasso(passos, 'ETP')).toEqual({ situacao: 'ATUAL' });
+    expect(vezDoPasso(passos, 'DFD')).toEqual({ situacao: 'CONCLUIDA', etapa: { nome: 'DFD', ordem: 1 } });
+    expect(vezDoPasso(passos, 'TR')).toEqual({ situacao: 'FUTURA', etapa: { nome: 'Termo de referência', ordem: 4 }, atual: { nome: 'Estudo técnico preliminar', ordem: 2 } });
+    expect(vezDoPasso(passos, 'MINUTAS')).toEqual({ situacao: 'FORA' });
+  });
+
+  it('dois nós para o mesmo passo (ETP e Mapa de riscos): basta um em andamento', () => {
+    const p = [...passos.slice(0, 2), { tipo: 'MAPA_RISCOS', nome: 'Mapa de riscos', ordem: 3, situacao: 'A_REALIZAR' }];
+    expect(vezDoPasso(p, 'ETP')).toEqual({ situacao: 'ATUAL' });
+  });
+
+  it('mensagens de somente leitura', () => {
+    expect(motivoForaDaVez(vezDoPasso(passos, 'DFD'), 'Formalizar a demanda (DFD)')).toMatch(/etapa 1 \(DFD\), já concluída.*devolução/);
+    expect(motivoForaDaVez(vezDoPasso(passos, 'TR'), 'Termo de referência')).toMatch(/etapa 4 .*está na etapa 2 \(Estudo técnico preliminar\)/);
+    expect(motivoForaDaVez(vezDoPasso(passos, 'ETP'), 'ETP')).toBeNull();
+  });
+});
