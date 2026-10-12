@@ -5,6 +5,17 @@ import type { WorkflowAcao } from '../workflow/workflow.entities';
 import { andamentoDoFluxo, andamentoLivre, type Andamento } from '../workflow/andamento/andamento';
 import { TipoProcesso, type Processo } from './entities/processo.entity';
 import type { Ator } from '../auth/acesso/ator';
+import { rotuloModalidade } from '../workflow/aplicacao/aplicacao-fluxo';
+import { definicaoDoFundamento } from '../licitacoes/fundamento-legal';
+
+/** "Dispensa, art. 75, II" / "fluxo padrão da contratação" — gravado ao iniciar o fluxo pela modalidade. */
+function textoDaEscolha(e: unknown): string | null {
+  const x = (e ?? null) as { motivo?: string; modalidade?: string | null; fundamento?: string | null } | null;
+  if (!x?.motivo) return null;
+  if (x.motivo === 'PADRAO') return 'fluxo padrão da contratação';
+  const enquadramento = x.motivo === 'ENQUADRAMENTO' ? (definicaoDoFundamento(x.fundamento)?.referencia ?? null) : null;
+  return [rotuloModalidade(x.modalidade), enquadramento].filter(Boolean).join(', ');
+}
 
 const ROTULO_RESPONSAVEL: Record<string, string> = {
   SOLICITANTE: 'Solicitante',
@@ -39,6 +50,7 @@ export class AndamentoProcessoService {
       const aberta = a.atual?.tarefa_id ? execucao.tarefas.find((t) => t.id === a.atual!.tarefa_id) : null;
       a.pode_agir = !!(ator && aberta && (await this.workflow.podeAgirNaTarefa(p.orgao_id, execucao.instancia, aberta, ator)));
       a.licitacao_id = p.tipo === TipoProcesso.CONTRATACAO && p.referencia_tipo === 'LICITACAO' ? p.referencia_id : null;
+      a.escolhido_por = textoDaEscolha(execucao.instancia.dados?.escolha);
       return a;
     }
     const [movimentacoes, pecas] = await Promise.all([

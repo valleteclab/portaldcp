@@ -9,6 +9,8 @@ import { TeamsService } from './avisos/teams.service';
 import { normalizarAvisos, normalizarNotificar } from './avisos/destinatarios';
 import { ehResponsavelDaTarefa } from './responsavel';
 import { ehFaseInterna } from '../licitacoes/transicoes/fases';
+import { escolherFluxo, type FluxoAtivo } from './aplicacao/aplicacao-fluxo';
+import { fundamentoEfetivo } from '../licitacoes/fundamento-legal';
 
 @Injectable()
 export class WorkflowService {
@@ -311,17 +313,33 @@ export class WorkflowService {
     return instancia;
   }
 
+  /** Fluxos de Contratação ativos do órgão, com onde cada um vale. */
+  async ativosDaContratacao(orgaoId: string): Promise<FluxoAtivo[]> {
+    const ativos = await this.modelos.find({ where: { orgao_id: orgaoId, status: 'PUBLICADO', tipo_processo: 'CONTRATACAO' }, order: { updated_at: 'DESC' } });
+    return ativos.map((m) => ({ id: m.id, familia: m.familia_id ?? m.id, nome: m.nome, versao: m.versao, aplicacao: m.aplicacao ?? null }));
+  }
+
   /**
-   * Início automático (decisão de 07/10/2026): o processo de contratação aberto
-   * pelo DFD segue o fluxo de Contratação ativo do órgão — se houver exatamente
-   * um (nenhum ou vários: fica o "Iniciar fluxo" manual). A primeira etapa, se
-   * for o DFD e já estiver pronta, conclui sozinha.
+   * Início automático (decisões de 07/10 e 12/10/2026): o processo de
+   * contratação aberto pelo DFD nasce no fluxo ativo da sua modalidade e do
+   * seu enquadramento (senão, no padrão). Nenhum ou dois no mesmo nível: fica
+   * sem fluxo. A primeira etapa, se for o DFD e já estiver pronta, conclui sozinha.
    */
   async iniciarFluxoDaContratacao(orgaoId: string, processoId: string, atorId: string) {
-    const ativos = await this.modelos.find({ where: { orgao_id: orgaoId, status: 'PUBLICADO', tipo_processo: 'CONTRATACAO' } });
-    if (ativos.length !== 1) return null;
-    const instancia = await this.iniciar(orgaoId, ativos[0].id, atorId, { processo_id: processoId });
-    const primeiro = this.passos(await this.obter(orgaoId, ativos[0].id))[0];
+    const [lic] = await this.dataSource.query(
+      `SELECT l.modalidade::text AS modalidade, l.fundamento_legal, l.tipo_contratacao::text AS tipo_contratacao
+         FROM processos p JOIN licitacoes l ON p.referencia_tipo = 'LICITACAO' AND l.id = p.referencia_id
+        WHERE p.id::text = $1 AND p.orgao_id::text = $2`,
+      [processoId, orgaoId],
+    );
+    const fundamento = lic ? fundamentoEfetivo(lic) : null;
+    const escolha = escolherFluxo(await this.ativosDaContratacao(orgaoId), lic?.modalidade ?? null, fundamento);
+    if (!escolha) return null;
+    const instancia = await this.iniciar(orgaoId, escolha.fluxo.id, atorId, {
+      processo_id: processoId,
+      dados: { escolha: { motivo: escolha.motivo, modalidade: lic?.modalidade ?? null, fundamento } },
+    });
+    const primeiro = this.passos(await this.obter(orgaoId, escolha.fluxo.id))[0];
     if (primeiro?.acao.tipo === 'DFD') {
       const tarefa = await this.tarefas.findOne({ where: { instancia_id: instancia.id, acao_id: primeiro.acao.id, status: 'ABERTA' } });
       if (tarefa) {

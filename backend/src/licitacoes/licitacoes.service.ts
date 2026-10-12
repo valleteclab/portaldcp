@@ -417,7 +417,7 @@ export class LicitacoesService {
    */
   async criarAPartirDeDfd(
     dfdId: string,
-    dto: Partial<CreateFromDemandaDto>,
+    dto: Partial<CreateFromDemandaDto> & { fundamento_legal?: string | null },
     orgaoIdDoAtor: string | null | undefined,
     ator: AtorTransicao = atorSistema('api'),
     atorAcesso?: Ator | null,
@@ -448,6 +448,8 @@ export class LicitacoesService {
         modalidade: dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO,
         tipo_contratacao: dto.tipo_contratacao ?? (itens.some((i) => i.categoria === 'SERVICO') ? TipoContratacao.SERVICO : TipoContratacao.COMPRA),
         criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
+        // Enquadramento escolhido ao abrir (sem escolha, a entidade preenche o padrão da modalidade)
+        ...(dto.fundamento_legal ? { fundamento_legal: dto.fundamento_legal } : {}),
         fase: FaseLicitacao.PLANEJAMENTO,
         situacao: SituacaoLicitacao.ATIVA,
         ano,

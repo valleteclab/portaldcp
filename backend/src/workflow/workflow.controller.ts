@@ -38,6 +38,11 @@ export class WorkflowController {
   @Get('tempo-etapas/opcoes') opcoesTempo(@AtorAtual() ator: Ator) { return this.tempo.opcoes(orgaoDo(ator)); }
   @Get('tempo-etapas/etapa') detalheTempo(@AtorAtual() ator: Ator, @Query('fluxo') fluxo: string, @Query('etapa') etapa: string, @Query('dias') dias: string) { return this.tempo.detalhe(orgaoDo(ator), String(fluxo ?? ''), String(etapa ?? ''), dias, ehAdminDoOrgao(ator)); }
   @Get('tempo-etapas') resumoTempo(@AtorAtual() ator: Ator, @Query('fluxo') fluxo: string, @Query('dias') dias: string) { return this.tempo.resumo(orgaoDo(ator), String(fluxo ?? ''), dias); }
+  // Contratação por modalidade: tabela de cobertura, opções de "Onde este fluxo vale" e prévia ao abrir o processo
+  @Get('contratacao/cobertura') coberturaContratacao(@AtorAtual() ator: Ator) { return this.desenhos.coberturaDaContratacao(orgaoDo(ator)); }
+  @Get('contratacao/opcoes') opcoesContratacao(@AtorAtual() ator: Ator, @Query('fluxo') fluxo?: string) { return this.desenhos.opcoesAplicacao(orgaoDo(ator), fluxo || null); }
+  @Get('contratacao/previa') previaContratacao(@AtorAtual() ator: Ator, @Query('modalidade') modalidade: string, @Query('fundamento') fundamento?: string) { return this.desenhos.previaDaContratacao(orgaoDo(ator), String(modalidade ?? '').toUpperCase(), fundamento ? String(fundamento).toUpperCase() : null); }
+  @Put(':id/aplicacao') salvarAplicacao(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.desenhos.salvarAplicacao(adminDoOrgao(ator), id, body); }
   @Get('desenhos/modelos') modelosDesenho(@AtorAtual() ator: Ator, @Query('tipo') tipo: string) { return this.desenhos.modelos(orgaoDo(ator), String(tipo ?? '').toUpperCase()); }
   @Get('desenhos/opcoes') opcoesDesenho(@AtorAtual() ator: Ator) { return this.desenhos.opcoes(orgaoDo(ator)); }
   @Get('desenhos') listarDesenhos(@AtorAtual() ator: Ator) { return this.desenhos.listar(orgaoDo(ator)); }

@@ -1,4 +1,5 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import type { AplicacaoFluxo } from './aplicacao/aplicacao-fluxo';
 
 @Entity('workflow_modelos')
 @Index('idx_workflow_modelo_orgao', ['orgao_id'])
@@ -13,6 +14,8 @@ export class WorkflowModelo {
   @Column({ type: 'varchar', length: 30, nullable: true }) tipo_processo: string | null;
   /** Versões do mesmo fluxo compartilham a família (a 1ª versão é a própria: nulo = id). RASCUNHO → PUBLICADO → SUBSTITUIDO; a ativa pode ir a DESATIVADO (e voltar). */
   @Column({ type: 'uuid', nullable: true }) familia_id: string | null;
+  /** Contratação: modalidades e enquadramentos em que o fluxo vale (nulo = padrão, como antes). */
+  @Column({ type: 'jsonb', nullable: true }) aplicacao: AplicacaoFluxo | null;
   @Column({ type: 'varchar', length: 100, nullable: true }) criado_por_id: string | null;
   @OneToMany(() => WorkflowFase, (fase) => fase.workflow) fases: WorkflowFase[];
   @OneToMany(() => WorkflowFormulario, (formulario) => formulario.workflow) formularios: WorkflowFormulario[];

@@ -35,6 +35,7 @@ import { toast } from 'sonner'
 import { confirmarAcao, pedirTextoAcao } from '@/components/DialogoGlobal'
 import { type ModoFaseInterna, lembrarEscolhaModo, rotaFaseInternaFeitaFora, ultimaEscolhaModo } from '@/lib/fase-interna/criacao'
 import { OpcoesModoFaseInterna } from '@/components/fase-interna/externa/EscolhaModoFaseInterna'
+import { PreviaFluxoContratacao } from '@/components/fluxo/PreviaFluxoContratacao'
 import { AlertaParecidos, COR_STATUS_DFD, GuiaDfd, ROTULO_STATUS_DFD, formatarMoeda, type Parecido } from '@/components/demandas/dfd-comum'
 import { passoDoDfd, proximoPassoNoDfd, rotaDaTelaDoProcesso, type ProximoPassoNoDfd } from '@/lib/demandas/proxima-acao-dfd'
 
@@ -151,6 +152,8 @@ function DfdDetalhe() {
   const [paraIncluir, setParaIncluir] = useState('')
   const [modalAbrir, setModalAbrir] = useState(false)
   const [modalidade, setModalidade] = useState('DISPENSA_ELETRONICA')
+  // Enquadramento (dispensa e inexigibilidade): escolhe o fluxo junto com a modalidade; vazio = o padrão do sistema
+  const [fundamento, setFundamento] = useState('')
   const [limiteDispensa, setLimiteDispensa] = useState<number | null>(null)
   const [modo, setModo] = useState<ModoFaseInterna | null>(null)
   const [abrindo, setAbrindo] = useState(false)
@@ -312,7 +315,7 @@ function DfdDetalhe() {
       const r = await authFetch(`${API_URL}/api/dfds-consolidados/${id}/abrir-processo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modalidade }),
+        body: JSON.stringify({ modalidade, ...(fundamento ? { fundamento_legal: fundamento } : {}) }),
       })
       const j = await r.json().catch(() => null)
       if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
@@ -716,7 +719,10 @@ function DfdDetalhe() {
                 key={m.valor}
                 type="button"
                 aria-pressed={modalidade === m.valor}
-                onClick={() => setModalidade(m.valor)}
+                onClick={() => {
+                  setModalidade(m.valor)
+                  setFundamento('')
+                }}
                 className={`w-full text-left border rounded-md px-3 py-2 hover:bg-gray-50 ${modalidade === m.valor ? 'border-blue-600 bg-blue-50' : ''}`}
               >
                 <span className="flex items-center justify-between gap-2 flex-wrap">
@@ -736,6 +742,7 @@ function DfdDetalhe() {
                 ? <>Sugestão pelo valor: {formatarMoeda(dfd.valor_total_estimado)} {dfd.valor_total_estimado > limiteDispensa ? 'passa' : 'cabe dentro'} do limite da dispensa no exercício ({formatarMoeda(limiteDispensa)} — art. 75, II). A escolha é sua.</>
                 : 'A escolha da modalidade é sua (o limite da dispensa do exercício não pôde ser consultado agora).'}
             </p>
+            <PreviaFluxoContratacao modalidade={modalidade} fundamento={fundamento} onFundamento={setFundamento} />
           </fieldset>
           <div className="space-y-1">
             <p className="text-sm font-semibold">2. Fase interna</p>

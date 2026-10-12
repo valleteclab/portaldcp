@@ -35,8 +35,52 @@ export interface EtapaDesenho {
   modelo_documento_id: string | null
 }
 
+/** Contratação: onde o fluxo vale (nulo = padrão, como antes da regra por modalidade). */
+export interface AplicacaoFluxo {
+  modalidades: string[]
+  fundamentos: string[]
+  padrao: boolean
+}
+
+export interface OpcoesAplicacao {
+  modalidades: Array<{
+    codigo: string
+    rotulo: string
+    /** Outro fluxo ativo que já tem a modalidade inteira. */
+    ocupado_por: string | null
+    enquadramentos: Array<{ codigo: string; referencia: string; descricao: string; ocupado_por: string | null }>
+  }>
+  /** Outro fluxo ativo que já é o padrão. */
+  padrao_de: string | null
+}
+
+export type MotivoCobertura = "ENQUADRAMENTO" | "MODALIDADE" | "PADRAO" | "NENHUM" | "AMBIGUO"
+
+export interface LinhaCobertura {
+  modalidade: string
+  modalidade_rotulo: string
+  enquadramento: string
+  fluxo: { id: string; nome: string; versao: number } | null
+  motivo: MotivoCobertura
+}
+
+export interface PreviaContratacao {
+  fluxo: { id: string; nome: string; versao: number } | null
+  motivo: "ENQUADRAMENTO" | "MODALIDADE" | "PADRAO" | null
+  por: string
+  etapas: Array<{ nome: string; responsavel: string | null }>
+}
+
+/** Texto do "Por quê" da tabela de cobertura. */
+export function rotuloMotivoCobertura(m: MotivoCobertura): string {
+  if (m === "ENQUADRAMENTO" || m === "MODALIDADE") return "Fluxo próprio"
+  if (m === "PADRAO") return "Sem fluxo próprio: segue o padrão"
+  if (m === "AMBIGUO") return "Dois fluxos no mesmo caso: abre sem fluxo"
+  return "Sem fluxo: tramitação manual"
+}
+
 export interface Desenho {
-  modelo: { id: string; nome: string; descricao: string | null; tipo_processo: string | null; versao: number; status: string; familia_id: string }
+  modelo: { id: string; nome: string; descricao: string | null; tipo_processo: string | null; versao: number; status: string; familia_id: string; aplicacao: AplicacaoFluxo | null }
   etapas: EtapaDesenho[]
   editavel: boolean
   etapas_exigidas: string[]
@@ -61,6 +105,8 @@ export interface FluxoResumo {
   desativado: { id: string; versao: number } | null
   rascunho: { id: string; versao: number } | null
   em_andamento: number
+  /** Contratação: "Dispensa · art. 75, II", "Padrão: o que não tem fluxo próprio"… */
+  vale_para: string[]
 }
 
 export interface ItemCatalogo {

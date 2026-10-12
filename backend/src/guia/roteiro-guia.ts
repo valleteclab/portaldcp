@@ -109,8 +109,8 @@ export function roteiroFluxo(d: DadosRoteiroFluxo): RoteiroGuia {
         ...base,
         chave: 'fluxo-ativar',
         titulo: 'Ativar o fluxo',
-        o_que_fazer: 'Confira o desenho e clique em "Ativar". Só um fluxo de contratação fica ativo por vez; os processos novos passam a segui-lo.',
-        por_que: 'Processos abertos depois da ativação nascem neste fluxo. Os que já estão em andamento não mudam.',
+        o_que_fazer: 'Em "Onde este fluxo vale", marque as modalidades (ex.: Dispensa) e, se quiser, os incisos. Depois clique em "Ativar". Cada modalidade pode ter o seu fluxo.',
+        por_que: 'O processo nasce no fluxo da sua modalidade e do seu enquadramento. Os que já estão em andamento não mudam.',
         conclui_quando: 'Conclui quando houver um fluxo de contratação ativo.',
         tela: { rota: telaFluxo, alvo: 'ativar-fluxo', balao: 'Confira o desenho e clique em "Ativar".' },
         feito: !!d.ativo,
@@ -267,7 +267,7 @@ export function roteiroDispensa(d: DadosRoteiroDispensa): RoteiroGuia {
     titulo: 'Uma dispensa do começo ao fim',
     descricao: 'Da demanda do setor até a publicação. Passa por vários setores: o guia indica com quem entrar em cada passo.',
     iniciado: d.iniciado,
-    bloqueio: d.fluxo_ativo ? null : 'Ative primeiro um fluxo de contratação (roteiro A): o processo de teste precisa nascer num fluxo.',
+    bloqueio: d.fluxo_ativo ? null : 'Ative primeiro um fluxo de contratação que valha para a Dispensa (roteiro A): o processo de teste precisa nascer num fluxo.',
     referencia: [dem?.rotulo ? `Demanda: ${dem.rotulo}` : null, proc?.numero ? `Processo nº ${proc.numero}` : null].filter(Boolean).join(' · ') || null,
     // Quem pode a etapa do processo só vale para a etapa atual
     passos: comSituacao(passos, d.iniciado && d.fluxo_ativo).map((p) =>
