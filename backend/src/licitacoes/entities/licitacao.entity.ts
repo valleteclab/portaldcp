@@ -260,6 +260,10 @@ export class Licitacao {
   @Column({ type: 'varchar', length: 20, nullable: true })
   fundamento_legal: string | null;
 
+  /** Falso enquanto a modalidade é provisória: o processo abriu "a definir" e segue a instrução até a etapa Definição da modalidade. */
+  @Column({ type: 'boolean', default: true })
+  modalidade_definida: boolean;
+
   /** Todo processo novo nasce com o fundamento gravado (padrão da modalidade quando não informado). */
   @BeforeInsert()
   preencherFundamentoLegal() {

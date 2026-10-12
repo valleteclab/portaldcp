@@ -81,6 +81,8 @@ export interface ConteudoLicitacao {
   numero_controle_pncp?: string | null
   srp?: boolean | null
   data_publicacao_edital?: string | null
+  /** Falso: abriu "a definir" e a instrução termina na etapa Definição da modalidade. */
+  modalidade_definida?: boolean | null
 }
 
 /** Peça da licitação escrita no editor novo (AA, PJ, MCI): GET /processos/:id/pecas-licitacao/:tipo. */

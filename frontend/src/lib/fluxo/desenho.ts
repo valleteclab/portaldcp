@@ -64,11 +64,20 @@ export interface LinhaCobertura {
   motivo: MotivoCobertura
 }
 
+export interface EtapaPrevia {
+  nome: string
+  tipo?: string
+  responsavel: string | null
+}
+
 export interface PreviaContratacao {
+  /** Instrução ativa (termina na Definição da modalidade): o processo começa por ela. */
+  instrucao: { fluxo: { id: string; nome: string; versao: number }; etapas: EtapaPrevia[] } | null
+  /** Fluxo da modalidade (depois da definição, ou desde o início sem instrução). */
   fluxo: { id: string; nome: string; versao: number } | null
   motivo: "ENQUADRAMENTO" | "MODALIDADE" | "PADRAO" | null
   por: string
-  etapas: Array<{ nome: string; responsavel: string | null }>
+  etapas: EtapaPrevia[]
 }
 
 /** Modelo pronto (desenho tirado dos autos da Câmara) para começar um fluxo. */
@@ -93,6 +102,8 @@ export function rotuloMotivoCobertura(m: MotivoCobertura): string {
 export interface Desenho {
   modelo: { id: string; nome: string; descricao: string | null; tipo_processo: string | null; versao: number; status: string; familia_id: string; aplicacao: AplicacaoFluxo | null }
   etapas: EtapaDesenho[]
+  /** Fluxo de instrução: termina na Definição da modalidade e vale para toda contratação aberta pelo DFD. */
+  instrucao?: boolean
   editavel: boolean
   etapas_exigidas: string[]
   pendencias_para_ativar: string[]
@@ -118,6 +129,7 @@ export interface FluxoResumo {
   em_andamento: number
   /** Contratação: "Dispensa · art. 75, II", "Padrão: o que não tem fluxo próprio"… */
   vale_para: string[]
+  instrucao?: boolean
 }
 
 export interface ItemCatalogo {

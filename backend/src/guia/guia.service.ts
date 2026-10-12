@@ -97,13 +97,18 @@ export class GuiaService {
       order: { iniciado_em: 'DESC' },
     });
     // O fluxo que uma dispensa de pequeno valor (art. 75, II) seguiria hoje
-    const ativos: FluxoAtivo[] = (
+    const publicados: Array<FluxoAtivo & { instrucao: boolean }> = (
       await this.ds.query(
-        `SELECT id::text AS id, nome, versao, aplicacao FROM workflow_modelos WHERE orgao_id::text = $1 AND tipo_processo = 'CONTRATACAO' AND status = 'PUBLICADO' ORDER BY updated_at DESC`,
+        `SELECT m.id::text AS id, m.nome, m.versao, m.aplicacao,
+                EXISTS (SELECT 1 FROM workflow_fases f JOIN workflow_acoes a ON a.fase_id = f.id WHERE f.workflow_id = m.id AND a.tipo = 'DEFINICAO_MODALIDADE') AS instrucao
+           FROM workflow_modelos m WHERE m.orgao_id::text = $1 AND m.tipo_processo = 'CONTRATACAO' AND m.status = 'PUBLICADO' ORDER BY m.updated_at DESC`,
         [orgaoId],
       )
-    ).map((x: any) => ({ id: x.id, nome: x.nome, versao: Number(x.versao), aplicacao: x.aplicacao ?? null }));
-    const fluxoAtivo = escolherFluxo(ativos, 'DISPENSA_ELETRONICA', 'ART75_II')?.fluxo ?? null;
+    ).map((x: any) => ({ id: x.id, nome: x.nome, versao: Number(x.versao), aplicacao: x.aplicacao ?? null, instrucao: !!x.instrucao }));
+    // A instrução (termina na Definição da modalidade) vem antes; o fluxo da dispensa de pequeno valor (art. 75, II), depois
+    const instrucoes = publicados.filter((x) => x.instrucao);
+    const instrucao = instrucoes.length === 1 ? instrucoes[0] : null;
+    const fluxoAtivo = escolherFluxo(publicados.filter((x) => !x.instrucao), 'DISPENSA_ELETRONICA', 'ART75_II')?.fluxo ?? null;
 
     const demanda = andamento ? await this.demandaDoRoteiro(andamento) : null;
     const dfd = demanda ? await this.dfdDaDemanda(demanda.id) : null;
@@ -120,7 +125,7 @@ export class GuiaService {
         quemEtapa = await this.quemPodeATarefaAberta(orgaoId, processo.id);
       }
     } else if (fluxoAtivo) {
-      etapas = await this.etapasDoFluxo(orgaoId, fluxoAtivo.id);
+      etapas = [...(instrucao ? await this.etapasDoFluxo(orgaoId, instrucao.id) : []), ...(await this.etapasDoFluxo(orgaoId, fluxoAtivo.id))];
     }
 
     const licitacaoId = processo?.referencia_tipo === 'LICITACAO' ? processo.referencia_id : null;

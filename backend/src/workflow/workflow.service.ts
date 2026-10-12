@@ -10,6 +10,7 @@ import { normalizarAvisos, normalizarNotificar } from './avisos/destinatarios';
 import { ehResponsavelDaTarefa } from './responsavel';
 import { ehFaseInterna } from '../licitacoes/transicoes/fases';
 import { escolherFluxo, type FluxoAtivo } from './aplicacao/aplicacao-fluxo';
+import { TIPO_DEFINICAO_MODALIDADE } from './nos/definicao-modalidade';
 import { fundamentoEfetivo } from '../licitacoes/fundamento-legal';
 
 @Injectable()
@@ -314,43 +315,107 @@ export class WorkflowService {
   }
 
   /** Fluxos de Contratação ativos do órgão, com onde cada um vale. */
-  async ativosDaContratacao(orgaoId: string): Promise<FluxoAtivo[]> {
+  /** Ids dos modelos (entre os dados) que são de INSTRUÇÃO: têm a etapa Definição da modalidade. */
+  private async idsDeInstrucao(ids: string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const linhas: Array<{ id: string }> = await this.dataSource.query(
+      `SELECT DISTINCT f.workflow_id::text AS id FROM workflow_fases f JOIN workflow_acoes a ON a.fase_id = f.id
+        WHERE f.workflow_id::text = ANY($1::text[]) AND a.tipo = $2`,
+      [ids, TIPO_DEFINICAO_MODALIDADE],
+    );
+    return new Set(linhas.map((l) => l.id));
+  }
+
+  private async publicadosDaContratacao(orgaoId: string) {
     const ativos = await this.modelos.find({ where: { orgao_id: orgaoId, status: 'PUBLICADO', tipo_processo: 'CONTRATACAO' }, order: { updated_at: 'DESC' } });
-    return ativos.map((m) => ({ id: m.id, familia: m.familia_id ?? m.id, nome: m.nome, versao: m.versao, aplicacao: m.aplicacao ?? null }));
+    const instrucao = await this.idsDeInstrucao(ativos.map((m) => m.id));
+    const resumo = (m: WorkflowModelo): FluxoAtivo => ({ id: m.id, familia: m.familia_id ?? m.id, nome: m.nome, versao: m.versao, aplicacao: m.aplicacao ?? null });
+    return { modalidade: ativos.filter((m) => !instrucao.has(m.id)).map(resumo), instrucao: ativos.filter((m) => instrucao.has(m.id)).map(resumo) };
+  }
+
+  /** Fluxos de Contratação ativos por MODALIDADE (a instrução fica de fora), com onde cada um vale. */
+  async ativosDaContratacao(orgaoId: string): Promise<FluxoAtivo[]> {
+    return (await this.publicadosDaContratacao(orgaoId)).modalidade;
+  }
+
+  /** Fluxos de instrução ativos (o normal é um; dois = nenhum, o processo segue pela modalidade). */
+  async instrucoesAtivas(orgaoId: string): Promise<FluxoAtivo[]> {
+    return (await this.publicadosDaContratacao(orgaoId)).instrucao;
   }
 
   /**
    * Início automático (decisões de 07/10 e 12/10/2026): o processo de
-   * contratação aberto pelo DFD nasce no fluxo ativo da sua modalidade e do
-   * seu enquadramento (senão, no padrão). Nenhum ou dois no mesmo nível: fica
-   * sem fluxo. A primeira etapa, se for o DFD e já estiver pronta, conclui sozinha.
+   * contratação aberto pelo DFD começa pela INSTRUÇÃO (o fluxo que termina na
+   * Definição da modalidade), igual para todas as modalidades. Sem instrução
+   * ativa, nasce direto no fluxo da sua modalidade e enquadramento (senão, no
+   * padrão). Nenhum ou dois no mesmo nível: fica sem fluxo. A primeira etapa,
+   * se for o DFD e já estiver pronta, conclui sozinha.
    */
   async iniciarFluxoDaContratacao(orgaoId: string, processoId: string, atorId: string) {
     const [lic] = await this.dataSource.query(
-      `SELECT l.modalidade::text AS modalidade, l.fundamento_legal, l.tipo_contratacao::text AS tipo_contratacao
+      `SELECT l.modalidade::text AS modalidade, l.fundamento_legal, l.tipo_contratacao::text AS tipo_contratacao, l.modalidade_definida
          FROM processos p JOIN licitacoes l ON p.referencia_tipo = 'LICITACAO' AND l.id = p.referencia_id
         WHERE p.id::text = $1 AND p.orgao_id::text = $2`,
       [processoId, orgaoId],
     );
     const fundamento = lic ? fundamentoEfetivo(lic) : null;
-    const escolha = escolherFluxo(await this.ativosDaContratacao(orgaoId), lic?.modalidade ?? null, fundamento);
-    if (!escolha) return null;
-    const instancia = await this.iniciar(orgaoId, escolha.fluxo.id, atorId, {
-      processo_id: processoId,
-      dados: { escolha: { motivo: escolha.motivo, modalidade: lic?.modalidade ?? null, fundamento } },
-    });
-    const primeiro = this.passos(await this.obter(orgaoId, escolha.fluxo.id))[0];
-    if (primeiro?.acao.tipo === 'DFD') {
-      const tarefa = await this.tarefas.findOne({ where: { instancia_id: instancia.id, acao_id: primeiro.acao.id, status: 'ABERTA' } });
-      if (tarefa) {
-        try {
-          await this.avancar(instancia, tarefa, null);
-        } catch (e) {
-          this.logger.log(`DFD do processo ${processoId} ainda com pendência; a etapa fica aberta: ${(e as Error).message}`);
-        }
-      }
+    const instrucoes = await this.instrucoesAtivas(orgaoId);
+    let fluxoId: string;
+    let dados: Record<string, unknown>;
+    if (instrucoes.length === 1) {
+      fluxoId = instrucoes[0].id;
+      // "Já sei a modalidade" ao abrir: a definição vem preenchida para confirmar
+      dados = { instrucao: true, modalidade_informada: lic?.modalidade_definida ? { modalidade: lic.modalidade, fundamento } : null };
+    } else {
+      const escolha = escolherFluxo(await this.ativosDaContratacao(orgaoId), lic?.modalidade ?? null, fundamento);
+      if (!escolha) return null;
+      fluxoId = escolha.fluxo.id;
+      dados = { escolha: { motivo: escolha.motivo, modalidade: lic?.modalidade ?? null, fundamento } };
     }
+    const instancia = await this.iniciar(orgaoId, fluxoId, atorId, { processo_id: processoId, dados });
+    await this.concluirDfdSePronto(orgaoId, instancia, fluxoId, processoId);
     return instancia;
+  }
+
+  /** A primeira etapa, se for o DFD e já estiver pronta, conclui sozinha (o DFD consolidado já foi juntado). */
+  private async concluirDfdSePronto(orgaoId: string, instancia: WorkflowInstancia, fluxoId: string, processoId: string) {
+    const primeiro = this.passos(await this.obter(orgaoId, fluxoId))[0];
+    if (primeiro?.acao.tipo !== 'DFD') return;
+    const tarefa = await this.tarefas.findOne({ where: { instancia_id: instancia.id, acao_id: primeiro.acao.id, status: 'ABERTA' } });
+    if (!tarefa) return;
+    try {
+      await this.avancar(instancia, tarefa, null);
+    } catch (e) {
+      this.logger.log(`DFD do processo ${processoId} ainda com pendência; a etapa fica aberta: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Depois da Definição da modalidade (fim da instrução): o processo passa
+   * para o fluxo da modalidade escolhida. A execução nova guarda de onde veio
+   * (a instrução) e por que este fluxo — o andamento junta as duas partes.
+   */
+  async seguirParaFluxoDaModalidade(
+    orgaoId: string,
+    processoId: string,
+    instrucaoId: string,
+    definicao: { modalidade: string; fundamento: string | null; numero: string | null; por_id: string | null; em: string },
+  ) {
+    const escolha = escolherFluxo(await this.ativosDaContratacao(orgaoId), definicao.modalidade, definicao.fundamento);
+    if (!escolha) throw new BadRequestException('Nenhum fluxo ativo vale para a modalidade escolhida.');
+    const instancia = await this.iniciar(orgaoId, escolha.fluxo.id, definicao.por_id ?? '', {
+      processo_id: processoId,
+      dados: { escolha: { motivo: escolha.motivo, modalidade: definicao.modalidade, fundamento: definicao.fundamento }, instrucao_id: instrucaoId, definicao },
+    });
+    return { instancia, fluxo: escolha.fluxo };
+  }
+
+  /** Execução pelo id (do órgão), com o modelo, os passos e as tarefas — a parte da instrução no andamento. */
+  async execucaoPorInstancia(orgaoId: string, instanciaId: string) {
+    const instancia = await this.instancias.findOne({ where: { id: instanciaId, orgao_id: orgaoId } });
+    if (!instancia) return null;
+    const [modelo, tarefas] = await Promise.all([this.obter(orgaoId, instancia.workflow_id), this.tarefas.find({ where: { instancia_id: instancia.id }, order: { created_at: 'ASC' } })]);
+    return { instancia, modelo, passos: this.passos(modelo), tarefas };
   }
 
   listarInstancias(orgaoId: string) { return this.instancias.find({ where: { orgao_id: orgaoId }, order: { updated_at: 'DESC' } }); }

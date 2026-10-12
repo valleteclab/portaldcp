@@ -12,6 +12,7 @@ import {
 } from '../aplicacao/aplicacao-fluxo';
 import { definicaoDoFundamento, fundamentosDaModalidade } from '../../licitacoes/fundamento-legal';
 import { MODELOS_PRONTOS, modeloPronto, setorSugerido } from '../modelos-prontos/catalogo-modelos';
+import { ehFluxoDeInstrucao, errosDaInstrucao } from '../nos/definicao-modalidade';
 
 const CONTRATACAO = 'CONTRATACAO';
 
@@ -38,8 +39,9 @@ export class DesenhoFluxoService {
 
   /** Fluxos do órgão, um por família: a versão ativa, o rascunho em edição e quantos processos usam cada uma. */
   async listar(orgaoId: string) {
-    const linhas: Array<{ id: string; familia: string; nome: string; tipo_processo: string | null; versao: number; status: string; updated_at: Date; em_andamento: number; aplicacao: AplicacaoFluxo | null }> = await this.ds.query(
+    const linhas: Array<{ id: string; familia: string; nome: string; tipo_processo: string | null; versao: number; status: string; updated_at: Date; em_andamento: number; aplicacao: AplicacaoFluxo | null; instrucao: boolean }> = await this.ds.query(
       `SELECT m.id::text AS id, COALESCE(m.familia_id, m.id)::text AS familia, m.nome, m.tipo_processo, m.versao, m.status, m.updated_at, m.aplicacao,
+              EXISTS (SELECT 1 FROM workflow_fases f JOIN workflow_acoes a ON a.fase_id = f.id WHERE f.workflow_id = m.id AND a.tipo = 'DEFINICAO_MODALIDADE') AS instrucao,
               (SELECT COUNT(*)::int FROM workflow_instancias i WHERE i.workflow_id = m.id AND i.status = 'EM_ANDAMENTO') AS em_andamento
          FROM workflow_modelos m WHERE m.orgao_id::text = $1 ORDER BY m.versao DESC`,
       [orgaoId],
@@ -61,7 +63,9 @@ export class DesenhoFluxoService {
           rascunho: rascunho ? { id: rascunho.id, versao: rascunho.versao } : null,
           em_andamento: vs.reduce((t, v) => t + Number(v.em_andamento || 0), 0),
           // Contratação: onde vale (o da versão ativa; sem ativa, o da versão em edição)
-          vale_para: atual.tipo_processo === CONTRATACAO ? rotulosDaAplicacao((ativo ?? atual).aplicacao ?? null) : [],
+          vale_para:
+            atual.tipo_processo !== CONTRATACAO ? [] : (ativo ?? atual).instrucao ? ['Instrução: toda contratação aberta pelo DFD'] : rotulosDaAplicacao((ativo ?? atual).aplicacao ?? null),
+          instrucao: !!(ativo ?? atual).instrucao,
           atualizado_em: vs.reduce((d, v) => (new Date(v.updated_at) > d ? new Date(v.updated_at) : d), new Date(0)),
         };
       })
@@ -121,6 +125,7 @@ export class DesenhoFluxoService {
     return {
       modelo: { id: m.id, nome: m.nome, descricao: m.descricao, tipo_processo: m.tipo_processo, versao: m.versao, status: m.status, familia_id: this.familia(m), aplicacao: m.aplicacao ?? null },
       etapas,
+      instrucao: this.ehInstrucao(m),
       editavel: m.status === 'RASCUNHO',
       etapas_exigidas: ETAPAS_EXIGIDAS[m.tipo_processo ?? ''] ?? [],
       pendencias_para_ativar: m.status === 'RASCUNHO' ? this.pendenciasParaAtivar(m) : [],
@@ -128,13 +133,20 @@ export class DesenhoFluxoService {
     };
   }
 
+  private ehInstrucao(m: WorkflowModelo): boolean {
+    return m.tipo_processo === CONTRATACAO && ehFluxoDeInstrucao(m.fases.flatMap((f) => f.acoes).map((a) => a.tipo));
+  }
+
   /** O que impede ativar: travas legais, responsáveis, formulário vinculado e aviso configurado. */
   private pendenciasParaAtivar(m: WorkflowModelo): string[] {
     const etapas = this.etapasDoModelo(m);
-    const erros = errosParaAtivar(m.tipo_processo, etapas.map((e) => ({ ...e, responsavel_tipo: e.responsavel_tipo as any })));
+    const instrucao = this.ehInstrucao(m);
+    // Instrução: as travas da lei (parecer, publicação) ficam nos fluxos de modalidade, que vêm depois
+    const erros = errosParaAtivar(instrucao ? null : m.tipo_processo, etapas.map((e) => ({ ...e, responsavel_tipo: e.responsavel_tipo as any })));
+    erros.push(...errosDaInstrucao(etapas.map((e) => e.tipo)));
     for (const e of etapas) if (e.tipo === 'FORMULARIO' && !e.formulario_id) erros.push(`Vincule um formulário à etapa "${e.nome}".`);
     for (const e of etapas) if (e.tipo === 'NOTIFICAR' && !(e.notificar as any)?.destinatarios?.length) erros.push(`Configure quem recebe e por qual canal o aviso "${e.nome}".`);
-    if (m.tipo_processo === CONTRATACAO && !m.aplicacao) erros.push('Diga onde este fluxo vale: as modalidades da contratação (ou use-o como padrão).');
+    if (m.tipo_processo === CONTRATACAO && !instrucao && !m.aplicacao) erros.push('Diga onde este fluxo vale: as modalidades da contratação (ou use-o como padrão).');
     return erros;
   }
 
@@ -172,7 +184,8 @@ export class DesenhoFluxoService {
     }
     const tipoProcesso = body?.tipo_processo !== undefined ? this.tipoProcesso(body.tipo_processo) : m.tipo_processo;
     const acoesAtuais = m.fases.flatMap((f) => f.acoes);
-    const travadas = removidasComTrava(tipoProcesso, acoesAtuais.map((a) => a.tipo), etapas.map((e) => e.tipo));
+    const novaInstrucao = tipoProcesso === CONTRATACAO && ehFluxoDeInstrucao(etapas.map((e) => e.tipo));
+    const travadas = novaInstrucao ? [] : removidasComTrava(tipoProcesso, acoesAtuais.map((a) => a.tipo), etapas.map((e) => e.tipo));
     if (travadas.length) throw new BadRequestException(travadas.join(' '));
     const porId = new Map(acoesAtuais.map((a) => [a.id, a]));
     for (const e of etapas) if (!e.chave.startsWith('novo-') && !porId.has(e.chave)) throw new BadRequestException('Etapa não pertence a este fluxo.');
@@ -289,7 +302,10 @@ export class DesenhoFluxoService {
     if (m.status !== 'RASCUNHO' && m.status !== 'DESATIVADO') throw new ConflictException('Só um rascunho ou uma versão desativada pode ser ativada.');
     const erros = this.pendenciasParaAtivar(m);
     if (erros.length) throw new BadRequestException({ message: 'O fluxo ainda não pode ser ativado.', erros });
-    if (m.tipo_processo === CONTRATACAO) await this.exigirSemConflito(orgaoId, this.familia(m), m.aplicacao ?? null);
+    if (m.tipo_processo === CONTRATACAO && this.ehInstrucao(m)) {
+      const outra = (await this.workflow.instrucoesAtivas(orgaoId)).find((x) => x.familia !== this.familia(m));
+      if (outra) throw new ConflictException({ message: 'Só uma instrução da contratação fica ativa.', erros: [`"${outra.nome}" já é a instrução ativa: desative-a antes.`] });
+    } else if (m.tipo_processo === CONTRATACAO) await this.exigirSemConflito(orgaoId, this.familia(m), m.aplicacao ?? null);
     const desativados: string[] = [];
     await this.ds.transaction(async (mg) => {
       await mg.query(
@@ -385,12 +401,9 @@ export class DesenhoFluxoService {
     return cobertura(await this.workflow.ativosDaContratacao(orgaoId));
   }
 
-  /** Antes de abrir o processo: o fluxo que ele vai seguir, por quê e as etapas (nome e responsável). */
-  async previaDaContratacao(orgaoId: string, modalidade: string, fundamento: string | null) {
-    const escolha = escolherFluxo(await this.workflow.ativosDaContratacao(orgaoId), modalidade, fundamento);
-    const enquadramento = definicaoDoFundamento(fundamento)?.referencia ?? null;
-    if (!escolha) return { fluxo: null, motivo: null, por: [rotuloModalidade(modalidade), enquadramento].filter(Boolean).join(', '), etapas: [] };
-    const m = await this.workflow.obter(orgaoId, escolha.fluxo.id);
+  /** Etapas de um fluxo com o nome de quem faz (para as prévias). */
+  private async resumoDasEtapas(orgaoId: string, modeloId: string) {
+    const m = await this.workflow.obter(orgaoId, modeloId);
     const etapas = this.etapasDoModelo(m).filter((e) => e.tipo !== 'NOTIFICAR');
     const ids = [...new Set(etapas.flatMap((e) => e.responsaveis as string[]))];
     const nomes = new Map<string, string>();
@@ -405,14 +418,35 @@ export class DesenhoFluxoService {
     const rotuloResponsavel: Record<string, string> = { SOLICITANTE: 'Solicitante', FISCAL_CONTRATO: 'Fiscal do contrato', GESTOR_CONTRATO: 'Gestor do contrato' };
     return {
       fluxo: { id: m.id, nome: m.nome, versao: m.versao },
-      motivo: escolha.motivo,
-      por: escolha.motivo === 'PADRAO' ? 'fluxo padrão da contratação' : [rotuloModalidade(modalidade), escolha.motivo === 'ENQUADRAMENTO' ? enquadramento : null].filter(Boolean).join(', '),
       etapas: etapas.map((e) => ({
         nome: e.nome,
+        tipo: e.tipo,
         responsavel: rotuloResponsavel[String(e.responsavel_tipo).toUpperCase()] ?? ((e.responsaveis as string[]).map((r) => nomes.get(r)).filter(Boolean).join(', ') || null),
       })),
     };
   }
+
+  /**
+   * Antes de abrir o processo: por onde ele começa (a instrução, quando há uma
+   * ativa) e o fluxo da modalidade que ele segue depois (ou já de início, sem
+   * instrução), com o motivo da escolha e as etapas.
+   */
+  async previaDaContratacao(orgaoId: string, modalidade: string, fundamento: string | null) {
+    const instrucoes = await this.workflow.instrucoesAtivas(orgaoId);
+    const instrucao = instrucoes.length === 1 ? await this.resumoDasEtapas(orgaoId, instrucoes[0].id) : null;
+    const escolha = modalidade ? escolherFluxo(await this.workflow.ativosDaContratacao(orgaoId), modalidade, fundamento) : null;
+    const enquadramento = definicaoDoFundamento(fundamento)?.referencia ?? null;
+    if (!escolha) return { instrucao, fluxo: null, motivo: null, por: [rotuloModalidade(modalidade), enquadramento].filter(Boolean).join(', '), etapas: [] };
+    const r = await this.resumoDasEtapas(orgaoId, escolha.fluxo.id);
+    return {
+      instrucao,
+      fluxo: r.fluxo,
+      motivo: escolha.motivo,
+      por: escolha.motivo === 'PADRAO' ? 'fluxo padrão da contratação' : [rotuloModalidade(modalidade), escolha.motivo === 'ENQUADRAMENTO' ? enquadramento : null].filter(Boolean).join(', '),
+      etapas: r.etapas,
+    };
+  }
+
 
   // ==========================================================================
   // MODELOS PRONTOS (desenhos tirados dos autos da Câmara)

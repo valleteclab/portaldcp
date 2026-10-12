@@ -13,6 +13,7 @@ import { chamarProcessos, textoDoErro, type ComQuemEsta, type ConteudoLicitacao,
 import { BlocoDadosLicitacao, SecaoLinhaDoTempo } from "@/components/processo/BlocosProcesso"
 import { BotaoGerarAutos } from "@/app/orgao/processos/[id]/BotaoGerarAutos"
 import { MapaFluxo } from "@/components/fluxo/MapaFluxo"
+import { DefinicaoModalidadePainel } from "@/components/fluxo/DefinicaoModalidadePainel"
 
 /**
  * TELA DO PROCESSO DE CONTRATAÇÃO QUE SEGUE O FLUXO (mockup "Processo enxuto",
@@ -166,6 +167,7 @@ export function ProcessoContratacaoFluxo({
   const podeAgir = !!andamento.pode_agir && !andamento.encerrado
   const ponte = atual ? telaDaFaseInterna(atual.tipo, licitacaoId) : null
   const ehAprovacao = atual?.tipo === "APROVACAO"
+  const ehDefinicao = atual?.tipo === "DEFINICAO_MODALIDADE"
   const ehPrimeira = idxAtual === 0
 
   const [processando, setProcessando] = useState(false)
@@ -204,9 +206,11 @@ export function ProcessoContratacaoFluxo({
     }
   }
 
+  // Aberto "a definir": a modalidade é provisória até a etapa Definição da modalidade
+  const aDefinir = licitacao?.modalidade_definida === false
   const linhaMeta = [
-    rotuloModalidade(licitacao?.modalidade) || null,
-    rotuloFundamento(licitacao?.fundamento_legal),
+    aDefinir ? "Modalidade a definir" : rotuloModalidade(licitacao?.modalidade) || null,
+    aDefinir ? null : rotuloFundamento(licitacao?.fundamento_legal),
     moeda(licitacao?.valor_total_estimado),
     `Processo nº ${processo.numero}`,
   ]
@@ -226,7 +230,9 @@ export function ProcessoContratacaoFluxo({
       return
     }
     setAviso(
-      !proxima
+      ehDefinicao
+        ? "Modalidade definida e registrada nos autos. O processo segue agora o fluxo da modalidade."
+        : !proxima
         ? `${atual.titulo} concluída. O fluxo deste processo chegou ao fim.`
         : proxima.responsavel && proxima.responsavel !== atual.responsavel
           ? `${atual.titulo} concluída. O processo foi enviado a ${proxima.responsavel} pelo fluxo, com despacho registrado nos autos.`
@@ -398,7 +404,7 @@ export function ProcessoContratacaoFluxo({
                   Indeferir
                 </button>
               </div>
-            ) : podeAgir ? (
+            ) : podeAgir && ehDefinicao ? null : podeAgir ? (
               <div className="flex flex-wrap items-center gap-2" data-guia="etapa-atual">
                 {ponte ? (
                   <Link href={ponte.href} className="inline-flex h-11 items-center gap-2 rounded-lg px-5 text-[15px] font-semibold text-white no-underline" style={{ background: AZUL }}>
@@ -419,6 +425,8 @@ export function ProcessoContratacaoFluxo({
             ) : null}
           </div>
         )}
+
+        {podeAgir && ehDefinicao ? <DefinicaoModalidadePainel licitacao={licitacao} processando={processando} onConcluir={(r) => concluir(r)} /> : null}
 
         {erroReceber ? <p className="m-0 text-sm text-red-800" role="alert">{erroReceber}</p> : null}
         {pendencias?.length ? (
@@ -451,7 +459,7 @@ export function ProcessoContratacaoFluxo({
         ) : null}
         {verMapa ? (
           <div className="border-t border-[#F1F3F6] pt-4">
-            <MapaFluxo etapas={andamento.nos.map((n) => ({ chave: n.chave, nome: n.titulo, tipo: n.tipo, quem: n.responsavel, situacao: n.situacao, atrasada: n.atrasada }))} />
+            <MapaDoProcesso andamento={andamento} />
           </div>
         ) : null}
       </section>
@@ -773,5 +781,29 @@ function EnviarForaDoFluxo({ processoId, onCancelar, onEnviado }: { processoId: 
         </button>
       </div>
     </section>
+  )
+}
+
+/** Mapa do processo; na contratação em duas partes, a instrução, a definição da modalidade e o fluxo da modalidade. */
+function MapaDoProcesso({ andamento }: { andamento: Andamento }) {
+  const etapa = (n: NoAndamento) => ({ chave: n.chave, nome: n.titulo, tipo: n.tipo, quem: n.responsavel, situacao: n.situacao, atrasada: n.atrasada })
+  const partes = andamento.partes ?? []
+  if (partes.length < 2) return <MapaFluxo etapas={andamento.nos.map(etapa)} />
+  const [instrucao, modalidade] = partes
+  return (
+    <div className="flex flex-col gap-4">
+      <span className="text-xs font-bold uppercase tracking-wide text-gray-500">Parte 1 · {instrucao.titulo}</span>
+      <MapaFluxo etapas={andamento.nos.slice(instrucao.de, instrucao.ate).map(etapa)} />
+      {andamento.definicao ? (
+        <p role="note" className="m-0 flex flex-wrap gap-x-4 gap-y-1 border-y-2 border-dashed border-[#EDBE84] bg-[#FFF8EE] px-3.5 py-3 text-[13px] text-[#5B3605]">
+          <b className="text-sm">Modalidade definida: {andamento.definicao.texto}</b>
+          {andamento.definicao.numero ? <span>Número: {andamento.definicao.numero}</span> : null}
+          {andamento.definicao.em ? <span>{diaMes(andamento.definicao.em)}</span> : null}
+          <span>Passou para o fluxo &quot;{modalidade.titulo}&quot;</span>
+        </p>
+      ) : null}
+      <span className="text-xs font-bold uppercase tracking-wide text-gray-500">Parte 2 · {modalidade.titulo}</span>
+      <MapaFluxo etapas={andamento.nos.slice(modalidade.de, modalidade.ate).map(etapa)} numeroInicial={modalidade.de + 1} />
+    </div>
   )
 }
