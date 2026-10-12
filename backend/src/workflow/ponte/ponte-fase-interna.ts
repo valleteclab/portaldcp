@@ -116,3 +116,63 @@ export function despachoForaDoFluxo(justificativa: string, despacho?: string | n
 export function ehEnvioForaDoFluxo(t: { finalidade?: string | null } | null | undefined): boolean {
   return String(t?.finalidade ?? '').trim() === FINALIDADE_FORA_DO_FLUXO;
 }
+
+// ---------------------------------------------------------------------------
+// SÓ A ETAPA ATUAL EDITA (decisão do dono, 12/10/2026): conduzido pelo fluxo,
+// a peça só pode ser trabalhada quando a etapa dela é a que está em andamento.
+// Etapa concluída: corrigir pede devolução; etapa futura: espera a vez.
+// ---------------------------------------------------------------------------
+
+/** Passo da fase interna (códigos de `codigos.ts`) que cada nó do fluxo trabalha. */
+export const PASSO_DO_NO: Record<string, string> = {
+  DEMANDA: 'DFD',
+  DFD: 'DFD',
+  ETP: 'ETP',
+  MAPA_RISCOS: 'ETP',
+  PESQUISA_PRECO: 'PESQUISA',
+  TR: 'TR',
+  RESERVA_ORCAMENTARIA: 'RESERVA',
+  DEFINICAO_MODALIDADE: 'INDICACAO_MODALIDADE',
+  PARECER_JURIDICO: 'PARECER',
+  CONTROLE_INTERNO: 'CONTROLE_INTERNO',
+  AUTORIZACAO: 'AUTORIZACAO',
+  PUBLICACAO: 'PUBLICACAO',
+};
+
+export interface PassoDaExecucao {
+  tipo: string;
+  nome: string;
+  /** Posição no desenho (1 = primeira etapa). */
+  ordem: number;
+  situacao: 'CONCLUIDA' | 'EM_ANDAMENTO' | 'A_REALIZAR';
+}
+
+export type VezDoPasso =
+  | { situacao: 'ATUAL' }
+  | { situacao: 'FORA' }
+  | { situacao: 'CONCLUIDA'; etapa: { nome: string; ordem: number } }
+  | { situacao: 'FUTURA'; etapa: { nome: string; ordem: number }; atual: { nome: string; ordem: number } | null };
+
+/**
+ * A vez de um passo da fase interna na execução do fluxo. FORA = nenhum nó do
+ * desenho trabalha esse passo (documento "se for o caso"): segue a regra de
+ * sempre. Com mais de um nó para o mesmo passo (ETP e Mapa de riscos), basta
+ * que um esteja em andamento.
+ */
+export function vezDoPasso(passos: PassoDaExecucao[], codigoPasso: string): VezDoPasso {
+  const meus = passos.filter((p) => PASSO_DO_NO[String(p.tipo).toUpperCase()] === codigoPasso);
+  if (!meus.length) return { situacao: 'FORA' };
+  if (meus.some((p) => p.situacao === 'EM_ANDAMENTO')) return { situacao: 'ATUAL' };
+  const atual = passos.find((p) => p.situacao === 'EM_ANDAMENTO') ?? null;
+  const futura = meus.find((p) => p.situacao === 'A_REALIZAR');
+  if (futura) return { situacao: 'FUTURA', etapa: { nome: futura.nome, ordem: futura.ordem }, atual: atual ? { nome: atual.nome, ordem: atual.ordem } : null };
+  const ultima = meus[meus.length - 1];
+  return { situacao: 'CONCLUIDA', etapa: { nome: ultima.nome, ordem: ultima.ordem } };
+}
+
+/** Texto do "Somente leitura" quando a peça não é da etapa atual. */
+export function motivoForaDaVez(vez: VezDoPasso, tituloPeca: string): string | null {
+  if (vez.situacao === 'CONCLUIDA') return `"${tituloPeca}" é da etapa ${vez.etapa.ordem} (${vez.etapa.nome}), já concluída no fluxo. Para alterar, peça a devolução da etapa na tela do processo.`;
+  if (vez.situacao === 'FUTURA') return `"${tituloPeca}" é da etapa ${vez.etapa.ordem} (${vez.etapa.nome}) do fluxo${vez.atual ? `; o processo está na etapa ${vez.atual.ordem} (${vez.atual.nome})` : ''}. Ela fica disponível quando o fluxo chegar nela.`;
+  return null;
+}
