@@ -47,6 +47,10 @@ export interface Andamento {
   licitacao_id?: string | null;
   /** Contratação: por que o processo nasceu neste fluxo ("Dispensa, art. 75, II" ou "fluxo padrão da contratação"). */
   escolhido_por?: string | null;
+  /** Contratação em duas partes: a instrução (concluída) e o fluxo da modalidade; `ate` = índice (exclusivo) em `nos`. */
+  partes?: Array<{ titulo: string; de: number; ate: number }>;
+  /** A definição da modalidade que ligou as duas partes. */
+  definicao?: { texto: string; numero: string | null; em: string | null } | null;
 }
 
 const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);

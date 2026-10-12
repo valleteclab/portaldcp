@@ -51,6 +51,7 @@ export class AndamentoProcessoService {
       a.pode_agir = !!(ator && aberta && (await this.workflow.podeAgirNaTarefa(p.orgao_id, execucao.instancia, aberta, ator)));
       a.licitacao_id = p.tipo === TipoProcesso.CONTRATACAO && p.referencia_tipo === 'LICITACAO' ? p.referencia_id : null;
       a.escolhido_por = textoDaEscolha(execucao.instancia.dados?.escolha);
+      await this.juntarInstrucao(p, a, execucao.instancia.dados ?? null, execucao.modelo.nome);
       return a;
     }
     const [movimentacoes, pecas] = await Promise.all([
@@ -60,6 +61,39 @@ export class AndamentoProcessoService {
     // Ofício enviado: a resposta (ou o arquivamento) é o passo esperado de quem recebeu
     const esperada = p.tipo === TipoProcesso.OFICIO && movimentacoes.some((m: { tipo: string }) => m.tipo === 'ENVIO') ? { titulo: 'Resposta' } : null;
     return andamentoLivre({ movimentacoes, pecas, encerramento: p.situacao === 'ENCERRADO' && p.encerrado_em ? { em: p.encerrado_em } : null, esperada });
+  }
+
+  /**
+   * Contratação em duas partes (definição da modalidade, 12/10/2026): a
+   * execução do fluxo da modalidade guarda a da instrução; o andamento mostra
+   * as etapas da instrução (concluídas) antes das da modalidade.
+   */
+  private async juntarInstrucao(p: Processo, a: Andamento, dados: Record<string, unknown> | null, nomeDoFluxo: string) {
+    const instrucaoId = typeof dados?.instrucao_id === 'string' ? dados.instrucao_id : null;
+    if (!instrucaoId) return;
+    const ex = await this.workflow.execucaoPorInstancia(p.orgao_id, instrucaoId);
+    if (!ex) return;
+    const nomes = await this.nomesDosResponsaveis(p.orgao_id, ex.passos.map((x) => x.acao));
+    const anterior = andamentoDoFluxo({
+      fluxo: { id: ex.modelo.id, nome: ex.modelo.nome, versao: ex.instancia.workflow_versao },
+      instancia_id: ex.instancia.id,
+      status_instancia: ex.instancia.status,
+      passos: ex.passos.map(({ acao }) => ({ acao_id: acao.id, titulo: acao.nome, tipo: acao.tipo, responsavel: this.responsavel(acao, nomes) })),
+      tarefas: ex.tarefas,
+      agora: new Date(),
+    });
+    const n = anterior.nos.length;
+    a.nos = [...anterior.nos, ...a.nos];
+    a.concluidas += anterior.concluidas;
+    a.total += anterior.total;
+    a.partes = [
+      { titulo: ex.modelo.nome, de: 0, ate: n },
+      { titulo: nomeDoFluxo, de: n, ate: a.nos.length },
+    ];
+    const def = (dados?.definicao ?? null) as { modalidade?: string; fundamento?: string | null; numero?: string | null; em?: string } | null;
+    a.definicao = def?.modalidade
+      ? { texto: [rotuloModalidade(def.modalidade), definicaoDoFundamento(def.fundamento)?.referencia].filter(Boolean).join(' · '), numero: def.numero ?? null, em: def.em ?? null }
+      : null;
   }
 
   /**

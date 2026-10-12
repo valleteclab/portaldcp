@@ -227,6 +227,8 @@ export class DfdConsolidadoController {
         tipo_contratacao: body?.tipo_contratacao || undefined,
         criterio_julgamento: body?.criterio_julgamento || undefined,
         fundamento_legal: fundamento,
+        // Modalidade provisória: a instrução termina na etapa Definição da modalidade
+        modalidade_a_definir: body?.modalidade_a_definir === true,
       },
       orgaoId,
       atorTransicaoDe(ator),

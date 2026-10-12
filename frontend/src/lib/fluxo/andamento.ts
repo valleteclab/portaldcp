@@ -36,6 +36,10 @@ export interface Andamento {
   licitacao_id?: string | null
   /** Contratação: por que nasceu neste fluxo ("Dispensa, art. 75, II" ou "fluxo padrão da contratação"). */
   escolhido_por?: string | null
+  /** Contratação em duas partes: a instrução e o fluxo da modalidade (`ate` exclusivo, índices em `nos`). */
+  partes?: Array<{ titulo: string; de: number; ate: number }>
+  /** A definição da modalidade que ligou as duas partes. */
+  definicao?: { texto: string; numero: string | null; em: string | null } | null
 }
 
 const DIA = 24 * 60 * 60 * 1000

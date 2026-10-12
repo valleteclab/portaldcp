@@ -319,7 +319,7 @@ export class ProcessoConteudoService implements OnModuleInit {
       const [lic] = await this.ds.query(
         `SELECT id::text AS id, numero_processo, numero_edital, modalidade::text AS modalidade, fase::text AS fase, situacao::text AS situacao,
                 valor_total_estimado, fundamento_legal, criterio_julgamento::text AS criterio_julgamento, nome_unidade_compradora,
-                numero_controle_pncp, srp, data_publicacao_edital
+                numero_controle_pncp, srp, data_publicacao_edital, modalidade_definida
            FROM licitacoes WHERE id::text = $1`,
         [licId],
       );

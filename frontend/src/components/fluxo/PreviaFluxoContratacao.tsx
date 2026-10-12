@@ -12,7 +12,21 @@ const PRESUMIDO: Record<string, string> = { DISPENSA_ELETRONICA: "ART75_II", INE
  * seguir — escolhido pela modalidade e pelo enquadramento. Sem acesso ao
  * Processo Eletrônico, não aparece (o processo abre como antes).
  */
-export function PreviaFluxoContratacao({ modalidade, fundamento, onFundamento }: { modalidade: string; fundamento: string; onFundamento: (f: string) => void }) {
+export function PreviaFluxoContratacao({
+  modalidade,
+  fundamento,
+  onFundamento,
+  aDefinir = false,
+  onInstrucao,
+}: {
+  modalidade: string
+  fundamento: string
+  onFundamento: (f: string) => void
+  /** Abre "a definir": a modalidade será escolhida na etapa Definição da modalidade. */
+  aDefinir?: boolean
+  /** Avisa a tela se há instrução ativa (a tela então deixa a modalidade opcional). */
+  onInstrucao?: (tem: boolean) => void
+}) {
   const [opcoes, setOpcoes] = useState<OpcoesAplicacao | null>(null)
   const [previa, setPrevia] = useState<{ chave: string; dados: PreviaContratacao } | null>(null)
   const [semAcesso, setSemAcesso] = useState(false)
@@ -29,12 +43,16 @@ export function PreviaFluxoContratacao({ modalidade, fundamento, onFundamento }:
     if (semAcesso) return
     let vivo = true
     apiFluxo<PreviaContratacao>(`/contratacao/previa?modalidade=${encodeURIComponent(modalidade)}${efetivo ? `&fundamento=${encodeURIComponent(efetivo)}` : ""}`)
-      .then((dados) => vivo && setPrevia({ chave, dados }))
+      .then((dados) => {
+        if (!vivo) return
+        setPrevia({ chave, dados })
+        onInstrucao?.(!!dados.instrucao)
+      })
       .catch(() => vivo && setSemAcesso(true))
     return () => {
       vivo = false
     }
-  }, [modalidade, efetivo, chave, semAcesso])
+  }, [modalidade, efetivo, chave, semAcesso, onInstrucao])
 
   if (semAcesso) return null
   const enquadramentos = opcoes?.modalidades.find((m) => m.codigo === modalidade)?.enquadramentos ?? []
@@ -42,7 +60,32 @@ export function PreviaFluxoContratacao({ modalidade, fundamento, onFundamento }:
 
   return (
     <div className="space-y-2 min-w-0">
-      {enquadramentos.length ? (
+      {p?.instrucao ? (
+        <section aria-label="O processo começa pela instrução" className="rounded-md border-2 border-blue-600 bg-blue-50 p-3 space-y-2">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-blue-800">O processo começa pela instrução</p>
+            <p className="text-sm font-semibold">{p.instrucao.fluxo.nome} · versão {p.instrucao.fluxo.versao}</p>
+            <p className="text-xs text-gray-700">
+              {aDefinir
+                ? "A modalidade é definida mais adiante, na etapa Definição da modalidade, como nos autos (ETP e TR indicam; Licitações define)."
+                : "A modalidade escolhida fica registrada e a etapa Definição da modalidade já vem preenchida, só para confirmar."}
+            </p>
+          </div>
+          <ol className="flex flex-wrap items-center gap-1.5 text-xs">
+            {p.instrucao.etapas.map((e, i) => (
+              <li key={`${e.nome}-${i}`} className="flex items-center gap-1.5">
+                <span className={`rounded border px-2 py-1 font-medium ${e.tipo === "DEFINICAO_MODALIDADE" ? "border-[#EDBE84] bg-[#FDF0DF] text-[#8A4B08]" : "border-blue-200 bg-white"}`}>
+                  {e.nome}
+                  {e.responsavel ? <span className="font-normal text-gray-600"> · {e.responsavel}</span> : null}
+                </span>
+                {i < p.instrucao!.etapas.length - 1 ? <span aria-hidden="true" className="text-gray-500">→</span> : null}
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      {enquadramentos.length && !aDefinir ? (
         <div className="flex min-w-0 flex-col gap-1">
           <label htmlFor="abrir-enquadramento" className="text-sm font-semibold">Enquadramento</label>
           <select id="abrir-enquadramento" value={fundamento} onChange={(e) => onFundamento(e.target.value)} className="w-full min-w-0 max-w-full rounded-md border px-3 py-2 text-sm bg-white">
@@ -56,13 +99,14 @@ export function PreviaFluxoContratacao({ modalidade, fundamento, onFundamento }:
         </div>
       ) : null}
 
+      {aDefinir ? null : (
       <section aria-label="Fluxo que o processo vai seguir" className={`rounded-md border-2 p-3 space-y-2 ${p?.fluxo ? "border-blue-600 bg-blue-50" : "border-amber-300 bg-amber-50"}`}>
         {!p ? (
           <p className="text-sm text-gray-700">Conferindo o fluxo…</p>
         ) : p.fluxo ? (
           <>
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-blue-800">Este processo vai seguir</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-blue-800">{p.instrucao ? "Depois da definição, segue" : "Este processo vai seguir"}</p>
               <p className="text-sm font-semibold">{p.fluxo.nome} · versão {p.fluxo.versao}</p>
               <p className="text-xs text-gray-700">Escolhido por: {p.por}.</p>
             </div>
@@ -86,6 +130,7 @@ export function PreviaFluxoContratacao({ modalidade, fundamento, onFundamento }:
           </p>
         )}
       </section>
+      )}
     </div>
   )
 }

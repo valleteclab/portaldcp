@@ -417,7 +417,7 @@ export class LicitacoesService {
    */
   async criarAPartirDeDfd(
     dfdId: string,
-    dto: Partial<CreateFromDemandaDto> & { fundamento_legal?: string | null },
+    dto: Partial<CreateFromDemandaDto> & { fundamento_legal?: string | null; modalidade_a_definir?: boolean },
     orgaoIdDoAtor: string | null | undefined,
     ator: AtorTransicao = atorSistema('api'),
     atorAcesso?: Ator | null,
@@ -450,6 +450,7 @@ export class LicitacoesService {
         criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
         // Enquadramento escolhido ao abrir (sem escolha, a entidade preenche o padrão da modalidade)
         ...(dto.fundamento_legal ? { fundamento_legal: dto.fundamento_legal } : {}),
+        modalidade_definida: !dto.modalidade_a_definir,
         fase: FaseLicitacao.PLANEJAMENTO,
         situacao: SituacaoLicitacao.ATIVA,
         ano,

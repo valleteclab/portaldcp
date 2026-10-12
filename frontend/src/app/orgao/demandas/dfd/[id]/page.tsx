@@ -154,6 +154,10 @@ function DfdDetalhe() {
   const [modalidade, setModalidade] = useState('DISPENSA_ELETRONICA')
   // Enquadramento (dispensa e inexigibilidade): escolhe o fluxo junto com a modalidade; vazio = o padrão do sistema
   const [fundamento, setFundamento] = useState('')
+  // Com instrução ativa a modalidade é opcional ao abrir: "a definir" (padrão) ou "já sei a modalidade"
+  const [temInstrucao, setTemInstrucao] = useState(false)
+  const [jaSeiModalidade, setJaSeiModalidade] = useState(false)
+  const aDefinir = temInstrucao && !jaSeiModalidade
   const [limiteDispensa, setLimiteDispensa] = useState<number | null>(null)
   const [modo, setModo] = useState<ModoFaseInterna | null>(null)
   const [abrindo, setAbrindo] = useState(false)
@@ -315,7 +319,7 @@ function DfdDetalhe() {
       const r = await authFetch(`${API_URL}/api/dfds-consolidados/${id}/abrir-processo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modalidade, ...(fundamento ? { fundamento_legal: fundamento } : {}) }),
+        body: JSON.stringify({ modalidade, ...(fundamento && !aDefinir ? { fundamento_legal: fundamento } : {}), ...(aDefinir ? { modalidade_a_definir: true } : {}) }),
       })
       const j = await r.json().catch(() => null)
       if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
@@ -714,6 +718,13 @@ function DfdDetalhe() {
           <AlertaParecidos alertas={dfd.alertas} />
           <fieldset className="space-y-2 min-w-0">
             <legend className="text-sm font-semibold mb-1">1. Modalidade da contratação</legend>
+            {temInstrucao ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4" checked={jaSeiModalidade} onChange={(e) => setJaSeiModalidade(e.target.checked)} />
+                Já sei a modalidade (opcional)
+              </label>
+            ) : null}
+            {aDefinir ? null : (<>
             {MODALIDADES.map((m) => (
               <button
                 key={m.valor}
@@ -742,7 +753,8 @@ function DfdDetalhe() {
                 ? <>Sugestão pelo valor: {formatarMoeda(dfd.valor_total_estimado)} {dfd.valor_total_estimado > limiteDispensa ? 'passa' : 'cabe dentro'} do limite da dispensa no exercício ({formatarMoeda(limiteDispensa)} — art. 75, II). A escolha é sua.</>
                 : 'A escolha da modalidade é sua (o limite da dispensa do exercício não pôde ser consultado agora).'}
             </p>
-            <PreviaFluxoContratacao modalidade={modalidade} fundamento={fundamento} onFundamento={setFundamento} />
+            </>)}
+            <PreviaFluxoContratacao modalidade={modalidade} fundamento={fundamento} onFundamento={setFundamento} aDefinir={aDefinir} onInstrucao={setTemInstrucao} />
           </fieldset>
           <div className="space-y-1">
             <p className="text-sm font-semibold">2. Fase interna</p>

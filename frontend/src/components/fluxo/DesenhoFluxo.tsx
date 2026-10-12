@@ -358,7 +358,11 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
         </div>
       )}
 
-      {desenho.modelo.tipo_processo === "CONTRATACAO" && desenho.modelo.status !== "SUBSTITUIDO" ? (
+      {desenho.modelo.tipo_processo === "CONTRATACAO" && desenho.instrucao ? (
+        <p role="note" className="rounded-lg border border-[#EDBE84] bg-[#FFF8EE] p-3 text-sm text-[#5B3605]">
+          <b>Instrução da contratação.</b> Este fluxo termina na Definição da modalidade e vale para todo processo de contratação aberto pelo DFD. Depois da definição, o processo segue o fluxo da modalidade escolhida (veja &quot;Qual fluxo cada contratação segue&quot;). Parecer e publicação ficam nos fluxos de modalidade.
+        </p>
+      ) : desenho.modelo.tipo_processo === "CONTRATACAO" && desenho.modelo.status !== "SUBSTITUIDO" ? (
         <OndeFluxoVale key={desenho.modelo.id} desenho={desenho} onSalvo={(d) => setDesenho(d)} />
       ) : null}
 

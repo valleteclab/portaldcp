@@ -22,7 +22,7 @@ const COR = { INSTRUCAO: s.instrucao, DECISAO: s.decisao, PUBLICIDADE: s.publici
  * quem faz cada uma e a cor do grupo, como a imagem montada dos autos. No
  * processo, marca o que já foi feito e a etapa atual.
  */
-export function MapaFluxo({ etapas }: { etapas: EtapaMapa[] }) {
+export function MapaFluxo({ etapas, numeroInicial = 1 }: { etapas: EtapaMapa[]; numeroInicial?: number }) {
   if (!etapas.length) return null
   const comSituacao = etapas.some((e) => e.situacao)
   const temGenerica = etapas.some((e) => etapaGenerica(e.tipo))
@@ -41,7 +41,7 @@ export function MapaFluxo({ etapas }: { etapas: EtapaMapa[] }) {
           return (
             <li key={e.chave} className={classes} data-seta={p.seta} style={{ "--c": p.coluna, "--r": p.linha } as CSSProperties} aria-current={e.situacao === "EM_ANDAMENTO" ? "step" : undefined}>
               <b>
-                {i + 1} {e.nome}
+                {numeroInicial + i} {e.nome}
               </b>
               {e.quem ? <span className={s.quem}>{e.quem}</span> : null}
               {e.situacao === "CONCLUIDA" ? <span className={`${s.situacao} ${s.feita}`}>✓ Concluída</span> : null}
