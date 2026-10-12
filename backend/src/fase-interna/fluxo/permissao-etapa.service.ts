@@ -223,11 +223,14 @@ export class PermissaoEtapaService implements OnModuleInit {
     const daTarefa = ctx.tarefas.filter((t) => t.chave === chaveDoPasso(codigo) && t.usuario_id).map((t) => ({ usuario_id: t.usuario_id }));
     // A autoridade configurada (signatários da autorização) responde pela etapa da autorização
     if (codigo === 'AUTORIZACAO') daTarefa.push(...ctx.signatarios.map((id) => ({ usuario_id: id })));
+    // Conduzido pelo fluxo desenhado: o fluxo entregou o processo a quem responde pela etapa (setor ou pessoa da
+    // posse). O papel do modelo antigo (ex.: "Requisitante" no ETP) não pode barrar quem o fluxo escolheu.
+    const daPosse = ctx.conduzido_pelo_fluxo && ctx.posse ? [{ setor_id: ctx.posse.setor_id, usuario_id: ctx.posse.usuario_id }] : [];
     const r = avaliarPermissaoEtapa(
       {
         etapa: { codigo, titulo: etapa.titulo, responsavel: etapa.responsavel },
         rotulo_responsavel: this.rotuloResponsavel(etapa.responsavel, ctx),
-        alternativos: [calculado, ...daTarefa],
+        alternativos: [calculado, ...daTarefa, ...daPosse],
         aguardando_demanda: aguardandoDemanda,
         aprovador_demanda: ctx.aprovador_rotulo,
         pendencias,
