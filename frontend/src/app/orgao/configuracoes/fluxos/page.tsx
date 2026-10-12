@@ -9,7 +9,7 @@ import { ModuleGuard } from "@/components/ModuleGuard"
 import { ModuloSistema } from "@/hooks/useModulosOrgao"
 import { DesenhoFluxo } from "@/components/fluxo/DesenhoFluxo"
 import { CanaisAvisoOrgao } from "@/components/fluxo/CanaisAvisoOrgao"
-import { apiFluxo, rotuloMotivoCobertura, rotuloTipoProcesso, TIPOS_PROCESSO_FLUXO, type Desenho, type FluxoResumo, type LinhaCobertura } from "@/lib/fluxo/desenho"
+import { apiFluxo, rotuloMotivoCobertura, rotuloTipoProcesso, TIPOS_PROCESSO_FLUXO, type Desenho, type FluxoResumo, type LinhaCobertura, type ModeloProntoFluxo } from "@/lib/fluxo/desenho"
 
 /**
  * FLUXOS DE PROCESSO — lista dos fluxos do órgão e a tela "Desenhar o fluxo"
@@ -104,6 +104,7 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
               Cancelar
             </button>
           </div>
+          <ModelosProntos onCriado={onAbrir} />
         </section>
       ) : null}
 
@@ -161,6 +162,74 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
         <aside className="flex min-w-0 flex-[1_1_300px] flex-col">
           <CanaisAvisoOrgao />
         </aside>
+      </div>
+    </div>
+  )
+}
+
+/** "Comece de um modelo pronto": desenhos tirados dos autos da Câmara; cria um rascunho para conferir e ativar. */
+function ModelosProntos({ onCriado }: { onCriado: (id: string) => void }) {
+  const [modelos, setModelos] = useState<ModeloProntoFluxo[] | null>(null)
+  const [criando, setCriando] = useState<string | null>(null)
+
+  useEffect(() => {
+    apiFluxo<ModeloProntoFluxo[]>("/modelos-prontos")
+      .then(setModelos)
+      .catch(() => setModelos([]))
+  }, [])
+
+  async function usar(m: ModeloProntoFluxo) {
+    setCriando(m.chave)
+    try {
+      const d = await apiFluxo<Desenho & { sem_responsavel?: string[] }>(`/modelos-prontos/${encodeURIComponent(m.chave)}`, { metodo: "POST" })
+      const faltam = d.sem_responsavel ?? []
+      toast.success(
+        `Rascunho "${m.nome}" criado. Confira as etapas e ative.` + (faltam.length ? ` Defina o responsável de: ${faltam.join(", ")}.` : ""),
+        { duration: faltam.length ? 12000 : 5000 },
+      )
+      onCriado(d.modelo.id)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Não foi possível criar a partir do modelo.")
+      setCriando(null)
+    }
+  }
+
+  if (!modelos?.length) return null
+  return (
+    <div className="flex flex-col gap-2.5 border-t border-[#F1F3F6] pt-4">
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-[15px] font-bold">Ou comece de um modelo pronto</h3>
+        <p className="text-xs text-[#5A6675]">Desenhados a partir de autos reais, na ordem das peças. O modelo vira um rascunho: os responsáveis são sugeridos pelo nome dos setores e nada é ativado sem você conferir.</p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {modelos.map((m) => (
+          <article key={m.chave} className="flex flex-col gap-2 rounded-lg border border-[#E3E7EC] p-3.5">
+            <div className="flex flex-col gap-0.5">
+              <b className="text-sm">{m.nome}</b>
+              <span className="text-xs text-[#5A6675]">{rotuloTipoProcesso(m.tipo_processo)} · {m.etapas.length} etapas</span>
+            </div>
+            <p className="text-[13px] text-[#374151]">{m.descricao}</p>
+            {m.vale_para.length ? (
+              <span className="flex flex-wrap gap-1.5">
+                {m.vale_para.map((v) => (
+                  <span key={v} className="rounded-full border border-[#C9DAF3] bg-[#EAF1FB] px-2 py-0.5 text-[11px] font-semibold text-[#1E3A5F]">{v}</span>
+                ))}
+              </span>
+            ) : null}
+            <details className="text-xs text-[#374151]">
+              <summary className="cursor-pointer font-semibold text-[#1351b4]">Ver as etapas</summary>
+              <ol className="mt-1.5 list-decimal space-y-0.5 pl-5">
+                {m.etapas.map((e, i) => (
+                  <li key={`${e}-${i}`}>{e}</li>
+                ))}
+              </ol>
+              <p className="mt-1.5 text-[11px] text-[#5A6675]">{m.origem}</p>
+            </details>
+            <button type="button" onClick={() => usar(m)} disabled={!!criando} className="mt-auto self-start rounded-lg border border-[#1B4A63] px-3 py-1.5 text-sm font-semibold text-[#1B4A63] disabled:opacity-50">
+              {criando === m.chave ? "Criando…" : "Usar este modelo"}
+            </button>
+          </article>
+        ))}
       </div>
     </div>
   )
