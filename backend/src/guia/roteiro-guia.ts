@@ -205,7 +205,7 @@ export function roteiroDispensa(d: DadosRoteiroDispensa): RoteiroGuia {
       chave: 'aprovacao',
       titulo: 'Aprovar a demanda',
       o_que_fazer: 'Na Central de Aprovações, aba "Demandas e DFD", localize a demanda e clique em "Aprovar".',
-      quem: 'Quem aprova demandas',
+      quem: 'Aprovador de demandas',
       por_que: 'A demanda só segue para o planejamento depois de aprovada por quem tem essa competência no órgão.',
       conclui_quando: 'Conclui quando a demanda for aprovada.',
       tela: { rota: '/orgao/aprovacoes?tab=demandas', alvo: dem ? `aprovar-demanda-${dem.id}` : null, balao: 'Confira a demanda e clique em "Aprovar".' },
@@ -233,12 +233,12 @@ export function roteiroDispensa(d: DadosRoteiroDispensa): RoteiroGuia {
       chave: `etapa:${e.chave}`,
       titulo: e.titulo,
       o_que_fazer: proc
-        ? `Na tela do processo, clique no botão da etapa atual para abrir ${e.titulo.toLowerCase()}. Ao concluir, o processo segue pelo fluxo para a próxima etapa.`
+        ? `Na tela do processo, use o botão da etapa atual para fazer a etapa "${e.titulo}". Ao concluir, o processo segue pelo fluxo para a próxima etapa.`
         : `Etapa do fluxo ativo. Fica disponível depois que o processo for aberto.`,
       quem: e.responsavel ?? 'Responsável da etapa',
       por_que: porQueDaEtapa(e.tipo),
       conclui_quando: 'Conclui quando a etapa for concluída no processo.',
-      tela: proc ? { rota: `/orgao/processo/${proc.id}`, alvo: 'etapa-atual', balao: `Use o botão em destaque: receba o processo, se for pedido, e faça ${e.titulo.toLowerCase()}. Ao concluir, o processo segue sozinho para a próxima etapa.` } : null,
+      tela: proc ? { rota: `/orgao/processo/${proc.id}`, alvo: 'etapa-atual', balao: `Use o botão em destaque: receba o processo, se for pedido, e faça a etapa "${e.titulo}". Ao concluir, o processo segue sozinho para a próxima etapa.` } : null,
       pode_agir: d.pode.etapa,
       quem_pode: d.quem_pode.etapa,
       feito: e.concluida,

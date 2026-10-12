@@ -17,6 +17,37 @@ import { DestaqueGuia, type PedidoDestaque } from "./DestaqueGuia"
 
 const AZUL = "#1351b4"
 const INTERVALO_ATUALIZACAO = 20_000
+const CHAVE_ULTIMO_VISTO = "guia:ultimo-visto"
+
+/** Quem está logado (usuário do órgão ou login do órgão), para não comparar o que outra pessoa viu. */
+function quemEstaLogado(): string | null {
+  try {
+    const u = JSON.parse(localStorage.getItem("usuario") || "null")
+    if (u?.id) return `u:${u.id}`
+    const o = JSON.parse(localStorage.getItem("orgao") || "null")
+    return o?.id ? `o:${o.id}` : null
+  } catch {
+    return null
+  }
+}
+
+/** Roteiro da dispensa como esta aba o viu por último (conveniência: falha = sem aviso). */
+function lerUltimoVisto(): RoteiroGuia | null {
+  try {
+    const salvo = JSON.parse(sessionStorage.getItem(CHAVE_ULTIMO_VISTO) || "null")
+    return salvo && salvo.quem === quemEstaLogado() ? (salvo.roteiro as RoteiroGuia) : null
+  } catch {
+    return null
+  }
+}
+
+function gravarUltimoVisto(roteiro: RoteiroGuia) {
+  try {
+    sessionStorage.setItem(CHAVE_ULTIMO_VISTO, JSON.stringify({ quem: quemEstaLogado(), roteiro }))
+  } catch {
+    // sem armazenamento: o aviso só aparece sem recarregar a página
+  }
+}
 
 /**
  * GUIA DE PRIMEIROS PASSOS — botão "Guia" do cabeçalho (módulo Processo
@@ -39,11 +70,13 @@ export function GuiaPrimeirosPassos() {
   const anterior = useRef<ProgressoGuia | null>(null)
 
   const aplicar = useCallback((p: ProgressoGuia) => {
-    const antes = anterior.current?.roteiros.find((r) => r.chave === "DISPENSA")
+    // Depois de recarregar a página, o "antes" vem do que esta aba viu por último (mesmo usuário)
+    const antes = anterior.current?.roteiros.find((r) => r.chave === "DISPENSA") ?? lerUltimoVisto()
     const depois = p.roteiros.find((r) => r.chave === "DISPENSA")
     const vez = passagemDeVez(antes, depois)
     if (vez && depois) setPassagem({ ...vez, numeroConcluido: numeroDoPasso(depois, vez.concluido.chave), numero: numeroDoPasso(depois, vez.proximo.chave) })
     anterior.current = p
+    if (depois) gravarUltimoVisto(depois)
     setProgresso(p)
   }, [])
 
@@ -186,7 +219,7 @@ export function GuiaPrimeirosPassos() {
               </span>
               <DialogTitle>A próxima providência é de outro usuário</DialogTitle>
               <DialogDescription className="text-slate-700">
-                O passo seguinte cabe a {passagem.proximo.quem}. Para continuar o roteiro, saia e entre com um desses usuários: o guia retoma no passo {passagem.numero}, na tela certa.
+                O passo seguinte cabe a outro usuário ({passagem.proximo.quem}). Para continuar o roteiro, saia e entre com um dos usuários abaixo: o guia retoma no passo {passagem.numero}, na tela certa.
               </DialogDescription>
             </DialogHeader>
             <dl className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-lg border border-[#D6E2F5] bg-[#F5F8FD] px-4 py-3 text-sm">
@@ -421,7 +454,7 @@ function ItemPasso({ passo: p, numero, onIr }: { roteiro: RoteiroGuia; passo: Pa
       </dl>
       {!p.pode_agir && (
         <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
-          Este passo não é do seu usuário. Entre com o usuário de {p.quem}{p.quem_pode.length ? `: ${rotuloPessoas(p.quem_pode)}` : ""}.
+          Este passo não é do seu usuário ({p.quem}).{p.quem_pode.length ? ` Entre com: ${rotuloPessoas(p.quem_pode)}.` : ""}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
