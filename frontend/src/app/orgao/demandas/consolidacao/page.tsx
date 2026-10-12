@@ -579,7 +579,7 @@ function DfdConsolidadoContent() {
                   <Button variant="outline" size="sm" onClick={() => setPreviaAberta(true)} disabled={!previa}>
                     <Eye className="h-4 w-4 mr-1" aria-hidden="true" /> Prévia
                   </Button>
-                  <Button size="sm" onClick={() => montarDfd()} disabled={montando || carregandoPrevia || !previa}>
+                  <Button size="sm" data-guia="montar-dfd" onClick={() => montarDfd()} disabled={montando || carregandoPrevia || !previa}>
                     {montando ? <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4 mr-1" aria-hidden="true" />}
                     Montar DFD
                   </Button>

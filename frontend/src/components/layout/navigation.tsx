@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
+import { GuiaPrimeirosPassos } from "@/components/guia/GuiaPrimeirosPassos"
 import {
   Building2,
   FileText,
@@ -504,6 +505,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        {pathname.startsWith('/orgao') && <GuiaPrimeirosPassos />}
         {(pathname.startsWith('/orgao') || pathname.startsWith('/fornecedor')) && <NotificacoesBadge />}
 
         <div className="flex items-center gap-3">

@@ -69,6 +69,7 @@ import { ConcursoModule } from './concurso/concurso.module';
 import { DialogoCompetitivoModule } from './dialogo-competitivo/dialogo.module';
 import { PainelTvModule } from './painel-tv/painel-tv.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { GuiaModule } from './guia/guia.module';
 
 @Module({
   imports: [
@@ -185,6 +186,7 @@ import { WorkflowModule } from './workflow/workflow.module';
     DialogoCompetitivoModule, // diálogo competitivo (E7c — art. 32)
     PainelTvModule, // painel para TV do setor de licitação (link com token, só leitura)
     WorkflowModule,
+    GuiaModule, // guia de primeiros passos (botão Guia)
   ],
   controllers: [HealthController],
   providers: [

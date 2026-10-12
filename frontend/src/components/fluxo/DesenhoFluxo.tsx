@@ -261,7 +261,7 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
               <button type="button" onClick={salvar} disabled={!sujo || salvando} className="rounded-lg border border-[#CBD3DA] bg-white px-4 py-2.5 text-sm font-medium text-slate-700 disabled:opacity-50">
                 {sujo ? "Salvar rascunho" : "Rascunho salvo"}
               </button>
-              <button type="button" onClick={ativar} disabled={salvando} className="rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+              <button type="button" data-guia="ativar-fluxo" onClick={ativar} disabled={salvando} className="rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
                 {salvando ? "Aguarde…" : `Ativar versão ${desenho.modelo.versao}`}
               </button>
             </>
@@ -354,7 +354,7 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
 
       {/* Paleta */}
       {editavel ? (
-        <section className="flex flex-col gap-2.5 rounded-xl border border-[#E3E7EC] bg-white p-4" aria-labelledby="paleta">
+        <section data-guia="paleta-fluxo" className="flex flex-col gap-2.5 rounded-xl border border-[#E3E7EC] bg-white p-4" aria-labelledby="paleta">
           <p id="paleta" className="text-xs font-semibold uppercase tracking-wider text-[#5A6675]">
             Etapas disponíveis — arraste para o fluxo ou clique para incluir no fim
           </p>

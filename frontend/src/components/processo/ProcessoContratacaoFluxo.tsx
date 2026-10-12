@@ -374,6 +374,7 @@ export function ProcessoContratacaoFluxo({
             {podeReceber ? (
               <button
                 type="button"
+                data-guia="etapa-atual"
                 onClick={onReceber}
                 disabled={recebendo}
                 className="inline-flex h-11 items-center gap-2 rounded-lg px-5 text-[15px] font-semibold text-white disabled:opacity-60"
@@ -382,7 +383,7 @@ export function ProcessoContratacaoFluxo({
                 {recebendo ? "Recebendo..." : "Receber processo"}
               </button>
             ) : podeAgir && ehAprovacao ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2" data-guia="etapa-atual">
                 <button type="button" onClick={() => concluir({ decisao: "APROVADO" })} disabled={processando} className="h-11 rounded-lg px-5 text-[15px] font-semibold text-white disabled:opacity-60" style={{ background: AZUL }}>
                   {processando ? "Aprovando..." : "Aprovar"}
                 </button>
@@ -396,7 +397,7 @@ export function ProcessoContratacaoFluxo({
                 </button>
               </div>
             ) : podeAgir ? (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2" data-guia="etapa-atual">
                 {ponte ? (
                   <Link href={ponte.href} className="inline-flex h-11 items-center gap-2 rounded-lg px-5 text-[15px] font-semibold text-white no-underline" style={{ background: AZUL }}>
                     {ponte.rotulo.replace(/ na (fase interna|tela da licitação)$/, "")}

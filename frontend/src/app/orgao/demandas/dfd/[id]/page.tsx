@@ -352,19 +352,19 @@ function DfdDetalhe() {
     switch (passo.acao) {
       case 'ABRIR_PROCESSO':
         return (
-          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={abrirDialogoProcesso} disabled={salvando}>
+          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={abrirDialogoProcesso} disabled={salvando} data-guia="dfd-proximo-passo">
             <Rocket className="h-4 w-4 mr-2" aria-hidden="true" />Abrir processo
           </Button>
         )
       case 'ENVIAR_APROVACAO':
         return (
-          <Button size={tamanho} className={cls} onClick={() => enviarParaAprovacao(false)} disabled={salvando}>
+          <Button size={tamanho} className={cls} onClick={() => enviarParaAprovacao(false)} disabled={salvando} data-guia="dfd-proximo-passo">
             <Send className="h-4 w-4 mr-2" aria-hidden="true" />Enviar para aprovação
           </Button>
         )
       case 'APROVAR':
         return (
-          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={aprovar} disabled={salvando}>
+          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={aprovar} disabled={salvando} data-guia="dfd-proximo-passo">
             <CheckCircle className="h-4 w-4 mr-2" aria-hidden="true" />Aprovar
           </Button>
         )

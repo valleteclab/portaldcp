@@ -29,6 +29,6 @@ import { WorkflowModule } from '../workflow/workflow.module';
   imports: [TypeOrmModule.forFeature([Processo, TipoProcessoRegistro, ProcessoMovimentacao, ProcessoPeca, ModeloDocumento]), NumeroProcessoModule, NotificacoesModule, IaModule, WorkflowModule],
   controllers: [ProcessosController],
   providers: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PecasLicitacaoService, PainelGestorService, MigracaoProcessoBootService, AndamentoProcessoService],
-  exports: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PainelGestorService, MigracaoProcessoBootService],
+  exports: [ProcessoService, ProcessoTiposService, ProcessoConteudoService, ProcessoTramitacaoService, PainelGestorService, MigracaoProcessoBootService, AndamentoProcessoService],
 })
 export class ProcessoModule {}
