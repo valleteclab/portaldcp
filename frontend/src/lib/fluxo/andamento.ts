@@ -34,6 +34,8 @@ export interface Andamento {
   pode_agir?: boolean
   /** Contratação: as etapas abrem as telas da fase interna desta licitação. */
   licitacao_id?: string | null
+  /** Contratação: por que nasceu neste fluxo ("Dispensa, art. 75, II" ou "fluxo padrão da contratação"). */
+  escolhido_por?: string | null
 }
 
 const DIA = 24 * 60 * 60 * 1000

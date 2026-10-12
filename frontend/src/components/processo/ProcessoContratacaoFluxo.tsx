@@ -436,6 +436,12 @@ export function ProcessoContratacaoFluxo({
 
         <Caminho nos={andamento.nos} />
         {depois && !andamento.encerrado ? <p className="m-0 text-sm text-gray-600">{depois}</p> : null}
+        {andamento.fluxo ? (
+          <p className="m-0 text-xs text-gray-600">
+            Fluxo: <b className="font-semibold text-gray-800">{andamento.fluxo.nome}</b> (versão {andamento.fluxo.versao})
+            {andamento.escolhido_por ? ` · escolhido por: ${andamento.escolhido_por}` : ""}
+          </p>
+        ) : null}
       </section>
 
       <LimiteDispensaLinha licitacaoId={licitacaoId} />

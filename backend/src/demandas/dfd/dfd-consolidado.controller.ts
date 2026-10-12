@@ -8,6 +8,7 @@ import { LicitacoesService } from '../../licitacoes/licitacoes.service';
 import { licitacaoParaOrgao } from '../../licitacoes/licitacao-visao.util';
 import { CriterioJulgamento, ModalidadeLicitacao, TipoContratacao } from '../../licitacoes/entities/licitacao.entity';
 import { atorTransicaoDe } from '../../licitacoes/transicoes/transicoes.tipos';
+import { motivoFundamentoInvalido } from '../../licitacoes/fundamento-legal';
 import { DemandasService } from '../demandas.service';
 import { DfdConsolidadoService } from './dfd-consolidado.service';
 import { PendenciaDfdService } from '../../fase-interna/fluxo/pendencia-dfd.service';
@@ -213,6 +214,10 @@ export class DfdConsolidadoController {
     enumOk(body?.modalidade, ModalidadeLicitacao, 'Modalidade');
     enumOk(body?.tipo_contratacao, TipoContratacao, 'Natureza do objeto');
     enumOk(body?.criterio_julgamento, CriterioJulgamento, 'Critério de julgamento');
+    // Enquadramento (opcional): escolhe o fluxo da contratação junto com a modalidade
+    const fundamento = body?.fundamento_legal ? String(body.fundamento_legal).toUpperCase() : null;
+    const recusa = fundamento ? motivoFundamentoInvalido(body?.modalidade ?? null, fundamento) : null;
+    if (recusa) throw new BadRequestException(recusa);
     const r = await this.licitacoes.criarAPartirDeDfd(
       id,
       {
@@ -221,6 +226,7 @@ export class DfdConsolidadoController {
         modalidade: body?.modalidade || undefined,
         tipo_contratacao: body?.tipo_contratacao || undefined,
         criterio_julgamento: body?.criterio_julgamento || undefined,
+        fundamento_legal: fundamento,
       },
       orgaoId,
       atorTransicaoDe(ator),

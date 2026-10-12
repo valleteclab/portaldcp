@@ -6,6 +6,7 @@ import { PlanejamentoFluxoService } from '../fase-interna/fluxo/planejamento-flu
 import { AndamentoProcessoService } from '../processo/andamento-processo.service';
 import { Processo } from '../processo/entities/processo.entity';
 import { GuiaAndamento } from './guia-andamento.entity';
+import { escolherFluxo, type FluxoAtivo } from '../workflow/aplicacao/aplicacao-fluxo';
 import { roteiroDispensa, roteiroFluxo, type EtapaDoFluxoGuia, type PessoaGuia, type RoteiroGuia } from './roteiro-guia';
 
 const ROTEIRO_DISPENSA = 'DISPENSA';
@@ -95,10 +96,14 @@ export class GuiaService {
       where: { orgao_id: orgaoId, roteiro: ROTEIRO_DISPENSA, encerrado_em: IsNull() },
       order: { iniciado_em: 'DESC' },
     });
-    const [fluxoAtivo] = await this.ds.query(
-      `SELECT id::text AS id FROM workflow_modelos WHERE orgao_id::text = $1 AND tipo_processo = 'CONTRATACAO' AND status = 'PUBLICADO' ORDER BY updated_at DESC LIMIT 1`,
-      [orgaoId],
-    );
+    // O fluxo que uma dispensa de pequeno valor (art. 75, II) seguiria hoje
+    const ativos: FluxoAtivo[] = (
+      await this.ds.query(
+        `SELECT id::text AS id, nome, versao, aplicacao FROM workflow_modelos WHERE orgao_id::text = $1 AND tipo_processo = 'CONTRATACAO' AND status = 'PUBLICADO' ORDER BY updated_at DESC`,
+        [orgaoId],
+      )
+    ).map((x: any) => ({ id: x.id, nome: x.nome, versao: Number(x.versao), aplicacao: x.aplicacao ?? null }));
+    const fluxoAtivo = escolherFluxo(ativos, 'DISPENSA_ELETRONICA', 'ART75_II')?.fluxo ?? null;
 
     const demanda = andamento ? await this.demandaDoRoteiro(andamento) : null;
     const dfd = demanda ? await this.dfdDaDemanda(demanda.id) : null;

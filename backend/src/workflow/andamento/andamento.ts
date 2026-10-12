@@ -45,6 +45,8 @@ export interface Andamento {
   pode_agir?: boolean;
   /** Contratação: licitação cujas telas da fase interna as etapas abrem (ponte). */
   licitacao_id?: string | null;
+  /** Contratação: por que o processo nasceu neste fluxo ("Dispensa, art. 75, II" ou "fluxo padrão da contratação"). */
+  escolhido_por?: string | null;
 }
 
 const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);

@@ -20,6 +20,7 @@ import {
   type TipoResponsavel,
 } from "@/lib/fluxo/desenho"
 import { SimulacaoFluxo } from "./SimulacaoFluxo"
+import { OndeFluxoVale } from "./OndeFluxoVale"
 
 /**
  * DESENHAR O FLUXO (mockup aprovado em 06/10/2026, tela "Contratação 2"):
@@ -349,6 +350,10 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
           {exigidas.size ? <span className="text-xs text-[#8A5A00]">Exige por lei: {[...exigidas].map((t) => porTipo.get(t)?.rotulo ?? t).join(" e ")}</span> : null}
         </div>
       )}
+
+      {desenho.modelo.tipo_processo === "CONTRATACAO" && desenho.modelo.status !== "SUBSTITUIDO" ? (
+        <OndeFluxoVale key={desenho.modelo.id} desenho={desenho} onSalvo={(d) => setDesenho(d)} />
+      ) : null}
 
       {testando ? <SimulacaoFluxo etapas={etapas} catalogo={porTipo} opcoes={opcoes} modelos={modelos} onFechar={() => setTestando(false)} /> : null}
 

@@ -6,6 +6,13 @@ import { TeamsService } from '../avisos/teams.service';
 import { normalizarAvisos, normalizarNotificar } from '../avisos/destinatarios';
 import { definicaoDoNo, travaLegal } from '../nos/catalogo-nos';
 import { errosParaAtivar, normalizarEtapas, removidasComTrava, TIPOS_PROCESSO_DO_FLUXO, ETAPAS_EXIGIDAS, type EtapaDesenho } from './desenho';
+import {
+  aplicacaoEfetiva, cobertura, conflitosDeAplicacao, escolherFluxo, MODALIDADES_COM_ENQUADRAMENTO, MODALIDADES_CONTRATACAO, normalizarAplicacao, rotuloModalidade, rotulosDaAplicacao,
+  type AplicacaoFluxo,
+} from '../aplicacao/aplicacao-fluxo';
+import { definicaoDoFundamento, fundamentosDaModalidade } from '../../licitacoes/fundamento-legal';
+
+const CONTRATACAO = 'CONTRATACAO';
 
 const COR_ETAPA = '#1B4A63';
 
@@ -30,8 +37,8 @@ export class DesenhoFluxoService {
 
   /** Fluxos do órgão, um por família: a versão ativa, o rascunho em edição e quantos processos usam cada uma. */
   async listar(orgaoId: string) {
-    const linhas: Array<{ id: string; familia: string; nome: string; tipo_processo: string | null; versao: number; status: string; updated_at: Date; em_andamento: number }> = await this.ds.query(
-      `SELECT m.id::text AS id, COALESCE(m.familia_id, m.id)::text AS familia, m.nome, m.tipo_processo, m.versao, m.status, m.updated_at,
+    const linhas: Array<{ id: string; familia: string; nome: string; tipo_processo: string | null; versao: number; status: string; updated_at: Date; em_andamento: number; aplicacao: AplicacaoFluxo | null }> = await this.ds.query(
+      `SELECT m.id::text AS id, COALESCE(m.familia_id, m.id)::text AS familia, m.nome, m.tipo_processo, m.versao, m.status, m.updated_at, m.aplicacao,
               (SELECT COUNT(*)::int FROM workflow_instancias i WHERE i.workflow_id = m.id AND i.status = 'EM_ANDAMENTO') AS em_andamento
          FROM workflow_modelos m WHERE m.orgao_id::text = $1 ORDER BY m.versao DESC`,
       [orgaoId],
@@ -52,6 +59,8 @@ export class DesenhoFluxoService {
           desativado: desativado ? { id: desativado.id, versao: desativado.versao } : null,
           rascunho: rascunho ? { id: rascunho.id, versao: rascunho.versao } : null,
           em_andamento: vs.reduce((t, v) => t + Number(v.em_andamento || 0), 0),
+          // Contratação: onde vale (o da versão ativa; sem ativa, o da versão em edição)
+          vale_para: atual.tipo_processo === CONTRATACAO ? rotulosDaAplicacao((ativo ?? atual).aplicacao ?? null) : [],
           atualizado_em: vs.reduce((d, v) => (new Date(v.updated_at) > d ? new Date(v.updated_at) : d), new Date(0)),
         };
       })
@@ -109,7 +118,7 @@ export class DesenhoFluxoService {
       [orgaoId, this.familia(m)],
     );
     return {
-      modelo: { id: m.id, nome: m.nome, descricao: m.descricao, tipo_processo: m.tipo_processo, versao: m.versao, status: m.status, familia_id: this.familia(m) },
+      modelo: { id: m.id, nome: m.nome, descricao: m.descricao, tipo_processo: m.tipo_processo, versao: m.versao, status: m.status, familia_id: this.familia(m), aplicacao: m.aplicacao ?? null },
       etapas,
       editavel: m.status === 'RASCUNHO',
       etapas_exigidas: ETAPAS_EXIGIDAS[m.tipo_processo ?? ''] ?? [],
@@ -124,6 +133,7 @@ export class DesenhoFluxoService {
     const erros = errosParaAtivar(m.tipo_processo, etapas.map((e) => ({ ...e, responsavel_tipo: e.responsavel_tipo as any })));
     for (const e of etapas) if (e.tipo === 'FORMULARIO' && !e.formulario_id) erros.push(`Vincule um formulário à etapa "${e.nome}".`);
     for (const e of etapas) if (e.tipo === 'NOTIFICAR' && !(e.notificar as any)?.destinatarios?.length) erros.push(`Configure quem recebe e por qual canal o aviso "${e.nome}".`);
+    if (m.tipo_processo === CONTRATACAO && !m.aplicacao) erros.push('Diga onde este fluxo vale: as modalidades da contratação (ou use-o como padrão).');
     return erros;
   }
 
@@ -241,7 +251,7 @@ export class DesenhoFluxoService {
     if (existente) return this.desenho(orgaoId, existente.id);
     const [{ max }] = await this.ds.query(`SELECT COALESCE(MAX(versao), 0)::int AS max FROM workflow_modelos WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2`, [orgaoId, familia]);
     const novoId = await this.ds.transaction(async (mg) => {
-      const novo = await mg.save(WorkflowModelo, mg.create(WorkflowModelo, { orgao_id: orgaoId, nome: origem.nome, descricao: origem.descricao, status: 'RASCUNHO', versao: Number(max) + 1, tipo_processo: origem.tipo_processo, familia_id: familia, criado_por_id: autorId }));
+      const novo = await mg.save(WorkflowModelo, mg.create(WorkflowModelo, { orgao_id: orgaoId, nome: origem.nome, descricao: origem.descricao, status: 'RASCUNHO', versao: Number(max) + 1, tipo_processo: origem.tipo_processo, familia_id: familia, criado_por_id: autorId, aplicacao: origem.aplicacao ?? null }));
       const formularios = new Map<string, string>();
       for (const f of origem.formularios) {
         const nf = await mg.save(WorkflowFormulario, mg.create(WorkflowFormulario, { workflow_id: novo.id, nome: f.nome, descricao: f.descricao }));
@@ -268,15 +278,17 @@ export class DesenhoFluxoService {
 
   /**
    * Ativa o rascunho (ou reativa a versão desativada): confere as travas e
-   * substitui a versão ativa da família. Um fluxo ativo por tipo de processo:
-   * os outros fluxos ativos do mesmo tipo são desativados (com dois ativos o
-   * processo não sabe qual seguir e o início automático não acontece).
+   * substitui a versão ativa da família.
+   *  - Contratação: vários fluxos ativos, cada um onde vale (modalidade e
+   *    enquadramento); um caso já coberto por outro fluxo barra a ativação.
+   *  - Demais tipos: um fluxo ativo por tipo; os outros são desativados.
    */
   async ativar(orgaoId: string, id: string) {
     const m = await this.workflow.obter(orgaoId, id);
     if (m.status !== 'RASCUNHO' && m.status !== 'DESATIVADO') throw new ConflictException('Só um rascunho ou uma versão desativada pode ser ativada.');
     const erros = this.pendenciasParaAtivar(m);
     if (erros.length) throw new BadRequestException({ message: 'O fluxo ainda não pode ser ativado.', erros });
+    if (m.tipo_processo === CONTRATACAO) await this.exigirSemConflito(orgaoId, this.familia(m), m.aplicacao ?? null);
     const desativados: string[] = [];
     await this.ds.transaction(async (mg) => {
       await mg.query(
@@ -284,7 +296,7 @@ export class DesenhoFluxoService {
           WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2 AND status IN ('PUBLICADO', 'DESATIVADO') AND id::text <> $3`,
         [orgaoId, this.familia(m), m.id],
       );
-      if (m.tipo_processo) {
+      if (m.tipo_processo && m.tipo_processo !== CONTRATACAO) {
         const outros: Array<{ nome: string }> = await mg.query(
           `UPDATE workflow_modelos SET status = 'DESATIVADO', updated_at = now()
             WHERE orgao_id::text = $1 AND tipo_processo = $2 AND status = 'PUBLICADO' AND COALESCE(familia_id, id)::text <> $3
@@ -307,6 +319,98 @@ export class DesenhoFluxoService {
     if (m.status !== 'PUBLICADO') throw new ConflictException('Só a versão ativa pode ser desativada.');
     await this.ds.getRepository(WorkflowModelo).update({ id: m.id }, { status: 'DESATIVADO' });
     return this.desenho(orgaoId, id);
+  }
+
+  // ==========================================================================
+  // ONDE O FLUXO VALE (contratação por modalidade e enquadramento)
+  // ==========================================================================
+
+  /** Fluxos de contratação ativos de OUTRAS famílias (a própria família é substituída ao ativar). */
+  private async outrosAtivos(orgaoId: string, familia: string | null) {
+    return (await this.workflow.ativosDaContratacao(orgaoId)).filter((x) => x.familia !== familia);
+  }
+
+  /** Um caso já coberto por outro fluxo ativo → 409 com a lista. */
+  private async exigirSemConflito(orgaoId: string, familia: string, aplicacao: AplicacaoFluxo | null) {
+    const conflitos = conflitosDeAplicacao(aplicacao, await this.outrosAtivos(orgaoId, familia));
+    if (conflitos.length) throw new ConflictException({ message: 'Cada caso só pode estar em um fluxo ativo. Ajuste onde este fluxo vale ou o outro fluxo.', erros: conflitos });
+  }
+
+  /** Grava onde o fluxo de contratação vale. Na versão ativa, confere antes os casos dos outros fluxos. */
+  async salvarAplicacao(orgaoId: string, id: string, body: unknown) {
+    const m = await this.workflow.obter(orgaoId, id);
+    if (m.tipo_processo !== CONTRATACAO) throw new BadRequestException('Só o fluxo de Contratação escolhe modalidades.');
+    if (m.status === 'SUBSTITUIDO') throw new ConflictException('Esta versão foi substituída.');
+    let aplicacao: AplicacaoFluxo;
+    try {
+      aplicacao = normalizarAplicacao(body);
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    if (m.status === 'PUBLICADO') await this.exigirSemConflito(orgaoId, this.familia(m), aplicacao);
+    await this.ds.getRepository(WorkflowModelo).update({ id: m.id }, { aplicacao: aplicacao as any });
+    return this.desenho(orgaoId, id);
+  }
+
+  /** Modalidades e enquadramentos que a tela oferece, com o fluxo ativo que já tem cada caso. */
+  async opcoesAplicacao(orgaoId: string, id?: string | null) {
+    const familia = id ? this.familia(await this.workflow.obter(orgaoId, id)) : null;
+    const outros = await this.outrosAtivos(orgaoId, familia);
+    const ocupado = (modalidade: string, fundamento: string | null) => {
+      const daModalidade = new Set(fundamentosDaModalidade(modalidade).map((d) => d.codigo as string));
+      for (const o of outros) {
+        const ap = aplicacaoEfetiva(o.aplicacao);
+        if (!ap.modalidades.includes(modalidade)) continue;
+        const fs = ap.fundamentos.filter((f) => daModalidade.has(f));
+        if (fundamento === null ? !fs.length : fs.includes(fundamento)) return o.nome;
+      }
+      return null;
+    };
+    return {
+      modalidades: MODALIDADES_CONTRATACAO.map((md) => ({
+        codigo: md.codigo,
+        rotulo: md.rotulo,
+        ocupado_por: ocupado(md.codigo, null),
+        enquadramentos: MODALIDADES_COM_ENQUADRAMENTO.includes(md.codigo)
+          ? fundamentosDaModalidade(md.codigo).map((d) => ({ codigo: d.codigo, referencia: d.referencia, descricao: d.descricao, ocupado_por: ocupado(md.codigo, d.codigo) }))
+          : [],
+      })),
+      padrao_de: outros.find((o) => aplicacaoEfetiva(o.aplicacao).padrao)?.nome ?? null,
+    };
+  }
+
+  /** Tabela "Qual fluxo cada contratação segue". */
+  async coberturaDaContratacao(orgaoId: string) {
+    return cobertura(await this.workflow.ativosDaContratacao(orgaoId));
+  }
+
+  /** Antes de abrir o processo: o fluxo que ele vai seguir, por quê e as etapas (nome e responsável). */
+  async previaDaContratacao(orgaoId: string, modalidade: string, fundamento: string | null) {
+    const escolha = escolherFluxo(await this.workflow.ativosDaContratacao(orgaoId), modalidade, fundamento);
+    const enquadramento = definicaoDoFundamento(fundamento)?.referencia ?? null;
+    if (!escolha) return { fluxo: null, motivo: null, por: [rotuloModalidade(modalidade), enquadramento].filter(Boolean).join(', '), etapas: [] };
+    const m = await this.workflow.obter(orgaoId, escolha.fluxo.id);
+    const etapas = this.etapasDoModelo(m).filter((e) => e.tipo !== 'NOTIFICAR');
+    const ids = [...new Set(etapas.flatMap((e) => e.responsaveis as string[]))];
+    const nomes = new Map<string, string>();
+    if (ids.length) {
+      const linhas: Array<{ id: string; nome: string }> = await this.ds.query(
+        `SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1 AND id::text = ANY($2::text[])
+         UNION ALL SELECT id::text AS id, nome FROM usuarios WHERE orgao_id::text = $1 AND id::text = ANY($2::text[])`,
+        [orgaoId, ids],
+      );
+      linhas.forEach((l) => nomes.set(l.id, l.nome));
+    }
+    const rotuloResponsavel: Record<string, string> = { SOLICITANTE: 'Solicitante', FISCAL_CONTRATO: 'Fiscal do contrato', GESTOR_CONTRATO: 'Gestor do contrato' };
+    return {
+      fluxo: { id: m.id, nome: m.nome, versao: m.versao },
+      motivo: escolha.motivo,
+      por: escolha.motivo === 'PADRAO' ? 'fluxo padrão da contratação' : [rotuloModalidade(modalidade), escolha.motivo === 'ENQUADRAMENTO' ? enquadramento : null].filter(Boolean).join(', '),
+      etapas: etapas.map((e) => ({
+        nome: e.nome,
+        responsavel: rotuloResponsavel[String(e.responsavel_tipo).toUpperCase()] ?? ((e.responsaveis as string[]).map((r) => nomes.get(r)).filter(Boolean).join(', ') || null),
+      })),
+    };
   }
 
   /** Modelos de documento de um tipo (os do sistema e os do órgão) para o "Documento produzido" da etapa. */

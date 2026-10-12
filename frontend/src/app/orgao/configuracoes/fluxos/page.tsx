@@ -9,7 +9,7 @@ import { ModuleGuard } from "@/components/ModuleGuard"
 import { ModuloSistema } from "@/hooks/useModulosOrgao"
 import { DesenhoFluxo } from "@/components/fluxo/DesenhoFluxo"
 import { CanaisAvisoOrgao } from "@/components/fluxo/CanaisAvisoOrgao"
-import { apiFluxo, rotuloTipoProcesso, TIPOS_PROCESSO_FLUXO, type Desenho, type FluxoResumo } from "@/lib/fluxo/desenho"
+import { apiFluxo, rotuloMotivoCobertura, rotuloTipoProcesso, TIPOS_PROCESSO_FLUXO, type Desenho, type FluxoResumo, type LinhaCobertura } from "@/lib/fluxo/desenho"
 
 /**
  * FLUXOS DE PROCESSO — lista dos fluxos do órgão e a tela "Desenhar o fluxo"
@@ -33,10 +33,15 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
   const [tipo, setTipo] = useState("CONTRATACAO")
   const [criando, setCriando] = useState(false)
 
+  const [cobertura, setCobertura] = useState<LinhaCobertura[] | null>(null)
+
   useEffect(() => {
     apiFluxo<FluxoResumo[]>("/desenhos")
       .then(setFluxos)
       .catch((e) => setErro(e instanceof Error ? e.message : "Não foi possível carregar os fluxos."))
+    apiFluxo<LinhaCobertura[]>("/contratacao/cobertura")
+      .then(setCobertura)
+      .catch(() => setCobertura([]))
   }, [])
 
   async function criar() {
@@ -102,6 +107,8 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
         </section>
       ) : null}
 
+      {cobertura && cobertura.length ? <CoberturaContratacao linhas={cobertura} onAbrir={onAbrir} /> : null}
+
       <div className="flex flex-wrap items-start gap-5">
         <section className="flex min-w-0 flex-[999_1_560px] flex-col gap-3" aria-label="Fluxos do órgão">
           {erro ? <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{erro}</p> : null}
@@ -121,6 +128,16 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
                   {f.rascunho ? ` · rascunho da versão ${f.rascunho.versao}` : ""}
                   {f.em_andamento ? ` · ${f.em_andamento} em andamento` : ""}
                 </span>
+                {f.vale_para?.length ? (
+                  <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs text-[#5A6675]">Vale para:</span>
+                    {f.vale_para.map((v) => (
+                      <span key={v} className="rounded-full border border-[#C9DAF3] bg-[#EAF1FB] px-2.5 py-0.5 text-xs font-semibold text-[#1E3A5F]">
+                        {v}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
               </div>
               <div className="flex gap-2">
                 {f.rascunho ? (
@@ -146,6 +163,60 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
         </aside>
       </div>
     </div>
+  )
+}
+
+/** "Qual fluxo cada contratação segue" (mockup de 12/10/2026): modalidade e enquadramento → fluxo, com as lacunas. */
+function CoberturaContratacao({ linhas, onAbrir }: { linhas: LinhaCobertura[]; onAbrir: (id: string) => void }) {
+  const ativos = new Set(linhas.filter((l) => l.fluxo).map((l) => l.fluxo!.id)).size
+  return (
+    <section aria-labelledby="t-cobertura" className="flex flex-col gap-3.5 rounded-xl border border-[#E3E7EC] bg-white p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <h2 id="t-cobertura" className="text-[17px] font-bold">Qual fluxo cada contratação segue</h2>
+          <p className="text-[13px] text-[#4B5563]">O processo nasce no fluxo da sua modalidade e do seu enquadramento. O que não tem fluxo próprio segue o fluxo padrão.</p>
+        </div>
+        <span className="text-[13px] text-[#4B5563]">{ativos} {ativos === 1 ? "fluxo ativo" : "fluxos ativos"}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide text-[#5A6675]">
+              <th scope="col" className="border-b border-[#E3E7EC] px-3 py-2.5">Modalidade</th>
+              <th scope="col" className="border-b border-[#E3E7EC] px-3 py-2.5">Enquadramento</th>
+              <th scope="col" className="border-b border-[#E3E7EC] px-3 py-2.5">Segue o fluxo</th>
+              <th scope="col" className="border-b border-[#E3E7EC] px-3 py-2.5">Por quê</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((l, i) => {
+              const proprio = l.motivo === "ENQUADRAMENTO" || l.motivo === "MODALIDADE"
+              const alerta = l.motivo === "NENHUM" || l.motivo === "AMBIGUO"
+              return (
+                <tr key={`${l.modalidade}-${i}`} className="border-t border-[#F1F3F6]">
+                  <td className="px-3 py-2.5 font-semibold">{l.modalidade_rotulo}</td>
+                  <td className="px-3 py-2.5 text-[#374151]">{l.enquadramento}</td>
+                  <td className="px-3 py-2.5">
+                    {l.fluxo ? (
+                      <button type="button" onClick={() => onAbrir(l.fluxo!.id)} className="font-semibold text-[#1351b4] hover:underline">
+                        {l.fluxo.nome}
+                      </button>
+                    ) : (
+                      <span className="text-[#5A6675]">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${proprio ? "bg-[#EAF6EE] text-green-700" : alerta ? "border border-amber-300 bg-amber-50 text-amber-900" : "bg-[#F1F3F6] text-[#374151]"}`}>
+                      {rotuloMotivoCobertura(l.motivo)}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
