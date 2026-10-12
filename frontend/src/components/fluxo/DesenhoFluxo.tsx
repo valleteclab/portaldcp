@@ -21,6 +21,7 @@ import {
 } from "@/lib/fluxo/desenho"
 import { SimulacaoFluxo } from "./SimulacaoFluxo"
 import { OndeFluxoVale } from "./OndeFluxoVale"
+import { MapaFluxo } from "./MapaFluxo"
 
 /**
  * DESENHAR O FLUXO (mockup aprovado em 06/10/2026, tela "Contratação 2"):
@@ -51,6 +52,7 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
   const [erro, setErro] = useState<string | null>(null)
   const [arrastandoSobre, setArrastandoSobre] = useState<number | null>(null)
   const [testando, setTestando] = useState(false)
+  const [verMapa, setVerMapa] = useState(false)
   // Modelos de documento por tipo ("Documento produzido"), buscados quando a etapa daquele tipo é aberta
   const [modelos, setModelos] = useState<Map<string, Array<{ id: string; nome: string; do_orgao: boolean }>>>(new Map())
 
@@ -253,6 +255,11 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
         </div>
         <div className="flex flex-wrap gap-2">
           {etapas.length ? (
+            <button type="button" onClick={() => setVerMapa((v) => !v)} aria-expanded={verMapa} className="rounded-lg border border-[#CBD3DA] bg-white px-4 py-2.5 text-sm font-medium text-slate-700">
+              {verMapa ? "Fechar mapa" : "Ver mapa"}
+            </button>
+          ) : null}
+          {etapas.length ? (
             <button type="button" onClick={() => setTestando((v) => !v)} aria-expanded={testando} className="rounded-lg border border-[#CBD3DA] bg-white px-4 py-2.5 text-sm font-medium text-slate-700">
               {testando ? "Fechar teste" : "Testar com processo fictício"}
             </button>
@@ -353,6 +360,16 @@ export function DesenhoFluxo({ fluxoId, onTrocarFluxo }: { fluxoId: string; onTr
 
       {desenho.modelo.tipo_processo === "CONTRATACAO" && desenho.modelo.status !== "SUBSTITUIDO" ? (
         <OndeFluxoVale key={desenho.modelo.id} desenho={desenho} onSalvo={(d) => setDesenho(d)} />
+      ) : null}
+
+      {verMapa && etapas.length ? (
+        <section aria-labelledby="t-mapa-fluxo" className="flex flex-col gap-3 rounded-xl border border-[#E3E7EC] bg-white p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 id="t-mapa-fluxo" className="text-[17px] font-bold">Mapa do fluxo</h2>
+            <span className="text-[13px] text-[#5A6675]">{etapas.length} etapas, na ordem em que o processo anda{sujo ? " · inclui alterações não salvas" : ""}</span>
+          </div>
+          <MapaFluxo etapas={etapas.map((e) => ({ chave: e.chave, nome: e.nome, tipo: e.tipo, quem: resumoResponsavel(e) }))} />
+        </section>
       ) : null}
 
       {testando ? <SimulacaoFluxo etapas={etapas} catalogo={porTipo} opcoes={opcoes} modelos={modelos} onFechar={() => setTestando(false)} /> : null}

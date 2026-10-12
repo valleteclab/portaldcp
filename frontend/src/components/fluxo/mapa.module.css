@@ -1,0 +1,57 @@
+.mapa {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 44px;
+  row-gap: 42px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 4px 0;
+}
+
+.caixa {
+  grid-column: var(--c);
+  grid-row: var(--r);
+  position: relative;
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 11px 12px 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: center;
+  min-height: 78px;
+}
+
+.caixa b { font-size: 15px; font-weight: 700; }
+.quem { font-size: 12px; color: #44506a; }
+
+.instrucao { background: #eeedfb; border-color: #b9b3ec; color: #3b2f8f; }
+.decisao { background: #fdf0df; border-color: #edbe84; color: #8a4b08; }
+.publicidade { background: #e3f4ec; border-color: #97d2b4; color: #155c3b; }
+.generica { border-style: dashed; border-width: 1.5px; }
+
+/* Situação no processo */
+.concluida { opacity: 0.72; }
+.atual { box-shadow: 0 0 0 3px #1351b4; }
+.situacao { font-size: 11px; font-weight: 700; letter-spacing: 0.02em; }
+.situacao.feita { color: #15803d; }
+.situacao.andamento { color: #1351b4; }
+.situacao.vencida { color: #b42318; }
+
+.caixa[data-seta]::after { position: absolute; color: #7a8496; font-size: 20px; line-height: 1; }
+.caixa[data-seta="DIREITA"]::after { content: "→"; right: -33px; top: 50%; transform: translateY(-50%); }
+.caixa[data-seta="ESQUERDA"]::after { content: "←"; left: -33px; top: 50%; transform: translateY(-50%); }
+.caixa[data-seta="BAIXO"]::after { content: "↓"; left: 50%; bottom: -33px; transform: translateX(-50%); }
+
+.legenda { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: #44506a; border-top: 1px solid #e3e7ec; padding-top: 12px; }
+.legenda span { display: inline-flex; align-items: center; gap: 8px; }
+.amostra { width: 14px; height: 14px; border-radius: 3px; border: 1px solid; display: inline-block; }
+.amostraGenerica { width: 14px; height: 14px; border-radius: 3px; border: 1.5px dashed #7a8496; display: inline-block; }
+
+@media (max-width: 760px) {
+  .mapa { grid-template-columns: 1fr; row-gap: 34px; }
+  .caixa { grid-column: 1; grid-row: auto; }
+  .caixa[data-seta]::after { content: "↓"; left: 50%; right: auto; top: auto; bottom: -29px; transform: translateX(-50%); }
+  .caixa[data-seta="FIM"]::after { content: none; }
+}
