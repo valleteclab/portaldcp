@@ -12,6 +12,7 @@ import { rotuloModalidade } from "@/lib/licitacao-rotulos"
 import { chamarProcessos, textoDoErro, type ComQuemEsta, type ConteudoLicitacao, type EventoLinhaDoTempo, type ProcessoVisao } from "@/lib/processo/processo"
 import { BlocoDadosLicitacao, SecaoLinhaDoTempo } from "@/components/processo/BlocosProcesso"
 import { BotaoGerarAutos } from "@/app/orgao/processos/[id]/BotaoGerarAutos"
+import { MapaFluxo } from "@/components/fluxo/MapaFluxo"
 
 /**
  * TELA DO PROCESSO DE CONTRATAÇÃO QUE SEGUE O FLUXO (mockup "Processo enxuto",
@@ -172,6 +173,7 @@ export function ProcessoContratacaoFluxo({
   const [pendencias, setPendencias] = useState<string[] | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
   const [enviandoFora, setEnviandoFora] = useState(false)
+  const [verMapa, setVerMapa] = useState(false)
 
   const vigente = (tramitacao?.atual ?? null) as TramitacaoVigente | null
   const foraDoFluxo = String(vigente?.finalidade ?? "").trim() === FINALIDADE_FORA_DO_FLUXO
@@ -437,10 +439,20 @@ export function ProcessoContratacaoFluxo({
         <Caminho nos={andamento.nos} />
         {depois && !andamento.encerrado ? <p className="m-0 text-sm text-gray-600">{depois}</p> : null}
         {andamento.fluxo ? (
-          <p className="m-0 text-xs text-gray-600">
-            Fluxo: <b className="font-semibold text-gray-800">{andamento.fluxo.nome}</b> (versão {andamento.fluxo.versao})
-            {andamento.escolhido_por ? ` · escolhido por: ${andamento.escolhido_por}` : ""}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="m-0 text-xs text-gray-600">
+              Fluxo: <b className="font-semibold text-gray-800">{andamento.fluxo.nome}</b> (versão {andamento.fluxo.versao})
+              {andamento.escolhido_por ? ` · escolhido por: ${andamento.escolhido_por}` : ""}
+            </p>
+            <button type="button" onClick={() => setVerMapa((v) => !v)} aria-expanded={verMapa} className="text-[13px] font-semibold text-[#1351b4] hover:underline">
+              {verMapa ? "Fechar mapa" : "Ver mapa"}
+            </button>
+          </div>
+        ) : null}
+        {verMapa ? (
+          <div className="border-t border-[#F1F3F6] pt-4">
+            <MapaFluxo etapas={andamento.nos.map((n) => ({ chave: n.chave, nome: n.titulo, tipo: n.tipo, quem: n.responsavel, situacao: n.situacao, atrasada: n.atrasada }))} />
+          </div>
         ) : null}
       </section>
 

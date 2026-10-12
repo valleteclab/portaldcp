@@ -1,6 +1,8 @@
 "use client"
 
+import { useState } from "react"
 import { diaMes, haQuantoTempo, type Andamento, type NoAndamento } from "@/lib/fluxo/andamento"
+import { MapaFluxo } from "./MapaFluxo"
 import s from "./andamento.module.css"
 
 /**
@@ -10,6 +12,7 @@ import s from "./andamento.module.css"
  * contratação (caminho desenhado: as etapas futuras já aparecem).
  */
 export function AndamentoFluxo({ andamento }: { andamento: Andamento | null }) {
+  const [verMapa, setVerMapa] = useState(false)
   if (!andamento || !andamento.nos.length) return null
   const livre = andamento.modo === "LIVRE"
   return (
@@ -23,7 +26,16 @@ export function AndamentoFluxo({ andamento }: { andamento: Andamento | null }) {
             ? "Sem fluxo definido: o caminho é a tramitação registrada."
             : `${andamento.fluxo?.nome ?? "Fluxo"}, versão ${andamento.fluxo?.versao ?? 1} · ${andamento.concluidas} de ${andamento.total} etapas concluídas`}
         </p>
+        {livre ? null : (
+          <button type="button" onClick={() => setVerMapa((v) => !v)} aria-expanded={verMapa} className="text-[13px] font-semibold text-[#1351b4] hover:underline">
+            {verMapa ? "Fechar mapa" : "Ver mapa"}
+          </button>
+        )}
       </div>
+
+      {verMapa && !livre ? (
+        <MapaFluxo etapas={andamento.nos.map((n) => ({ chave: n.chave, nome: n.titulo, tipo: n.tipo, quem: n.responsavel, situacao: n.situacao, atrasada: n.atrasada }))} />
+      ) : null}
 
       <ol className={s.fila}>
         {andamento.nos.map((no, i) => (
