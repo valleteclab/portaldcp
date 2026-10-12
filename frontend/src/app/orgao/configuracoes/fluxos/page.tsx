@@ -60,7 +60,7 @@ function ListaFluxos({ onAbrir }: { onAbrir: (id: string) => void }) {
           <h1 className="text-2xl font-bold">Fluxos de processo</h1>
           <p className="text-sm text-[#5A6675]">O caminho que cada tipo de processo segue: etapas, responsáveis, prazos e avisos.</p>
         </div>
-        <button type="button" onClick={() => setNovo((v) => !v)} aria-expanded={novo} className="flex items-center gap-2 rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white">
+        <button type="button" data-guia="novo-fluxo" onClick={() => setNovo((v) => !v)} aria-expanded={novo} className="flex items-center gap-2 rounded-lg bg-[#1B4A63] px-4 py-2.5 text-sm font-semibold text-white">
           <Plus className="h-4 w-4" aria-hidden="true" />Novo fluxo
         </button>
       </div>

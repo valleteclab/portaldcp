@@ -1434,6 +1434,7 @@ export default function CentralAprovacoesPage() {
                         <Button
                           size="sm"
                           className="bg-green-600 hover:bg-green-700"
+                          data-guia={`aprovar-demanda-${demanda.id}`}
                           onClick={() => aprovarDemanda(demanda)}
                           disabled={processando}
                         >

@@ -107,7 +107,7 @@ export function AreaEtapaAtual({
 
       {/* Publicação: checklist de pré-publicação (fase interna e aguardando o PNCP) */}
       {(interna || aguardando) && !encerrada && (
-        <div className="rounded-lg border bg-white p-4 space-y-4">
+        <div className="rounded-lg border bg-white p-4 space-y-4" data-guia="publicacao">
           <ChecklistPrePublicacao
             licitacaoId={id}
             dados={dados}
