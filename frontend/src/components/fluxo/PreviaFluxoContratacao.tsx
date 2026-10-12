@@ -41,11 +41,11 @@ export function PreviaFluxoContratacao({ modalidade, fundamento, onFundamento }:
   const p = previa?.chave === chave ? previa.dados : null
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-w-0">
       {enquadramentos.length ? (
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <label htmlFor="abrir-enquadramento" className="text-sm font-semibold">Enquadramento</label>
-          <select id="abrir-enquadramento" value={fundamento} onChange={(e) => onFundamento(e.target.value)} className="rounded-md border px-3 py-2 text-sm bg-white">
+          <select id="abrir-enquadramento" value={fundamento} onChange={(e) => onFundamento(e.target.value)} className="w-full min-w-0 max-w-full rounded-md border px-3 py-2 text-sm bg-white">
             <option value="">{modalidade === "DISPENSA_ELETRONICA" ? "Pelo valor — art. 75, I (obras) ou II (demais)" : "Art. 74, caput — definir depois"}</option>
             {enquadramentos.map((e) => (
               <option key={e.codigo} value={e.codigo}>
