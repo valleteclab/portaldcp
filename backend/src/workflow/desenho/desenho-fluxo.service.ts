@@ -11,6 +11,7 @@ import {
   type AplicacaoFluxo,
 } from '../aplicacao/aplicacao-fluxo';
 import { definicaoDoFundamento, fundamentosDaModalidade } from '../../licitacoes/fundamento-legal';
+import { MODELOS_PRONTOS, modeloPronto, setorSugerido } from '../modelos-prontos/catalogo-modelos';
 
 const CONTRATACAO = 'CONTRATACAO';
 
@@ -411,6 +412,52 @@ export class DesenhoFluxoService {
         responsavel: rotuloResponsavel[String(e.responsavel_tipo).toUpperCase()] ?? ((e.responsaveis as string[]).map((r) => nomes.get(r)).filter(Boolean).join(', ') || null),
       })),
     };
+  }
+
+  // ==========================================================================
+  // MODELOS PRONTOS (desenhos tirados dos autos da Câmara)
+  // ==========================================================================
+
+  /** Catálogo para a tela "Novo fluxo": nome, de onde veio e as etapas. */
+  listarModelosProntos() {
+    return MODELOS_PRONTOS.map((m) => ({
+      chave: m.chave,
+      nome: m.nome,
+      descricao: m.descricao,
+      origem: m.origem,
+      tipo_processo: m.tipo_processo,
+      vale_para: m.tipo_processo === CONTRATACAO ? rotulosDaAplicacao(m.aplicacao) : [],
+      etapas: m.etapas.map((e) => e.nome),
+    }));
+  }
+
+  /**
+   * Cria um RASCUNHO a partir do modelo: as etapas na ordem dos autos, os
+   * responsáveis sugeridos pelo nome dos setores do órgão e, na contratação,
+   * onde o fluxo vale. Nada é ativado: o administrador confere e ativa.
+   */
+  async criarDeModelo(orgaoId: string, autorId: string | null, chave: string) {
+    const modelo = modeloPronto(chave);
+    if (!modelo) throw new NotFoundException('Modelo pronto não encontrado.');
+    const setores: Array<{ id: string; nome: string }> = await this.ds.query(`SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1 ORDER BY nome`, [orgaoId]);
+    const criado = await this.criar(orgaoId, autorId, { nome: modelo.nome, tipo_processo: modelo.tipo_processo });
+    const id = criado.modelo.id;
+    const semResponsavel: string[] = [];
+    const etapas = modelo.etapas.map((e, i) => {
+      const setor = e.solicitante ? null : setorSugerido(setores, e.setor);
+      if (!e.solicitante && !setor) semResponsavel.push(e.nome);
+      return {
+        chave: `novo-${i + 1}`,
+        tipo: e.tipo,
+        nome: e.nome,
+        responsavel_tipo: e.solicitante ? 'SOLICITANTE' : 'SETOR',
+        responsaveis: setor ? [setor] : [],
+        prazo_dias_uteis: e.prazo,
+      };
+    });
+    await this.salvar(orgaoId, id, { etapas });
+    if (modelo.aplicacao) await this.ds.getRepository(WorkflowModelo).update({ id }, { aplicacao: modelo.aplicacao as any });
+    return { ...(await this.desenho(orgaoId, id)), sem_responsavel: semResponsavel };
   }
 
   /** Modelos de documento de um tipo (os do sistema e os do órgão) para o "Documento produzido" da etapa. */

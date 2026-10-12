@@ -71,6 +71,17 @@ export interface PreviaContratacao {
   etapas: Array<{ nome: string; responsavel: string | null }>
 }
 
+/** Modelo pronto (desenho tirado dos autos da Câmara) para começar um fluxo. */
+export interface ModeloProntoFluxo {
+  chave: string
+  nome: string
+  descricao: string
+  origem: string
+  tipo_processo: string
+  vale_para: string[]
+  etapas: string[]
+}
+
 /** Texto do "Por quê" da tabela de cobertura. */
 export function rotuloMotivoCobertura(m: MotivoCobertura): string {
   if (m === "ENQUADRAMENTO" || m === "MODALIDADE") return "Fluxo próprio"

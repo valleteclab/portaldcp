@@ -56,6 +56,9 @@ export class WorkflowController {
   @Post() criar(@AtorAtual() ator: Ator, @Body() body: any) { return this.service.criar(orgaoDo(ator), ator.usuarioId ?? ator.id, body); }
   @Post('modelos-prontos/aditivo') modeloAditivo(@AtorAtual() ator: Ator) { return this.service.criarModeloAditivo(orgaoDo(ator), ator.usuarioId ?? ator.id); }
   @Post('modelos-prontos/demanda-dfd') modeloDemandaDfd(@AtorAtual() ator: Ator) { return this.service.criarModeloDemandaDfd(orgaoDo(ator), ator.usuarioId ?? ator.id); }
+  /** Modelos prontos tirados dos autos da Câmara: ver o catálogo e criar um rascunho a partir de um deles (administrador). */
+  @Get('modelos-prontos') modelosProntos() { return this.desenhos.listarModelosProntos(); }
+  @Post('modelos-prontos/:chave') criarDeModelo(@AtorAtual() ator: Ator, @Param('chave') chave: string) { return this.desenhos.criarDeModelo(adminDoOrgao(ator), ator.usuarioId ?? ator.id, chave); }
   /** Etapas abertas do fluxo que dependem de quem está logado (?tipo=APROVACAO para a Central de Aprovações). */
   @Get('minhas-etapas') minhasEtapas(@AtorAtual() ator: Ator, @Query('tipo') tipo?: string) { return this.service.minhasEtapas(orgaoDo(ator), ator, tipo ?? null); }
   @Get('execucoes/listar') execucoes(@AtorAtual() ator: Ator) { return this.service.listarInstancias(orgaoDo(ator)); }
