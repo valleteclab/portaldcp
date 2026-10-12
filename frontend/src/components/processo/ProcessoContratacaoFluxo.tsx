@@ -139,6 +139,7 @@ export function ProcessoContratacaoFluxo({
   andamento,
   posse,
   podeReceber,
+  posseLida = true,
   onReceber,
   recebendo,
   erroReceber,
@@ -151,6 +152,8 @@ export function ProcessoContratacaoFluxo({
   andamento: Andamento
   posse: ComQuemEsta | null
   podeReceber: boolean
+  /** A posse (tramitação) já foi lida: antes disso a tela não mostra os botões da etapa. */
+  posseLida?: boolean
   onReceber: () => void
   recebendo: boolean
   erroReceber: string | null
@@ -379,7 +382,9 @@ export function ProcessoContratacaoFluxo({
               </span>
               {chegou ? <span className="text-xs text-gray-500">{chegou}</span> : null}
             </div>
-            {podeReceber ? (
+            {!posseLida ? (
+              <span className="text-sm text-gray-500">Conferindo com quem está o processo…</span>
+            ) : podeReceber ? (
               <button
                 type="button"
                 data-guia="etapa-atual"
@@ -426,7 +431,7 @@ export function ProcessoContratacaoFluxo({
           </div>
         )}
 
-        {podeAgir && ehDefinicao ? <DefinicaoModalidadePainel licitacao={licitacao} processando={processando} onConcluir={(r) => concluir(r)} /> : null}
+        {podeAgir && ehDefinicao && posseLida && !podeReceber ? <DefinicaoModalidadePainel licitacao={licitacao} processando={processando} onConcluir={(r) => concluir(r)} /> : null}
 
         {erroReceber ? <p className="m-0 text-sm text-red-800" role="alert">{erroReceber}</p> : null}
         {pendencias?.length ? (

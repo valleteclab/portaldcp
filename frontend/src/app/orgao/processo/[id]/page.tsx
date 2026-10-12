@@ -56,6 +56,8 @@ export default function TelaDoProcessoPage() {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [recebendo, setRecebendo] = useState(false)
+  // Posse (tramitação) já foi lida nesta carga: só então a tela mostra os botões da etapa (evita "Abrir" virar "Receber")
+  const [posseLida, setPosseLida] = useState(false)
   const [erroReceber, setErroReceber] = useState<string | null>(null)
   const tentativasPosse = useRef(0)
 
@@ -63,6 +65,7 @@ export default function TelaDoProcessoPage() {
     async (silencioso = false) => {
       if (!silencioso) setCarregando(true)
       setErro(null)
+      if (!silencioso) setPosseLida(false)
       try {
         const p = await chamarProcessos<ProcessoVisao>(`/${id}`, { padrao: "Não foi possível abrir o processo." })
         setProcesso(p)
@@ -78,6 +81,7 @@ export default function TelaDoProcessoPage() {
           setPosse(t.com_quem_esta ? normalizarPosse(t.com_quem_esta) : null)
           setFluxo(f)
           setAutos(a)
+          setPosseLida(true)
         } else if (p.tipo === "CONTRATACAO" && p.referencia_id) {
           // Licitação: tramitação e etapas pelo motor da fase interna (adaptadores); os autos ficam na tela da licitação
           const [t, f] = await Promise.all([
@@ -88,6 +92,7 @@ export default function TelaDoProcessoPage() {
           setPosse(normalizarPosse(t?.com_quem_esta))
           setFluxo(f)
           setAutos(null)
+          setPosseLida(true)
           // Processo recém-aberto: a autuação automática leva alguns segundos; relê até aparecer a posse
           if (!normalizarPosse(t?.com_quem_esta) && tentativasPosse.current < 4) {
             tentativasPosse.current += 1
@@ -99,6 +104,7 @@ export default function TelaDoProcessoPage() {
           setPosse(normalizarPosse(t?.com_quem_esta))
           setFluxo(null)
           setAutos(null)
+          setPosseLida(true)
         }
       } catch (e) {
         setErro(textoDoErro(e, "Não foi possível abrir o processo."))
@@ -198,6 +204,7 @@ export default function TelaDoProcessoPage() {
           andamento={andamento}
           posse={posse}
           podeReceber={podeReceber}
+          posseLida={posseLida}
           onReceber={receber}
           recebendo={recebendo}
           erroReceber={erroReceber}
