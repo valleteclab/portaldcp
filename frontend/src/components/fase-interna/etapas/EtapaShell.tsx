@@ -22,6 +22,7 @@ import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
 import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
 import { BarraEtapasFluxo, useFluxoDaLicitacao } from "@/components/fluxo/BarraEtapasFluxo"
+import { ConcluirEtapaDoFluxo } from "@/components/fluxo/ConcluirEtapaDoFluxo"
 import { AvisoSomenteLeitura, PERMISSAO_LIVRE, PermissaoEtapaContext, permissaoDoPasso, type PermissaoTrabalho, type PermissoesTrabalho } from "@/lib/fase-interna/permissao-etapa"
 
 interface LicitacaoCabecalho {
@@ -89,7 +90,7 @@ export function EtapaShell({
   const ultima = useRef(criarUltimaCarga())
   const passoDaTela = ETAPAS_DA_BARRA.find((e) => e.tela === tela)?.passo ?? null
   // Processo que segue um fluxo desenhado: a barra mostra as etapas DO FLUXO (não a sequência fixa da fase interna)
-  const fluxo = useFluxoDaLicitacao(licitacaoId)
+  const fluxo = useFluxoDaLicitacao(licitacaoId, atualizacao)
 
   useEffect(() => {
     authFetch(`${API_URL}/api/licitacoes/${licitacaoId}`)
@@ -187,7 +188,13 @@ export function EtapaShell({
       </div>
 
       {fluxo ? (
-        <BarraEtapasFluxo licitacaoId={licitacaoId} processoId={fluxo.processoId} andamento={fluxo.andamento} telaAtual={tela} />
+        // Barra das etapas do fluxo + "Concluir etapa" aqui mesmo, quando a etapa em andamento é a desta tela
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-2 py-1.5">
+          <div className="min-w-0 flex-1">
+            <BarraEtapasFluxo licitacaoId={licitacaoId} processoId={fluxo.processoId} andamento={fluxo.andamento} telaAtual={tela} />
+          </div>
+          <ConcluirEtapaDoFluxo licitacaoId={licitacaoId} processoId={fluxo.processoId} andamento={fluxo.andamento} telaAtual={tela} podeTrabalhar={permissao.pode} />
+        </div>
       ) : (
       <nav aria-label="Etapas da fase interna" className="relative overflow-x-auto -mx-1 px-1">
         <ol className="flex items-center gap-1 min-w-max text-xs">

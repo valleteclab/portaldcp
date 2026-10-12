@@ -13,6 +13,7 @@ import { fundamentoEfetivo, textoDoFundamento } from '../licitacoes/fundamento-l
 import { createHash } from 'crypto';
 import { modoDisputaDaDispensa, textoFormaDisputa } from '../licitacoes/modo-disputa-dispensa';
 import { quantidadeComUnidade, rotuloCriterio, rotuloModalidade, rotuloModoDisputa } from './textos-documento';
+import { previsaoPcaDaContratacao } from './pca/previsao-pca';
 
 const BRL = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -168,15 +169,9 @@ export class DerivacaoService {
       }
       add('quantidade', quantidadeHtml, 'Itens');
 
-      // previsao — vínculo com PCA (o do processo — tela do DFD — ou o dos itens)
-      const itensParaPca = itensLic.length > 0 ? itensLic : demanda?.itens || [];
-      const temPca = !!licitacao.item_pca_id || itensParaPca.some((i: any) => !!i.item_pca_id);
-      const previsaoHtml = temPca
-        ? '<p>Os itens desta contratação constam do Plano de Contratações Anual (PCA) do exercício vigente.</p>'
-        : licitacao.sem_pca && licitacao.justificativa_sem_pca
-          ? `<p>A contratação não consta do Plano de Contratações Anual. Justificativa (art. 12, §1º): ${licitacao.justificativa_sem_pca}</p>`
-          : '<p>A presente contratação não consta no PCA; justificativa a ser detalhada.</p>';
-      add('previsao', previsaoHtml, 'PCA');
+      // previsao — vínculo com o PCA: texto único (previsao-pca.ts), o mesmo do inc. II do ETP
+      const previsao = await previsaoPcaDaContratacao((sql, params) => this.licitacaoRepository.manager.query(sql, params), licitacao.id);
+      add('previsao', previsao.texto, 'PCA');
 
       // Unidade requisitante e responsável (campos da tela do DFD)
       const dfdAtual = docs.find((d) => d.tipo === TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA);
@@ -191,7 +186,9 @@ export class DerivacaoService {
       // ETP — derivado do DFD + Processo
       const DFD = TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA;
       add('necessidade', this.secaoDe(docs, DFD, 'demanda'), 'DFD');
-      add('previsao_pca', this.secaoDe(docs, DFD, 'previsao'), 'DFD');
+      // inc. II: o dado é do planejamento — vale o texto do PCA; o do DFD só se o vínculo não existir
+      const previsaoEtp = await previsaoPcaDaContratacao((sql, params) => this.licitacaoRepository.manager.query(sql, params), licitacao.id);
+      add('previsao_pca', previsaoEtp.situacao === 'SEM_VINCULO' ? this.secaoDe(docs, DFD, 'previsao') || previsaoEtp.texto : previsaoEtp.texto, previsaoEtp.situacao === 'SEM_VINCULO' ? 'DFD' : 'PCA');
       add('estimativa', this.secaoDe(docs, DFD, 'quantidade'), 'DFD');
 
       if (pesquisaConcluida && valorProcesso > 0) {
