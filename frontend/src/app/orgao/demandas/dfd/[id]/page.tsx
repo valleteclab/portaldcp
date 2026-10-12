@@ -712,7 +712,7 @@ function DfdDetalhe() {
             </DialogDescription>
           </DialogHeader>
           <AlertaParecidos alertas={dfd.alertas} />
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2 min-w-0">
             <legend className="text-sm font-semibold mb-1">1. Modalidade da contratação</legend>
             {MODALIDADES.map((m) => (
               <button
