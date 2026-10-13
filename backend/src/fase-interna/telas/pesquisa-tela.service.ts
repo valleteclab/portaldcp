@@ -18,6 +18,7 @@ import { FaseInternaService } from '../fase-interna.service';
 import { GeradorPpService } from '../gerador-pp.service';
 import { ConsumoLimiteService } from '../../parametros-licitacao/consumo-limite.service';
 import { hojeEmBrasilia, pareceSerPdf } from '../peca-regras';
+import { previsaoPcaDaContratacao } from '../pca/previsao-pca';
 import { pendenciasDoPortaoDoProcesso } from '../conformidade/portoes';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
 import { calcularEstatisticasItem, CotacaoPorFonte, ItemPesquisaPrecos, PesquisaPrecosDados } from '../types/pesquisa-precos.type';
@@ -250,8 +251,12 @@ export class PesquisaTelaService {
         unidade: i.unidade,
         codigo: i.codigo_catser || i.codigo_catmat || i.codigo_catalogo || null,
         cotacoes: (i.cotacoes || []).length,
+        // Cotações descartadas como fora da faixa (outlier) — a tela mostra "1 preço descartado"
+        descartadas: (i.outliers_descartados || []).length,
         valor_referencial: i.valor_referencial,
       })),
+      // "Veio do processo": DFD e item do PCA (texto único de previsao-pca.ts), para conferir o valor de referência
+      pca: await previsaoPcaDaContratacao((sql, params) => this.ds.query(sql, params), lic.id),
       resumo,
       metodo,
       justificativa_metodo: dados.justificativa_metodo ?? '',
