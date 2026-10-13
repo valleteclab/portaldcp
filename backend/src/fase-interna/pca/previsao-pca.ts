@@ -73,7 +73,8 @@ type Consulta = (sql: string, params: unknown[]) => Promise<any[]>;
 
 /**
  * Previsão no PCA da contratação. O vínculo vale nesta ordem: o do processo
- * (tela do DFD), o dos itens, o do DFD consolidado, o da demanda — sempre
+ * (tela do DFD), o dos itens, o do DFD consolidado, o dos itens da demanda
+ * (`itens_demanda.item_pca_id`; a tabela `demandas` não tem a coluna) — sempre
  * pela licitação, nunca por id vindo de fora.
  */
 export async function previsaoPcaDaContratacao(consulta: Consulta, licitacaoId: string): Promise<PrevisaoPca> {
@@ -82,7 +83,7 @@ export async function previsaoPcaDaContratacao(consulta: Consulta, licitacaoId: 
             (SELECT il.item_pca_id::text FROM itens_licitacao il WHERE il.licitacao_id = l.id AND il.item_pca_id IS NOT NULL ORDER BY il.numero_item LIMIT 1) AS itens,
             (SELECT c.item_pca_id::text FROM dfds_consolidados c WHERE c.licitacao_id = l.id AND c.status <> 'CANCELADO' LIMIT 1) AS dfd,
             (SELECT c.numero || '/' || c.ano FROM dfds_consolidados c WHERE c.licitacao_id = l.id AND c.status <> 'CANCELADO' LIMIT 1) AS dfd_numero,
-            (SELECT d.item_pca_id::text FROM demandas d WHERE d.id = l.demanda_id) AS demanda,
+            (SELECT di.item_pca_id::text FROM itens_demanda di WHERE di.demanda_id = l.demanda_id AND di.item_pca_id IS NOT NULL ORDER BY di.created_at LIMIT 1) AS demanda,
             COALESCE(l.sem_pca, false) AS sem_pca, l.justificativa_sem_pca
        FROM licitacoes l WHERE l.id::text = $1`,
     [licitacaoId],
