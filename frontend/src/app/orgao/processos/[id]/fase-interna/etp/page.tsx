@@ -25,6 +25,7 @@ import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { AssistenteEtp, type AnaliseEtp } from "@/components/fase-interna/etapas/AssistenteEtp"
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { erroDaApi, vigenteEBaseDoEditor } from "@/lib/fase-interna/telas"
+import { PrevisaoPcaCard, type PrevisaoPcaTela } from "@/components/fase-interna/etapas/PrevisaoPcaCard"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
   ssr: false,
@@ -45,6 +46,8 @@ interface EtpTela extends AnaliseEtp {
   }
   instrucao: { etp: any; riscos: any }
   dfd: { necessidade: string | null }
+  /** Inc. II: dado do planejamento (item do PCA do DFD/demanda), não se redigita aqui. */
+  pca: PrevisaoPcaTela | null
   modelo: Array<{ id: string; titulo: string }>
 }
 
@@ -201,6 +204,10 @@ export default function EtpPage() {
         />
       )}
 
+      {!naoSeAplica && d.pca ? (
+        <PrevisaoPcaCard pca={d.pca} licitacaoId={id} secaoAtual={conteudo.previsao_pca ?? d.etp.secoes.previsao_pca} somenteLeitura={somenteLeitura} onAplicar={(html) => setSugestao({ secaoId: "previsao_pca", html, nonce: Date.now() })} />
+      ) : null}
+
       {bloqueios > 0 && (
         <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900" role="alert">
           {bloqueios} {bloqueios === 1 ? "indicação de marca" : "indicações de marca"} sem a forma &quot;apenas como referência, ou similar/equivalente&quot; e sem justificativa (art. 41, I). Veja o assistente.
@@ -214,7 +221,8 @@ export default function EtpPage() {
       ) : (
         <>
           <BaseEditavelAviso vigente={vigente} base={documento} titulo="o ETP" />
-          <div className="rounded-lg border bg-white overflow-hidden h-[70vh] lg:h-[calc(100vh-260px)] min-h-[480px]">
+          {/* O formulário ocupa a página inteira (sem caixa com rolagem própria) — pedido do dono, 12/10/2026 */}
+          <div className="rounded-lg border bg-white overflow-hidden min-h-[480px]">
             {documento !== undefined && (
               <DocumentoSeccionado
                 key={editorChave}
@@ -225,6 +233,7 @@ export default function EtpPage() {
                 painelLateral={painel}
                 iaSoPorSugestao
                 ocultarPdf
+                alturaLivre
                 somenteLeitura={somenteLeitura}
                 sugestaoAceita={sugestao}
                 onConteudoChange={aoMudarConteudo}

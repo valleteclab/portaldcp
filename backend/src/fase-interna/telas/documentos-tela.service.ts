@@ -22,6 +22,7 @@ import { OrcamentoService } from '../orcamento/orcamento.service';
 import { resumoIaDaPeca } from '../ia-rascunho/rascunho-ia-regras';
 import { RevisaoIaService } from '../ia-rascunho/revisao-ia.service';
 import { coerenciaEntreSecoes, detectarIndicacaoMarca, incisosObrigatoriosVazios, situacaoDosIncisos, textoPuro } from './etp-analise';
+import { previsaoPcaDaContratacao } from '../pca/previsao-pca';
 
 type Autor = { id: string | null; nome: string | null };
 
@@ -553,6 +554,8 @@ export class DocumentosTelaService {
         altos: riscos.filter((r) => ['ALTO', 'CRITICO', 'EXTREMO'].includes(String(r?.nivel || r?.grau || '').toUpperCase())).length,
       },
       dfd: { peca: this.resumoPeca(dfd), necessidade: this.secoesDe(dfd).demanda ?? null },
+      // inc. II: vem do planejamento (item do PCA do DFD/demanda), não se redigita no ETP
+      pca: await previsaoPcaDaContratacao((sql, params) => this.ds.query(sql, params), lic.id),
       modelo: this.secoesDoModelo('ETP'),
     };
   }

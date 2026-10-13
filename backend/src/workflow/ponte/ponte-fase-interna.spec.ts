@@ -1,8 +1,22 @@
-import { despachoForaDoFluxo, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, ROTA_DA_ETAPA } from './ponte-fase-interna';
+import { despachoForaDoFluxo, documentoProntoParaAPonte, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, ROTA_DA_ETAPA } from './ponte-fase-interna';
 
 const base = { documentoPronto: false, publicada: false, temDemanda: false };
 
 describe('ponte fluxo novo ↔ fase interna', () => {
+  it('documento pronto = o mesmo critério da instrução: gerado/anexado conta, assinatura é opcional', () => {
+    const base = { tipo: 'ETP', status: 'RASCUNHO', caminho_arquivo: null, arquivo_pdf_path: null, descricao: null, dados_estruturados: {} };
+    expect(documentoProntoParaAPonte(null)).toBe(false);
+    expect(documentoProntoParaAPonte(base)).toBe(false);
+    expect(documentoProntoParaAPonte({ ...base, arquivo_pdf_path: '/x.pdf' })).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, status: 'IMPORTADO' })).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, status: 'ASSINADO' })).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, status: 'AGUARDANDO_APROVACAO', arquivo_pdf_path: '/x.pdf' })).toBe(false);
+    expect(documentoProntoParaAPonte({ ...base, dados_estruturados: { nao_se_aplica: true } })).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, dados_estruturados: { nao_se_aplica: 'true' } })).toBe(true);
+    // Peça que só vale assinada (autorização, parecer): o texto gerado ainda não é o ato
+    expect(documentoProntoParaAPonte({ ...base, tipo: 'AA', arquivo_pdf_path: '/x.pdf', dados_estruturados: { _exige_assinatura: true } })).toBe(false);
+  });
+
   it('etapa de documento conclui com o documento pronto na fase interna', () => {
     expect(pendenciasDaPonte('ETP', base)).toEqual([expect.stringContaining('o ETP')]);
     expect(pendenciasDaPonte('ETP', { ...base, documentoPronto: true })).toEqual([]);

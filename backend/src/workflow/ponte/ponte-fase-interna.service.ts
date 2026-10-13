@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
-import { DOCUMENTO_DA_ETAPA, pendenciasDaPonte, STATUS_PRONTO } from './ponte-fase-interna';
+import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, pendenciasDaPonte } from './ponte-fase-interna';
 
 /**
  * Lê o estado da fase interna para as etapas de um fluxo ligado a um processo
@@ -32,14 +32,15 @@ export class PonteFaseInternaService {
     const tipoDoc = DOCUMENTO_DA_ETAPA[tipo];
     let documentoPronto = false;
     if (tipoDoc) {
+      // Mesmo critério da instrução (checklist): gerado/anexado conta; assinatura é opcional
       const [d] = await this.ds.query(
-        `SELECT 1 FROM documentos_fase_interna
+        `SELECT tipo::text AS tipo, status::text AS status, caminho_arquivo, arquivo_pdf_path, descricao, dados_estruturados
+           FROM documentos_fase_interna
           WHERE licitacao_id::text = $1 AND tipo::text = $2 AND versao_atual = true
-            AND (status::text = ANY($3::text[]) OR COALESCE(dados_estruturados->>'nao_se_aplica', '') = 'true')
-          LIMIT 1`,
-        [lic.id, tipoDoc, STATUS_PRONTO],
+          ORDER BY versao DESC NULLS LAST LIMIT 1`,
+        [lic.id, tipoDoc],
       );
-      documentoPronto = !!d;
+      documentoPronto = documentoProntoParaAPonte(d);
       if (!documentoPronto && tipo === 'DFD') {
         const [c] = await this.ds.query(`SELECT 1 FROM dfds_consolidados WHERE licitacao_id::text = $1 AND status <> 'CANCELADO' LIMIT 1`, [lic.id]);
         documentoPronto = !!c;

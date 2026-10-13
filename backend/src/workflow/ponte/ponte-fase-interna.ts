@@ -11,6 +11,8 @@
  * Regras puras + uma consulta reaproveitada pela fase interna (sem DI).
  */
 
+import { pecaContaComoPronta } from '../../fase-interna/peca-regras';
+
 /** Tela da fase interna de cada etapa (rota em /orgao/processos/<licitacao>/fase-interna/<rota>). */
 export const ROTA_DA_ETAPA: Record<string, string> = {
   DEMANDA: 'dfd',
@@ -38,8 +40,19 @@ export const DOCUMENTO_DA_ETAPA: Record<string, string> = {
   AUTORIZACAO: 'AA',
 };
 
-/** Situações do documento da fase interna que contam como pronto. */
-export const STATUS_PRONTO = ['APROVADO', 'ASSINADO', 'IMPORTADO'];
+/**
+ * O documento da etapa conta como pronto pelo MESMO critério da instrução da
+ * contratação (checklist da fase interna): gerado/emitido no sistema, anexado,
+ * aprovado ou assinado — ou marcado "não se aplica". Assinatura é opcional,
+ * salvo peça que só vale assinada. Até 12/10/2026 a ponte exigia
+ * APROVADO/ASSINADO/IMPORTADO e a tela dizia "OK" enquanto o fluxo dizia
+ * "falta concluir o ETP".
+ */
+export function documentoProntoParaAPonte(doc: Parameters<typeof pecaContaComoPronta>[0] | null | undefined): boolean {
+  if (!doc) return false;
+  if (doc.dados_estruturados?.nao_se_aplica === true || String(doc.dados_estruturados?.nao_se_aplica) === 'true') return true;
+  return pecaContaComoPronta(doc);
+}
 
 export interface EstadoNaFaseInterna {
   /** Documento da etapa: versão atual pronta (ou marcada "não se aplica" na tela da fase interna). */
@@ -68,7 +81,7 @@ export function pendenciasDaPonte(tipoNo: string, e: EstadoNaFaseInterna): strin
   if (tipo === 'DEMANDA') return e.temDemanda ? [] : ['Vincule a demanda à contratação (tela do DFD).'];
   if (tipo === 'PUBLICACAO') return e.publicada ? [] : ['A contratação ainda não foi publicada: gere e divulgue o aviso/edital na tela da licitação.'];
   if (DOCUMENTO_DA_ETAPA[tipo]) {
-    return e.documentoPronto ? [] : [`Conclua ${ROTULO[tipo] ?? 'o documento'} na tela da fase interna (aprovado, assinado, anexado ou marcado como "não se aplica").`];
+    return e.documentoPronto ? [] : [`Conclua ${ROTULO[tipo] ?? 'o documento'} na tela da fase interna: gere ou anexe o documento, ou marque "não se aplica".`];
   }
   return [];
 }

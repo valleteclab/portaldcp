@@ -11,7 +11,7 @@ import type { Andamento } from "@/lib/fluxo/andamento"
  * Processo da licitação e o andamento dele, quando segue um fluxo desenhado.
  * Nulo enquanto carrega ou quando não há fluxo (a tela usa a barra de sempre).
  */
-export function useFluxoDaLicitacao(licitacaoId: string): { processoId: string; andamento: Andamento } | null {
+export function useFluxoDaLicitacao(licitacaoId: string, atualizacao?: unknown): { processoId: string; andamento: Andamento } | null {
   const [dados, setDados] = useState<{ processoId: string; andamento: Andamento } | null>(null)
   useEffect(() => {
     let vivo = true
@@ -32,7 +32,7 @@ export function useFluxoDaLicitacao(licitacaoId: string): { processoId: string; 
     return () => {
       vivo = false
     }
-  }, [licitacaoId])
+  }, [licitacaoId, atualizacao])
   return dados
 }
 
