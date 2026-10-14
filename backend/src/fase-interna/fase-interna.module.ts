@@ -253,6 +253,8 @@ import {
   ],
   exports: [
     FaseInternaService,
+    // DFD único (13/10/2026): a licitação aberta pelo DFD consolidado gera o documento DFD dos autos
+    DocumentosTelaService,
     PermissaoEtapaService,
     PecasFaseInternaService,
     // Entrada "fase interna feita fora" (LicitacoesModule — cria o processo)
