@@ -1,4 +1,4 @@
-import { despachoForaDoFluxo, documentoProntoParaAPonte, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, ROTA_DA_ETAPA } from './ponte-fase-interna';
+import { despachoForaDoFluxo, documentoProntoParaAPonte, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, portaoDaEtapa, ROTA_DA_ETAPA } from './ponte-fase-interna';
 
 const base = { documentoPronto: false, publicada: false, temDemanda: false };
 
@@ -36,6 +36,17 @@ describe('ponte fluxo novo ↔ fase interna', () => {
     expect(pendenciasDaPonte('DEMANDA', { ...base, temDemanda: true })).toEqual([]);
     expect(pendenciasDaPonte('PUBLICACAO', base)).toHaveLength(1);
     expect(pendenciasDaPonte('PUBLICACAO', { ...base, publicada: true })).toEqual([]);
+  });
+
+  it('travas da lei seguram a autorização e a publicação, mesmo com o documento pronto', () => {
+    const travas = ['A72-I: falta o DFD'];
+    expect(pendenciasDaPonte('AUTORIZACAO', { ...base, documentoPronto: true, travasDaLei: travas })).toEqual(['Trava da lei: A72-I: falta o DFD']);
+    expect(pendenciasDaPonte('AUTORIZACAO', { ...base, documentoPronto: false, travasDaLei: travas })).toHaveLength(2);
+    expect(pendenciasDaPonte('PUBLICACAO', { ...base, travasDaLei: travas })).toHaveLength(2);
+    expect(pendenciasDaPonte('PUBLICACAO', { ...base, publicada: true, travasDaLei: travas })).toEqual([]);
+    expect(portaoDaEtapa('autorizacao')).toEqual({ portao: 'B', ato: 'AUTORIZAR' });
+    expect(portaoDaEtapa('PUBLICACAO')).toEqual({ portao: 'C', ato: 'PUBLICAR' });
+    expect(portaoDaEtapa('ETP')).toBeNull();
   });
 
   it('etapas gerais (tarefa, aprovação) não dependem da fase interna', () => {
