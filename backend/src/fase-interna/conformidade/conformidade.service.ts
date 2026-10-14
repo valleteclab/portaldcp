@@ -11,14 +11,12 @@ import { AuditLogService } from '../audit-log.service';
 import { AcaoLogFaseInterna } from '../entities/log-fase-interna.entity';
 import { MAPA_TIPO_DOCUMENTOS_LICITACAO } from '../espelho-documentos-licitacao';
 import { FaseInternaService } from '../fase-interna.service';
-import { CHAVE_TAREFA_RENOVACAO } from '../orcamento/orcamento.service';
-import { PassoFaseInterna } from '../tarefas/etapas-fase-interna';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { AchadoConformidade, RevisaoConformidade } from './achado.entity';
 import { DocumentoLinha, EntradaContexto, montarContexto } from './contexto';
 import { AchadoExistente, ROTULO_PORTAO, avaliarRegras, contagemDaConformidade, pendenciasDoPortao, planejarRevisao, planoVazio } from './motor';
 import { OpcoesPortao, definirResumidorDeConformidade, definirVerificadorDePortao } from './portoes';
-import { REGRAS, avaliacaoDoPrazo, passoDoAchado, publicacaoPrevista, regraPorCodigo, rotuloFolhas } from './regras';
+import { REGRAS, avaliacaoDoPrazo, publicacaoPrevista, regraPorCodigo, rotuloFolhas } from './regras';
 import { paginasDoArquivo } from './texto-pdf';
 import { ModeloFluxoService } from '../fluxo/modelo-fluxo.service';
 import { regrasDaTrava } from '../fluxo/travas';
@@ -345,7 +343,6 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
     const autor = opcoes.autor ?? SISTEMA;
     if (!ehFaseInterna(lic.fase)) {
       // Divulgado (ou além): a conferência fica congelada; as tarefas dos achados perdem o objeto
-      await this.cancelarTarefasDosAchados(licitacaoId, 'A fase interna foi encerrada (processo divulgado).');
       return { mudou: false };
     }
     const { ctx, avaliacoes } = await this.avaliacao(licitacaoId);
@@ -434,87 +431,13 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
       );
     }
     for (const a of avaliacoes.filter((x) => x.erro)) this.logger.warn(`Regra ${a.regra.codigo} falhou no processo ${licitacaoId}: ${a.erro}`);
-    await this.sincronizarTarefas(licitacaoId, lic.numero_processo, ctx.processo.contratacao_direta, autor);
     return { mudou };
   }
 
-  /**
-   * TAREFAS DOS ACHADOS: BLOQUEIO aberto → tarefa (origem ACHADO) do
-   * responsável pela peça; resolvido → a tarefa conclui. EXERC-01 aberto → a
-   * tarefa da Contabilidade "renovar a informação orçamentária" (mesma chave
-   * da Entrega 3A; concluída pela emissão da nova versão ou pelo anexo, ou
-   * aqui quando o achado se resolve).
-   */
-  private async sincronizarTarefas(licitacaoId: string, numeroProcesso: string, contratacaoDireta: boolean, autor: Autor) {
-    if (!this.tarefas.ativo()) return;
-    const achados = await this.repo.find({ where: { licitacao_id: licitacaoId } });
-    const abertas: Array<{ chave: string; origem_id: string | null }> = await this.ds.query(
-      `SELECT chave, origem_id FROM tarefas WHERE licitacao_id::text = $1 AND status = 'ABERTA' AND (chave LIKE 'achado:%' OR chave = $2)`,
-      [licitacaoId, CHAVE_TAREFA_RENOVACAO],
-    );
-    const aberta = (chave: string) => abertas.find((t) => t.chave === chave);
-    // Homologação multiusuário: tarefa de achado só para etapa que PODE começar
-    // (demanda aprovada e dependências concluídas) — antes disso, ninguém recebe
-    // tarefa de uma etapa que ainda não pode ser trabalhada (a tarefa nasce depois)
-    const podeIniciar = new Map<string, boolean>();
-    const etapaPodeIniciar = async (passo: string) => {
-      if (!podeIniciar.has(passo)) podeIniciar.set(passo, await this.tarefas.podeIniciarPasso(licitacaoId, passo).catch(() => true));
-      return podeIniciar.get(passo)!;
-    };
-    for (const a of achados) {
-      const chave = chaveTarefaDoAchado(a.id);
-      const passoAchado = passoDoAchado({ regra: a.regra, tipo_peca_responsavel: a.tipo_peca }, contratacaoDireta);
-      const bloqueio = a.status === 'ABERTO' && a.severidade === 'BLOQUEIO' && !a.sem_tarefa;
-      const precisa = bloqueio && (await etapaPodeIniciar(passoAchado));
-      if (bloqueio && !precisa && aberta(chave)) {
-        await this.tarefas.cancelarTarefaPorChave(licitacaoId, chave, 'A etapa ainda não pode começar (aguardando a aprovação da demanda ou etapas anteriores) — a tarefa volta quando ela puder.');
-        continue;
-      }
-      if (bloqueio && !precisa) continue;
-      if (precisa && !aberta(chave)) {
-        const onde = (a.evidencias ?? []).slice(0, 3).map((e) => `${e.titulo}${e.folha != null ? `, fl. ${e.folha}` : ''}`);
-        await this.tarefas.criarTarefaDoSistema(licitacaoId, {
-          chave,
-          passo: passoAchado,
-          titulo: `Conformidade (${a.regra}) — ${a.titulo}`.slice(0, 250),
-          descricao: `Processo ${numeroProcesso}. ${a.mensagem}${onde.length ? ` Onde: ${onde.join('; ')}.` : ''} Corrija a peça: o achado se resolve na próxima revisão (automática ao salvar a peça, ou "Revisar agora" na tela da conformidade).`,
-          tipo_peca: a.tipo_peca,
-          documento_id: (a.evidencias ?? []).find((e) => e.documento_id)?.documento_id ?? null,
-          origem: 'ACHADO',
-          origem_id: a.id,
-          tipo: 'ACHADO',
-        });
-      } else if (!precisa && aberta(chave)) {
-        await this.tarefas.concluirTarefaPorChave(licitacaoId, chave, a.status === 'RESOLVIDO' ? { id: a.resolvido_por_id, nome: a.resolvido_por_nome } : autor);
-      }
-      if (a.regra === 'EXERC-01') {
-        const renov = aberta(CHAVE_TAREFA_RENOVACAO);
-        if (a.status === 'ABERTO' && !renov) {
-          await this.tarefas.criarTarefaDoSistema(licitacaoId, {
-            chave: CHAVE_TAREFA_RENOVACAO,
-            passo: PassoFaseInterna.RESERVA,
-            titulo: 'Prever a renovação da dotação (virada do exercício)',
-            descricao: `Processo ${numeroProcesso}. ${a.mensagem} Na virada do ano, renove a informação orçamentária (Reserva › Renovar dotação) ou anexe a nova, feita fora.`,
-            tipo_peca: 'DO',
-            documento_id: (a.evidencias ?? []).find((e) => e.documento_id)?.documento_id ?? null,
-            origem: 'ACHADO',
-            origem_id: a.id,
-            tipo: 'PECA',
-          });
-        } else if (a.status === 'RESOLVIDO' && renov?.origem_id === a.id) {
-          await this.tarefas.concluirTarefaPorChave(licitacaoId, CHAVE_TAREFA_RENOVACAO, { id: a.resolvido_por_id, nome: a.resolvido_por_nome });
-        }
-      }
-    }
-  }
-
-  private async cancelarTarefasDosAchados(licitacaoId: string, motivo: string) {
-    const abertas: Array<{ chave: string }> = await this.ds.query(
-      `SELECT chave FROM tarefas WHERE licitacao_id::text = $1 AND status = 'ABERTA' AND chave LIKE 'achado:%'`,
-      [licitacaoId],
-    );
-    for (const t of abertas) await this.tarefas.cancelarTarefaPorChave(licitacaoId, t.chave, motivo);
-  }
+  // Tarefas dos achados: REMOVIDAS em 13/10/2026 (plano "um motor só", passo 3).
+  // A conformidade é regra e relatório; quem conduz a etapa vê os bloqueios na
+  // tela da peça, na tela da conformidade e ao concluir a etapa no fluxo
+  // (ponte → portões B e C). Nenhuma tarefa é criada ou cancelada por aqui.
 
   // ==========================================================================
   // JUSTIFICATIVA (achado ATENÇÃO) — vai para os autos
@@ -549,8 +472,6 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
         contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
       })
       .catch(() => undefined);
-    const direta = (await this.faseInterna.getInstrucao(licitacaoId)).contratacao_direta;
-    await this.sincronizarTarefas(licitacaoId, lic.numero_processo, direta, autor).catch(() => undefined);
     return this.obter(licitacaoId);
   }
 

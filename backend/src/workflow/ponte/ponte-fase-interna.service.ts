@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { linhasDoChecklist, MODALIDADES_CONTRATACAO_DIRETA } from '../../fase-interna/documentos-obrigatorios';
-import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, pendenciasDaPonte } from './ponte-fase-interna';
+import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, pendenciasDaPonte, portaoDaEtapa } from './ponte-fase-interna';
+import { pendenciasDoPortaoDoProcesso } from '../../fase-interna/conformidade/portoes';
 
 /**
  * Lê o estado da fase interna para as etapas de um fluxo ligado a um processo
@@ -52,6 +53,10 @@ export class PonteFaseInternaService {
       const [c] = await this.ds.query(`SELECT 1 FROM dfds_consolidados WHERE licitacao_id::text = $1 AND status <> 'CANCELADO' LIMIT 1`, [lic.id]);
       temDemanda = !!c;
     }
-    return pendenciasDaPonte(tipo, { documentoPronto, publicada: !ehFaseInterna(lic.fase), temDemanda });
+    // Travas da lei: o fluxo não conclui Autorização (portão B, art. 72) nem Publicação (portão C) com bloqueio aberto
+    const portao = portaoDaEtapa(tipo);
+    const publicada = !ehFaseInterna(lic.fase);
+    const travasDaLei = portao && !publicada ? await pendenciasDoPortaoDoProcesso(lic.id, portao.portao, { ato: portao.ato, somenteAvaliacao: true }) : [];
+    return pendenciasDaPonte(tipo, { documentoPronto, publicada, temDemanda, travasDaLei });
   }
 }

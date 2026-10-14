@@ -60,6 +60,12 @@ export interface EstadoNaFaseInterna {
   publicada: boolean;
   /** Há demanda ligada (demanda da licitação ou DFD consolidado). */
   temDemanda: boolean;
+  /**
+   * TRAVAS DA LEI (13/10/2026, "um motor só", passo 3): bloqueios do portão da
+   * conformidade para o ato da etapa — B (art. 72) na AUTORIZACAO, C na
+   * PUBLICACAO. O fluxo não conclui a etapa com a trava armada.
+   */
+  travasDaLei?: string[];
 }
 
 const ROTULO: Record<string, string> = {
@@ -77,12 +83,22 @@ const ROTULO: Record<string, string> = {
 /** O que falta para concluir a etapa da contratação, lendo o estado da fase interna. */
 export function pendenciasDaPonte(tipoNo: string, e: EstadoNaFaseInterna): string[] {
   const tipo = String(tipoNo).toUpperCase();
+  const travas = (e.travasDaLei ?? []).map((t) => `Trava da lei: ${t}`);
   if (tipo === 'DEMANDA') return e.temDemanda ? [] : ['Vincule a demanda à contratação (tela do DFD).'];
-  if (tipo === 'PUBLICACAO') return e.publicada ? [] : ['A contratação ainda não foi publicada: gere e divulgue o aviso/edital na tela da licitação.'];
+  if (tipo === 'PUBLICACAO') return e.publicada ? [] : [...travas, 'A contratação ainda não foi publicada: gere e divulgue o aviso/edital na tela da licitação.'];
   if (DOCUMENTO_DA_ETAPA[tipo]) {
-    return e.documentoPronto ? [] : [`Conclua ${ROTULO[tipo] ?? 'o documento'} na tela da fase interna: gere ou anexe o documento, ou marque "não se aplica".`];
+    const doc = e.documentoPronto ? [] : [`Conclua ${ROTULO[tipo] ?? 'o documento'} na tela da fase interna: gere ou anexe o documento, ou marque "não se aplica".`];
+    return [...travas, ...doc];
   }
   return [];
+}
+
+/** Portão da conformidade que segura o ato da etapa (B = autorizar, C = publicar); nulo = etapa sem trava. */
+export function portaoDaEtapa(tipoNo: string): { portao: 'B' | 'C'; ato: 'AUTORIZAR' | 'PUBLICAR' } | null {
+  const tipo = String(tipoNo).toUpperCase();
+  if (tipo === 'AUTORIZACAO') return { portao: 'B', ato: 'AUTORIZAR' };
+  if (tipo === 'PUBLICACAO') return { portao: 'C', ato: 'PUBLICAR' };
+  return null;
 }
 
 type Consulta = (sql: string, params: unknown[]) => Promise<any[]>;
