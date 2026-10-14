@@ -17,6 +17,7 @@ import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item
 import { gerarAtaDispensaPdf, DadosAtaDispensa } from './ata-dispensa-pdf';
 import { JanelaDispensaService, LeitorChat } from '../disputa/janela-dispensa.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
+import { DocumentosTelaService } from '../fase-interna/telas/documentos-tela.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
@@ -108,6 +109,7 @@ export class LicitacoesService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly faseInternaService: FaseInternaService,
+    private readonly documentosTela: DocumentosTelaService,
     private readonly notificacoesService: NotificacoesService,
     private readonly transicoes: TransicoesService,
     // Resultado único (E6): julgamento da dispensa e resultado externo gravam
@@ -488,17 +490,6 @@ export class LicitacoesService {
     });
     // E6.5: demandas → EM_CONTRATACAO (todas as do DFD); item do PCA → LICITACAO_INICIADA
     await this.resultado.aoCriarProcesso(licitacaoSalva.id);
-    // Fluxo desenhado (07/10/2026): a contratação aberta pelo DFD já nasce seguindo o fluxo de Contratação ativo
-    try {
-      const [proc] = await this.dataSource.query(
-        `SELECT id::text AS id FROM processos WHERE referencia_tipo = 'LICITACAO' AND referencia_id::text = $1 AND orgao_id::text = $2`,
-        [licitacaoSalva.id, licitacaoSalva.orgao_id],
-      );
-      if (proc) await this.workflow.iniciarFluxoDaContratacao(licitacaoSalva.orgao_id, proc.id, String(atorAcesso?.usuarioId ?? atorAcesso?.id ?? ator.id ?? ""));
-    } catch (e) {
-      this.logger.warn(`Fluxo da contratação ${licitacaoSalva.id} não iniciou sozinho: ${e instanceof Error ? e.message : e}`);
-    }
-
     // 7. Itens do processo = itens consolidados do DFD
     const itensLicitacao = itens.map((item, i) =>
       this.itemRepository.create({
@@ -523,7 +514,10 @@ export class LicitacoesService {
     );
     if (itensLicitacao.length > 0) await this.itemRepository.save(itensLicitacao);
 
-    // 7.5 Peça DFD do processo, preenchida a partir do DFD consolidado
+    // 7.5 DFD ÚNICO (decisão do dono, 13/10/2026): o DFD consolidado É o DFD dos
+    // autos. A peça nasce preenchida e já GERADA (PDF, emitida) — a instrução, a
+    // trava da lei (art. 72, I) e o fluxo passam a ver a mesma peça pronta. Antes
+    // a linha ficava "em elaboração" e o fluxo concluía a etapa sozinho.
     const alertas = await this.dfds.alertas(dfd.orgao_id, dfd.ano, itens, { dfdId: dfd.id, demandaIds: demandas.map((d) => d.id), licitacaoId: licitacaoSalva.id });
     const alerta = textoDoAlerta(alertas);
     try {
@@ -550,9 +544,29 @@ export class LicitacoesService {
           contexto: atorAcesso?.usuarioId ? { usuario_id: atorAcesso.usuarioId } : undefined,
         })
         .catch(() => undefined);
+      try {
+        const [u] = atorAcesso?.usuarioId
+          ? await this.dataSource.query(`SELECT nome FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2`, [atorAcesso.usuarioId, licitacaoSalva.orgao_id])
+          : [null];
+        await this.documentosTela.gerar(licitacaoSalva.id, 'DFD', { id: atorAcesso?.usuarioId ?? null, nome: u?.nome ?? null });
+      } catch (eGerar: unknown) {
+        // Fica em elaboração: a tela do DFD mostra "Gerar DFD" para quem conduz
+        this.logger.warn(`DFD do processo ${licitacaoSalva.numero_processo} preenchido mas não gerado: ${comoErro(eGerar).message}`);
+      }
     } catch (eCapturado: unknown) {
       const e = comoErro(eCapturado);
       this.logger.warn(`DFD automático do DFD consolidado não gerado: ${e.message}`);
+    }
+
+    // Fluxo desenhado (07/10/2026): a contratação aberta pelo DFD já nasce seguindo o fluxo de Contratação ativo
+    try {
+      const [proc] = await this.dataSource.query(
+        `SELECT id::text AS id FROM processos WHERE referencia_tipo = 'LICITACAO' AND referencia_id::text = $1 AND orgao_id::text = $2`,
+        [licitacaoSalva.id, licitacaoSalva.orgao_id],
+      );
+      if (proc) await this.workflow.iniciarFluxoDaContratacao(licitacaoSalva.orgao_id, proc.id, String(atorAcesso?.usuarioId ?? atorAcesso?.id ?? ator.id ?? ""));
+    } catch (e) {
+      this.logger.warn(`Fluxo da contratação ${licitacaoSalva.id} não iniciou sozinho: ${e instanceof Error ? e.message : e}`);
     }
 
     // 8. Processo recarregado com os itens

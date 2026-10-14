@@ -40,11 +40,9 @@ export class PonteFaseInternaService {
           ORDER BY versao DESC NULLS LAST LIMIT 1`,
         [lic.id, tipoDoc],
       );
+      // DFD único (13/10/2026): o DFD consolidado gera o documento DFD dos autos ao abrir
+      // o processo — a ponte lê só a peça, como a instrução e a trava da lei (art. 72, I)
       documentoPronto = documentoProntoParaAPonte(d);
-      if (!documentoPronto && tipo === 'DFD') {
-        const [c] = await this.ds.query(`SELECT 1 FROM dfds_consolidados WHERE licitacao_id::text = $1 AND status <> 'CANCELADO' LIMIT 1`, [lic.id]);
-        documentoPronto = !!c;
-      }
     }
     let temDemanda = !!lic.demanda_id;
     if (!temDemanda && tipo === 'DEMANDA') {
