@@ -11,7 +11,7 @@
  * Regras puras + uma consulta reaproveitada pela fase interna (sem DI).
  */
 
-import { pecaContaComoPronta } from '../../fase-interna/peca-regras';
+import { PRONTA_NA_INSTRUCAO, statusDaPeca } from '../../fase-interna/peca-regras';
 
 /** Tela da fase interna de cada etapa (rota em /orgao/processos/<licitacao>/fase-interna/<rota>). */
 export const ROTA_DA_ETAPA: Record<string, string> = {
@@ -42,16 +42,15 @@ export const DOCUMENTO_DA_ETAPA: Record<string, string> = {
 
 /**
  * O documento da etapa conta como pronto pelo MESMO critério da instrução da
- * contratação (checklist da fase interna): gerado/emitido no sistema, anexado,
- * aprovado ou assinado — ou marcado "não se aplica". Assinatura é opcional,
- * salvo peça que só vale assinada. Até 12/10/2026 a ponte exigia
- * APROVADO/ASSINADO/IMPORTADO e a tela dizia "OK" enquanto o fluxo dizia
- * "falta concluir o ETP".
+ * contratação (`statusDaPeca`, peca-regras.ts): gerado/emitido no sistema,
+ * anexado, aprovado ou assinado — ou "não se aplica" ONDE a regra permite
+ * (contratação direta, peça "se for o caso"). Assinatura é opcional, salvo peça
+ * que só vale assinada. A aprovação interna (motor que sai no passo 5) não é
+ * lida aqui: com ela ligada a peça emitida vai sozinha para AGUARDANDO_APROVACAO,
+ * que já não conta.
  */
-export function documentoProntoParaAPonte(doc: Parameters<typeof pecaContaComoPronta>[0] | null | undefined): boolean {
-  if (!doc) return false;
-  if (doc.dados_estruturados?.nao_se_aplica === true || String(doc.dados_estruturados?.nao_se_aplica) === 'true') return true;
-  return pecaContaComoPronta(doc);
+export function documentoProntoParaAPonte(doc: Parameters<typeof statusDaPeca>[0], regras: { pode_nao_se_aplicar: boolean }): boolean {
+  return PRONTA_NA_INSTRUCAO.has(statusDaPeca(doc, { pode_nao_se_aplicar: regras.pode_nao_se_aplicar }));
 }
 
 export interface EstadoNaFaseInterna {
