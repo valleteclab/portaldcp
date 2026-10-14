@@ -29,6 +29,7 @@ export class PdfOrdemService {
         'orgao',
         'fornecedor',
         'contrato',
+        'contrato.fornecedor',
         'contrato.licitacao',
         'requisicao',
       ],
@@ -75,6 +76,10 @@ export class PdfOrdemService {
           razao_social: ordem.contrato.fornecedor.razao_social,
           cpf_cnpj: ordem.contrato.fornecedor.cpf_cnpj,
         } : undefined,
+      } : undefined,
+      fornecedor: ordem.fornecedor ? {
+        razao_social: ordem.fornecedor.razao_social,
+        cpf_cnpj: ordem.fornecedor.cpf_cnpj,
       } : undefined,
       requisicao: ordem.requisicao ? {
         usuario_solicitante_nome: ordem.requisicao.usuario_solicitante_nome,
