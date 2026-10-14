@@ -5,16 +5,24 @@ const base = { documentoPronto: false, publicada: false, temDemanda: false };
 describe('ponte fluxo novo ↔ fase interna', () => {
   it('documento pronto = o mesmo critério da instrução: gerado/anexado conta, assinatura é opcional', () => {
     const base = { tipo: 'ETP', status: 'RASCUNHO', caminho_arquivo: null, arquivo_pdf_path: null, descricao: null, dados_estruturados: {} };
-    expect(documentoProntoParaAPonte(null)).toBe(false);
-    expect(documentoProntoParaAPonte(base)).toBe(false);
-    expect(documentoProntoParaAPonte({ ...base, arquivo_pdf_path: '/x.pdf' })).toBe(true);
-    expect(documentoProntoParaAPonte({ ...base, status: 'IMPORTADO' })).toBe(true);
-    expect(documentoProntoParaAPonte({ ...base, status: 'ASSINADO' })).toBe(true);
-    expect(documentoProntoParaAPonte({ ...base, status: 'AGUARDANDO_APROVACAO', arquivo_pdf_path: '/x.pdf' })).toBe(false);
-    expect(documentoProntoParaAPonte({ ...base, dados_estruturados: { nao_se_aplica: true } })).toBe(true);
-    expect(documentoProntoParaAPonte({ ...base, dados_estruturados: { nao_se_aplica: 'true' } })).toBe(true);
+    const r = { pode_nao_se_aplicar: true };
+    expect(documentoProntoParaAPonte(null, r)).toBe(false);
+    expect(documentoProntoParaAPonte(base, r)).toBe(false);
+    expect(documentoProntoParaAPonte({ ...base, arquivo_pdf_path: '/x.pdf' }, r)).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, status: 'IMPORTADO' }, r)).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, status: 'ASSINADO' }, r)).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, status: 'AGUARDANDO_APROVACAO', arquivo_pdf_path: '/x.pdf' }, r)).toBe(false);
+    expect(documentoProntoParaAPonte({ ...base, status: 'AGUARDANDO_ASSINATURA', arquivo_pdf_path: '/x.pdf' }, r)).toBe(false);
     // Peça que só vale assinada (autorização, parecer): o texto gerado ainda não é o ato
-    expect(documentoProntoParaAPonte({ ...base, tipo: 'AA', arquivo_pdf_path: '/x.pdf', dados_estruturados: { _exige_assinatura: true } })).toBe(false);
+    expect(documentoProntoParaAPonte({ ...base, tipo: 'AA', arquivo_pdf_path: '/x.pdf', dados_estruturados: { _exige_assinatura: true } }, r)).toBe(false);
+  });
+
+  it('"não se aplica" só vale onde o checklist permite (contratação direta, peça "se for o caso")', () => {
+    const base = { tipo: 'ETP', status: 'RASCUNHO', caminho_arquivo: null, arquivo_pdf_path: null, descricao: null, dados_estruturados: { nao_se_aplica: true } };
+    expect(documentoProntoParaAPonte(base, { pode_nao_se_aplicar: true })).toBe(true);
+    expect(documentoProntoParaAPonte({ ...base, dados_estruturados: { nao_se_aplica: 'true' } }, { pode_nao_se_aplicar: true })).toBe(true);
+    // Obrigatória (DFD, pesquisa, dotação — art. 72, IV) ou rito completo: a marca não conta
+    expect(documentoProntoParaAPonte({ ...base, tipo: 'DO' }, { pode_nao_se_aplicar: false })).toBe(false);
   });
 
   it('etapa de documento conclui com o documento pronto na fase interna', () => {

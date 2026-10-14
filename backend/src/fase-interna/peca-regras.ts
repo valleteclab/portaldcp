@@ -224,3 +224,42 @@ export function mesmoTextoDaSecao(antes: unknown, depois: unknown): boolean {
   };
   return typeof antes === 'string' && n(antes) === n(depois);
 }
+
+// ---------------------------------------------------------------------------
+// CRITÉRIO ÚNICO DA SITUAÇÃO DA PEÇA (decisão do dono, 13/10/2026 — "um motor
+// só"): a instrução (checklist), a ponte do fluxo desenhado e a trava da lei
+// (art. 72) leem a MESMA função. Antes cada um tinha a sua e se contradiziam
+// ("não se aplica" valia em qualquer peça para o fluxo; só na facultativa da
+// contratação direta para a instrução; nunca no inc. IV para o art. 72).
+// ---------------------------------------------------------------------------
+
+export type StatusPecaInstrucao = 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO' | 'EM_ASSINATURA';
+
+export interface RegrasDaPeca {
+  /** A peça pode ser dispensada: só na contratação direta e só se "se for o caso" (nunca o art. 72, IV). */
+  pode_nao_se_aplicar: boolean;
+  /** Aprovação interna ligada para o tipo: só APROVADO/IMPORTADO/ASSINADO conta. */
+  exige_aprovacao?: boolean;
+}
+
+/** A marca "não se aplica" vale para esta peça? (marca gravada E permitida pela regra) */
+export function naoSeAplicaVale(doc: { dados_estruturados?: any } | null | undefined, regras: Pick<RegrasDaPeca, 'pode_nao_se_aplicar'>): boolean {
+  if (!regras.pode_nao_se_aplicar) return false;
+  const v = doc?.dados_estruturados?.nao_se_aplica;
+  return v === true || String(v) === 'true';
+}
+
+/** Situação da peça na instrução — a única regra. `doc` = versão atual (ou nula). */
+export function statusDaPeca(doc: Parameters<typeof pecaContaComoPronta>[0] | null | undefined, regras: RegrasDaPeca): StatusPecaInstrucao {
+  if (naoSeAplicaVale(doc, regras)) return 'NAO_SE_APLICA';
+  if (!doc) return 'PENDENTE';
+  // Enviada aos signatários: só conta quando TODOS assinarem
+  if (doc.status === 'AGUARDANDO_ASSINATURA') return 'EM_ASSINATURA';
+  // Em aprovação (automática ou enviada à mão): só conta depois da decisão
+  if (doc.status === 'AGUARDANDO_APROVACAO') return 'EM_APROVACAO';
+  if (regras.exige_aprovacao) return ['APROVADO', 'IMPORTADO', 'ASSINADO'].includes(doc.status) ? 'OK' : 'EM_ELABORACAO';
+  return pecaContaComoPronta(doc) ? 'OK' : 'EM_ELABORACAO';
+}
+
+/** Pronta para concluir a etapa / contar na instrução. */
+export const PRONTA_NA_INSTRUCAO = new Set<StatusPecaInstrucao>(['OK', 'NAO_SE_APLICA']);

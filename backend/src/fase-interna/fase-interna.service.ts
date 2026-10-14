@@ -36,7 +36,7 @@ import {
   TITULO_DOCUMENTO,
   linhasDoChecklist,
 } from './documentos-obrigatorios';
-import { conteudoEditavel, mesmoTextoDaSecao, pecaContaComoPronta, registroDeEmissao } from './peca-regras';
+import { conteudoEditavel, mesmoTextoDaSecao, registroDeEmissao, statusDaPeca } from './peca-regras';
 import { fluxoEhGenerico, fluxoParaTipo, rotuloAguardando } from './aprovacao-pecas-regras';
 import {
   RiscoIdentificado,
@@ -182,14 +182,6 @@ export class FaseInternaService {
     return CHECKLIST_CONTRATACAO_DIRETA.map((l) => ({ ...l }));
   }
 
-  /**
-   * Na contratação direta o documento "conta" sem exigir o fluxo formal de
-   * aprovação (frequentemente é o mesmo servidor que elabora e autoriza):
-   * basta ter conteúdo ou arquivo e não estar reprovado.
-   */
-  private documentoPresente(doc: DocumentoFaseInterna): boolean {
-    return pecaContaComoPronta(doc as any);
-  }
 
   /**
    * Instrução documental do processo — base do GATE ÚNICO da fase interna
@@ -311,26 +303,16 @@ export class FaseInternaService {
 
     const itens = checklist.map((item) => {
       const doc = docs.find((d) => d.tipo === item.tipo);
-      const naoSeAplica = Boolean(doc?.dados_estruturados?.nao_se_aplica);
       const aprovacaoInterna = tiposComAprovacao.has(item.tipo as string);
       const fluxo = fluxoParaTipo(fluxos, item.tipo as string);
       const exigeAprovacao = aprovacaoInterna;
-      let status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO' | 'EM_ASSINATURA';
+      // Critério único (peca-regras.ts): o mesmo da ponte do fluxo e da trava da lei
+      const status = statusDaPeca(doc, { pode_nao_se_aplicar: item.pode_nao_se_aplicar, exige_aprovacao: exigeAprovacao });
       let aprovacao:
         | { etapa: number; total: number; etapa_nome: string; responsavel: string | null; rotulo: string }
         | undefined;
       let reprovacao: { motivo: string | null; por: string | null; em: Date | null; etapa_nome: string } | undefined;
-
-      if (naoSeAplica) {
-        status = 'NAO_SE_APLICA';
-      } else if (!doc) {
-        status = 'PENDENTE';
-      } else if (doc.status === StatusDocumento.AGUARDANDO_ASSINATURA) {
-        // Enviada aos signatários: só conta quando TODOS assinarem
-        status = 'EM_ASSINATURA';
-      } else if (doc.status === StatusDocumento.AGUARDANDO_APROVACAO) {
-        // Em aprovação (automática ou enviada à mão): só conta depois da decisão
-        status = 'EM_APROVACAO';
+      if (doc && status === 'EM_APROVACAO') {
         const etapa = etapasAtuais.find((e) => e.documento_id === doc.id);
         if (etapa) {
           const total = Number(etapa.total);
@@ -342,20 +324,6 @@ export class FaseInternaService {
             rotulo: rotuloAguardando({ ...etapa, ordem: Number(etapa.ordem) }, total),
           };
         }
-      } else if (exigeAprovacao) {
-        // Aprovação interna ligada: pronto = APROVADO/IMPORTADO (anexada — a
-        // anexada pela etapa vai para o fluxo) ou ASSINADO (todos os signatários)
-        if (
-          doc.status === StatusDocumento.APROVADO ||
-          doc.status === StatusDocumento.IMPORTADO ||
-          doc.status === StatusDocumento.ASSINADO
-        ) {
-          status = 'OK';
-        } else {
-          status = 'EM_ELABORACAO';
-        }
-      } else {
-        status = this.documentoPresente(doc) ? 'OK' : 'EM_ELABORACAO';
       }
       if (doc && doc.status === StatusDocumento.REPROVADO) {
         const r = reprovacoes.find((x) => x.documento_id === doc.id);
