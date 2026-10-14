@@ -304,6 +304,8 @@ export class GeradorPdfService {
       }>;
       orgao?: { nome?: string; logo_url?: string; logradouro?: string; bairro?: string; cidade?: string; uf?: string; cnpj?: string };
       contrato?: { numero_contrato?: string; numero_processo?: string; tipo?: string; objeto?: string; fornecedor?: { razao_social?: string; cpf_cnpj?: string } };
+      // Fornecedor da própria OF — prevalece sobre o do contrato
+      fornecedor?: { razao_social?: string; cpf_cnpj?: string };
       requisicao?: { usuario_solicitante_nome?: string; setor_solicitante?: string; prioridade?: string };
       usuario_emitente_nome?: string;
     },
@@ -416,11 +418,12 @@ export class GeradorPdfService {
           TERMO_ADESAO: 'Termo de Adesão', ATA_REGISTRO_PRECO: 'Ata de Reg. de Preço',
         };
         const tipoInstrumentoOF = tipoInstrumentoLabelsOF[ordem.contrato?.tipo] || 'Contrato';
+        const fornecedorOF = ordem.fornecedor?.razao_social ? ordem.fornecedor : ordem.contrato?.fornecedor;
 
         if (ordem.contrato?.numero_contrato) {
           campo(`${tipoInstrumentoOF}:`, ordem.contrato.numero_contrato, marginL, rowY, valueW);
-          if (ordem.contrato?.fornecedor?.cpf_cnpj) {
-            campo('CNPJ/CPF:', ordem.contrato.fornecedor.cpf_cnpj, col2X, rowY, valueW);
+          if (fornecedorOF?.cpf_cnpj) {
+            campo('CNPJ/CPF:', fornecedorOF.cpf_cnpj, col2X, rowY, valueW);
           }
           rowY += 18;
         }
@@ -430,10 +433,15 @@ export class GeradorPdfService {
           rowY += alturaLinha(ordem.contrato.numero_processo, contentW - labelW);
         }
 
-        if (ordem.contrato?.fornecedor?.razao_social) {
-          const nomeFornOF = (ordem.contrato.fornecedor.razao_social || '-').toUpperCase();
+        if (fornecedorOF?.razao_social) {
+          const nomeFornOF = fornecedorOF.razao_social.toUpperCase();
           campo('Fornecedor:', nomeFornOF, marginL, rowY, contentW - labelW);
           rowY += alturaLinha(nomeFornOF, contentW - labelW);
+          // Sem contrato o CNPJ não saiu na linha do instrumento
+          if (!ordem.contrato?.numero_contrato && fornecedorOF.cpf_cnpj) {
+            campo('CNPJ/CPF:', fornecedorOF.cpf_cnpj, marginL, rowY, valueW);
+            rowY += 18;
+          }
         }
 
         if (ordem.requisicao?.setor_solicitante) {
