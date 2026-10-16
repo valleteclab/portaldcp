@@ -1394,6 +1394,7 @@ export class MedicaoService {
     itemId: string,
     quantidadeMedida: number,
     valorMigracaoReais?: number | null,
+    mesesSemServico?: number | null,
   ): Promise<ItemCronograma> {
     const item = await this.itemCronogramaRepository.findOne({
       where: { id: itemId, contrato_id: contratoId },
@@ -1412,13 +1413,31 @@ export class MedicaoService {
       );
     }
 
-    item.quantidade_medida = qtd;
-    item.valor_migracao_reais =
-      item.unidade_medida === 'MENSAL' &&
-      valorMigracaoReais != null &&
-      Number.isFinite(Number(valorMigracaoReais))
+    const valorMigracaoValido =
+      valorMigracaoReais != null && Number.isFinite(Number(valorMigracaoReais))
         ? truncarMoedaReais2Casas(Number(valorMigracaoReais))
         : null;
+    item.quantidade_medida = qtd;
+    if (item.unidade_medida === 'MENSAL') {
+      item.valor_migracao_reais = valorMigracaoValido;
+    } else if (valorMigracaoReais !== undefined) {
+      // Item não mensal: a tela não informa migração em R$, então só muda
+      // quando vier no corpo — salvar o item não apaga a migração declarada
+      item.valor_migracao_reais = valorMigracaoValido;
+    }
+
+    if (mesesSemServico !== undefined) {
+      const semServico = Number(mesesSemServico) || 0;
+      if (semServico < 0) {
+        throw new BadRequestException('Meses sem serviço não pode ser negativo');
+      }
+      if (qtd + semServico > quantidadeTotal + 0.0001) {
+        throw new BadRequestException(
+          `Quantidade já utilizada (${qtd.toFixed(2)}) + meses sem serviço (${semServico.toFixed(2)}) passam da quantidade total do item (${quantidadeTotal.toFixed(2)})`,
+        );
+      }
+      item.meses_sem_servico = semServico > 0 ? semServico : null;
+    }
     return this.itemCronogramaRepository.save(item);
   }
 
@@ -8764,32 +8783,33 @@ export class MedicaoService {
           // declarada em valor_migracao_reais. A diferença entre
           // item.quantidade_medida e as medições aprovadas pode conter
           // arredondamento de período parcial (ex.: 7/30) e não é baseline.
-          const quantidadeMigracao =
-            unidadeMedida === 'MENSAL' &&
-            Number((item as any).valor_migracao_reais || 0) > 0
-              ? (Number(item.valor_unitario) || 0) > 0
-                ? Number((item as any).valor_migracao_reais || 0) /
-                  Number(item.valor_unitario)
-                : 0
-              : unidadeMedida === 'MENSAL' && dataCorteCiclo
+          // A migração declarada em R$ vale para qualquer unidade e entra em
+          // TODAS as medições (é anterior ao sistema). Sem ela, item não mensal
+          // só enxerga a migração na medição mais recente — 002/2026: a
+          // implantação paga em março sumia dos retratos de abril a setembro.
+          const valorMigracaoDeclarada = Number(
+            (item as any).valor_migracao_reais || 0,
+          );
+          const temMigracaoDeclarada = valorMigracaoDeclarada > 0;
+          const quantidadeMigracao = temMigracaoDeclarada
+            ? (Number(item.valor_unitario) || 0) > 0
+              ? valorMigracaoDeclarada / Number(item.valor_unitario)
+              : 0
+            : unidadeMedida === 'MENSAL' && dataCorteCiclo
+              ? 0
+              : possuiMedicaoAprovadaPosteriorReferencia
                 ? 0
-                : possuiMedicaoAprovadaPosteriorReferencia
-                  ? 0
-                  : Math.max(
-                      0,
-                      (Number(item.quantidade_medida) || 0) -
-                        quantidadeAprovadaHistorica,
-                    );
-          const centMigracao =
-            unidadeMedida === 'MENSAL' &&
-            Number((item as any).valor_migracao_reais || 0) > 0
-              ? Math.round(
-                  Number((item as any).valor_migracao_reais || 0) * 100,
-                )
-              : produtoQuantidadeValorUnitarioCentavos(
-                  quantidadeMigracao,
-                  Number(item.valor_unitario),
-                );
+                : Math.max(
+                    0,
+                    (Number(item.quantidade_medida) || 0) -
+                      quantidadeAprovadaHistorica,
+                  );
+          const centMigracao = temMigracaoDeclarada
+            ? Math.round(valorMigracaoDeclarada * 100)
+            : produtoQuantidadeValorUnitarioCentavos(
+                quantidadeMigracao,
+                Number(item.valor_unitario),
+              );
 
           const centEmAnaliseOutras = Math.round(
             (emAnalise.valoresPorItem.get(item.id) || 0) * 100,
@@ -8808,15 +8828,34 @@ export class MedicaoService {
               ? quantidadeNoPeriodo
               : 0) +
             quantidadeNoPeriodo;
+          // Mês que passou sem serviço não volta: sai do a executar sem entrar
+          // no até o período (002/2026: fevereiro sem sustentação).
+          const quantidadeSemServico = Math.max(
+            0,
+            Number((item as any).meses_sem_servico) || 0,
+          );
+          const centSemServico = produtoQuantidadeValorUnitarioCentavos(
+            quantidadeSemServico,
+            Number(item.valor_unitario),
+          );
           const quantidadeAExecutar = Math.max(
             0,
-            quantidadeTotal - quantidadeAtePeriodo,
+            quantidadeTotal - quantidadeAtePeriodo - quantidadeSemServico,
           );
           // Para não-MENSAL: computa via qtd×vu (evita floor(total)-floor(ate) ≠ floor(total-ate))
           // Para MENSAL: usa aritmética monetária pois qtd é fracionária (meses proporcionais)
           const aExecutar =
             unidadeMedida === 'MENSAL'
-              ? truncarMoedaReais2Casas(Math.max(0, valorPrevisto - atePeriodo))
+              ? centSemServico > 0
+                ? centavosParaReaisTrunc2(
+                    Math.max(
+                      0,
+                      Math.round(valorPrevisto * 100) -
+                        centAtePeriodo -
+                        centSemServico,
+                    ),
+                  )
+                : truncarMoedaReais2Casas(Math.max(0, valorPrevisto - atePeriodo))
               : centavosParaReaisTrunc2(
                   produtoQuantidadeValorUnitarioCentavos(
                     quantidadeAExecutar,
@@ -8835,6 +8874,10 @@ export class MedicaoService {
             a_executar: aExecutar,
             unidade_medida: unidadeMedida,
           };
+          if (centSemServico > 0) {
+            base.quantidade_sem_servico = quantidadeSemServico;
+            base.valor_sem_servico = centavosParaReaisTrunc2(centSemServico);
+          }
           if (boletimPorQuantidade) {
             base.quantidade_no_periodo =
               Math.round(quantidadeNoPeriodo * 100) / 100;
@@ -9032,7 +9075,20 @@ export class MedicaoService {
         360,
         Math.max(0, Math.round(fracaoExecutada * 360)),
       );
-      const diasRestantes = Math.max(0, totalDias - diasExecutados);
+      // Mês sem serviço também não volta no tempo restante
+      const totalSemServicoCentFiscal = baseTempoFiscal.reduce(
+        (s: any, r: any) =>
+          s + Math.round((Number(r.valor_sem_servico) || 0) * 100),
+        0,
+      );
+      const diasSemServico =
+        totalPrevCentFiscal > 0
+          ? Math.round((totalSemServicoCentFiscal / totalPrevCentFiscal) * 360)
+          : 0;
+      const diasRestantes = Math.max(
+        0,
+        totalDias - diasExecutados - diasSemServico,
+      );
 
       // Usar ano comercial: 12 meses de 30 dias = 360 dias
       execucaoFiscal = {
@@ -9067,10 +9123,15 @@ export class MedicaoService {
     const totalPrevisto = centavosParaReaisTrunc2(totalPrevistoCent);
     const ajusteMigracao = Number(contrato.valor_executado_anterior) || 0;
     const totalAtePeriodoComAjuste = totalAtePeriodo + ajusteMigracao;
-    const totalNaoUtilizado = resultado.reduce(
-      (s, r) => s + (Number((r as any).recorrente?.valor_nao_utilizado) || 0),
-      0,
-    );
+    // Fora do saldo: não utilizado de item recorrente + mês sem serviço
+    const valorForaDoSaldo = (r: any): number =>
+      (Number(r?.recorrente?.valor_nao_utilizado) || 0) +
+      (Number(r?.valor_sem_servico) || 0);
+    const totalNaoUtilizado =
+      resultado.reduce(
+        (s, r) => s + Math.round(valorForaDoSaldo(r) * 100),
+        0,
+      ) / 100;
     const totalAExecutar = Math.max(
       0,
       totalPrevisto - totalAtePeriodoComAjuste - totalNaoUtilizado,
@@ -9106,9 +9167,9 @@ export class MedicaoService {
       const aExecutarItem = Number(item.a_executar) || 0;
       const atePeriodoGlobal = atePeriodoItem + ajusteRateado;
       // Item recorrente: o nao utilizado em mes fechado sai do a executar
-      // tambem na visao global (o PDF prefere a_executar_global).
-      const naoUtilizadoItem =
-        Number((item as any).recorrente?.valor_nao_utilizado) || 0;
+      // tambem na visao global (o PDF prefere a_executar_global). O mesmo
+      // vale para o mês sem serviço.
+      const naoUtilizadoItem = valorForaDoSaldo(item);
       const aExecutarGlobal = Math.max(
         0,
         valorPrevistoItem - atePeriodoGlobal - naoUtilizadoItem,
