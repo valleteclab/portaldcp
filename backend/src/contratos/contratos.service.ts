@@ -1849,7 +1849,7 @@ export class ContratosService implements OnModuleInit {
       const resetCronograma = await this.itemCronogramaRepository
         .createQueryBuilder()
         .update()
-        .set({ quantidade_medida: 0, valor_migracao_reais: 0 })
+        .set({ quantidade_medida: 0, valor_migracao_reais: 0, meses_sem_servico: null })
         .where('contrato_id = :id', { id: contrato.id })
         .execute();
       if ((resetCronograma.affected || 0) > 0) {
