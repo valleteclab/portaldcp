@@ -86,6 +86,21 @@ export class ItemCronograma {
   })
   valor_migracao_reais: number | null;
 
+  /**
+   * Meses (ou unidades) que passaram sem serviço e não serão mais executados.
+   * Saem do "a executar" sem entrar no "até o período" — o boletim fica
+   * abaixo do previsto por esse valor, de propósito (002/2026: fevereiro sem
+   * sustentação). Fica no item para sobreviver ao recálculo dos retratos.
+   */
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 4,
+    nullable: true,
+    default: null,
+  })
+  meses_sem_servico: number | null;
+
   @Column({ type: 'text', nullable: true })
   observacoes: string;
 
