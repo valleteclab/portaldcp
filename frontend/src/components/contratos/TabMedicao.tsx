@@ -160,6 +160,7 @@ interface ItemCronograma {
   valor_total: number;
   quantidade_medida: number;
   valor_migracao_reais?: number | null;
+  meses_sem_servico?: number | null;
   observacoes?: string;
 }
 
@@ -331,6 +332,8 @@ function calcularSaldoFinanceiroItemCronograma(ic: ItemCronograma): number {
   const valorUnitario = Number(ic.valor_unitario) || 0;
   const quantidadeMedida = Number(ic.quantidade_medida) || 0;
   const valorMigracao = Number(ic.valor_migracao_reais || 0);
+  // Mês que passou sem serviço não volta para o saldo
+  const valorSemServico = prodTrunc(Number(ic.meses_sem_servico) || 0, valorUnitario);
 
   if (ic.unidade_medida === "MENSAL" && valorMigracao > 0 && valorUnitario > 0) {
     const mesesMigracao = valorMigracao / valorUnitario;
@@ -340,10 +343,10 @@ function calcularSaldoFinanceiroItemCronograma(ic: ItemCronograma): number {
         ? Math.round(quantidadeAprovadaRaw)
         : quantidadeAprovadaRaw;
     const valorAprovado = Math.round(quantidadeAprovada * valorUnitario * 100) / 100;
-    return Math.max(0, Math.round((valorTotal - valorMigracao - valorAprovado) * 100) / 100);
+    return Math.max(0, Math.round((valorTotal - valorMigracao - valorAprovado - valorSemServico) * 100) / 100);
   }
 
-  return Math.max(0, Math.round((valorTotal - quantidadeMedida * valorUnitario) * 100) / 100);
+  return Math.max(0, Math.round((valorTotal - quantidadeMedida * valorUnitario - valorSemServico) * 100) / 100);
 }
 
 function limitarValorAoSaldoFinanceiro(valor: number, saldoFinanceiro: number): number {
@@ -706,6 +709,7 @@ export default function TabMedicao({
     observacoes: "",
     quantidade_medida: "", // Apenas para admin (ajuste migração)
     valor_medida_reais: "", // Para itens MENSAL: entrada alternativa em R$
+    meses_sem_servico: "", // Para itens MENSAL: meses que passaram sem serviço
     preservar_valor_total: false,
   });
   /** Layout espelhando cláusula de preço (m² × R$/m² × execuções por frequência) */
@@ -2028,6 +2032,10 @@ export default function TabMedicao({
                 ),
               )
             : "",
+        meses_sem_servico:
+          Number(item.meses_sem_servico) > 0
+            ? String(Number(item.meses_sem_servico))
+            : "",
         preservar_valor_total: preservarValorTotal,
       });
     } else {
@@ -2049,6 +2057,7 @@ export default function TabMedicao({
         observacoes: "",
         quantidade_medida: "",
         valor_medida_reais: "",
+        meses_sem_servico: "",
         preservar_valor_total: false,
       });
     }
@@ -2325,7 +2334,14 @@ export default function TabMedicao({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 quantidade_medida: qtdMedida,
-                valor_migracao_reais: valorMigracaoReais,
+                // Item não mensal: sem o campo, o backend mantém a migração declarada
+                ...(isMensalUnit && {
+                  valor_migracao_reais: valorMigracaoReais,
+                  meses_sem_servico:
+                    formItemCronograma.meses_sem_servico !== ""
+                      ? parseDecimal(formItemCronograma.meses_sem_servico)
+                      : null,
+                }),
               }),
             },
           );
@@ -5362,6 +5378,29 @@ export default function TabMedicao({
                         dias)
                       </p>
                     )}
+                    <div className="pt-2 border-t border-amber-200">
+                      <Label className="text-xs text-amber-700 mb-1 block">
+                        Meses sem serviço (não serão executados)
+                      </Label>
+                      <Input
+                        type="number"
+                        step="1"
+                        min="0"
+                        max={parseFloat(formItemCronograma.quantidade) || 0}
+                        value={formItemCronograma.meses_sem_servico}
+                        onChange={(e) =>
+                          setFormItemCronograma({
+                            ...formItemCronograma,
+                            meses_sem_servico: e.target.value,
+                          })
+                        }
+                        placeholder="0"
+                      />
+                      <p className="text-xs text-amber-700 mt-1">
+                        Meses da vigência que passaram sem a prestação do serviço.
+                        Saem do saldo a executar, sem contar como executados.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <Input
@@ -6312,7 +6351,10 @@ export default function TabMedicao({
                         );
                         centNoP += centItem;
                         centAteP += centAte;
-                        centAExec += Math.max(0, centTotal - centAte);
+                        const centSemServico = Math.round(
+                          prodTrunc(Number(ic.meses_sem_servico) || 0, vm) * 100,
+                        );
+                        centAExec += Math.max(0, centTotal - centAte - centSemServico);
                       }
                       return {
                         noPeriodoExibicao: centNoP / 100,
