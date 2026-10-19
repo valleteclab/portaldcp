@@ -820,6 +820,7 @@ export class ModalidadesContratoController {
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
     });
     return new StreamableFile(createReadStream(filePath));
   }
