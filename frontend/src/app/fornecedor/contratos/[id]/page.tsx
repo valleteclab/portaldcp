@@ -1840,7 +1840,7 @@ export default function FornecedorContratoDetalhePage() {
         ? boletim.pdf_url
         : `${API_URL}${boletim.pdf_url}`;
 
-      const arquivoRes = await fetch(pdfUrl);
+      const arquivoRes = await fetch(pdfUrl, { cache: 'no-store' });
       if (!arquivoRes.ok) return false;
 
       const pdfBlob = await arquivoRes.blob();
