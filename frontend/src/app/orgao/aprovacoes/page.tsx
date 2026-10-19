@@ -366,7 +366,7 @@ export default function CentralAprovacoesPage() {
       if (!res.ok) { toast('Boletim não disponível'); return; }
       const boletim = await res.json();
       if (!boletim?.pdf_url) { toast('Boletim não disponível'); return; }
-      const fileRes = await fetch(boletim.pdf_url.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url}`);
+      const fileRes = await fetch(boletim.pdf_url.startsWith('http') ? boletim.pdf_url : `${API_URL}${boletim.pdf_url}`, { cache: 'no-store' });
       if (!fileRes.ok) { toast.error('Erro ao baixar arquivo'); return; }
       const blob = await fileRes.blob();
       const a = document.createElement('a');

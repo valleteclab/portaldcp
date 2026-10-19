@@ -24,7 +24,10 @@ export function enviarArquivo(res: Response, fisico: string, publico: boolean): 
   const ext = extname(fisico).toLowerCase();
   const inline = TIPOS_INLINE[ext];
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Cache-Control', publico ? 'public, max-age=86400' : 'private, max-age=3600');
+  // Sensível NUNCA fica em cache: boletins, notas e peças são regerados no mesmo
+  // nome de arquivo — com max-age o navegador devolvia o PDF antigo por 1 hora
+  // (BRFIBRA 050/2023, 19/10/2026: discriminação corrigida, boletim "não mudava").
+  res.setHeader('Cache-Control', publico ? 'public, max-age=86400' : 'no-store');
   if (inline) {
     res.type(inline);
     res.setHeader('Content-Disposition', 'inline');

@@ -3750,6 +3750,22 @@ export class MedicaoService {
     return `/api/uploads/boletins/${this.getBoletimPdfFilename(medicaoId)}`;
   }
 
+  /**
+   * URL do boletim com a versão do arquivo (`?v=<mtime>`): o PDF é regerado com
+   * o MESMO nome, e navegador/CDN devolviam o antigo (19/10/2026, BRFIBRA
+   * 050/2023 — discriminação corrigida e o download "não mudava"). O banco
+   * guarda a URL sem versão; só a resposta da API leva o `?v`.
+   */
+  private urlDoBoletimComVersao(medicaoId: string, base?: string): string {
+    const url = base ?? this.getBoletimPdfUrl(medicaoId);
+    try {
+      const st = fs.statSync(this.getBoletimPdfPath(medicaoId));
+      return `${url}${url.includes('?') ? '&' : '?'}v=${Math.floor(st.mtimeMs)}`;
+    } catch {
+      return url;
+    }
+  }
+
   private unidadeExecucaoFiscalPdf(
     itemCronograma: Partial<ItemCronograma> | null | undefined,
     unidadePadrao: string,
@@ -4691,7 +4707,7 @@ export class MedicaoService {
     await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: pdfUrl });
 
     return {
-      pdf_url: pdfUrl,
+      pdf_url: this.urlDoBoletimComVersao(medicaoId, pdfUrl),
       filename: this.getBoletimPdfFilename(medicaoId),
     };
   }
@@ -4717,7 +4733,7 @@ export class MedicaoService {
       }
 
       return {
-        pdf_url: pdfUrl,
+        pdf_url: this.urlDoBoletimComVersao(medicaoId, pdfUrl),
         filename: this.getBoletimPdfFilename(medicaoId),
       };
     }
@@ -7266,6 +7282,8 @@ export class MedicaoService {
     disc.motivo_correcao = dados.motivo_correcao.trim();
 
     await this.discriminacaoRepository.save(disc);
+    // A discriminação sai no boletim: o PDF guardado fica velho → regera no próximo acesso
+    await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: null } as any);
 
     // Notificar fornecedor
     this.notificarCorrecaoDiscriminacao(
@@ -7345,6 +7363,8 @@ export class MedicaoService {
       });
       novas.push(await this.discriminacaoRepository.save(disc));
     }
+    // A discriminação sai no boletim: o PDF guardado fica velho → regera no próximo acesso
+    await this.medicaoRepository.update(medicaoId, { boletim_pdf_url: null } as any);
 
     // Notificar fornecedor
     this.notificarCorrecaoDiscriminacao(
