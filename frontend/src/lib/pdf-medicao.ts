@@ -704,6 +704,12 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
     const exibirColunasFrequencia = dados.itens_contratados.some(
       (ic) => !!ic.frequencia_exibicao && ic.frequencia_exibicao !== '—',
     )
+    // Todos mensais: o valor por frequência é o valor mensal
+    const rotuloValorFrequencia = dados.itens_contratados
+      .filter((ic) => !!ic.frequencia_exibicao && ic.frequencia_exibicao !== '—')
+      .every((ic) => ic.frequencia_exibicao === 'Mensal')
+      ? 'Vl. Mensal'
+      : 'Vl./freq.'
 
     const fmtNExec = (ic: ItemContratadoPdf) =>
       ic.numero_execucoes != null && ic.numero_execucoes !== undefined ? String(ic.numero_execucoes) : '—'
@@ -727,7 +733,7 @@ export function gerarPdfMedicao(dados: DadosMedicaoPdf): Blob {
           ? [{ content: 'Nº exec.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
           : []),
         ...(exibirColunasFrequencia
-          ? [{ content: 'Vl./freq.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
+          ? [{ content: rotuloValorFrequencia, styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
           : []),
         { content: 'Vl. Total', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
