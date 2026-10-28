@@ -4366,7 +4366,13 @@ export class MedicaoService {
       descricao: ic.descricao || '',
       unidade: ic.unidade_medida || '',
       unidade_exibicao: textoUnidadeCronogramaPdf(ic.unidade_medida),
-      frequencia_exibicao: textoFrequenciaCronogramaPdf(ic.frequencia_execucao),
+      // Item "unidades por mês × meses" (20 veículos × 12) não tem frequência
+      // cadastrada, mas é mensal: sem isso o boletim esconde Nº exec. e o valor
+      // mensal, e Qtd × Vl. Unit. não fecha com o Vl. Total (051/2023).
+      frequencia_exibicao:
+        !ic.frequencia_execucao && ehItemRecorrenteMensal(ic)
+          ? textoFrequenciaCronogramaPdf('MENSAL')
+          : textoFrequenciaCronogramaPdf(ic.frequencia_execucao),
       numero_execucoes:
         ic.quantidade_meses != null ? Number(ic.quantidade_meses) : null,
       quantidade: Number(ic.quantidade || 0),

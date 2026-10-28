@@ -715,6 +715,12 @@ export async function gerarBoletimMedicaoPdf(
     const exibirColunasFrequencia = dados.itens_contratados.some(
       (ic: any) => !!ic.frequencia_exibicao && ic.frequencia_exibicao !== '—'
     );
+    // Todos mensais: o valor por frequência é o valor mensal
+    const rotuloValorFrequencia = dados.itens_contratados
+      .filter((ic: any) => !!ic.frequencia_exibicao && ic.frequencia_exibicao !== '—')
+      .every((ic: any) => ic.frequencia_exibicao === 'Mensal')
+      ? 'Vl. Mensal'
+      : 'Vl./freq.';
     const fmtNExecIc = (ic: any) =>
       ic.numero_execucoes != null && ic.numero_execucoes !== undefined ? String(ic.numero_execucoes) : '—';
     const vlFreqIc = (ic: any) => {
@@ -738,7 +744,7 @@ export async function gerarBoletimMedicaoPdf(
           ? [{ content: 'Nº exec.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
           : []),
         ...(exibirColunasFrequencia
-          ? [{ content: 'Vl./freq.', styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
+          ? [{ content: rotuloValorFrequencia, styles: { halign: 'right' as const, fontStyle: 'bold' as const } }]
           : []),
         { content: 'Vl. Total', styles: { halign: 'right' as const, fontStyle: 'bold' as const } },
       ]],
