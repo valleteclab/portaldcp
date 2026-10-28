@@ -4361,12 +4361,33 @@ export class MedicaoService {
         this.logger.warn(`Itens da OS medida indisponíveis: ${e.message}`);
       }
     }
+    // Meses da vigência (dias ÷ 30,44): 31/08/2026–29/08/2027 = 12; 5 anos = 60.
+    const mesesVigenciaContrato =
+      contrato.data_vigencia_inicio && contrato.data_vigencia_fim
+        ? Math.round(
+            (new Date(contrato.data_vigencia_fim as any).getTime() -
+              new Date(contrato.data_vigencia_inicio as any).getTime()) /
+              86400000 /
+              30.4375,
+          )
+        : 0;
     const itensContratados = icParaContratados.map((ic, idx) => ({
       numero: ic.numero_item || idx + 1,
       descricao: ic.descricao || '',
       unidade: ic.unidade_medida || '',
       unidade_exibicao: textoUnidadeCronogramaPdf(ic.unidade_medida),
-      frequencia_exibicao: textoFrequenciaCronogramaPdf(ic.frequencia_execucao),
+      // Item "unidades por mês × meses" (20 veículos × 12) não tem frequência
+      // cadastrada, mas é mensal: sem isso o boletim esconde Nº exec. e o valor
+      // mensal, e Qtd × Vl. Unit. não fecha com o Vl. Total (051/2023). Só é
+      // mensal quando as execuções cobrem os meses da vigência — 4 inspeções
+      // num ano (030/2025) ou 5 pacotes de horas em 5 anos (022/2025) não são.
+      frequencia_exibicao:
+        !ic.frequencia_execucao &&
+        ehItemRecorrenteMensal(ic) &&
+        mesesVigenciaContrato > 0 &&
+        Number(ic.quantidade_meses) === mesesVigenciaContrato
+          ? textoFrequenciaCronogramaPdf('MENSAL')
+          : textoFrequenciaCronogramaPdf(ic.frequencia_execucao),
       numero_execucoes:
         ic.quantidade_meses != null ? Number(ic.quantidade_meses) : null,
       quantidade: Number(ic.quantidade || 0),
