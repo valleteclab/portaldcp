@@ -630,6 +630,11 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           }
         }
       }
+      // OS parcial por etapas: o valor é a soma das etapas (antes caía no valor
+      // global do contrato — 006/2026: OS de R$ 154.957,37 saía com R$ 1.349.861,62)
+      if (!valorTotalOS && dto.modo_os === 'ORDEM_DEMANDA' && dto.etapas_os?.length) {
+        valorTotalOS = dto.etapas_os.reduce((s, eo) => s + Number(eo.valor_solicitado ?? 0), 0);
+      }
       novaOS.valor_total_estimado = valorTotalOS || (contrato ? Number(contrato.valor_global) : 0);
       novaOS.saldo_reservado = false;
       novaOS.observacoes = dto.observacoes || null;
@@ -664,11 +669,25 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       }
 
       if (dto.etapas_os?.length) {
+        // A tela informa o valor da etapa; sem o percentual, resumo e PDF da OS
+        // liam 0% (ou 100% fixo) em vez do que foi pedido
+        const previstoPorEtapa = new Map<string, number>();
+        for (const eo of dto.etapas_os) {
+          if (Number(eo.percentual_solicitado) > 0 || !(Number(eo.valor_solicitado) > 0)) continue;
+          const etapa = await this.etapaCronogramaRepository.findOne({ where: { id: eo.etapa_id }, select: ['id', 'valor_previsto'] });
+          if (etapa) previstoPorEtapa.set(eo.etapa_id, Number(etapa.valor_previsto) || 0);
+        }
         const etapasOS = dto.etapas_os.map(eo => {
           const item = new RequisicaoEtapaOS();
           item.requisicao_id = osSalva.id;
           item.etapa_id = eo.etapa_id;
-          item.percentual_solicitado = Number(eo.percentual_solicitado ?? 0);
+          const previsto = previstoPorEtapa.get(eo.etapa_id) || 0;
+          item.percentual_solicitado =
+            Number(eo.percentual_solicitado) > 0
+              ? Number(eo.percentual_solicitado)
+              : previsto > 0
+                ? Math.min(100, Math.round((Number(eo.valor_solicitado ?? 0) / previsto) * 10000) / 100)
+                : 0;
           item.valor_solicitado = Number(eo.valor_solicitado ?? 0);
           return item;
         });
@@ -2847,7 +2866,11 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
               (regularizadoPorEtapa.get(eo.etapa_id) || 0);
             const valor = Number(eo.valor_solicitado ?? 0);
             if (valor > saldo + 0.01) throw new BadRequestException(`Etapa "${etapa.descricao}" excede saldo (R$ ${saldo.toFixed(2)})`);
-            await this.requisicaoEtapaOSRepository.save(this.requisicaoEtapaOSRepository.create({ requisicao_id: id, etapa_id: eo.etapa_id, percentual_solicitado: Number(eo.percentual_solicitado ?? 0), valor_solicitado: valor }));
+            const previsto = Number(etapa.valor_previsto) || 0;
+            const percentual = Number(eo.percentual_solicitado) > 0
+              ? Number(eo.percentual_solicitado)
+              : previsto > 0 ? Math.min(100, Math.round((valor / previsto) * 10000) / 100) : 0;
+            await this.requisicaoEtapaOSRepository.save(this.requisicaoEtapaOSRepository.create({ requisicao_id: id, etapa_id: eo.etapa_id, percentual_solicitado: percentual, valor_solicitado: valor }));
           }
         }
       }

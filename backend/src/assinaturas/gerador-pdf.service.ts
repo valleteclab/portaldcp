@@ -221,8 +221,14 @@ export class GeradorPdfService {
           itensParaRender = dadosOS.etapasOS.map((etapa: any) => {
             const perc = Number(etapa.percentual_solicitado ?? 0);
             const valorPrevisto = etapa.etapa?.valor_previsto ?? etapa.etapa?.valor_etapa ?? etapa.valor_previsto ?? etapa.valor_etapa ?? 0;
-            const percEfetivo = perc > 0 ? perc : 100;
-            const totalEtapa = valorPrevisto * percEfetivo / 100;
+            const valorSolicitado = Number(etapa.valor_solicitado ?? 0);
+            // OS parcial informa o valor da etapa: o percentual sai dele
+            const percEfetivo = perc > 0
+              ? perc
+              : valorSolicitado > 0 && Number(valorPrevisto) > 0
+                ? Math.round((valorSolicitado / Number(valorPrevisto)) * 10000) / 100
+                : 100;
+            const totalEtapa = valorSolicitado > 0 ? valorSolicitado : valorPrevisto * percEfetivo / 100;
             return {
               quantidade_solicitada: percEfetivo,
               total_override: totalEtapa,
