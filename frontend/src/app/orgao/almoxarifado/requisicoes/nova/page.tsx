@@ -91,6 +91,9 @@ interface MedicaoAprovada {
 interface MedicaoItemMedido {
   item_cronograma_id?: string | null;
   quantidade_medida?: number | string | null;
+  // itens de etapa (itens_medicao)
+  etapa_id?: string | null;
+  valor_medido?: number | string | null;
 }
 
 interface Contrato {
@@ -573,6 +576,8 @@ function NovaRequisicaoForm() {
   const [medicoesAprovadas, setMedicoesAprovadas] = useState<MedicaoAprovada[]>([]);
   const [regularizarMedicao, setRegularizarMedicao] = useState(false);
   const [medicaoRegularizadaId, setMedicaoRegularizadaId] = useState<string>('');
+  // Contrato por etapas: a OS pode regularizar mais de uma medição (006/2026)
+  const [medicoesRegularizadasIds, setMedicoesRegularizadasIds] = useState<string[]>([]);
   // Publicidade (Lei 12.232): modal para gerar linhas SINAPRO/terceiros/mídia como itens do contrato
   const [modalPublicidade, setModalPublicidade] = useState(false);
 
@@ -1113,10 +1118,11 @@ function NovaRequisicaoForm() {
 
   // Medições aprovadas do contrato — candidatas a serem regularizadas por esta OS
   useEffect(() => {
-    if (!isOS || !usarItensCronograma || !contratoSelecionado?.id) {
+    if (!isOS || (!usarItensCronograma && !usarEtapasCronograma) || !contratoSelecionado?.id) {
       setMedicoesAprovadas([]);
       setRegularizarMedicao(false);
       setMedicaoRegularizadaId('');
+      setMedicoesRegularizadasIds([]);
       return;
     }
     let cancelado = false;
@@ -1139,7 +1145,7 @@ function NovaRequisicaoForm() {
     return () => {
       cancelado = true;
     };
-  }, [isOS, usarItensCronograma, contratoSelecionado?.id]);
+  }, [isOS, usarItensCronograma, usarEtapasCronograma, contratoSelecionado?.id]);
 
   // Preencher descricaoOS com objeto do contrato sempre que for OS e tiver contrato selecionado
   useEffect(() => {
@@ -1595,11 +1601,34 @@ function NovaRequisicaoForm() {
     }));
   };
 
+  // Valor que as medições regularizadas mediram desta etapa — o backend o
+  // devolve ao saldo, então entra no limite editável da OS.
+  const valorDevolvidoPelasMedicoes = (etapaId: string, ids: string[] = medicoesRegularizadasIds) => {
+    if (!regularizarMedicao && ids === medicoesRegularizadasIds) return 0;
+    return medicoesAprovadas
+      .filter(m => ids.includes(m.id))
+      .flatMap(m => m.itens ?? [])
+      .filter(i => i?.etapa_id === etapaId)
+      .reduce((total, i) => total + (Number(i.valor_medido) || 0), 0);
+  };
+
+  const handleAlterarMedicoesRegularizadas = (ids: string[]) => {
+    setMedicoesRegularizadasIds(ids);
+    // As etapas da OS vêm do que essas medições mediram; ajuste se necessário
+    setEtapasOSDemanda(etapasOS.map((etapa: any) => ({
+      etapa_id: etapa.id,
+      valor_solicitado: Math.round(valorDevolvidoPelasMedicoes(etapa.id, ids) * 100) / 100,
+    })));
+    if (ids.length > 0) setModoOS('ORDEM_DEMANDA');
+  };
+
   const handleAlterarValorEtapaOSDemanda = (etapaId: string, valor: number) => {
     setEtapasOSDemanda(prev => prev.map(item => {
       if (item.etapa_id === etapaId) {
         const etapa = etapasOS.find((e: any) => e.id === etapaId);
-        const saldo = etapa ? Number(etapa.valor_previsto || 0) - Number(etapa.valor_executado || 0) : 0;
+        const saldo = etapa
+          ? Number(etapa.valor_previsto || 0) - Number(etapa.valor_executado || 0) + valorDevolvidoPelasMedicoes(etapaId)
+          : 0;
         const v = Math.max(0, Math.min(valor, saldo));
         return { ...item, valor_solicitado: v };
       }
@@ -1650,6 +1679,9 @@ function NovaRequisicaoForm() {
             }
           } else if (usarEtapasCronograma) {
             if (!modoOS) return 'Selecione o tipo de ordem (Global ou Parcial)';
+            if (regularizarMedicao && medicoesRegularizadasIds.length === 0) {
+              return 'Marque as medições que esta OS regulariza';
+            }
             if (modoOS === 'ORDEM_DEMANDA') {
               const temAlgum = etapasOSDemanda.some(d => (d.valor_solicitado ?? 0) > 0);
               if (!temAlgum) return 'Informe o valor de pelo menos uma etapa na OS Parcial';
@@ -1784,6 +1816,9 @@ function NovaRequisicaoForm() {
                 etapa_id: d.etapa_id,
                 valor_solicitado: d.valor_solicitado ?? 0,
               }));
+          if (regularizarMedicao && medicoesRegularizadasIds.length > 0) {
+            dados.medicoes_regularizadas_ids = medicoesRegularizadasIds;
+          }
           dados.descricao_os = descricaoOS || contratoSelecionado?.objeto || (modoOS === 'ORDEM_GLOBAL' ? 'Ordem Global - todas as etapas' : 'OS Parcial - etapas selecionadas');
         } else {
           dados.descricao_os = descricaoOS;
@@ -3175,6 +3210,70 @@ function NovaRequisicaoForm() {
                 </label>
               </div>
             </div>
+            {medicoesAprovadas.length > 0 && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4"
+                    checked={regularizarMedicao}
+                    onChange={(e) => {
+                      const marcado = e.target.checked;
+                      setRegularizarMedicao(marcado);
+                      if (!marcado) handleAlterarMedicoesRegularizadas([]);
+                    }}
+                  />
+                  <span>
+                    <span className="font-medium text-amber-900">
+                      Esta OS regulariza medição já aprovada
+                    </span>
+                    <span className="block text-sm text-amber-800">
+                      Use quando as etapas foram medidas antes da OS ser emitida: o valor medido
+                      nessas medições volta a ficar disponível para esta OS. As medições continuam
+                      ligadas à OS que já tinham.
+                    </span>
+                  </span>
+                </label>
+                {regularizarMedicao && (
+                  <div className="mt-3 space-y-1">
+                    <Label>Medições regularizadas *</Label>
+                    {medicoesAprovadas.map((m) => {
+                      const marcada = medicoesRegularizadasIds.includes(m.id);
+                      return (
+                        <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={marcada}
+                            onChange={() =>
+                              handleAlterarMedicoesRegularizadas(
+                                marcada
+                                  ? medicoesRegularizadasIds.filter((id) => id !== m.id)
+                                  : [...medicoesRegularizadasIds, m.id],
+                              )
+                            }
+                          />
+                          <span>
+                            {`Nº ${m.numero_medicao ?? '—'} · ${formatarDataSimples(m.periodo_inicio)} a ${formatarDataSimples(m.periodo_fim)} · ${formatarMoeda(Number(m.valor_medido || 0))}${m.nota_fiscal_numero ? ` · NF ${m.nota_fiscal_numero}` : ''}`}
+                          </span>
+                        </label>
+                      );
+                    })}
+                    {medicoesRegularizadasIds.length === 0 ? (
+                      <p className="text-sm text-amber-800">
+                        Marque as medições em que as etapas desta OS foram medidas.
+                      </p>
+                    ) : (
+                      <p className="pt-1 text-sm text-amber-800">
+                        Os valores das etapas abaixo foram trazidos dessas medições — zere as etapas
+                        que não fazem parte desta OS. A coluna “Saldo” mostra o saldo atual do
+                        contrato: o que essas medições mediram é devolvido ao salvar esta OS.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <Label>Etapas do Contrato</Label>
               <div className="border rounded-lg overflow-hidden mt-2">
@@ -3196,6 +3295,7 @@ function NovaRequisicaoForm() {
                       const valorPrevisto = Number(etapa.valor_previsto || 0);
                       const valorExecutado = Number(etapa.valor_executado || 0);
                       const saldo = valorPrevisto - valorExecutado;
+                      const limite = saldo + valorDevolvidoPelasMedicoes(etapa.id);
                       const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
                       const valorSolicitado = demanda?.valor_solicitado ?? saldo;
                       return (
@@ -3212,7 +3312,7 @@ function NovaRequisicaoForm() {
                               <Input
                                 type="number"
                                 min={0}
-                                max={saldo}
+                                max={limite}
                                 step={0.01}
                                 value={valorSolicitado}
                                 onChange={(e) => handleAlterarValorEtapaOSDemanda(etapa.id, parseFloat(e.target.value) || 0)}
