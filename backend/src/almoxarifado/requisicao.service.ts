@@ -227,7 +227,9 @@ export class RequisicaoService {
       // A OS global é somente a liberação inicial e não reserva saldo contra
       // as OS parciais. Em MEDICAO, a reserva migra para a medição vinculada;
       // em ORDEM_SERVICO, a própria OS continua sendo a fonte do consumo.
-      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' });
+      .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", { modoGlobalExcluido: 'ORDEM_GLOBAL' })
+      // OS de regularização: o consumo já está nas medições que ela cobre
+      .andWhere("COALESCE(jsonb_array_length(r.medicoes_regularizadas_ids), 0) = 0");
     if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
       qb.andWhere(
         `NOT EXISTS (
@@ -576,6 +578,10 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           const comprometidoPorEtapa = await this.somarValorComprometidoPorEtapaOS(dto.contrato_id);
           // Valor executado CIENTE DE CICLO (null => sem renovação: usa valor_executado acumulado).
           const execCicloPorEtapa = await this.medicaoService.getConsumoCicloPorEtapa(dto.contrato_id);
+          const regularizadoPorEtapa = await this.consumoDasMedicoesRegularizadasPorEtapa(
+            dto.medicoes_regularizadas_ids,
+            dto.contrato_id,
+          );
           for (const eo of dto.etapas_os) {
             const etapa = await this.etapaCronogramaRepository.findOne({ where: { id: eo.etapa_id } });
             if (!etapa) throw new BadRequestException(`Etapa ${eo.etapa_id} não encontrada`);
@@ -583,7 +589,9 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
             const valorPrevisto = Number(etapa.valor_previsto);
             const valorExecutado = execCicloPorEtapa ? (execCicloPorEtapa.get(eo.etapa_id) || 0) : Number(etapa.valor_executado || 0);
             const comprometido = comprometidoPorEtapa.get(eo.etapa_id) || 0;
-            const saldo = valorPrevisto - valorExecutado - comprometido;
+            // O que as medições regularizadas já mediram desta etapa volta ao saldo
+            const regularizado = regularizadoPorEtapa.get(eo.etapa_id) || 0;
+            const saldo = valorPrevisto - valorExecutado - comprometido + regularizado;
             const valorSolicitado = Number(eo.valor_solicitado ?? 0);
             if (valorSolicitado > saldo + 0.01) {
               throw new BadRequestException(
@@ -635,6 +643,9 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       novaOS.fiscal_contrato_id = dto.fiscal_contrato_id || null;
       novaOS.fiscal_contrato_nome = dto.fiscal_contrato_nome || null;
       novaOS.modo_os = dto.modo_os || null;
+      novaOS.medicoes_regularizadas_ids = dto.medicoes_regularizadas_ids?.length
+        ? dto.medicoes_regularizadas_ids
+        : null;
       novaOS.numeros_empenhos = dto.numeros_empenhos?.length ? JSON.stringify(dto.numeros_empenhos) : null;
 
       const osSalva = await this.requisicaoRepository.save(novaOS);
@@ -679,6 +690,29 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           data_evento: new Date(),
         }),
       );
+
+      // A OS de regularização por item só valia na checagem de saldo: o vínculo
+      // da medição ficava no caminho da requisição comum e nunca rodava aqui
+      // (055/2023: a OS-0319 nasceu sem medição e ficou reservando 1 mês).
+      if (dto.medicao_regularizada_id) {
+        await this.vincularMedicaoRegularizada(
+          dto.medicao_regularizada_id,
+          osSalva.id,
+          numero,
+          usuarioId,
+          usuarioNome,
+        );
+      }
+      if (novaOS.medicoes_regularizadas_ids?.length) {
+        await this.registrarRegularizacaoEtapas(
+          novaOS.medicoes_regularizadas_ids,
+          osSalva.id,
+          numero,
+          dto.contrato_id!,
+          usuarioId,
+          usuarioNome,
+        );
+      }
 
       this.logger.log(`OS ${numero} criada para contrato ${contrato?.numero_contrato}`);
       return this.findOne(osSalva.id);
@@ -910,6 +944,95 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       consumo.set(item.item_cronograma_id, Number(item.qtd || 0));
     }
     return consumo;
+  }
+
+  /**
+   * Contrato por ETAPAS: quanto as medições já aprovadas que esta OS regulariza
+   * mediram de cada etapa. Volta ao saldo da OS — sem isso a OS das etapas do
+   * aditivo, já medidas (006/2026: etapas 12–14 na 3ª e na 4ª), fica travada.
+   */
+  private async consumoDasMedicoesRegularizadasPorEtapa(
+    medicaoIds: string[] | undefined,
+    contratoId: string,
+  ): Promise<Map<string, number>> {
+    const consumo = new Map<string, number>();
+    const ids = Array.from(new Set((medicaoIds || []).filter(Boolean)));
+    if (ids.length === 0) return consumo;
+
+    const medicoes: Array<{ id: string; contrato_id: string; status: string }> =
+      await this.dataSource.query(
+        `SELECT id, contrato_id, status FROM medicoes WHERE id = ANY($1)`,
+        [ids],
+      );
+    if (medicoes.length !== ids.length) {
+      throw new BadRequestException('Medição informada para regularização não encontrada.');
+    }
+    for (const medicao of medicoes) {
+      if (medicao.contrato_id !== contratoId) {
+        throw new BadRequestException('A medição informada é de outro contrato.');
+      }
+      if (String(medicao.status).toUpperCase() !== 'APROVADA') {
+        throw new BadRequestException(
+          'Só é possível regularizar uma OS a partir de medição APROVADA.',
+        );
+      }
+    }
+
+    const itens: Array<{ etapa_id: string; valor: string }> = await this.dataSource.query(
+      `SELECT etapa_id, COALESCE(SUM(valor_medido), 0) AS valor
+         FROM itens_medicao
+        WHERE medicao_id = ANY($1) AND etapa_id IS NOT NULL
+        GROUP BY etapa_id`,
+      [ids],
+    );
+    for (const item of itens) consumo.set(item.etapa_id, Number(item.valor || 0));
+    return consumo;
+  }
+
+  /**
+   * Rastro da OS que regulariza medições de etapas. As medições não mudam de OS:
+   * cada uma também tem etapas da OS que já tinham (a global, no 006/2026).
+   */
+  private async registrarRegularizacaoEtapas(
+    medicaoIds: string[],
+    requisicaoId: string,
+    numeroOs: string,
+    contratoId: string,
+    usuarioId: string,
+    usuarioNome: string,
+  ): Promise<void> {
+    const medicoes: Array<{ numero_medicao: number }> = await this.dataSource.query(
+      `SELECT numero_medicao FROM medicoes WHERE id = ANY($1) ORDER BY numero_medicao`,
+      [medicaoIds],
+    );
+    const rotulo = medicoes.map((m) => `${m.numero_medicao}ª`).join(', ');
+    const plural = medicoes.length > 1;
+
+    await this.historicoRequisicaoRepository.save(
+      this.historicoRequisicaoRepository.create({
+        requisicao_id: requisicaoId,
+        tipo_acao: 'PEDIDO_CRIADO',
+        descricao: `OS emitida para regularizar ${plural ? 'as medições' : 'a medição'} ${rotulo}, já ${plural ? 'aprovadas' : 'aprovada'}`,
+        detalhes:
+          `As etapas desta OS já foram medidas ${plural ? 'nessas medições' : 'nessa medição'}; ` +
+          `ela não reserva saldo. Responsável: ${usuarioNome}.`,
+        usuario_id: usuarioId,
+        usuario_nome: usuarioNome,
+        data_evento: new Date(),
+      }),
+    );
+
+    await this.dataSource.query(
+      `INSERT INTO historico_contratos (contrato_id, tipo_acao, descricao, usuario_nome, created_at)
+       VALUES ($1, 'EDITADO', $2, $3, now())`,
+      [
+        contratoId,
+        `${numeroOs} emitida para regularizar ${plural ? 'as medições' : 'a medição'} ${rotulo} (já ${plural ? 'aprovadas' : 'aprovada'}) por ${usuarioNome}`,
+        usuarioNome,
+      ],
+    );
+
+    this.logger.log(`OS ${numeroOs} regulariza as medições ${rotulo} (etapas) por ${usuarioNome}`);
   }
 
   /** Aponta a medição regularizada para a OS criada e deixa rastro nas duas pontas. */
@@ -2335,9 +2458,26 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
           lista.push({ id: m.id, numero_medicao: m.numero_medicao, status: m.status });
           porRequisicao.set(m.requisicao_id, lista);
         }
+        // OS de regularização (etapas): as medições que ela cobre continuam
+        // ligadas à OS original, mas contam como dela para o selo
+        const idsRegularizados = requisicoes.flatMap((r) => r.medicoes_regularizadas_ids || []);
+        const regularizadas: Array<{ id: string; numero_medicao: number; status: string }> =
+          idsRegularizados.length > 0
+            ? await this.dataSource.query(
+                `SELECT id, numero_medicao, status FROM medicoes WHERE id = ANY($1)`,
+                [idsRegularizados],
+              )
+            : [];
+        const regularizadaPorId = new Map(regularizadas.map((m) => [m.id, m]));
         for (const req of requisicoes) {
           if (req.tipo === TipoRequisicao.ORDEM_SERVICO) {
-            (req as any).medicoes_vinculadas = porRequisicao.get(req.id) || [];
+            const daRegularizacao = (req.medicoes_regularizadas_ids || [])
+              .map((id) => regularizadaPorId.get(id))
+              .filter(Boolean);
+            (req as any).medicoes_vinculadas = [
+              ...(porRequisicao.get(req.id) || []),
+              ...daRegularizacao,
+            ];
           }
         }
       }
@@ -2691,11 +2831,20 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
         if (Array.isArray(etapas_os) && etapas_os.length > 0) {
           const comprometido = await this.somarValorComprometidoPorEtapaOS(requisicao.contrato_id, id);
           const execCicloPorEtapa = await this.medicaoService.getConsumoCicloPorEtapa(requisicao.contrato_id);
+          // Editar a OS de regularização não pode travar no saldo que ela mesma cobre
+          const regularizadoPorEtapa = await this.consumoDasMedicoesRegularizadasPorEtapa(
+            requisicao.medicoes_regularizadas_ids || undefined,
+            requisicao.contrato_id,
+          );
           for (const eo of etapas_os) {
             const etapa = await this.etapaCronogramaRepository.findOne({ where: { id: eo.etapa_id } });
             if (!etapa || etapa.contrato_id !== requisicao.contrato_id) continue;
             const execEtapa = execCicloPorEtapa ? (execCicloPorEtapa.get(eo.etapa_id) || 0) : Number(etapa.valor_executado || 0);
-            const saldo = Number(etapa.valor_previsto) - execEtapa - (comprometido.get(eo.etapa_id) || 0);
+            const saldo =
+              Number(etapa.valor_previsto) -
+              execEtapa -
+              (comprometido.get(eo.etapa_id) || 0) +
+              (regularizadoPorEtapa.get(eo.etapa_id) || 0);
             const valor = Number(eo.valor_solicitado ?? 0);
             if (valor > saldo + 0.01) throw new BadRequestException(`Etapa "${etapa.descricao}" excede saldo (R$ ${saldo.toFixed(2)})`);
             await this.requisicaoEtapaOSRepository.save(this.requisicaoEtapaOSRepository.create({ requisicao_id: id, etapa_id: eo.etapa_id, percentual_solicitado: Number(eo.percentual_solicitado ?? 0), valor_solicitado: valor }));

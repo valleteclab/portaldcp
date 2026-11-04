@@ -52,7 +52,9 @@ export async function somarQuantidadeComprometidaPorItemOS(
     // em ORDEM_SERVICO, a própria OS continua sendo a fonte do consumo.
     .andWhere("COALESCE(r.modo_os, '') != :modoGlobalExcluido", {
       modoGlobalExcluido: 'ORDEM_GLOBAL',
-    });
+    })
+    // OS de regularização: o consumo já está nas medições que ela cobre
+    .andWhere("COALESCE(jsonb_array_length(r.medicoes_regularizadas_ids), 0) = 0");
   if (contextoCiclo.modalidade !== ModalidadeExecucao.ORDEM_SERVICO) {
     qb.andWhere(
       `NOT EXISTS (
