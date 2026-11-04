@@ -291,6 +291,14 @@ export class Requisicao {
   @Column({ type: 'timestamp', nullable: true })
   consumo_fora_sistema_em: Date | null;
 
+  /**
+   * OS de regularização em contrato por etapas: medições já aprovadas que ela
+   * cobre. Não reserva saldo (o consumo já está nessas medições) e conta como
+   * OS com medição para o selo "aguardando medição".
+   */
+  @Column({ type: 'jsonb', nullable: true, default: null })
+  medicoes_regularizadas_ids: string[] | null;
+
   // ============================================================================
   // AUDITORIA
   // ============================================================================

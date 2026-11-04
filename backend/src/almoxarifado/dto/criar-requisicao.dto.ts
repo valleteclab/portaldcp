@@ -182,6 +182,17 @@ export class CriarRequisicaoDto {
   @IsOptional()
   @IsUUID()
   medicao_regularizada_id?: string;
+
+  /**
+   * Contrato por ETAPAS: medições já aprovadas que esta OS regulariza (as
+   * etapas do aditivo do 006/2026 foram medidas na 3ª e na 4ª). O valor que
+   * elas mediram volta ao saldo para esta OS; as medições continuam ligadas
+   * à OS que já tinham (que cobre as outras etapas delas).
+   */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  medicoes_regularizadas_ids?: string[];
 }
 
 /**
