@@ -1652,8 +1652,9 @@ function NovaRequisicaoForm() {
       if (usarEtapasCronograma && modoOS) {
         return etapasOS.reduce((s, etapa) => {
           const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
-          const perc = modoOS === 'ORDEM_GLOBAL' ? 100 : (demanda?.percentual_solicitado ?? 0);
-          return s + Number(etapa.valor_previsto ?? 0) * perc / 100;
+          // OS parcial: a tela informa o valor da etapa
+          if (modoOS === 'ORDEM_DEMANDA') return s + Number(demanda?.valor_solicitado ?? 0);
+          return s + Number(etapa.valor_previsto ?? 0);
         }, 0);
       }
       return 0;
@@ -3648,11 +3649,16 @@ function NovaRequisicaoForm() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {etapasOS.map((etapa, idx) => {
+                  {etapasOS
+                    // OS parcial: só as etapas pedidas, com o valor informado na tela
+                    .filter(etapa => modoOS === 'ORDEM_GLOBAL' || Number(etapasOSDemanda.find(d => d.etapa_id === etapa.id)?.valor_solicitado ?? 0) > 0)
+                    .map((etapa, idx) => {
                     const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
-                    const perc = modoOS === 'ORDEM_GLOBAL' ? 100 : (demanda?.percentual_solicitado ?? 0);
                     const valorPrevisto = Number(etapa.valor_previsto ?? 0);
-                    const total = valorPrevisto * perc / 100;
+                    const total = modoOS === 'ORDEM_GLOBAL' ? valorPrevisto : Number(demanda?.valor_solicitado ?? 0);
+                    const perc = modoOS === 'ORDEM_GLOBAL'
+                      ? 100
+                      : valorPrevisto > 0 ? Math.round((total / valorPrevisto) * 10000) / 100 : 0;
                     return (
                       <TableRow key={etapa.id}>
                         <TableCell>{etapa.numero_etapa ?? idx + 1}</TableCell>
@@ -3669,8 +3675,8 @@ function NovaRequisicaoForm() {
                 <strong>Total autorizado:</strong>{' '}
                 {formatarMoeda(etapasOS.reduce((s, etapa) => {
                   const demanda = etapasOSDemanda.find(d => d.etapa_id === etapa.id);
-                  const perc = modoOS === 'ORDEM_GLOBAL' ? 100 : (demanda?.percentual_solicitado ?? 0);
-                  return s + Number(etapa.valor_previsto ?? 0) * perc / 100;
+                  if (modoOS === 'ORDEM_DEMANDA') return s + Number(demanda?.valor_solicitado ?? 0);
+                  return s + Number(etapa.valor_previsto ?? 0);
                 }, 0))}
               </div>
             </div>
