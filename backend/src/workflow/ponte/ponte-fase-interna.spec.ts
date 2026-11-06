@@ -1,4 +1,4 @@
-import { despachoForaDoFluxo, documentoProntoParaAPonte, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, portaoDaEtapa, ROTA_DA_ETAPA } from './ponte-fase-interna';
+import { despachoForaDoFluxo, DOCUMENTO_DA_ETAPA, PECAS_JUNTAS_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, portaoDaEtapa, ROTA_DA_ETAPA } from './ponte-fase-interna';
 
 const base = { documentoPronto: false, publicada: false, temDemanda: false };
 
@@ -113,5 +113,35 @@ describe('vezDoPasso — só a etapa atual edita (12/10/2026)', () => {
     expect(motivoForaDaVez(vezDoPasso(passos, 'DFD'), 'Formalizar a demanda (DFD)')).toMatch(/etapa 1 \(DFD\), já concluída.*devolução/);
     expect(motivoForaDaVez(vezDoPasso(passos, 'TR'), 'Termo de referência')).toMatch(/etapa 4 .*está na etapa 2 \(Estudo técnico preliminar\)/);
     expect(motivoForaDaVez(vezDoPasso(passos, 'ETP'), 'ETP')).toBeNull();
+  });
+});
+
+describe('etapaDaPonte (um motor só, 11/2026)', () => {
+  it('as etapas com tela na fase interna (e demanda/publicação) são da ponte', () => {
+    for (const t of ['DFD', 'ETP', 'PESQUISA_PRECO', 'TR', 'RESERVA_ORCAMENTARIA', 'MINUTAS', 'PARECER_JURIDICO', 'AUTORIZACAO', 'DEMANDA', 'PUBLICACAO']) {
+      expect(etapaDaPonte(t)).toBe(true);
+    }
+  });
+
+  it('Documento, Tarefa e Aprovação não: seguem a regra geral (peça juntada na etapa)', () => {
+    for (const t of ['DOCUMENTO', 'TAREFA', 'APROVACAO', 'FORMULARIO', 'documento']) expect(etapaDaPonte(t)).toBe(false);
+  });
+
+  it('o relatório do agente (MINUTAS) abre a tela de minutas e conclui com o RAG', () => {
+    expect(ROTA_DA_ETAPA.MINUTAS).toBe('minutas');
+    expect(DOCUMENTO_DA_ETAPA.MINUTAS).toBe('RAG');
+    expect(pendenciasDaPonte('MINUTAS', { documentoPronto: false, publicada: false, temDemanda: true })[0]).toContain('relatório do agente');
+  });
+});
+
+describe('peças juntas da etapa (análise de riscos no ETP)', () => {
+  it('o ETP lista a análise de riscos pendente junto com o documento', () => {
+    const p = pendenciasDaPonte('ETP', { documentoPronto: true, publicada: false, temDemanda: true, pecasJuntasPendentes: [PECAS_JUNTAS_DA_ETAPA.ETP[0].rotulo] });
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain('análise de riscos');
+  });
+
+  it('sem peça junta pendente, o ETP pronto conclui', () => {
+    expect(pendenciasDaPonte('ETP', { documentoPronto: true, publicada: false, temDemanda: true, pecasJuntasPendentes: [] })).toEqual([]);
   });
 });

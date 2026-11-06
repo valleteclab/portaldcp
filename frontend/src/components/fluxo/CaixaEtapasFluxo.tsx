@@ -23,13 +23,13 @@ interface EtapaMinha {
  * ter aberto o processo). Aprovar daqui; devolver ou indeferir (com motivo)
  * na tela do processo.
  */
-export function CaixaEtapasFluxo({ onContagem }: { onContagem?: (n: number) => void }) {
+export function CaixaEtapasFluxo({ onContagem, todas = false }: { onContagem?: (n: number) => void; /** Minhas tarefas: todas as etapas comigo (não só aprovações); vazia, não aparece. */ todas?: boolean }) {
   const [itens, setItens] = useState<EtapaMinha[] | null>(null)
   const [aprovando, setAprovando] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     try {
-      const r = await authFetch(`${API_URL}/api/workflows/minhas-etapas?tipo=APROVACAO`)
+      const r = await authFetch(`${API_URL}/api/workflows/minhas-etapas${todas ? "" : "?tipo=APROVACAO"}`)
       const lista: EtapaMinha[] = r.ok ? await r.json() : []
       setItens(lista)
       onContagem?.(lista.length)
@@ -37,7 +37,7 @@ export function CaixaEtapasFluxo({ onContagem }: { onContagem?: (n: number) => v
       setItens([])
       onContagem?.(0)
     }
-  }, [onContagem])
+  }, [onContagem, todas])
 
   useEffect(() => {
     carregar()
@@ -62,6 +62,7 @@ export function CaixaEtapasFluxo({ onContagem }: { onContagem?: (n: number) => v
     }
   }
 
+  if (todas && !itens?.length) return null
   if (itens === null)
     return (
       <p className="flex items-center gap-2 text-sm text-slate-600">
@@ -99,9 +100,11 @@ export function CaixaEtapasFluxo({ onContagem }: { onContagem?: (n: number) => v
                   Abrir processo
                 </Link>
               ) : null}
-              <button type="button" onClick={() => aprovar(e)} disabled={aprovando !== null} className="rounded-lg bg-green-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                {aprovando === e.tarefa_id ? "Aprovando…" : "Aprovar"}
-              </button>
+              {e.tipo === "APROVACAO" ? (
+                <button type="button" onClick={() => aprovar(e)} disabled={aprovando !== null} className="rounded-lg bg-green-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                  {aprovando === e.tarefa_id ? "Aprovando…" : "Aprovar"}
+                </button>
+              ) : null}
             </div>
           </li>
         )

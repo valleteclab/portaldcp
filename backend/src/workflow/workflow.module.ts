@@ -1,3 +1,4 @@
+import { ContratacaoNoFluxoService } from './contratacao/contratacao-no-fluxo.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WorkflowAcao, WorkflowCampo, WorkflowFase, WorkflowFormulario, WorkflowHistorico, WorkflowInstancia, WorkflowModelo, WorkflowReacao, WorkflowTarefa } from './workflow.entities';
@@ -27,7 +28,7 @@ import { DefinicaoModalidadeExecutor } from './nos/no-definicao-modalidade.servi
     IaModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService, PonteFaseInternaService, TempoEtapasService, DefinicaoModalidadeExecutor],
-  exports: [WorkflowService, RegistroNos, TeamsService, TempoEtapasService],
+  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService, PonteFaseInternaService, TempoEtapasService, DefinicaoModalidadeExecutor, ContratacaoNoFluxoService],
+  exports: [WorkflowService, RegistroNos, TeamsService, TempoEtapasService, ContratacaoNoFluxoService],
 })
 export class WorkflowModule {}

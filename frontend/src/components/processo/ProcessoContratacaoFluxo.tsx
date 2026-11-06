@@ -10,7 +10,7 @@ import { telaDaFaseInterna } from "@/lib/fluxo/ponte"
 import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna } from "@/lib/fase-interna/telas"
 import { rotuloModalidade } from "@/lib/licitacao-rotulos"
 import { chamarProcessos, textoDoErro, type ComQuemEsta, type ConteudoLicitacao, type EventoLinhaDoTempo, type ProcessoVisao } from "@/lib/processo/processo"
-import { BlocoDadosLicitacao, SecaoLinhaDoTempo } from "@/components/processo/BlocosProcesso"
+import { BlocoDadosLicitacao, FormularioPeca, SecaoLinhaDoTempo } from "@/components/processo/BlocosProcesso"
 import { BotaoGerarAutos } from "@/app/orgao/processos/[id]/BotaoGerarAutos"
 import { MapaFluxo } from "@/components/fluxo/MapaFluxo"
 import { DefinicaoModalidadePainel } from "@/components/fluxo/DefinicaoModalidadePainel"
@@ -171,6 +171,9 @@ export function ProcessoContratacaoFluxo({
   const ponte = atual ? telaDaFaseInterna(atual.tipo, licitacaoId) : null
   const ehAprovacao = atual?.tipo === "APROVACAO"
   const ehDefinicao = atual?.tipo === "DEFINICAO_MODALIDADE"
+  // Etapa "Documento" (portaria, documentos do fornecedor…): sem tela própria na fase interna,
+  // o documento é juntado aqui mesmo e a etapa só conclui com ele (no:<acao>)
+  const ehDocumento = atual?.tipo === "DOCUMENTO"
   const ehPrimeira = idxAtual === 0
 
   const [processando, setProcessando] = useState(false)
@@ -179,6 +182,7 @@ export function ProcessoContratacaoFluxo({
   const [aviso, setAviso] = useState<string | null>(null)
   const [enviandoFora, setEnviandoFora] = useState(false)
   const [verMapa, setVerMapa] = useState(false)
+  const [juntandoDocumento, setJuntandoDocumento] = useState(false)
 
   const vigente = (tramitacao?.atual ?? null) as TramitacaoVigente | null
   const foraDoFluxo = String(vigente?.finalidade ?? "").trim() === FINALIDADE_FORA_DO_FLUXO
@@ -417,12 +421,22 @@ export function ProcessoContratacaoFluxo({
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Link>
                 ) : null}
+                {ehDocumento && !juntandoDocumento ? (
+                  <button
+                    type="button"
+                    onClick={() => setJuntandoDocumento(true)}
+                    className="inline-flex h-11 items-center gap-2 rounded-lg px-5 text-[15px] font-semibold text-white"
+                    style={{ background: AZUL }}
+                  >
+                    Juntar o documento da etapa
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => concluir()}
                   disabled={processando}
-                  className={ponte ? "h-11 rounded-lg border border-[#CBD3DA] bg-white px-4 text-sm font-medium disabled:opacity-60" : "h-11 rounded-lg px-5 text-[15px] font-semibold text-white disabled:opacity-60"}
-                  style={ponte ? undefined : { background: AZUL }}
+                  className={ponte || ehDocumento ? "h-11 rounded-lg border border-[#CBD3DA] bg-white px-4 text-sm font-medium disabled:opacity-60" : "h-11 rounded-lg px-5 text-[15px] font-semibold text-white disabled:opacity-60"}
+                  style={ponte || ehDocumento ? undefined : { background: AZUL }}
                 >
                   {processando ? "Concluindo..." : proxima?.responsavel && proxima.responsavel !== atual.responsavel ? `Concluir e enviar a ${proxima.responsavel}` : "Concluir etapa"}
                 </button>
@@ -430,6 +444,22 @@ export function ProcessoContratacaoFluxo({
             ) : null}
           </div>
         )}
+
+        {podeAgir && ehDocumento && juntandoDocumento && atual && posseLida && !podeReceber ? (
+          <FormularioPeca
+            processoId={processo.id}
+            etapa={{ chave: `no:${atual.chave}`, rotulo: atual.titulo, ordem: idxAtual + 1, estado: "ATUAL", tipo_peca: null, titulo_peca: atual.titulo }}
+            tituloInicial={atual.titulo}
+            rotuloBotao="Juntar documento da etapa"
+            onJuntada={() => {
+              setJuntandoDocumento(false)
+              setPendencias(null)
+              setAviso(`Documento juntado aos autos. Agora conclua a etapa "${atual.titulo}".`)
+              onAtualizar()
+            }}
+            onCancelar={() => setJuntandoDocumento(false)}
+          />
+        ) : null}
 
         {podeAgir && ehDefinicao && posseLida && !podeReceber ? <DefinicaoModalidadePainel licitacao={licitacao} processando={processando} onConcluir={(r) => concluir(r)} /> : null}
 
@@ -562,13 +592,17 @@ function DocumentosDoProcesso({ licitacaoId, andamento }: { licitacaoId: string;
     const tela = telaDaPeca(it.tipo)
     return !tela || !etapaPorTela.has(tela)
   }
-  const foraDoDesenho = obrigatorias.filter((i) => !resolvido(i) && semEtapa(i))
+  // Ainda na instrução (o fluxo termina na Definição da modalidade): o que falta (ex.: autorização)
+  // vem no fluxo da modalidade, que começa depois — não é "fora do fluxo"
+  const naInstrucao = andamento.nos.at(-1)?.tipo === "DEFINICAO_MODALIDADE"
+  const foraDoDesenho = naInstrucao ? [] : obrigatorias.filter((i) => !resolvido(i) && semEtapa(i))
 
   const linha = (it: ItemInstrucao) => {
     const tela = telaDaPeca(it.tipo)
     const etapa = tela ? etapaPorTela.get(tela) : undefined
     const agora = etapa?.situacao === "EM_ANDAMENTO"
-    const naoNoFluxo = it.obrigatorio && !resolvido(it) && !etapa
+    const naoNoFluxo = it.obrigatorio && !resolvido(it) && !etapa && !naInstrucao
+    const vemNaModalidade = it.obrigatorio && !resolvido(it) && !etapa && naInstrucao
     const situacao =
       it.status === "OK"
         ? "Pronto"
@@ -582,7 +616,9 @@ function DocumentosDoProcesso({ licitacaoId, andamento }: { licitacaoId: string;
                 ? "Em elaboração"
                 : naoNoFluxo
                   ? "Não está no fluxo"
-                  : etapa?.responsavel
+                  : vemNaModalidade
+                    ? "No fluxo da modalidade"
+                    : etapa?.responsavel
                     ? `${etapa.responsavel}${agora ? " · agora" : ""}`
                     : "A fazer"
     const cor = it.status === "OK" ? "#16A34A" : it.status === "NAO_SE_APLICA" ? "#9CA3AF" : agora ? AZUL : naoNoFluxo ? "#C2410C" : "#9CA3AF"

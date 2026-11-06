@@ -54,6 +54,14 @@ export class ChecklistEtapaService implements OnModuleInit {
     return (p as { titulo: string; texto: string | null; arquivo_url: string | null } | undefined) ?? null;
   }
 
+  private async fluxoTemEtapa(workflowId: string, tipo: string): Promise<boolean> {
+    const [r] = await this.ds.query(
+      `SELECT 1 FROM workflow_acoes a JOIN workflow_fases f ON f.id = a.fase_id WHERE f.workflow_id = $1::uuid AND a.tipo = $2 LIMIT 1`,
+      [workflowId, tipo],
+    );
+    return !!r;
+  }
+
   private itensDe(tipoNo: string): ItemChecklist[] {
     return checklistDoDocumento(definicaoDoNo(tipoNo)?.tipo_documento);
   }
@@ -61,7 +69,7 @@ export class ChecklistEtapaService implements OnModuleInit {
   private async pendencias(ctx: ContextoNo): Promise<string[]> {
     if (!ctx.processoId) return []; // fluxo sem processo (legado) não tem autos para o documento
     // Contratação (ponte): o documento é o da tela da fase interna
-    const daPonte = await this.ponte.pendencias(ctx.processoId, ctx.acao.tipo);
+    const daPonte = await this.ponte.pendencias(ctx.processoId, ctx.acao.tipo, { semEtapaDeRiscos: !(await this.fluxoTemEtapa(ctx.instancia.workflow_id, 'MAPA_RISCOS')) });
     if (daPonte) return daPonte;
     const pend: string[] = [];
     if (!(await this.pecaDaEtapa(ctx.processoId, ctx.acao.id))) pend.push(`Falta o documento da etapa "${ctx.acao.nome}": escreva, use a IA ou anexe.`);

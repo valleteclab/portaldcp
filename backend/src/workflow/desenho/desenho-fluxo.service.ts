@@ -64,7 +64,7 @@ export class DesenhoFluxoService {
           em_andamento: vs.reduce((t, v) => t + Number(v.em_andamento || 0), 0),
           // Contratação: onde vale (o da versão ativa; sem ativa, o da versão em edição)
           vale_para:
-            atual.tipo_processo !== CONTRATACAO ? [] : (ativo ?? atual).instrucao ? ['Instrução: toda contratação aberta pelo DFD'] : rotulosDaAplicacao((ativo ?? atual).aplicacao ?? null),
+            atual.tipo_processo !== CONTRATACAO ? [] : (ativo ?? atual).instrucao ? ['Instrução: toda contratação'] : rotulosDaAplicacao((ativo ?? atual).aplicacao ?? null),
           instrucao: !!(ativo ?? atual).instrucao,
           atualizado_em: vs.reduce((d, v) => (new Date(v.updated_at) > d ? new Date(v.updated_at) : d), new Date(0)),
         };
@@ -470,7 +470,7 @@ export class DesenhoFluxoService {
    * responsáveis sugeridos pelo nome dos setores do órgão e, na contratação,
    * onde o fluxo vale. Nada é ativado: o administrador confere e ativa.
    */
-  async criarDeModelo(orgaoId: string, autorId: string | null, chave: string) {
+  async criarDeModelo(orgaoId: string, autorId: string | null, chave: string, opcoes?: { semSetorFicaComQuemAbriu?: boolean }) {
     const modelo = modeloPronto(chave);
     if (!modelo) throw new NotFoundException('Modelo pronto não encontrado.');
     const setores: Array<{ id: string; nome: string }> = await this.ds.query(`SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1 ORDER BY nome`, [orgaoId]);
@@ -480,12 +480,14 @@ export class DesenhoFluxoService {
     const etapas = modelo.etapas.map((e, i) => {
       const setor = e.solicitante ? null : setorSugerido(setores, e.setor);
       if (!e.solicitante && !setor) semResponsavel.push(e.nome);
+      // Fluxo padrão ativado sozinho: sem setor parecido, a etapa fica com quem abriu o processo
+      const comQuemAbriu = e.solicitante || (!setor && !!opcoes?.semSetorFicaComQuemAbriu);
       return {
         chave: `novo-${i + 1}`,
         tipo: e.tipo,
         nome: e.nome,
-        responsavel_tipo: e.solicitante ? 'SOLICITANTE' : 'SETOR',
-        responsaveis: setor ? [setor] : [],
+        responsavel_tipo: comQuemAbriu ? 'SOLICITANTE' : 'SETOR',
+        responsaveis: setor && !comQuemAbriu ? [setor] : [],
         prazo_dias_uteis: e.prazo,
       };
     });

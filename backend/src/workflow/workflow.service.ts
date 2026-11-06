@@ -345,7 +345,7 @@ export class WorkflowService {
 
   /**
    * Início automático (decisões de 07/10 e 12/10/2026): o processo de
-   * contratação aberto pelo DFD começa pela INSTRUÇÃO (o fluxo que termina na
+   * contratação (de qualquer origem — ContratacaoNoFluxoService) começa pela INSTRUÇÃO (o fluxo que termina na
    * Definição da modalidade), igual para todas as modalidades. Sem instrução
    * ativa, nasce direto no fluxo da sua modalidade e enquadramento (senão, no
    * padrão). Nenhum ou dois no mesmo nível: fica sem fluxo. A primeira etapa,
