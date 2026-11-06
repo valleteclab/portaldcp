@@ -102,7 +102,7 @@ export function rotuloMotivoCobertura(m: MotivoCobertura): string {
 export interface Desenho {
   modelo: { id: string; nome: string; descricao: string | null; tipo_processo: string | null; versao: number; status: string; familia_id: string; aplicacao: AplicacaoFluxo | null }
   etapas: EtapaDesenho[]
-  /** Fluxo de instrução: termina na Definição da modalidade e vale para toda contratação aberta pelo DFD. */
+  /** Fluxo de instrução: termina na Definição da modalidade e vale para toda contratação (DFD consolidado, Novo processo ou demanda). */
   instrucao?: boolean
   editavel: boolean
   etapas_exigidas: string[]

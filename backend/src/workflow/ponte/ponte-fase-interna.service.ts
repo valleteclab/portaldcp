@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { linhasDoChecklist, MODALIDADES_CONTRATACAO_DIRETA } from '../../fase-interna/documentos-obrigatorios';
-import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, pendenciasDaPonte, portaoDaEtapa } from './ponte-fase-interna';
+import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, PECAS_JUNTAS_DA_ETAPA, pendenciasDaPonte, portaoDaEtapa } from './ponte-fase-interna';
 import { pendenciasDoPortaoDoProcesso } from '../../fase-interna/conformidade/portoes';
 
 /**
@@ -26,27 +26,36 @@ export class PonteFaseInternaService {
   }
 
   /** Pendências da etapa pela fase interna; nulo quando o processo não é de contratação (vale a regra comum). */
-  async pendencias(processoId: string | null, tipoNo: string): Promise<string[] | null> {
-    if (!processoId) return null;
+  /** `opcoes.semEtapaDeRiscos`: o fluxo não tem nó Mapa de riscos — o ETP leva a análise de riscos junto. */
+  async pendencias(processoId: string | null, tipoNo: string, opcoes?: { semEtapaDeRiscos?: boolean }): Promise<string[] | null> {
+    if (!processoId || !etapaDaPonte(tipoNo)) return null;
     const lic = await this.licitacaoDoProcesso(processoId);
     if (!lic) return null;
     const tipo = String(tipoNo).toUpperCase();
     const tipoDoc = DOCUMENTO_DA_ETAPA[tipo];
     let documentoPronto = false;
+    const pecasJuntasPendentes: string[] = [];
     if (tipoDoc) {
       // Mesmo critério da instrução (checklist): gerado/anexado conta; "não se aplica" só onde o checklist permite
       const direta = MODALIDADES_CONTRATACAO_DIRETA.includes(String(lic.modalidade ?? ''));
-      const linha = linhasDoChecklist({ contratacao_direta: direta, controle_interno_ativo: true }).find((x) => String(x.tipo) === tipoDoc);
-      const [d] = await this.ds.query(
-        `SELECT tipo::text AS tipo, status::text AS status, caminho_arquivo, arquivo_pdf_path, descricao, dados_estruturados
-           FROM documentos_fase_interna
-          WHERE licitacao_id::text = $1 AND tipo::text = $2 AND versao_atual = true
-          ORDER BY versao DESC NULLS LAST LIMIT 1`,
-        [lic.id, tipoDoc],
-      );
+      const linhas = linhasDoChecklist({ contratacao_direta: direta, controle_interno_ativo: true });
+      const pronta = async (codigo: string) => {
+        const [d] = await this.ds.query(
+          `SELECT tipo::text AS tipo, status::text AS status, caminho_arquivo, arquivo_pdf_path, descricao, dados_estruturados
+             FROM documentos_fase_interna
+            WHERE licitacao_id::text = $1 AND tipo::text = $2 AND versao_atual = true
+            ORDER BY versao DESC NULLS LAST LIMIT 1`,
+          [lic.id, codigo],
+        );
+        const l = linhas.find((x) => String(x.tipo) === codigo);
+        return documentoProntoParaAPonte(d, { pode_nao_se_aplicar: !!l?.pode_nao_se_aplicar });
+      };
       // DFD único (13/10/2026): o DFD consolidado gera o documento DFD dos autos ao abrir
       // o processo — a ponte lê só a peça, como a instrução e a trava da lei (art. 72, I)
-      documentoPronto = documentoProntoParaAPonte(d, { pode_nao_se_aplicar: !!linha?.pode_nao_se_aplicar });
+      documentoPronto = await pronta(tipoDoc);
+      if (opcoes?.semEtapaDeRiscos) {
+        for (const junta of PECAS_JUNTAS_DA_ETAPA[tipo] ?? []) if (!(await pronta(junta.tipo))) pecasJuntasPendentes.push(junta.rotulo);
+      }
     }
     let temDemanda = !!lic.demanda_id;
     if (!temDemanda && tipo === 'DEMANDA') {
@@ -57,6 +66,6 @@ export class PonteFaseInternaService {
     const portao = portaoDaEtapa(tipo);
     const publicada = !ehFaseInterna(lic.fase);
     const travasDaLei = portao && !publicada ? await pendenciasDoPortaoDoProcesso(lic.id, portao.portao, { ato: portao.ato, somenteAvaliacao: true }) : [];
-    return pendenciasDaPonte(tipo, { documentoPronto, publicada, temDemanda, travasDaLei });
+    return pendenciasDaPonte(tipo, { documentoPronto, publicada, temDemanda, travasDaLei, pecasJuntasPendentes });
   }
 }

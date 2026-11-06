@@ -73,16 +73,23 @@ export function rotuloPrazo(t: Pick<TarefaTela, "prazo" | "atrasada" | "dias_ute
 /** Contagem para o badge do menu (evento "tarefas-atualizadas" recarrega). */
 export async function carregarContagemTarefas(): Promise<{ para_mim: number; atrasadas: number } | null> {
   try {
-    const [r, p] = await Promise.all([
+    const [r, p, f] = await Promise.all([
       authFetch(`${API_URL}/api/tarefas/contagem`),
       // Processos com você (aditivo/renovação/avulso) entram no mesmo badge
       authFetch(`${API_URL}/api/processos/comigo`).catch(() => null),
+      // Etapas do fluxo comigo (um motor só, 11/2026) — o processo já contado acima não conta de novo
+      authFetch(`${API_URL}/api/workflows/minhas-etapas`).catch(() => null),
     ])
     if (!r.ok) return null
     const c = (await r.json()) as { para_mim: number; atrasadas: number }
-    const comigo = p && p.ok ? ((await p.json()) as { aguardando_recebimento?: unknown[]; com_voce?: unknown[] }) : null
-    const processos = (comigo?.aguardando_recebimento?.length ?? 0) + (comigo?.com_voce?.length ?? 0)
-    return { para_mim: (Number(c.para_mim) || 0) + processos, atrasadas: Number(c.atrasadas) || 0 }
+    type Item = { id?: string; processo_id?: string }
+    const comigo = p && p.ok ? ((await p.json()) as { aguardando_recebimento?: Item[]; com_voce?: Item[] }) : null
+    const listaComigo = [...(comigo?.aguardando_recebimento ?? []), ...(comigo?.com_voce ?? [])]
+    const jaContados = new Set(listaComigo.map((x) => x?.processo_id ?? x?.id).filter(Boolean))
+    const etapas = f && f.ok ? ((await f.json()) as Array<{ processo: { id: string } | null; prazo_em: string | null }>) : []
+    const etapasNovas = etapas.filter((e) => !e.processo || !jaContados.has(e.processo.id))
+    const atrasadasFluxo = etapasNovas.filter((e) => !!e.prazo_em && new Date(e.prazo_em).getTime() < Date.now()).length
+    return { para_mim: (Number(c.para_mim) || 0) + listaComigo.length + etapasNovas.length, atrasadas: (Number(c.atrasadas) || 0) + atrasadasFluxo }
   } catch {
     return null
   }

@@ -1,4 +1,4 @@
-import { WorkflowService } from '../workflow/workflow.service';
+import { ContratacaoNoFluxoService } from '../workflow/contratacao/contratacao-no-fluxo.service';
 import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -119,7 +119,8 @@ export class LicitacoesService {
     private readonly dfds: DfdConsolidadoService,
     // Processo eletrônico: a licitação é o primeiro TIPO de processo — nasce com a autuação, na mesma transação
     private readonly processos: ProcessoService,
-    private readonly workflow: WorkflowService,
+    // Um motor só (11/2026): toda contratação nasce conduzida pelo fluxo (módulo Processos)
+    private readonly contratacaoNoFluxo: ContratacaoNoFluxoService,
     private readonly auditLog: AuditLogService,
     // Gerador único do nº do processo administrativo (sequencial por órgão/ano)
     private readonly numeros: NumeroProcessoService,
@@ -246,6 +247,7 @@ export class LicitacoesService {
     });
     Object.assign(licitacao, beneficioMpe);
 
+    let processoId: string | null = null;
     const salva = await this.licitacaoRepository.manager.transaction(async (m) => {
       // PROCESSO ELETRÔNICO: a autuação nasce primeiro (consome o nº do gerador único
       // ou confere o digitado); a licitação recebe o MESMO número e é ligada ao processo.
@@ -264,12 +266,18 @@ export class LicitacoesService {
         throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
       }
       await this.processos.vincularReferencia(m, processo.id, REFERENCIA_LICITACAO, gravada.id);
+      processoId = processo.id;
       return gravada;
     });
     if (opcoes.dfd_consolidado) await this.dfds.vincularProcesso(opcoes.dfd_consolidado.id, salva.id, opcoes.dfd_consolidado.ator, salva.numero_processo);
     await this.transicoes.registrarCriacao(salva, ator, undefined, opcoes.registro);
     // E6.5: vinculada ao item do PCA / às demandas → item LICITACAO_INICIADA, demandas EM_CONTRATACAO
     if (salva.item_pca_id || salva.demanda_id || opcoes.dfd_consolidado) await this.resultado.aoCriarProcesso(salva.id);
+    // Um motor só: assistente, demanda e fase interna feita fora (com ou sem DFD consolidado)
+    // também nascem no fluxo; o "Abrir processo" do DFD entra pelo criarAPartirDeDfd
+    if (processoId && ator.tipo !== 'SISTEMA') {
+      await this.contratacaoNoFluxo.iniciar(salva.orgao_id, processoId, String(ator.id ?? ''));
+    }
     return salva;
   }
 
@@ -564,7 +572,7 @@ export class LicitacoesService {
         `SELECT id::text AS id FROM processos WHERE referencia_tipo = 'LICITACAO' AND referencia_id::text = $1 AND orgao_id::text = $2`,
         [licitacaoSalva.id, licitacaoSalva.orgao_id],
       );
-      if (proc) await this.workflow.iniciarFluxoDaContratacao(licitacaoSalva.orgao_id, proc.id, String(atorAcesso?.usuarioId ?? atorAcesso?.id ?? ator.id ?? ""));
+      if (proc) await this.contratacaoNoFluxo.iniciar(licitacaoSalva.orgao_id, proc.id, String(atorAcesso?.usuarioId ?? atorAcesso?.id ?? ator.id ?? ""));
     } catch (e) {
       this.logger.warn(`Fluxo da contratação ${licitacaoSalva.id} não iniciou sozinho: ${e instanceof Error ? e.message : e}`);
     }

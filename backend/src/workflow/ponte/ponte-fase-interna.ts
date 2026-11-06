@@ -22,6 +22,7 @@ export const ROTA_DA_ETAPA: Record<string, string> = {
   MAPA_RISCOS: 'etp',
   TR: 'tr',
   RESERVA_ORCAMENTARIA: 'reserva',
+  MINUTAS: 'minutas',
   PARECER_JURIDICO: 'parecer',
   CONTROLE_INTERNO: 'controle-interno',
   AUTORIZACAO: 'autorizacao',
@@ -35,6 +36,7 @@ export const DOCUMENTO_DA_ETAPA: Record<string, string> = {
   MAPA_RISCOS: 'AR',
   TR: 'TR',
   RESERVA_ORCAMENTARIA: 'DO',
+  MINUTAS: 'RAG',
   PARECER_JURIDICO: 'PJ',
   CONTROLE_INTERNO: 'MCI',
   AUTORIZACAO: 'AA',
@@ -53,6 +55,17 @@ export function documentoProntoParaAPonte(doc: Parameters<typeof statusDaPeca>[0
   return PRONTA_NA_INSTRUCAO.has(statusDaPeca(doc, { pode_nao_se_aplicar: regras.pode_nao_se_aplicar }));
 }
 
+/**
+ * Peças que a etapa leva junto (11/2026): a análise de riscos mora na tela do ETP
+ * e a trava do art. 72, I a cobra na autorização — sem etapa própria de Mapa de
+ * riscos no fluxo, o ETP só conclui com ela resolvida (feita, anexada ou "não se
+ * aplica" onde a lei permite). Senão o processo trava na autorização sem ninguém
+ * na vez de resolver.
+ */
+export const PECAS_JUNTAS_DA_ETAPA: Record<string, Array<{ tipo: string; rotulo: string }>> = {
+  ETP: [{ tipo: 'AR', rotulo: 'a análise de riscos (na tela do ETP: faça, anexe ou marque "não se aplica")' }],
+};
+
 export interface EstadoNaFaseInterna {
   /** Documento da etapa: versão atual pronta (ou marcada "não se aplica" na tela da fase interna). */
   documentoPronto: boolean;
@@ -66,6 +79,8 @@ export interface EstadoNaFaseInterna {
    * PUBLICACAO. O fluxo não conclui a etapa com a trava armada.
    */
   travasDaLei?: string[];
+  /** Rótulos das peças juntas da etapa (PECAS_JUNTAS_DA_ETAPA) que ainda não estão prontas. */
+  pecasJuntasPendentes?: string[];
 }
 
 const ROTULO: Record<string, string> = {
@@ -75,10 +90,21 @@ const ROTULO: Record<string, string> = {
   MAPA_RISCOS: 'a análise de riscos',
   TR: 'o termo de referência',
   RESERVA_ORCAMENTARIA: 'a reserva orçamentária',
+  MINUTAS: 'o relatório do agente',
   PARECER_JURIDICO: 'o parecer jurídico',
   CONTROLE_INTERNO: 'a manifestação do controle interno',
   AUTORIZACAO: 'a autorização',
 };
+
+/**
+ * Tipos de etapa que a ponte resolve lendo a fase interna. Os demais (Documento,
+ * Tarefa, Aprovação…) seguem a regra geral do motor: o documento da etapa é a peça
+ * juntada aos autos com `etapa = 'no:<acao_id>'`.
+ */
+export function etapaDaPonte(tipoNo: string): boolean {
+  const tipo = String(tipoNo).toUpperCase();
+  return tipo === 'DEMANDA' || tipo === 'PUBLICACAO' || !!DOCUMENTO_DA_ETAPA[tipo];
+}
 
 /** O que falta para concluir a etapa da contratação, lendo o estado da fase interna. */
 export function pendenciasDaPonte(tipoNo: string, e: EstadoNaFaseInterna): string[] {
@@ -88,7 +114,8 @@ export function pendenciasDaPonte(tipoNo: string, e: EstadoNaFaseInterna): strin
   if (tipo === 'PUBLICACAO') return e.publicada ? [] : [...travas, 'A contratação ainda não foi publicada: gere e divulgue o aviso/edital na tela da licitação.'];
   if (DOCUMENTO_DA_ETAPA[tipo]) {
     const doc = e.documentoPronto ? [] : [`Conclua ${ROTULO[tipo] ?? 'o documento'} na tela da fase interna: gere ou anexe o documento, ou marque "não se aplica".`];
-    return [...travas, ...doc];
+    const juntas = (e.pecasJuntasPendentes ?? []).map((r) => `Falta ${r}.`);
+    return [...travas, ...doc, ...juntas];
   }
   return [];
 }
@@ -161,6 +188,7 @@ export const PASSO_DO_NO: Record<string, string> = {
   TR: 'TR',
   RESERVA_ORCAMENTARIA: 'RESERVA',
   DEFINICAO_MODALIDADE: 'INDICACAO_MODALIDADE',
+  MINUTAS: 'MINUTAS',
   PARECER_JURIDICO: 'PARECER',
   CONTROLE_INTERNO: 'CONTROLE_INTERNO',
   AUTORIZACAO: 'AUTORIZACAO',

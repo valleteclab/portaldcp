@@ -46,51 +46,78 @@ export const MODELOS_PRONTOS: readonly ModeloPronto[] = [
     etapas: [
       { tipo: 'DFD', nome: 'DFD — pede autorização', setor: ADMINISTRACAO, prazo: 2 },
       { tipo: 'ETP', nome: 'Estudo técnico preliminar', setor: ADMINISTRACAO, prazo: 3 },
-      { tipo: 'DOCUMENTO', nome: 'Documentos e proposta do fornecedor', setor: ADMINISTRACAO, prazo: 3 },
       { tipo: 'PESQUISA_PRECO', nome: 'Pesquisa de preços', setor: COMPRAS, prazo: 5 },
       { tipo: 'RESERVA_ORCAMENTARIA', nome: 'Dotação orçamentária', setor: CONTABILIDADE, prazo: 2 },
       { tipo: 'TR', nome: 'Termo de referência', setor: ADMINISTRACAO, prazo: 5 },
       { tipo: 'DEFINICAO_MODALIDADE', nome: 'Definição da modalidade', setor: LICITACOES, prazo: 2 },
     ],
   },
+  // Fluxos de MODALIDADE (11/2026, "um motor só"): seguem a ordem que a trava da lei
+  // exige — o Despacho da Mesa do início é APROVAÇÃO (autoriza o prosseguimento); a
+  // AUTORIZAÇÃO do art. 72, VIII vem depois do relatório do agente (razão da escolha
+  // e preço, incs. VI e VII) e do parecer. O fluxo termina na publicação: propostas,
+  // disputa, adjudicação, homologação e contrato são atos da licitação, na tela dela.
+  {
+    chave: 'dispensa-camara',
+    nome: 'Dispensa eletrônica',
+    descricao: 'Contratação direta pelo art. 75 (dispensa eletrônica): do Despacho da Mesa à divulgação do aviso. Vem depois da instrução; a disputa e o resultado seguem na tela da licitação.',
+    origem: 'Portaria 089/2024 da Câmara (arts. 40 a 48) e a ordem das peças da Dispensa 029/2025 (PA 139/2025), ajustada às travas do art. 72.',
+    tipo_processo: 'CONTRATACAO',
+    aplicacao: { modalidades: ['DISPENSA_ELETRONICA'], fundamentos: [], padrao: false },
+    etapas: [
+      { tipo: 'APROVACAO', nome: 'Despacho da Mesa — autoriza o prosseguimento', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'MINUTAS', nome: 'Relatório do agente, minuta do aviso e do contrato', setor: LICITACOES, prazo: 3 },
+      { tipo: 'PARECER_JURIDICO', nome: 'Parecer jurídico', setor: JURIDICO, prazo: 5 },
+      { tipo: 'AUTORIZACAO', nome: 'Autorização da contratação direta (art. 72, VIII)', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'PUBLICACAO', nome: 'Divulgação do aviso de dispensa (PNCP e site)', setor: LICITACOES, prazo: 2 },
+    ],
+  },
   {
     chave: 'inexigibilidade-camara',
     nome: 'Inexigibilidade',
-    descricao: 'Contratação direta pelo art. 74 (ex.: capacitação): do Despacho da Mesa à publicação no Diário do Legislativo. Vem depois da instrução.',
-    origem: 'Autos das inexigibilidades 032 e 033/2026 da Câmara, na ordem das folhas.',
+    descricao: 'Contratação direta pelo art. 74 (ex.: capacitação): do Despacho da Mesa à publicação. Vem depois da instrução; adjudicação e ratificação seguem na tela da licitação.',
+    origem: 'Autos das inexigibilidades 032 e 033/2026 da Câmara, na ordem das folhas, ajustada às travas do art. 72.',
     tipo_processo: 'CONTRATACAO',
     aplicacao: { modalidades: ['INEXIGIBILIDADE'], fundamentos: [], padrao: false },
     etapas: [
-      { tipo: 'AUTORIZACAO', nome: 'Despacho da Mesa — autoriza o processo', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'APROVACAO', nome: 'Despacho da Mesa — autoriza o prosseguimento', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'DOCUMENTO', nome: 'Documentos e proposta do fornecedor', setor: ADMINISTRACAO, prazo: 3 },
       { tipo: 'DOCUMENTO', nome: 'Portaria do agente de contratação', setor: LICITACOES, prazo: 1 },
-      { tipo: 'DOCUMENTO', nome: 'Relatório do agente de contratação', setor: LICITACOES, prazo: 2 },
+      { tipo: 'MINUTAS', nome: 'Relatório do agente (razão da escolha e preço)', setor: LICITACOES, prazo: 2 },
       { tipo: 'PARECER_JURIDICO', nome: 'Parecer jurídico', setor: JURIDICO, prazo: 5 },
-      { tipo: 'APROVACAO', nome: 'Adjudicação', setor: PRESIDENCIA, prazo: 1 },
-      { tipo: 'APROVACAO', nome: 'Ratificação e homologação', setor: PRESIDENCIA, prazo: 1 },
-      { tipo: 'DOCUMENTO', nome: 'Aviso de inexigibilidade', setor: LICITACOES, prazo: 1 },
-      { tipo: 'PUBLICACAO', nome: 'Publicação no Diário do Legislativo', setor: LICITACOES, prazo: 2 },
+      { tipo: 'AUTORIZACAO', nome: 'Autorização da contratação direta (art. 72, VIII)', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'PUBLICACAO', nome: 'Aviso de inexigibilidade e publicação', setor: LICITACOES, prazo: 2 },
     ],
   },
   {
     chave: 'pregao-eletronico-camara',
     nome: 'Pregão eletrônico',
-    descricao: 'Do Despacho da Mesa ao contrato: edital, parecer, publicação, sessão na plataforma, parecer da fase externa, adjudicação e homologação. Vem depois da instrução.',
-    origem: 'Autos do Pregão Eletrônico 004/2026 da Câmara (folhas 1 a 1060), na ordem das folhas.',
+    descricao: 'Do Despacho da Mesa à publicação do edital. Vem depois da instrução; sessão pública, recursos, adjudicação, homologação e contrato seguem na tela da licitação.',
+    origem: 'Autos do Pregão Eletrônico 004/2026 da Câmara (folhas 1 a 1060), na ordem das folhas, até a publicação do edital.',
     tipo_processo: 'CONTRATACAO',
     aplicacao: { modalidades: ['PREGAO_ELETRONICO'], fundamentos: [], padrao: false },
     etapas: [
-      { tipo: 'AUTORIZACAO', nome: 'Despacho da Mesa — autoriza a abertura', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'APROVACAO', nome: 'Despacho da Mesa — autoriza a abertura', setor: PRESIDENCIA, prazo: 2 },
       { tipo: 'DOCUMENTO', nome: 'Portarias do agente e dos fiscais', setor: LICITACOES, prazo: 1 },
-      { tipo: 'DOCUMENTO', nome: 'Relatório do agente (modalidade e critérios)', setor: LICITACOES, prazo: 2 },
-      { tipo: 'DOCUMENTO', nome: 'Minuta do edital e anexos', setor: LICITACOES, prazo: 5 },
+      { tipo: 'MINUTAS', nome: 'Relatório do agente e minuta do edital', setor: LICITACOES, prazo: 5 },
       { tipo: 'PARECER_JURIDICO', nome: 'Parecer jurídico — fase interna', setor: JURIDICO, prazo: 5 },
+      { tipo: 'AUTORIZACAO', nome: 'Autorização da publicação do edital', setor: PRESIDENCIA, prazo: 2 },
       { tipo: 'PUBLICACAO', nome: 'Publicação do edital (PNCP, Diário e jornal)', setor: LICITACOES, prazo: 2 },
-      { tipo: 'TAREFA', nome: 'Sessão pública, recursos e habilitação', setor: LICITACOES, prazo: 15 },
-      { tipo: 'PARECER_JURIDICO', nome: 'Parecer jurídico — fase externa', setor: JURIDICO, prazo: 5 },
-      { tipo: 'APROVACAO', nome: 'Adjudicação', setor: PRESIDENCIA, prazo: 2 },
-      { tipo: 'APROVACAO', nome: 'Homologação', setor: PRESIDENCIA, prazo: 2 },
-      { tipo: 'DOCUMENTO', nome: 'Contrato assinado', setor: LICITACOES, prazo: 5 },
-      { tipo: 'PUBLICACAO', nome: 'Extrato e publicação do contrato', setor: LICITACOES, prazo: 2 },
+    ],
+  },
+  {
+    chave: 'contratacao-padrao',
+    nome: 'Contratação — demais modalidades',
+    descricao: 'Fluxo padrão para a modalidade que não tem fluxo próprio: despacho, relatório do agente e minutas, parecer, autorização e publicação.',
+    origem: 'Mesma ordem dos fluxos de modalidade da Câmara (Lei 14.133, arts. 53 e 72).',
+    tipo_processo: 'CONTRATACAO',
+    aplicacao: { modalidades: [], fundamentos: [], padrao: true },
+    etapas: [
+      { tipo: 'APROVACAO', nome: 'Despacho da Mesa — autoriza o prosseguimento', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'MINUTAS', nome: 'Relatório do agente e minutas', setor: LICITACOES, prazo: 5 },
+      { tipo: 'PARECER_JURIDICO', nome: 'Parecer jurídico', setor: JURIDICO, prazo: 5 },
+      { tipo: 'AUTORIZACAO', nome: 'Autorização da autoridade competente', setor: PRESIDENCIA, prazo: 2 },
+      { tipo: 'PUBLICACAO', nome: 'Publicação (PNCP e mural)', setor: LICITACOES, prazo: 2 },
     ],
   },
   {
@@ -161,6 +188,9 @@ export function setorSugerido(setores: Array<{ id: string; nome: string }>, trec
   }
   return null;
 }
+
+/** Modelos que formam o fluxo padrão da contratação (ativados sozinhos no órgão que não tem nenhum). */
+export const CHAVES_FLUXO_PADRAO_CONTRATACAO = ['instrucao-contratacao-camara', 'dispensa-camara', 'inexigibilidade-camara', 'pregao-eletronico-camara', 'contratacao-padrao'] as const;
 
 export function modeloPronto(chave: string): ModeloPronto | null {
   return MODELOS_PRONTOS.find((m) => m.chave === chave) ?? null;
