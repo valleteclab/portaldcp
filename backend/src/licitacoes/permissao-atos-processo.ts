@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
 import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
+import { responsavelDaEtapaAtualDoFluxo } from '../workflow/ponte/ponte-fase-interna';
 
 /**
  * QUEM PRATICA OS ATOS QUE ENCERRAM O PROCESSO (homologação multiusuário,
@@ -46,6 +47,8 @@ export async function papelNoProcesso(ds: DataSource | EntityManager, ator: Ator
 
 export async function exigirQuemConduz(ds: DataSource | EntityManager, ator: Ator, licitacaoId: string, acao: string): Promise<void> {
   if (!(await papelNoProcesso(ds, ator, licitacaoId)).conduz) {
+    // Conduzida pelo fluxo: quem está na vez da Publicação divulga (um motor só, 11/2026)
+    if (await responsavelDaEtapaAtualDoFluxo((sql, p) => ds.query(sql, p), licitacaoId, ator.usuarioId, ['PUBLICACAO'])) return;
     throw new ForbiddenException(`Só quem conduz o processo (o agente de contratação, o administrador do órgão ou o login do órgão) pode ${acao}.`);
   }
 }
