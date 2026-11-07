@@ -12,7 +12,7 @@ import { TarefasService, responsaveisDoModelo } from '../tarefas/tarefas.service
 import { EtapaDoModelo, ModeloFluxo, ResponsavelEtapa, dependenciasEfetivas } from './modelo-fluxo';
 import { ModeloFluxoService } from './modelo-fluxo.service';
 import { PerfilTrabalho, PosseParaTrabalho, ResultadoPermissao, avaliarPermissaoEtapa, ehCondutor, ehResponsavelPelaEtapa } from './permissao-etapa';
-import { licitacaoConduzidaPeloFluxo, motivoForaDaVez, vezDoPasso, type PassoDaExecucao } from '../../workflow/ponte/ponte-fase-interna';
+import { licitacaoConduzidaPeloFluxo, motivoForaDaVez, responsavelDaEtapaAtualDoFluxo, vezDoPasso, type PassoDaExecucao } from '../../workflow/ponte/ponte-fase-interna';
 
 /** Documentos do órgão juntados ao processo (designação do agente e da equipe): fora da ordem das etapas. */
 const DOCUMENTOS_DO_ORGAO = ['DP', 'DEA'];
@@ -392,6 +392,8 @@ export class PermissaoEtapaService implements OnModuleInit {
     const perfil = await this.perfil(ator, lic.orgao_id);
     if (perfil.privilegiado) return;
     if (ehCondutor(perfil, await this.tarefas.agenteECriador(licitacaoId))) return;
+    // Conduzida pelo fluxo: quem está na vez da Publicação conclui a fase interna ao divulgar
+    if (await responsavelDaEtapaAtualDoFluxo((sql, p) => this.ds.query(sql, p), licitacaoId, ator.usuarioId, ['PUBLICACAO'])) return;
     throw new ForbiddenException(`Só quem conduz o processo (o agente de contratação, quem o criou, o administrador do órgão ou o login do órgão) pode ${acao}.`);
   }
 }

@@ -1,4 +1,4 @@
-import { despachoForaDoFluxo, DOCUMENTO_DA_ETAPA, PECAS_JUNTAS_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, portaoDaEtapa, ROTA_DA_ETAPA } from './ponte-fase-interna';
+import { despachoForaDoFluxo, DOCUMENTO_DA_ETAPA, PECAS_JUNTAS_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, ehEnvioForaDoFluxo, FINALIDADE_FORA_DO_FLUXO, justificativaForaDoFluxo, licitacaoConduzidaPeloFluxo, pendenciasDaPonte, portaoDaEtapa, responsavelDaEtapaAtualDoFluxo, ROTA_DA_ETAPA } from './ponte-fase-interna';
 
 const base = { documentoPronto: false, publicada: false, temDemanda: false };
 
@@ -143,5 +143,20 @@ describe('peças juntas da etapa (análise de riscos no ETP)', () => {
 
   it('sem peça junta pendente, o ETP pronto conclui', () => {
     expect(pendenciasDaPonte('ETP', { documentoPronto: true, publicada: false, temDemanda: true, pecasJuntasPendentes: [] })).toEqual([]);
+  });
+});
+
+describe('responsavelDaEtapaAtualDoFluxo (quem está na vez pratica o ato)', () => {
+  const linha = (o: Record<string, unknown>) => async () => [{ responsavel_tipo: 'SETOR', responsaveis: ['setor-lic'], iniciado_por_id: 'criador', tipo: 'PUBLICACAO', setor_id: 'setor-lic', ...o }];
+  it('pessoa do setor da etapa de Publicação: pode', async () => {
+    expect(await responsavelDaEtapaAtualDoFluxo(linha({}), 'lic', 'lia', ['PUBLICACAO'])).toBe(true);
+  });
+  it('de outro setor, ou etapa atual de outro tipo: não pode', async () => {
+    expect(await responsavelDaEtapaAtualDoFluxo(linha({ setor_id: 'outro' }), 'lic', 'ana', ['PUBLICACAO'])).toBe(false);
+    expect(await responsavelDaEtapaAtualDoFluxo(linha({ tipo: 'AUTORIZACAO' }), 'lic', 'lia', ['PUBLICACAO'])).toBe(false);
+  });
+  it('sem fluxo em andamento ou sem usuário: não pode', async () => {
+    expect(await responsavelDaEtapaAtualDoFluxo(async () => [], 'lic', 'lia')).toBe(false);
+    expect(await responsavelDaEtapaAtualDoFluxo(linha({}), 'lic', null)).toBe(false);
   });
 });

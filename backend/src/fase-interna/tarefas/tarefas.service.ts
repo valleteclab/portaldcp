@@ -701,6 +701,9 @@ export class TarefasService {
   async etapasPendentesParaPublicar(licitacaoId: string): Promise<string[]> {
     const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, fase::text AS fase, situacao::text AS situacao FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
     if (!lic?.orgao_id || !FASES_INTERNAS.includes(lic.fase)) return [];
+    // Um motor só (11/2026): conduzida pelo fluxo, quem diz se as etapas acabaram é o fluxo —
+    // o modelo antigo fica parado (sem tarefas nem posse) e nunca concluiria as etapas dele
+    if (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId)) return this.etapasDoFluxoAntesDaPublicacao(licitacaoId);
     const passos = passosDasEtapas(await this.etapasCalculadas(licitacaoId, lic));
     const pub = passos.find((p) => p.passo === PassoFaseInterna.PUBLICACAO);
     const exigidas = new Set<string>(pub?.pendencias ?? []);
@@ -719,6 +722,27 @@ export class TarefasService {
       saida.push(`${p.titulo}${p.fundamento ? ` (${p.fundamento})` : ''} — ${motivo}`);
     }
     return saida;
+  }
+
+  /**
+   * Publicar com o fluxo desenhado: liberado quando o fluxo chegou à etapa de
+   * Publicação (as anteriores concluídas, na ordem do desenho); antes disso, a
+   * pendência diz em que etapa o processo está. Ainda na instrução, a
+   * publicação vem no fluxo da modalidade.
+   */
+  private async etapasDoFluxoAntesDaPublicacao(licitacaoId: string): Promise<string[]> {
+    const [atual] = await this.ds.query(
+      `SELECT a.nome, a.tipo
+         FROM workflow_instancias i
+         JOIN processos p ON p.id = i.vinculo_id AND p.orgao_id = i.orgao_id
+         LEFT JOIN workflow_acoes a ON a.id = i.acao_atual_id
+        WHERE i.vinculo_tipo = 'PROCESSO' AND i.status = 'EM_ANDAMENTO'
+          AND p.referencia_tipo = 'LICITACAO' AND p.referencia_id::text = $1
+        ORDER BY i.created_at DESC LIMIT 1`,
+      [licitacaoId],
+    );
+    if (!atual || String(atual.tipo ?? '').toUpperCase() === 'PUBLICACAO') return [];
+    return [`${atual.nome ?? 'Etapa atual'} — etapa atual do fluxo (a publicação é a última etapa)`];
   }
 
   /**

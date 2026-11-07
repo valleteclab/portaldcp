@@ -12,6 +12,7 @@
  */
 
 import { PRONTA_NA_INSTRUCAO, statusDaPeca } from '../../fase-interna/peca-regras';
+import { ehResponsavelDaTarefa } from '../responsavel';
 
 /** Tela da fase interna de cada etapa (rota em /orgao/processos/<licitacao>/fase-interna/<rota>). */
 export const ROTA_DA_ETAPA: Record<string, string> = {
@@ -144,6 +145,31 @@ export async function licitacaoConduzidaPeloFluxo(consulta: Consulta, licitacaoI
     [licitacaoId],
   );
   return !!r;
+}
+
+/**
+ * Responsável pela etapa ABERTA do fluxo da licitação (opcionalmente só se ela
+ * for de um dos `tipos`). Um motor só (11/2026): conduzida pelo fluxo, quem está
+ * na vez da etapa (ex.: Licitações na Publicação) pratica o ato dela mesmo sem
+ * ser o agente designado nem o criador — senão o processo para na última etapa.
+ */
+export async function responsavelDaEtapaAtualDoFluxo(consulta: Consulta, licitacaoId: string, usuarioId: string | null | undefined, tipos?: string[]): Promise<boolean> {
+  if (!usuarioId) return false;
+  const [t] = await consulta(
+    `SELECT t.responsavel_tipo, t.responsaveis, i.iniciado_por_id, a.tipo, u.setor_id::text AS setor_id
+       FROM workflow_instancias i
+       JOIN processos p ON p.id = i.vinculo_id AND p.orgao_id = i.orgao_id
+       JOIN workflow_tarefas t ON t.instancia_id = i.id AND t.status = 'ABERTA'
+       JOIN workflow_acoes a ON a.id = t.acao_id
+       LEFT JOIN usuarios u ON u.id::text = $2 AND u.orgao_id = i.orgao_id AND u.ativo = true
+      WHERE i.vinculo_tipo = 'PROCESSO' AND i.status = 'EM_ANDAMENTO'
+        AND p.referencia_tipo = 'LICITACAO' AND p.referencia_id::text = $1
+      ORDER BY t.created_at DESC LIMIT 1`,
+    [licitacaoId, usuarioId],
+  );
+  if (!t) return false;
+  if (tipos?.length && !tipos.includes(String(t.tipo ?? '').toUpperCase())) return false;
+  return ehResponsavelDaTarefa(t, t, { ehLoginDoOrgao: false, atorId: usuarioId, usuarioId, setorId: t.setor_id ?? null });
 }
 
 /**
