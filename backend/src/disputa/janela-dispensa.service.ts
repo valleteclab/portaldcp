@@ -1,3 +1,6 @@
+import { ModuleRef } from '@nestjs/core';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { JANELA_MINIMA_DE_TESTE_MIN, orgaoComPrazosDeTeste } from '../common/prazos/prazos-de-teste';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
@@ -102,7 +105,41 @@ export class JanelaDispensaService {
     private readonly disputa: DisputaService,
     private readonly anonimizacao: AnonimizacaoService,
     private readonly gateway: DisputaGateway,
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * Aviso do órgão (prazo de propostas) → notificação no sino de cada fornecedor com
+   * proposta válida; contraproposta/negociação → só o vencedor (homologação 08/11/2026:
+   * o aviso ficava só no chat da sala, quem não abria a sala não sabia).
+   */
+  private async notificarFornecedores(licitacaoId: string, fornecedores: string[], titulo: string, mensagem: string) {
+    if (!fornecedores.length) return;
+    let notif: NotificacoesService | null = null;
+    try {
+      notif = this.moduleRef.get(NotificacoesService, { strict: false });
+    } catch {
+      return;
+    }
+    const [l] = await this.dataSource.query(`SELECT orgao_id::text AS orgao_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    const dest: Array<{ id: string; email?: string }> = await this.dataSource.query(
+      `SELECT id::text AS id, email FROM fornecedores WHERE id::text = ANY($1::text[])`,
+      [fornecedores],
+    );
+    await notif?.criarParaMultiplos(
+      dest.map((d) => ({ id: d.id, email: d.email || undefined })),
+      {
+        orgao_id: l?.orgao_id,
+        tipo: TipoNotificacao.SISTEMA,
+        titulo: titulo.slice(0, 200),
+        mensagem: mensagem.slice(0, 1000),
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'licitacao',
+        entidade_id: licitacaoId,
+        link: `/fornecedor/licitacoes/${licitacaoId}/sala`,
+      } as any,
+    );
+  }
 
   // ==========================================================================
   // ESTADO DA JANELA E SALA
@@ -639,6 +676,26 @@ export class JanelaDispensaService {
       const publico = this.mensagemParaTela(evento, codigo, !anonimo);
       delete (publico as any).fornecedor_id;
       this.gateway.emitirChatDispensa(licitacaoId, publico);
+    }
+    if (dto.autor_tipo === 'ORGAO') {
+      const destinos: string[] = canal
+        ? [String((canal as any).fornecedor_id)]
+        : regras.exige_assunto
+          ? (
+              await this.dataSource.query(
+                `SELECT DISTINCT fornecedor_id::text AS id FROM propostas WHERE licitacao_id = $1 AND status::text <> ALL($2::text[])`,
+                [licitacaoId, STATUS_PROPOSTA_INVALIDA],
+              )
+            ).map((r: any) => r.id)
+          : [];
+      const [lic] = await this.dataSource.query(`SELECT numero_edital, numero_processo FROM licitacoes WHERE id = $1`, [licitacaoId]);
+      const ref = lic?.numero_edital || lic?.numero_processo || 'dispensa';
+      this.notificarFornecedores(
+        licitacaoId,
+        destinos,
+        canal ? `Negociação na dispensa ${ref}` : `Aviso do órgão — dispensa ${ref}`,
+        texto,
+      ).catch((err) => this.logger?.warn?.(`Notificação do aviso da dispensa ${licitacaoId}: ${err?.message ?? err}`));
     }
     return { ok: true, id: evento.id, modo: regras.modo };
   }

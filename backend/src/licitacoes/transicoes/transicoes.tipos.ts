@@ -168,6 +168,8 @@ export interface ConsultasTransicao {
    * Opcional: ausente = sem checagem.
    */
   unidadesSemHabilitado?(): Promise<string[]>;
+  /** Dispensa eletrônica: vencedores sem habilitação registrada como HABILITADO (art. 72, V). */
+  vencedoresDispensaSemHabilitacao?(): Promise<string[]>;
   /**
    * Estado recursal (plano E5 — Lei 14.133 arts. 165 e 168): janela de
    * intenção aberta/encerrada, recursos pendentes (efeito suspensivo),

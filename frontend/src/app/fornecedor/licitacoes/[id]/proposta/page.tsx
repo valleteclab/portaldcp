@@ -51,9 +51,9 @@ interface Licitacao {
 }
 
 const steps = [
-  { id: 1, title: "Declaracoes", icon: FileText },
+  { id: 1, title: "Declarações", icon: FileText },
   { id: 2, title: "Itens e Valores", icon: Package },
-  { id: 3, title: "Revisao e Envio", icon: Send },
+  { id: 3, title: "Revisão e Envio", icon: Send },
 ]
 
 export default function CadastrarPropostaPage({ params }: { params: Promise<{ id: string }> }) {
@@ -364,24 +364,24 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       {currentStep === 1 && (
         <Card>
           <CardHeader>
-            <CardTitle>Termos e Declaracoes</CardTitle>
-            <CardDescription>Confirme as declaracoes obrigatorias para participar</CardDescription>
+            <CardTitle>Termos e Declarações</CardTitle>
+            <CardDescription>Confirme as declarações obrigatórias para participar</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <Alert>
               <Info className="h-4 w-4" />
               <AlertTitle>Importante</AlertTitle>
               <AlertDescription>
-                As declaracoes marcadas com (*) sao obrigatorias conforme Lei 14.133/2021
+                As declarações marcadas com (*) são obrigatórias conforme a Lei 14.133/2021
               </AlertDescription>
             </Alert>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex-1">
-                  <Label className="font-medium">Termo de Aceitacao *</Label>
+                  <Label className="font-medium">Termo de Aceitação *</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro que cumpro e estou ciente de todas as declaracoes contidas no termo de aceitacao.
+                    Declaro que cumpro e estou ciente de todas as declarações contidas no termo de aceitação.
                   </p>
                 </div>
                 <Switch 
@@ -392,9 +392,9 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex-1">
-                  <Label className="font-medium">Declaracao ME/EPP</Label>
+                  <Label className="font-medium">Declaração ME/EPP</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro que nao ultrapasso o limite de faturamento e cumpro os requisitos da LC 123/2006.
+                    Declaro que não ultrapasso o limite de faturamento e cumpro os requisitos da LC 123/2006.
                   </p>
                 </div>
                 <Switch 
@@ -410,7 +410,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                     Declaro que desenvolvo programa de integridade conforme Art. 60 da Lei 14.133/2021.
                   </p>
                   <p className="text-xs text-blue-600 mt-1">
-                    Opcional - Exigido apenas para contratos de grande vulto (acima de R$ 200 milhões)
+                    Opcional — exigido apenas para contratos de grande vulto (acima de R$ 200 milhões)
                   </p>
                 </div>
                 <Switch 
@@ -421,9 +421,9 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex-1">
-                  <Label className="font-medium">Inexistencia de Fatos Impeditivos *</Label>
+                  <Label className="font-medium">Inexistência de Fatos Impeditivos *</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro a inexistencia de fatos impeditivos para participar desta licitacao.
+                    Declaro a inexistência de fatos impeditivos para participar desta licitação.
                   </p>
                 </div>
                 <Switch 
@@ -436,7 +436,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                 <div className="flex-1">
                   <Label className="font-medium">Trabalho de Menor *</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro que nao emprego menor de 18 anos em trabalho noturno, perigoso ou insalubre.
+                    Declaro que não emprego menor de 18 anos em trabalho noturno, perigoso ou insalubre.
                   </p>
                 </div>
                 <Switch
@@ -480,8 +480,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       {currentStep === 2 && (
         <Card>
           <CardHeader>
-            <CardTitle>Itens da Licitacao</CardTitle>
-            <CardDescription>Informe os valores e especificacoes para cada item</CardDescription>
+            <CardTitle>Itens da Licitação</CardTitle>
+            <CardDescription>Informe os valores e especificações para cada item</CardDescription>
           </CardHeader>
           <CardContent>
             {avisoExclusivo && (
@@ -498,7 +498,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[50px]">Item</TableHead>
-                  <TableHead>Descricao</TableHead>
+                  <TableHead>Descrição</TableHead>
                   <TableHead className="text-center">Qtd</TableHead>
                   {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
                     <TableHead className="text-right">{(licitacao as any)?.modalidade === 'LEILAO' ? 'Preço mínimo' : 'Valor Ref.'}</TableHead>
@@ -521,10 +521,10 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-center align-top">{item.quantidade} {item.unidade}</TableCell>
+                    <TableCell className="text-center align-top">{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidade}</TableCell>
                     {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
                       <TableCell className="text-right text-muted-foreground">
-                        R$ {item.valorEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        R$ {Number(item.valorEstimado).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     )}
                     <TableCell className="text-right">
@@ -571,18 +571,18 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       {currentStep === 3 && (
         <Card>
           <CardHeader>
-            <CardTitle>Revisao da Proposta</CardTitle>
+            <CardTitle>Revisão da Proposta</CardTitle>
             <CardDescription>Confira os dados antes de enviar</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <h3 className="font-medium mb-2">Declaracoes Aceitas</h3>
+                <h3 className="font-medium mb-2">Declarações Aceitas</h3>
                 <ul className="space-y-1 text-sm">
-                  {declaracoes.termos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Termo de Aceitacao</li>}
+                  {declaracoes.termos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Termo de Aceitação</li>}
                   {declaracoes.mpe && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> ME/EPP</li>}
                   {declaracoes.integridade && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Programa de Integridade</li>}
-                  {declaracoes.inexistenciaFatos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Inexistencia de Fatos</li>}
+                  {declaracoes.inexistenciaFatos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Inexistência de Fatos Impeditivos</li>}
                   {declaracoes.menor && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Trabalho de Menor</li>}
                   {declaracoes.custosTrabalhistas && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Custos Trabalhistas</li>}
                   {declaracoes.responsabilidade && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Responsabilidade pela Proposta</li>}

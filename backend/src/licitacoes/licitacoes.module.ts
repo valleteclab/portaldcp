@@ -33,11 +33,14 @@ import { DfdModule } from '../demandas/dfd/dfd.module';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
 import { ProcessoModule } from '../processo/processo.module';
 import { LimpezaMotorAntigoBootService } from './limpeza-motor-antigo-boot.service';
+import { HabilitacaoDispensa, NegociacaoDispensa } from './dispensa/pos-julgamento.entities';
+import { DispensaPosJulgamentoService } from './dispensa/pos-julgamento.service';
+import { DispensaPosJulgamentoController } from './dispensa/pos-julgamento.controller';
 
 @Module({
   imports: [
     // DispensaLance/DispensaMensagem: @deprecated — só para o synchronize manter as tabelas legadas (migração E2; ninguém escreve)
-    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao]),
+    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao, HabilitacaoDispensa, NegociacaoDispensa]),
     forwardRef(() => ContratosModule),
     PncpModule,
     FaseInternaModule,
@@ -56,8 +59,8 @@ import { LimpezaMotorAntigoBootService } from './limpeza-motor-antigo-boot.servi
     ProcessoModule,
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
-  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService, LimpezaMotorAntigoBootService],
+  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController, DispensaPosJulgamentoController],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService, LimpezaMotorAntigoBootService, DispensaPosJulgamentoService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}

@@ -14,6 +14,7 @@ import { Loader2, MessageSquare, TimerReset, TrendingDown, Trophy, Wifi, WifiOff
 import { API_URL, authFetch, getAuthToken, hasValidSession } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ContrapropostaDispensa } from './ContrapropostaDispensa'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { lerValorMonetario } from './PainelLancesFornecedor'
@@ -296,6 +297,8 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
           {painel.itens.length === 0 && <p className="text-sm text-gray-500">Nenhum item encontrado.</p>}
         </CardContent>
       </Card>
+
+      <ContrapropostaDispensa licitacaoId={licitacaoId} atualizacao={mensagens.length} />
 
       {/* Chat da sessão — registrado nos autos; autoria anônima durante os lances */}
       <Card>

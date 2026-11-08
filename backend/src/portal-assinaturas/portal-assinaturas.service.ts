@@ -314,6 +314,17 @@ export class PortalAssinaturasService {
       await this.assinaturasService.validarOtpEmail(orgaoId, signatario.email, codigoOtp);
     }
 
+    return this.registrarAssinaturaDoSignatario(signatario, ip, userAgent, assinaturaImagem);
+  }
+
+  /** Grava a assinatura do signatário (já identificado) e conclui o documento quando todos assinaram. */
+  private async registrarAssinaturaDoSignatario(
+    signatario: SignatarioDocumento,
+    ip: string,
+    userAgent: string,
+    assinaturaImagem?: string,
+  ): Promise<{ sucesso: boolean; pdf_url?: string }> {
+    const orgaoId = signatario.documento.orgao_id;
     const codigoValidacao = this.gerarCodigoValidacao();
 
     signatario.status = StatusAssinaturaSignatario.ASSINADO;
@@ -370,6 +381,65 @@ export class PortalAssinaturasService {
     );
 
     return { sucesso: true, pdf_url: pdfUrl };
+  }
+
+  // =============================================
+  // FORNECEDOR LOGADO ASSINA O CONTRATO DELE (homologação 08/11/2026: o link
+  // ia só por e-mail e o "Assinar contrato" do portal não levava a lugar nenhum)
+  // =============================================
+
+  /** Signatário do fornecedor no termo do contrato (CNPJ ou e-mail do cadastro). */
+  private async signatarioDoFornecedorNoContrato(contratoId: string, fornecedorId: string) {
+    const [ctr] = await this.dataSource.query(
+      `SELECT c.id::text AS id, c.numero_contrato, c.status::text AS status, c.documento_assinatura_id::text AS documento_id,
+              f.cpf_cnpj, f.email
+         FROM contratos c JOIN fornecedores f ON f.id = c.fornecedor_id
+        WHERE c.id::text = $1 AND c.fornecedor_id::text = $2`,
+      [contratoId, fornecedorId],
+    );
+    if (!ctr) throw new NotFoundException('Contrato não encontrado');
+    if (!ctr.documento_id) return { ctr, signatario: null as SignatarioDocumento | null };
+    const doc = String(ctr.cpf_cnpj ?? '').replace(/\D/g, '');
+    const signatarios = await this.signatarioRepository.find({
+      where: { documento_id: ctr.documento_id },
+      relations: ['documento', 'documento.orgao', 'documento.signatarios'],
+    });
+    const signatario =
+      signatarios.find((s) => !s.is_orgao_user && !!doc && String(s.cpf_cnpj ?? '').replace(/\D/g, '') === doc) ??
+      signatarios.find((s) => !s.is_orgao_user && !!ctr.email && String(s.email ?? '').toLowerCase() === String(ctr.email).toLowerCase()) ??
+      null;
+    return { ctr, signatario };
+  }
+
+  /** Situação da assinatura do fornecedor no contrato (para a tela do fornecedor). */
+  async assinaturaDoFornecedor(contratoId: string, fornecedorId: string) {
+    const { ctr, signatario } = await this.signatarioDoFornecedorNoContrato(contratoId, fornecedorId);
+    const doc = signatario?.documento;
+    return {
+      contrato_id: ctr.id,
+      numero_contrato: ctr.numero_contrato,
+      status_contrato: ctr.status,
+      termo_gerado: !!ctr.documento_id,
+      documento_id: ctr.documento_id ?? null,
+      arquivo_url: doc?.arquivo_original_url ?? null,
+      arquivo_assinado_url: doc?.arquivo_assinado_url ?? null,
+      pode_assinar: !!signatario && signatario.status !== StatusAssinaturaSignatario.ASSINADO,
+      ja_assinou: signatario?.status === StatusAssinaturaSignatario.ASSINADO,
+      assinaturas: (doc?.signatarios ?? []).map((s) => ({
+        nome: s.nome,
+        papel: s.papel ?? null,
+        assinado: s.status === StatusAssinaturaSignatario.ASSINADO,
+        data: s.data_assinatura ?? null,
+      })),
+    };
+  }
+
+  /** O fornecedor logado assina o termo do próprio contrato (a sessão é a identidade — sem código). */
+  async assinarContratoComoFornecedor(contratoId: string, fornecedorId: string, ip: string, userAgent: string) {
+    const { signatario } = await this.signatarioDoFornecedorNoContrato(contratoId, fornecedorId);
+    if (!signatario) throw new BadRequestException('O termo do contrato ainda não foi enviado para a sua assinatura.');
+    if (signatario.status === StatusAssinaturaSignatario.ASSINADO) throw new BadRequestException('Você já assinou este contrato');
+    return this.registrarAssinaturaDoSignatario(signatario, ip, userAgent);
   }
 
   async obterDocumentoPorToken(token: string) {

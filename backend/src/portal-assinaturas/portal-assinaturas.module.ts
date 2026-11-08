@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PortalAssinaturasService } from './portal-assinaturas.service';
 import { PortalAssinaturasController } from './portal-assinaturas.controller';
 import { PublicAssinaturasController } from './public-assinaturas.controller';
+import { FornecedorAssinaturaController } from './fornecedor-assinatura.controller';
 import { DocumentoAssinatura } from '../assinaturas/entities/documento-assinatura.entity';
 import { SignatarioDocumento } from '../assinaturas/entities/signatario-documento.entity';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
@@ -16,7 +17,7 @@ import { PncpModule } from '../pncp/pncp.module';
     AssinaturasModule,
     PncpModule,
   ],
-  controllers: [PortalAssinaturasController, PublicAssinaturasController],
+  controllers: [PortalAssinaturasController, PublicAssinaturasController, FornecedorAssinaturaController],
   providers: [PortalAssinaturasService],
   exports: [PortalAssinaturasService],
 })

@@ -184,8 +184,10 @@ export class CnpjService {
       const response = await fetch(url);
       
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new BadRequestException('CNPJ não encontrado na base da Receita Federal');
+        // Homologação 08/11/2026: CNPJ inexistente voltava "Erro ao consultar. Tente novamente." (o
+        // provedor responde 400/422 para CNPJ que não existe) — tentar de novo não resolve
+        if ([400, 404, 422].includes(response.status)) {
+          throw new BadRequestException('CNPJ não encontrado na Receita Federal. Confira o número digitado — se estiver correto e a empresa for nova, a Receita pode levar alguns dias para publicar o cadastro.');
         }
         if (response.status === 429) {
           throw new BadRequestException('Limite de consultas excedido. Tente novamente mais tarde.');

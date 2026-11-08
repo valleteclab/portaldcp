@@ -29,6 +29,7 @@ import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
   id: string
+  modalidade?: string
   numero_processo: string
   numero_edital?: string
   objeto: string
@@ -216,13 +217,15 @@ export default function EsclarecimentosPage() {
           </CardTitle>
           <CardDescription>
             Descreva sua dúvida de forma clara e objetiva
-            {dataLimiteManifestacao(licitacao) && (
+            {dataLimiteManifestacao(licitacao) && licitacao?.modalidade !== 'DISPENSA_ELETRONICA' && (
               <> — prazo até {new Date(dataLimiteManifestacao(licitacao)!).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} (art. 164 da Lei 14.133/2021)</>
             )}
           </CardDescription>
           {licitacao && !prazoManifestacaoAberto(licitacao) && (
             <p className="text-sm text-amber-700 mt-2">
-              O prazo para pedidos de esclarecimento encerrou (até 3 dias úteis antes da abertura do certame).
+              {licitacao.modalidade === 'DISPENSA_ELETRONICA'
+                ? <>Na dispensa eletrônica não há pedido de esclarecimento formal (IN SEGES 67/2021): envie sua dúvida pelas mensagens da <a className="underline" href={`/fornecedor/licitacoes/${licitacao.id}/sala`}>sala da sessão</a>.</>
+                : 'O prazo para pedidos de esclarecimento encerrou (até 3 dias úteis antes da abertura do certame).'}
             </p>
           )}
         </CardHeader>

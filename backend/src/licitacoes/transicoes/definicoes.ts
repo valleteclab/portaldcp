@@ -900,6 +900,18 @@ export const licitantesAceitosHabilitados: Precondicao = async (ctx) => {
   return `Habilitação pendente (Lei 14.133/2021, art. 62) do licitante com proposta aceita: ${pendentes.join(', ')}`;
 };
 
+/**
+ * HOMOLOGAR a dispensa eletrônica (homologação 08/11/2026): todo vencedor com a
+ * habilitação conferida e registrada (Lei 14.133/2021, art. 72, V; IN SEGES
+ * 67/2021, art. 17). Nas demais modalidades a consulta não se aplica.
+ */
+export const vencedoresDaDispensaHabilitados: Precondicao = async (ctx) => {
+  if (ctx.licitacao.modalidade !== 'DISPENSA_ELETRONICA' || !ctx.consultas.vencedoresDispensaSemHabilitacao) return null;
+  const pendentes = await ctx.consultas.vencedoresDispensaSemHabilitacao();
+  if (!pendentes.length) return null;
+  return `Habilitação do vencedor pendente (Lei 14.133/2021, art. 72, V; IN SEGES 67/2021, art. 17): ${pendentes.join(', ')}`;
+};
+
 const INICIAR_DISPUTA: DefinicaoAto = {
   ato: A.INICIAR_DISPUTA,
   rotulo: 'Abrir sessão de disputa',
@@ -1117,7 +1129,7 @@ const HOMOLOGAR: DefinicaoAto = {
   para: F.HOMOLOGACAO,
   endpoint: 'POST /resultado/licitacao/:id/homologar',
   principal: true,
-  precondicoes: [haItemAdjudicado, rehomologacaoSemContrato, semRecursoPendente],
+  precondicoes: [haItemAdjudicado, rehomologacaoSemContrato, semRecursoPendente, vencedoresDaDispensaHabilitados],
   efeitos: [marcarData('data_homologacao')],
 };
 

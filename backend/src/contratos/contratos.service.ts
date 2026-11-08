@@ -2389,14 +2389,17 @@ export class ContratosService implements OnModuleInit {
     fs.writeFileSync(path.join(dir, nomeArq), buffer);
     const relPath = `contratos/${contratoId}/${nomeArq}`; // relativo à raiz de uploads
 
-    // 2. Signatários: responsável do órgão + representante do fornecedor
+    // 2. Signatários: AUTORIDADE COMPETENTE do órgão (homologação 08/11/2026: assinava
+    //    quem clicou — o agente de contratação) + representante do fornecedor
     //    (dados do cadastro) + extras informados (ex.: testemunhas)
+    const autoridade = await this.autoridadeQueAssinaOContrato(contrato.orgao_id, contrato.licitacao_id);
     const signatarios = [
       {
-        nome: usuario?.nome || 'Responsável do órgão',
-        cpf_cnpj: usuario?.cpf,
-        email: usuario?.email,
-        telefone: usuario?.telefone,
+        nome: autoridade ? `${autoridade.nome}${autoridade.cargo ? ` — ${autoridade.cargo}` : ''}` : usuario?.nome || 'Responsável do órgão',
+        cpf_cnpj: autoridade ? autoridade.cpf ?? undefined : usuario?.cpf,
+        email: autoridade ? autoridade.email ?? undefined : usuario?.email,
+        telefone: autoridade ? undefined : usuario?.telefone,
+        papel: autoridade?.cargo ?? undefined,
         is_orgao_user: true,
         pagina_assinatura: ultimaPagina,
         ...POSICAO_ASSINATURA_CONTRATANTE,
@@ -2444,6 +2447,34 @@ export class ContratosService implements OnModuleInit {
       termo_url: `/uploads/${relPath}`,
       signatarios: (docAss.signatarios || []).map((s: any) => ({ nome: s.nome, status: s.status })),
     };
+  }
+
+  /**
+   * Quem assina o contrato pelo órgão: a autoridade que homologou (registro da
+   * formalização) ou, sem ele, a autoridade padrão do cadastro do órgão
+   * (Configurações › Formalização), desde que tenha e-mail para receber o código.
+   * Sem cadastro com e-mail → null (assina quem solicita).
+   */
+  private async autoridadeQueAssinaOContrato(
+    orgaoId: string,
+    licitacaoId: string | null | undefined,
+  ): Promise<{ nome: string; cargo: string | null; cpf: string | null; email: string | null } | null> {
+    if (licitacaoId) {
+      const [h] = await this.contratoRepository.manager.query(
+        `SELECT autoridade_nome AS nome, autoridade_cargo AS cargo, autoridade_cpf AS cpf, autoridade_email AS email
+           FROM formalizacoes_resultado
+          WHERE licitacao_id::text = $1 AND tipo::text ILIKE '%HOMOLOG%' AND autoridade_nome IS NOT NULL
+          ORDER BY created_at DESC LIMIT 1`,
+        [licitacaoId],
+      ).catch(() => []);
+      if (h?.nome && h?.email) return h;
+    }
+    // Sem e-mail a autoridade não recebe o código para assinar — aí assina quem solicitou (como antes)
+    const [a] = await this.contratoRepository.manager.query(
+      `SELECT nome, cargo, cpf, email FROM autoridades_orgao WHERE orgao_id::text = $1 AND ativo = true AND COALESCE(email, '') <> '' ORDER BY padrao DESC, nome ASC LIMIT 1`,
+      [orgaoId],
+    ).catch(() => []);
+    return a?.nome ? a : null;
   }
 
   async gerarContratoAutomatico(licitacaoId: string): Promise<Contrato[]> {

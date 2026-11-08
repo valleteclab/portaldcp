@@ -387,55 +387,32 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {/* As MESMAS declarações do formulário da proposta (homologação 08/11/2026: faltavam custos trabalhistas e
+              responsabilidade, e aparecia "Reserva de cargos", que o formulário não pergunta). Opcional não marcada = "—". */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_termos ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Termo de Aceitação</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_mpe ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <span className="h-4 w-4 text-gray-400">-</span>
-              )}
-              <span>ME/EPP</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_integridade ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Programa de Integridade</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_inexistencia_fatos ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Inexistência de Fatos Impeditivos</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_menor ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Trabalho de Menor</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_reserva_cargos ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <span className="h-4 w-4 text-gray-400">-</span>
-              )}
-              <span>Reserva de Cargos</span>
-            </div>
+            {([
+              ['declaracao_termos', 'Termo de Aceitação', true],
+              ['declaracao_mpe', 'ME/EPP (LC 123/2006)', false],
+              ['declaracao_integridade', 'Programa de Integridade (art. 60)', false],
+              ['declaracao_inexistencia_fatos', 'Inexistência de Fatos Impeditivos', true],
+              ['declaracao_menor', 'Trabalho de Menor', true],
+              ['declaracao_custos_trabalhistas', 'Custos Trabalhistas', true],
+              ['declaracao_responsabilidade', 'Responsabilidade pela Proposta', true],
+            ] as const).map(([campo, rotulo, obrigatoria]) => {
+              const marcada = !!(proposta as unknown as Record<string, unknown>)[campo]
+              return (
+                <div key={campo} className="flex items-center gap-2">
+                  {marcada ? (
+                    <Check className="h-4 w-4 text-green-600" />
+                  ) : obrigatoria ? (
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                  ) : (
+                    <span className="h-4 w-4 text-gray-400">—</span>
+                  )}
+                  <span>{rotulo}</span>
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
@@ -499,7 +476,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
                     </p>
                   </TableCell>
                   <TableCell className="text-center">
-                    {item.item_licitacao?.quantidade} {item.item_licitacao?.unidade_medida}
+                    {Number(item.item_licitacao?.quantidade ?? 0).toLocaleString('pt-BR')} {item.item_licitacao?.unidade_medida}
                   </TableCell>
                   {proposta?.licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
                     <TableCell className="text-right text-muted-foreground">
