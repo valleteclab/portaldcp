@@ -1,9 +1,8 @@
 import { aprovacaoJaFeita } from './aprovacao-demanda';
 
 describe('aprovação da demanda (pula sozinha quando já existe)', () => {
-  const sem = { demandas: [], dfdConsolidado: null, origemDoDfd: null };
+  const sem = { demandas: [], dfdConsolidado: null };
   it('processo sem demanda e DFD feito no sistema: fica com o aprovador', () => {
-    expect(aprovacaoJaFeita({ ...sem, origemDoDfd: 'INTERNO' })).toBeNull();
     expect(aprovacaoJaFeita(sem)).toBeNull();
   });
   it('demanda aprovada pelo setor: pula', () => {
@@ -17,7 +16,7 @@ describe('aprovação da demanda (pula sozinha quando já existe)', () => {
   it('alguma demanda não aprovada: não pula pelas demandas', () => {
     expect(aprovacaoJaFeita({ ...sem, demandas: [{ status: 'APROVADA' }, { status: 'RASCUNHO' }] })).toBeNull();
   });
-  it('DFD juntado feito fora: a aprovação consta da peça', () => {
-    expect(aprovacaoJaFeita({ ...sem, origemDoDfd: 'ANEXADO' })).toContain('feito fora');
+  it('sem demanda, o DFD (feito no sistema ou fora) passa pelo aprovador', () => {
+    expect(aprovacaoJaFeita({ ...sem })).toBeNull();
   });
 });

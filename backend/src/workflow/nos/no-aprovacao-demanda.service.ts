@@ -35,10 +35,6 @@ export class ExecutorAprovacaoDemanda implements OnModuleInit {
       `SELECT numero, ano, exige_aprovacao, aprovacao IS NOT NULL AS aprovado FROM dfds_consolidados WHERE licitacao_id::text = $1 AND status <> 'CANCELADO' LIMIT 1`,
       [lic.id],
     );
-    const [doc] = await this.ds.query(
-      `SELECT origem::text AS origem FROM documentos_fase_interna WHERE licitacao_id::text = $1 AND tipo::text = 'DFD' AND versao_atual = true ORDER BY versao DESC NULLS LAST LIMIT 1`,
-      [lic.id],
-    );
-    return aprovacaoJaFeita({ demandas, dfdConsolidado: dfd ? { numero: dfd.numero, ano: dfd.ano, exige_aprovacao: !!dfd.exige_aprovacao, aprovado: !!dfd.aprovado } : null, origemDoDfd: doc?.origem ?? null });
+    return aprovacaoJaFeita({ demandas, dfdConsolidado: dfd ? { numero: dfd.numero, ano: dfd.ano, exige_aprovacao: !!dfd.exige_aprovacao, aprovado: !!dfd.aprovado } : null });
   }
 }
