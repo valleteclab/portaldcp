@@ -1,5 +1,6 @@
 // IMPORTANTE: Carregar dotenv ANTES de qualquer outro import
 // para garantir que as variáveis de ambiente estejam disponíveis
+import { orgaosComPrazosDeTeste } from './common/prazos/prazos-de-teste';
 import * as dotenv from 'dotenv';
 import * as dns from 'dns';
 import * as path from 'path';
@@ -152,6 +153,9 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
+  // Ensaio na homologação: órgãos de teste com prazos curtos (só no Railway — common/prazos/prazos-de-teste.ts)
+  const comPrazosDeTeste = orgaosComPrazosDeTeste();
+  if (comPrazosDeTeste.size) console.warn(`[PRAZOS DE TESTE] ligados para ${comPrazosDeTeste.size} órgão(s) de teste: ${[...comPrazosDeTeste].join(', ')}`);
   console.log(`🚀 Backend rodando na porta ${port}`);
 }
 bootstrap();
