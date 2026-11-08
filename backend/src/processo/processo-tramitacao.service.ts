@@ -48,6 +48,10 @@ import { definicaoDoNo } from '../workflow/nos/catalogo-nos';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { despachoForaDoFluxo, JUSTIFICATIVA_MINIMA, justificativaForaDoFluxo } from '../workflow/ponte/ponte-fase-interna';
+
+/** Começo do despacho de um envio fora do fluxo (ver `despachoForaDoFluxo`). */
+const PREFIXO_FORA_DO_FLUXO = 'Envio fora do fluxo.';
 
 interface Perfil extends PerfilTramitacao {
   orgao_id: string;
@@ -272,7 +276,17 @@ export class ProcessoTramitacaoService implements OnModuleInit {
   async enviar(ator: Ator, id: string, body: any) {
     const p = await this.carregar(ator, id);
     this.exigirAberto(p);
-    await this.exigirSemFluxo(p);
+    // Com fluxo em andamento, o envio é EXCEÇÃO (consulta, diligência) — mesma regra da contratação:
+    // justificativa obrigatória no despacho; a etapa do fluxo não muda e quem recebe devolve
+    if (await this.workflow.temFluxoEmAndamento(p.orgao_id, p.id)) {
+      const justificativa = justificativaForaDoFluxo(body?.justificativa_fora_do_fluxo);
+      if (!justificativa) {
+        throw new BadRequestException(
+          `Este processo segue um fluxo: ele anda pelas etapas. Para enviar a outro setor fora do fluxo (consulta, diligência), escreva a justificativa (mínimo ${JUSTIFICATIVA_MINIMA} caracteres).`,
+        );
+      }
+      body = { ...(body ?? {}), despacho: despachoForaDoFluxo(justificativa, body?.despacho) };
+    }
     const erro = validarDestino(body ?? {});
     if (erro) throw new BadRequestException(erro);
     const perfil = await this.perfil(ator, p.orgao_id);
@@ -331,7 +345,11 @@ export class ProcessoTramitacaoService implements OnModuleInit {
   /** Devolve a quem enviou (o remetente da movimentação atual). */
   async devolver(ator: Ator, id: string, body: any) {
     const p = await this.carregar(ator, id);
-    await this.exigirSemFluxo(p);
+    // Com fluxo em andamento só se devolve o que chegou FORA do fluxo (consulta/diligência)
+    if (await this.workflow.temFluxoEmAndamento(p.orgao_id, p.id)) {
+      const vigente = await this.atual(p);
+      if (!String(vigente?.despacho ?? '').startsWith(PREFIXO_FORA_DO_FLUXO)) await this.exigirSemFluxo(p);
+    }
     this.exigirAberto(p);
     const erro = validarDespacho(body?.despacho);
     if (erro) throw new BadRequestException(erro);

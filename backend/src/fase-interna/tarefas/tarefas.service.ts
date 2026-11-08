@@ -494,145 +494,17 @@ export class TarefasService {
     // Construtor de fluxo: a resposta que o sistema acabou de dar a uma condição fica gravada (não muda
     // mais se o dado mudar); a devolução termina quando quem devolveu conclui
     if (fluxo.ctx && FASES_INTERNAS.includes(lic.fase)) await this.gravarDecisoesEDevolucoes(fluxo.ctx, passos);
-    const abertas = await this.tarefaRepo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTA' } });
-    // Ponte (07/10/2026): contratação conduzida pelo fluxo desenhado — as etapas são dele; aqui só se calcula
-    if (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId)) {
-      for (const t of abertas) {
-        await this.ds.query(
-          `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $2, updated_at = now() WHERE id::text = $1 AND status = 'ABERTA'`,
-          [t.id, 'O processo segue o fluxo desenhado: as etapas são conduzidas por ele.'],
-        );
-      }
-      return { etapas, config, criadas: 0 };
-    }
-
-    const prazos = prazosDoModelo(fluxo.modelo);
-    // F3: posse única — a tarefa da etapa de quem recebeu o processo passa ao destino do envio
-    const condutor = agente ?? criador;
-    const posse = await this.posseAtual(licitacaoId);
-    const destinos = await this.destinosDoProcesso(lic.orgao_id, fluxo.modelo, config.modo, condutor);
-    const responsavelCom = (posseAgora: Posse | null) => (p: PassoFaseInterna | string) =>
-      responsavelNaPosse(
-        responsavelDoPasso(p, { modo: config.modo, responsaveis: responsaveisDoModelo(fluxo.modelo) }, { agente_id: agente, criador_usuario_id: criador }),
-        p,
-        destinos[p],
-        posseAgora,
-        config.modo,
-      );
-    const responsavelDe = responsavelCom(posse);
-
-    const plano = planejarSincronizacao(passos, abertas, responsavelDe, {
-      processo_encerrado: SITUACOES_ENCERRAM_TUDO.includes(lic.situacao) && FASES_INTERNAS.includes(lic.fase),
-    });
-
-    const agora = new Date();
-    const cal = calendarioDoOrgao(lic.orgao_id);
-    let criadas = 0;
-    const avisos: Tarefa[] = [];
-    const concluidas: ResultadoSincronizacao['concluidas'] = [];
-
-    for (const { passo, responsavel } of plano.criar) {
-      const valores = this.valoresDaTarefaDoPasso(lic, passo, responsavel, prazos, agora, cal);
-      const r = await this.tarefaRepo.createQueryBuilder().insert().into(Tarefa).values(valores).orIgnore().returning(['id']).execute();
-      const id = r.raw?.[0]?.id;
-      if (!id) continue; // já existia uma aberta (outra instância) — idempotente
-      criadas++;
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CRIADA, `Tarefa criada: ${passo.titulo}`, null, {
-        tarefa_id: id,
-        etapa: passo.etapa,
-        passo: passo.passo,
-        responsavel,
-        prazo: valores.prazo,
-      });
-      // o aviso sai no fim (depois da tramitação — sem aviso repetido)
-      if (opcoes.notificar !== false) avisos.push({ ...valores, id } as Tarefa);
-    }
-
-    for (const { tarefa_id, passo } of plano.concluir) {
-      const autor = await this.quemCumpriuPasso(licitacaoId, passo);
-      const r = await this.ds.query(
-        `UPDATE tarefas SET status = 'CONCLUIDA', concluida_em = now(), concluida_por_id = $2, concluida_por_nome = $3, updated_at = now()
-          WHERE id::text = $1 AND status = 'ABERTA' RETURNING id`,
-        [tarefa_id, autor.id, autor.nome],
-      );
-      if (!Number(r?.[1])) continue; // outra sincronização já concluiu
-      concluidas.push({ passo: passo.passo, autor });
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CONCLUIDA, `Tarefa concluída: ${passo.titulo}`, null, {
-        tarefa_id,
-        passo: passo.passo,
-        concluida_por: autor,
-      }, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
-    }
-
-    for (const { tarefa_id, motivo } of plano.cancelar) {
-      await this.ds.query(
-        `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $2, updated_at = now()
-          WHERE id::text = $1 AND status = 'ABERTA'`,
-        [tarefa_id, motivo],
-      );
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CANCELADA, `Tarefa cancelada: ${motivo}`, null, { tarefa_id, motivo });
-    }
-
-    for (const { tarefa_id, de, para } of plano.reatribuir) {
-      await this.ds.query(
-        `UPDATE tarefas SET responsavel_usuario_id = $2, responsavel_papel = $3, responsavel_setor_id = $4, updated_at = now()
-          WHERE id::text = $1 AND status = 'ABERTA' AND atribuicao_manual = false`,
-        [tarefa_id, para.usuario_id, para.papel, para.setor_id],
-      );
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_REATRIBUIDA, 'Responsável recalculado pela configuração do órgão', { responsavel: de }, {
-        tarefa_id,
-        responsavel: para,
-      });
-    }
-
-    await this.registrarMudancasDeEtapa(licitacaoId, etapas);
-
-    // F3: integração com a tramitação (posse inicial, envio automático, "Enviar o processo", "Aprovar a demanda")
-    const resultado: ResultadoSincronizacao = {
-      lic,
-      etapas,
-      passos,
-      config,
-      modelo: fluxo.modelo,
-      estado: fluxo.estado,
-      ctx: fluxo.ctx,
-      concluidas,
-      notificar: opcoes.notificar !== false,
-      condutor_id: condutor,
-      posse,
-      destinos,
-    };
-    for (const fn of this.depoisDeSincronizar) {
-      try {
-        await fn(resultado);
-      } catch (e: any) {
-        this.logger.warn(`Integração do processo ${licitacaoId} com a tramitação falhou: ${e?.message ?? e}`);
-      }
-    }
-    // A posse mudou agora (envio automático): as tarefas que acabaram de nascer já vão para o
-    // destino — e o aviso sai para ele uma vez só (quem já foi avisado pela tramitação não repete)
-    if (avisos.length) {
-      const posseDepois = await this.posseAtual(licitacaoId);
-      if ((posseDepois?.tramitacao_id ?? null) !== (posse?.tramitacao_id ?? null)) {
-        const novoDe = responsavelCom(posseDepois);
-        for (const t of avisos) {
-          if (t.origem !== 'ETAPA' || !t.passo) continue;
-          const para = novoDe(t.passo);
-          const de: Responsavel = { usuario_id: t.responsavel_usuario_id, papel: t.responsavel_papel, setor_id: t.responsavel_setor_id };
-          if (mesmoResponsavel(de, para)) continue;
-          const r = await this.ds.query(
-            `UPDATE tarefas SET responsavel_usuario_id = $2, responsavel_papel = $3, responsavel_setor_id = $4, updated_at = now()
-              WHERE id::text = $1 AND status = 'ABERTA' AND atribuicao_manual = false RETURNING id`,
-            [t.id, para.usuario_id, para.papel, para.setor_id],
-          );
-          if (!Number(r?.[1])) continue;
-          Object.assign(t, { responsavel_usuario_id: para.usuario_id, responsavel_papel: para.papel, responsavel_setor_id: para.setor_id });
-          await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_REATRIBUIDA, 'Responsável recalculado: o processo chegou ao destino da etapa', { responsavel: de }, { tarefa_id: t.id, responsavel: para });
-        }
-      }
-    }
-    for (const t of avisos) await this.notificar(lic, t, 'nova');
-    return { etapas, config, criadas };
+    // UM MOTOR SÓ (08/11/2026): as etapas da contratação são conduzidas pelo fluxo novo — aqui só se calcula.
+    // As tarefas do motor antigo que ainda estejam abertas (etapa, "Enviar o processo", "Aprovar a demanda")
+    // são canceladas. As tarefas do sistema (diligência do parecer, devolução da autorização, assinatura,
+    // reserva) ficam: antes eram canceladas junto, a cada sincronização.
+    await this.ds.query(
+      `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $2, updated_at = now()
+        WHERE licitacao_id::text = $1 AND status = 'ABERTA'
+          AND (origem IN ('ETAPA', 'TRAMITACAO') OR chave LIKE 'demanda:aprovar%')`,
+      [licitacaoId, 'O processo segue o fluxo: as etapas são conduzidas por ele.'],
+    );
+    return { etapas, config, criadas: 0 };
   }
 
   // ==========================================================================
