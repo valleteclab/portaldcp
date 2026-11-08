@@ -18,7 +18,7 @@ function textoDaEscolha(e: unknown): string | null {
 }
 
 const ROTULO_RESPONSAVEL: Record<string, string> = {
-  SOLICITANTE: 'Solicitante',
+  SOLICITANTE: 'Quem abriu o processo',
   FISCAL_CONTRATO: 'Fiscal do contrato',
   GESTOR_CONTRATO: 'Gestor do contrato',
 };

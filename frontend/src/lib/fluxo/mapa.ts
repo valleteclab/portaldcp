@@ -8,7 +8,7 @@
 export type GrupoMapa = "INSTRUCAO" | "DECISAO" | "PUBLICIDADE"
 export type SetaMapa = "DIREITA" | "ESQUERDA" | "BAIXO" | "FIM"
 
-const DECISAO = new Set(["AUTORIZACAO", "APROVACAO", "DECISAO"])
+const DECISAO = new Set(["AUTORIZACAO", "APROVACAO", "APROVACAO_DEMANDA", "DECISAO"])
 const PUBLICIDADE = new Set(["PARECER_JURIDICO", "CONTROLE_INTERNO", "PUBLICACAO"])
 /** Etapas genéricas: hoje fazem o papel de uma etapa própria que ainda não existe no catálogo. */
 const GENERICAS = new Set(["DOCUMENTO", "TAREFA", "APROVACAO", "FORMULARIO"])

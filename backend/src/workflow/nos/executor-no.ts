@@ -31,6 +31,12 @@ export interface ExecutorNo {
   pendencias?(ctx: ContextoNo): Promise<string[]>;
   /** Roda na mesma transação da conclusão: o que falhar aqui desfaz a conclusão. */
   aoConcluir?(ctx: ContextoNo, manager: EntityManager): Promise<void>;
+  /**
+   * Ao chegar na etapa: devolve o motivo (vai ao histórico) quando ela já está
+   * cumprida por outro caminho e o motor a conclui sozinho; nulo = segue com o
+   * responsável. Ex.: Aprovação da demanda quando a contratação veio de demanda aprovada.
+   */
+  concluiSozinha?(ctx: ContextoNo): Promise<string | null>;
   /** Só nós `automatico` do catálogo: executa ao chegar; o motor conclui em seguida. */
   executarAutomatico?(ctx: ContextoNo): Promise<void>;
 }
