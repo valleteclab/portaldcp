@@ -125,7 +125,7 @@ export function EscolhaModoFaseInterna({
               DFD consolidado
             </Link>{" "}
             — você monta o DFD com elas e a aprovação já vem das demandas. Abrindo por aqui, sem demanda, você faz o DFD e ele
-            passa pela <b>aprovação da demanda</b> (o DFD feito fora e anexado já conta como aprovado).
+            passa pela <b>aprovação da demanda</b> (também quando é o DFD feito fora e anexado).
           </p>
           <OpcoesModoFaseInterna valor={valor} onChange={setValor} modalidade={modalidade} />
           <p className="text-xs text-gray-600">

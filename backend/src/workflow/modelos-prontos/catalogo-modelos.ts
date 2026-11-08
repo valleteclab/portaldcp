@@ -45,7 +45,7 @@ export const MODELOS_PRONTOS: readonly ModeloPronto[] = [
     aplicacao: null,
     etapas: [
       // Quem abre o processo faz o DFD (com as demandas dos setores ou sem demanda, ex.: feito fora);
-      // sem demanda aprovada, o DFD passa pela aprovação — que pula sozinha quando já existe (08/11/2026)
+      // sem demanda aprovada, o DFD (feito no sistema ou fora) passa pela aprovação, que só pula com demandas aprovadas (08/11/2026)
       { tipo: 'DFD', nome: 'DFD — pede autorização', setor: [], prazo: 2, solicitante: true },
       { tipo: 'APROVACAO_DEMANDA', nome: 'Aprovação da demanda', setor: PRESIDENCIA, prazo: 2 },
       { tipo: 'ETP', nome: 'Estudo técnico preliminar', setor: ADMINISTRACAO, prazo: 3 },
