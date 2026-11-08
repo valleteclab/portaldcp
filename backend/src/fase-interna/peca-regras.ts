@@ -226,7 +226,13 @@ export function conteudoEditavel(dados: unknown): Record<string, any> {
 export function normalizarHtmlDaSecao(v: unknown): string {
   if (typeof v !== 'string') return '';
   return v
-    .replace(/<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, '')
+    // Mesmo caractere escrito de outro jeito: o gerador usa o espaço não separável (R$ 17.500,00,
+    // do Intl) e aspas/& literais; o editor grava `&nbsp;`, `&quot;`, `&amp;`
+    .replace(/&nbsp;|&#160;|\u00a0/gi, ' ')
+    .replace(/&quot;|&#34;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/<p>(?:\s|<br\s*\/?>)*<\/p>/gi, '')
     .replace(/<\/?p>/gi, '\n')
     .replace(/[ \t\r\f\v]+/g, ' ')
     .replace(/ *\n[\n ]*/g, '\n')
