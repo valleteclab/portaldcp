@@ -15,13 +15,21 @@ type TipoNovo = "OFICIO" | "CONTRATACAO" | "ADITIVO" | "RENOVACAO" | "AVULSO"
  * escolhe para quem enviar a cada passo; Com fluxo = o caminho já vem do órgão.
  * Cada tipo só aparece se o órgão tem o módulo dele.
  */
-const OPCOES_NOVO: Array<{ valor: TipoNovo; nome: string; selo: "Livre" | "Com fluxo"; texto: string; modulo?: ModuloSistema }> = [
+const OPCOES_NOVO: Array<{ valor: TipoNovo; nome: string; selo: "Livre" | "Com fluxo" | "Livre ou com fluxo"; texto: string; modulo?: ModuloSistema }> = [
   { valor: "OFICIO", nome: "Ofício", selo: "Livre", texto: "Escreve, assina e envia para outro setor. O número sai na sequência do seu setor." },
   { valor: "CONTRATACAO", nome: "Contratação", selo: "Com fluxo", texto: "Da demanda à publicação: licitação, dispensa ou inexigibilidade.", modulo: ModuloSistema.LICITACOES },
   { valor: "ADITIVO", nome: "Aditivo de contrato", selo: "Com fluxo", texto: "Prazo, valor ou quantidade de um contrato vigente.", modulo: ModuloSistema.CONTRATOS },
   { valor: "RENOVACAO", nome: "Renovação de contrato", selo: "Com fluxo", texto: "Prorrogação de um contrato por novo período.", modulo: ModuloSistema.CONTRATOS },
-  { valor: "AVULSO", nome: "Processo avulso", selo: "Livre", texto: "Qualquer outro assunto que precise de autos e tramitação." },
+  { valor: "AVULSO", nome: "Processo avulso", selo: "Livre ou com fluxo", texto: "Qualquer outro assunto que precise de autos e tramitação — livre ou seguindo um fluxo do órgão." },
 ]
+
+/** Fluxo de trabalho ativo do órgão (sem tipo definido ou de processo avulso). */
+interface FluxoOpcao {
+  id: string
+  nome: string
+  status: string
+  tipo_processo?: string | null
+}
 
 interface ContratoOpcao {
   id: string
@@ -55,6 +63,9 @@ export default function ListaProcessosPage() {
   const opcoes = OPCOES_NOVO.filter((o) => !o.modulo || carregandoModulos || temAcesso(o.modulo))
   const ehDeContrato = tipoNovo === "ADITIVO" || tipoNovo === "RENOVACAO"
   const [objeto, setObjeto] = useState("")
+  // Processo avulso pode seguir um fluxo de trabalho do órgão (08/11/2026)
+  const [fluxos, setFluxos] = useState<FluxoOpcao[] | null>(null)
+  const [fluxoId, setFluxoId] = useState("")
   const [criando, setCriando] = useState(false)
   const [erroNovo, setErroNovo] = useState<string | null>(null)
 
@@ -95,6 +106,22 @@ export default function ListaProcessosPage() {
     }
   }, [ehDeContrato, contratos])
 
+  useEffect(() => {
+    if (tipoNovo !== "AVULSO" || fluxos !== null) return
+    let vivo = true
+    authFetch(`${API_URL}/api/workflows`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((j: FluxoOpcao[]) => {
+        if (!vivo) return
+        const lista = (Array.isArray(j) ? j : []).filter((f) => f.status === "PUBLICADO" && (!f.tipo_processo || f.tipo_processo === "AVULSO"))
+        setFluxos(lista.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
+      })
+      .catch(() => vivo && setFluxos([]))
+    return () => {
+      vivo = false
+    }
+  }, [tipoNovo, fluxos])
+
   async function criar() {
     setErroNovo(null)
     // Contratação: segue para o assistente que já existe (DFD, pesquisa, ETP, TR… e a licitação)
@@ -110,7 +137,7 @@ export default function ListaProcessosPage() {
       const p = await chamarProcessos<ProcessoResumo>("", {
         metodo: "POST",
         padrao: "Não foi possível abrir o processo.",
-        corpo: { tipo: tipoNovo, objeto: assunto, contrato_id: contrato?.id },
+        corpo: { tipo: tipoNovo, objeto: assunto, contrato_id: contrato?.id, fluxo_id: tipoNovo === "AVULSO" && fluxoId ? fluxoId : undefined },
       })
       router.push(`/orgao/processo/${p.id}`)
     } catch (e) {
@@ -164,8 +191,8 @@ export default function ListaProcessosPage() {
                       textTransform: "uppercase",
                       padding: "2px 8px",
                       borderRadius: 999,
-                      background: op.selo === "Livre" ? "var(--linha2)" : "var(--azul-fundo)",
-                      color: op.selo === "Livre" ? "var(--tinta2)" : "var(--azul-tinta)",
+                      background: op.selo === "Com fluxo" ? "var(--azul-fundo)" : "var(--linha2)",
+                      color: op.selo === "Com fluxo" ? "var(--azul-tinta)" : "var(--tinta2)",
                     }}
                   >
                     {op.selo}
@@ -197,6 +224,22 @@ export default function ListaProcessosPage() {
                         </option>
                       ))}
                     </select>
+                  </>
+                ) : null}
+                {tipoNovo === "AVULSO" ? (
+                  <>
+                    <label className={s.rotulo} htmlFor="novo-fluxo">
+                      Caminho do processo
+                    </label>
+                    <select id="novo-fluxo" className={s.campo} value={fluxoId} onChange={(e) => setFluxoId(e.target.value)} disabled={fluxos === null}>
+                      <option value="">Livre — você escolhe para quem enviar a cada passo</option>
+                      {(fluxos ?? []).map((f) => (
+                        <option key={f.id} value={f.id}>
+                          Seguir o fluxo: {f.nome}
+                        </option>
+                      ))}
+                    </select>
+                    {fluxoId ? <p className={s.texto} style={{ margin: 0 }}>O processo nasce no fluxo: cada etapa vai sozinha para o responsável, com prazo e aviso.</p> : null}
                   </>
                 ) : null}
                 <label className={s.rotulo} htmlFor="novo-objeto">

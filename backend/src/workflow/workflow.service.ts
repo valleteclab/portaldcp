@@ -314,6 +314,18 @@ export class WorkflowService {
     return instancia;
   }
 
+  /**
+   * FLUXO DE TRABALHO na abertura de um processo avulso (08/11/2026: o fluxo
+   * iniciado só pelo menu Workflows não tinha número de processo, autos nem
+   * documento). Vale o fluxo ativo sem tipo definido ou de processo avulso.
+   */
+  async exigirFluxoDeTrabalho(orgaoId: string, workflowId: string): Promise<WorkflowModelo> {
+    const modelo = await this.obter(orgaoId, workflowId);
+    if (modelo.status !== 'PUBLICADO') throw new BadRequestException('Este fluxo não está ativo: ative-o em Configurações › Fluxos de processo.');
+    if (modelo.tipo_processo && modelo.tipo_processo !== 'AVULSO') throw new BadRequestException('Este fluxo é de outro tipo de processo; no processo avulso use um fluxo sem tipo definido ou de processo avulso.');
+    return modelo;
+  }
+
   /** Fluxos de Contratação ativos do órgão, com onde cada um vale. */
   /** Ids dos modelos (entre os dados) que são de INSTRUÇÃO: têm a etapa Definição da modalidade. */
   private async idsDeInstrucao(ids: string[]): Promise<Set<string>> {
