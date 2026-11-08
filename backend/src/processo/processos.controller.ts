@@ -12,6 +12,7 @@ import { validarAberturaDireta } from './processo-regras';
 import { temTramitacaoPropria } from './processo-tramitacao-regras';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { WorkflowService } from '../workflow/workflow.service';
 
 /**
  * PROCESSO ELETRÔNICO — API genérica (`/api/processos`).
@@ -36,6 +37,7 @@ export class ProcessosController {
     private readonly pecasLicitacao: PecasLicitacaoService,
     private readonly painelGestor: PainelGestorService,
     private readonly andamentoProcesso: AndamentoProcessoService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   /** Tipos de processo (registro em dados + catálogo de documentos e campos de condição de cada um). */
@@ -67,6 +69,12 @@ export class ProcessosController {
     if (r.dados.contrato_id && !(await this.processos.contratoEhDoOrgao(orgaoId, r.dados.contrato_id))) {
       throw new NotFoundException('Contrato não encontrado');
     }
+    // Processo avulso que segue um fluxo do órgão (fluxo de trabalho): conferido ANTES de abrir
+    const fluxoId = body?.fluxo_id ? String(body.fluxo_id) : null;
+    if (fluxoId) {
+      if (String(r.dados.tipo) !== 'AVULSO') throw new BadRequestException('Só o processo avulso escolhe o fluxo na abertura.');
+      await this.workflow.exigirFluxoDeTrabalho(orgaoId, fluxoId);
+    }
     const p = await this.processos.abrir({
       orgaoId,
       tipo: r.dados.tipo,
@@ -78,6 +86,8 @@ export class ProcessosController {
       origem: r.dados.contrato_id ? 'CONTRATO' : 'AVULSO',
     });
     await this.tramite.iniciarPosse(p, ator);
+    // O processo nasce no fluxo: a primeira etapa já vai para o responsável (com número e autos do processo)
+    if (fluxoId) await this.workflow.iniciar(orgaoId, fluxoId, ator.usuarioId ?? ator.id, { processo_id: p.id, titulo: p.objeto });
     return this.conteudo.visao(p);
   }
 
