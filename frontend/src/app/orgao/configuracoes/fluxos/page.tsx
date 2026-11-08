@@ -291,7 +291,7 @@ function CoberturaContratacao({ linhas, onAbrir }: { linhas: LinhaCobertura[]; o
 
 export default function FluxosPage() {
   return (
-    <ModuleGuard modulo={ModuloSistema.PROCESSOS}>
+    <ModuleGuard modulo={ModuloSistema.PROCESSOS} ouModulos={[ModuloSistema.LICITACOES]}>
       <div className="mx-auto w-full max-w-[1216px] px-4 py-6">
         <Suspense fallback={null}>
           <Fluxos />

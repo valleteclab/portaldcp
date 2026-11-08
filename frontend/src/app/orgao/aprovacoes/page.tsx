@@ -1034,8 +1034,8 @@ export default function CentralAprovacoesPage() {
     // Abas que vieram com o processo eletrônico e o portal de assinaturas: só
     // aparecem para quem contratou cada um. As demais são do dia a dia e
     // seguem a permissão do usuário, como sempre.
-    { valor: 'etapas', visivel: temAcesso(ModuloSistema.PROCESSOS), pendentes: pendentesEtapas },
-    { valor: 'documentos', visivel: temAcesso(ModuloSistema.PROCESSOS), pendentes: pendentesDocumentos },
+    { valor: 'etapas', visivel: (temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES)), pendentes: pendentesEtapas },
+    { valor: 'documentos', visivel: (temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES)), pendentes: pendentesDocumentos },
     { valor: 'assinaturas', visivel: temAcesso(ModuloSistema.PORTAL_ASSINATURAS), pendentes: assinaturasPendentes },
     { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
     { valor: 'medicoes', visivel: true, pendentes: medicoes.length },
@@ -1237,7 +1237,7 @@ export default function CentralAprovacoesPage() {
               )}
             </TabsTrigger>
           )}
-          {temAcesso(ModuloSistema.PROCESSOS) && (
+          {(temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES)) && (
             <TabsTrigger value="etapas" className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4" />
               Etapas de processo

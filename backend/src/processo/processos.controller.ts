@@ -25,7 +25,8 @@ import { ModuloSistema } from '../orgaos/enums/modulos.enum';
  */
 @Controller('processos')
 @SomenteOrgao()
-@RequireModule(ModuloSistema.PROCESSOS)
+// Fluxo da contratação (08/11/2026): também para quem tem só Licitações
+@RequireModule(ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES)
 export class ProcessosController {
   constructor(
     private readonly processos: ProcessoService,

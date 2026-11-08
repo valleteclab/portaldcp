@@ -600,7 +600,7 @@ type AbaAndamento = 'FILA' | 'TEMPO'
  */
 export function PainelGestorAndamento() {
   const { temAcesso } = useModulosOrgao()
-  const podeTempo = temAcesso(ModuloSistema.PROCESSOS)
+  const podeTempo = (temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES))
   const [aba, setAba] = useState<AbaAndamento>('FILA')
   const tempo = aba === 'TEMPO' && podeTempo
   return (

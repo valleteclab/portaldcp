@@ -59,7 +59,7 @@ export function GuiaPrimeirosPassos() {
   const pathname = usePathname()
   const router = useRouter()
   const { temAcesso, loading } = useModulosOrgao()
-  const ativo = pathname.startsWith("/orgao") && !loading && temAcesso(ModuloSistema.PROCESSOS)
+  const ativo = pathname.startsWith("/orgao") && !loading && (temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES))
 
   const [progresso, setProgresso] = useState<ProgressoGuia | null>(null)
   const [aberto, setAberto] = useState(false)

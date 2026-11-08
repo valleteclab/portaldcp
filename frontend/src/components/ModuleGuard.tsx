@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button'
 
 interface ModuleGuardProps {
   modulo: ModuloSistema
+  /** Outros módulos que também dão acesso (basta um) — ex.: o fluxo da contratação vale com Processos ou Licitações. */
+  ouModulos?: ModuloSistema[]
   children: React.ReactNode
   fallbackUrl?: string
 }
@@ -17,7 +19,7 @@ interface ModuleGuardProps {
  * Componente que protege páginas baseado nos módulos habilitados do órgão.
  * Se o módulo não estiver habilitado, redireciona para o Dashboard ou mostra erro.
  */
-export function ModuleGuard({ modulo, children, fallbackUrl = '/orgao' }: ModuleGuardProps) {
+export function ModuleGuard({ modulo, ouModulos, children, fallbackUrl = '/orgao' }: ModuleGuardProps) {
   const router = useRouter()
   const { modulos, loading, temAcesso } = useModulosOrgao()
   const [checked, setChecked] = useState(false)
@@ -26,17 +28,17 @@ export function ModuleGuard({ modulo, children, fallbackUrl = '/orgao' }: Module
     // Só verifica após carregar os módulos
     if (loading) return
 
-    console.log(`[ModuleGuard] Verificando acesso ao módulo ${modulo}:`, { modulos, temAcesso: temAcesso(modulo) })
+    const liberado = [modulo, ...(ouModulos ?? [])].some((m) => temAcesso(m))
 
-    // Se o módulo não está habilitado, redireciona
-    if (!temAcesso(modulo)) {
+    // Se nenhum dos módulos está habilitado, redireciona
+    if (!liberado) {
       console.log(`[ModuleGuard] Acesso negado ao módulo ${modulo}, redirecionando para ${fallbackUrl}`)
       router.replace(fallbackUrl)
       return
     }
 
     setChecked(true)
-  }, [modulo, modulos, loading, temAcesso, router, fallbackUrl])
+  }, [modulo, ouModulos, modulos, loading, temAcesso, router, fallbackUrl])
 
   // Enquanto carrega ou verifica, mostra loading
   if (loading || !checked) {

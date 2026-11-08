@@ -32,6 +32,7 @@ import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-
 import { DfdModule } from '../demandas/dfd/dfd.module';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
 import { ProcessoModule } from '../processo/processo.module';
+import { LimpezaMotorAntigoBootService } from './limpeza-motor-antigo-boot.service';
 
 @Module({
   imports: [
@@ -56,7 +57,7 @@ import { ProcessoModule } from '../processo/processo.module';
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
   controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService],
+  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService, LimpezaMotorAntigoBootService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}
