@@ -149,9 +149,13 @@ export class ProcessoTramitacaoService implements OnModuleInit {
   // ==========================================================================
 
   /** Processo do órgão do ator, de um tipo com tramitação própria; senão 404/400. */
-  async carregar(ator: Ator, id: string): Promise<Processo> {
+  async carregar(ator: Ator, id: string, opcoes: { etapaDoFluxo?: string | null } = {}): Promise<Processo> {
     const p = await this.processos.obter(ator, id);
-    if (!temTramitacaoPropria(p.tipo)) {
+    // Documento de uma ETAPA DO FLUXO (`no:<acao_id>`): vale em qualquer processo que segue o fluxo,
+    // inclusive o da licitação (homologação 08/11/2026: a etapa "Portarias do agente e dos fiscais"
+    // do pregão travava — "segue pelas rotas da licitação" — e sem o documento a etapa não conclui).
+    const ehDocumentoDeEtapa = String(opcoes.etapaDoFluxo ?? '').startsWith('no:');
+    if (!temTramitacaoPropria(p.tipo) && !ehDocumentoDeEtapa) {
       throw new BadRequestException('A tramitação deste processo segue pelas rotas da licitação.');
     }
     return p;
@@ -396,7 +400,7 @@ export class ProcessoTramitacaoService implements OnModuleInit {
    */
   /** `interno.documentoDoSistema`: PDF gerado pelo próprio sistema (ex.: DFD consolidado) — não conta como "feito fora". Nunca vem do corpo da requisição. */
   async juntar(ator: Ator, id: string, body: any, interno?: { documentoDoSistema?: boolean }) {
-    const p = await this.carregar(ator, id);
+    const p = await this.carregar(ator, id, { etapaDoFluxo: String(body?.etapa ?? '').trim() || null });
     this.exigirAberto(p);
     // Peça feita no editor: HTML limpo, sem lacuna aberta; o texto corrido vale para a validação e a busca
     const html = body?.texto_html ? htmlDaPecaSeguro(body.texto_html) : '';
@@ -635,7 +639,7 @@ export class ProcessoTramitacaoService implements OnModuleInit {
    * é o preferido. Sem modelo cadastrado, o texto padrão em código.
    */
   async modelo(ator: Ator, id: string, chaveEtapa: string | null) {
-    const p = await this.carregar(ator, id);
+    const p = await this.carregar(ator, id, { etapaDoFluxo: chaveEtapa });
     const c = await this.contextoDaPeca(ator, p, chaveEtapa);
     const cadastrados = c.tipo_peca
       ? await this.modelosRepo
@@ -656,7 +660,7 @@ export class ProcessoTramitacaoService implements OnModuleInit {
 
   /** Salva o texto do editor como modelo do órgão para o tipo de peça da etapa (aparece na tela "Modelos de documento"). */
   async salvarModelo(ator: Ator, id: string, body: any) {
-    const p = await this.carregar(ator, id);
+    const p = await this.carregar(ator, id, { etapaDoFluxo: String(body?.etapa ?? '').trim() || null });
     const c = await this.contextoDaPeca(ator, p, String(body?.etapa ?? '').trim() || null);
     if (!c.tipo_peca || !(Object.values(TipoDocumentoFaseInterna) as string[]).includes(c.tipo_peca)) {
       throw new BadRequestException('Esta etapa não tem tipo de peça com modelo.');
@@ -686,7 +690,7 @@ export class ProcessoTramitacaoService implements OnModuleInit {
 
   /** Rascunho da peça pela IA: lê o processo, escreve e marca lacunas; nada é juntado sem revisão. */
   async rascunhoIa(ator: Ator, id: string, body: any) {
-    const p = await this.carregar(ator, id);
+    const p = await this.carregar(ator, id, { etapaDoFluxo: String(body?.etapa ?? '').trim() || null });
     this.exigirAberto(p);
     if (!(await this.ia.configurada())) throw new ConflictException('A IA não está configurada neste servidor. Escreva a peça no editor ou anexe o arquivo.');
     const c = await this.contextoDaPeca(ator, p, String(body?.etapa ?? '').trim() || null);
