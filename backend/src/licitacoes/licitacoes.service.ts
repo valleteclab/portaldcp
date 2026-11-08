@@ -1,3 +1,4 @@
+import { negociacoesAceitasSql } from './dispensa/pos-julgamento.sql';
 import { ContratacaoNoFluxoService } from '../workflow/contratacao/contratacao-no-fluxo.service';
 import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
@@ -1706,6 +1707,8 @@ export class LicitacoesService {
     // (proposta ou lance da janela — IN 67/2021; a dispensa não tem a etapa de
     // aceitação da proposta adequada do pregão) × quantidade. Decisão documentada.
     const entradas: EntradaAdjudicacao[] = [];
+    // Contrapropostas ACEITAS pelo vencedor (IN 67 art. 16) continuam valendo no rejulgamento
+    const negociadas = await negociacoesAceitasSql(this.dataSource, id);
 
     for (const item of itens) {
       const v = vencedorPorItem.get(item.id);
@@ -1713,9 +1716,11 @@ export class LicitacoesService {
         semProposta.push(item.numero_item);
         continue;
       }
+      const negociado = negociadas.get(`${item.id}:${v.fornecedor_id}`);
+      const unitarioFinal = negociado != null ? Math.min(negociado, Number(v.valor_unitario)) : Number(v.valor_unitario);
       const valor = valorAdjudicadoDoUnitario(
         { itemId: item.id, numero: Number(item.numero_item), quantidade: Number(item.quantidade || 0) },
-        Number(v.valor_unitario),
+        unitarioFinal,
       );
       entradas.push({ tipo: 'ITEM', unidadeId: item.id, numero: valor.numero, fornecedorId: v.fornecedor_id, valores: [valor] });
       propostasVencedoras.add(v.proposta_id);

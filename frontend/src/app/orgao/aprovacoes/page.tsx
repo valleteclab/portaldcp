@@ -1059,9 +1059,17 @@ export default function CentralAprovacoesPage() {
         {dialogo}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Aprovações</h1>
-          <p className="text-gray-500">Etapas de processo aguardando a sua aprovação.</p>
+          <p className="text-gray-500">Etapas de processo e documentos aguardando você.</p>
         </div>
         <CaixaEtapasFluxo />
+        {/* Assinaturas também para quem não aprova contratos/demandas/requisições (homologação 08/11/2026:
+            a agente de contratação assina o termo e não tinha a aba) */}
+        {temAcesso(ModuloSistema.PORTAL_ASSINATURAS) && (
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold text-gray-900">Assinaturas</h2>
+            <CaixaAssinaturas processoDestacado={searchParams.get('processo')} onContagem={setAssinaturasPendentes} />
+          </div>
+        )}
       </div>
     );
   }

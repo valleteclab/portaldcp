@@ -279,6 +279,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
   }
 
   const itens = licitacao?.itens || []
+  const ehDispensa = licitacao?.modalidade === 'DISPENSA_ELETRONICA'
 
   // Loading state
   if (loading) {
@@ -405,9 +406,10 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   <AlertCircle className="h-5 w-5" />
                 </div>
                 <p className={`text-xs font-medium mt-2 text-center ${prazoManifestacaoAberto(licitacao) ? 'text-yellow-600' : ''}`}>
-                  Impugnação
+                  {ehDispensa ? 'Avisos' : 'Impugnação'}
                 </p>
-                <p className="text-[10px] text-muted-foreground">Até {formatarData(dataLimiteManifestacao(licitacao) || undefined)}</p>
+                {/* Dispensa: não há impugnação nem esclarecimento formal (IN SEGES 67/2021) — comunicação pela sala */}
+                <p className="text-[10px] text-muted-foreground">{ehDispensa ? 'Mensagens na sala' : `Até ${formatarData(dataLimiteManifestacao(licitacao) || undefined)}`}</p>
               </div>
 
               {/* 3. Propostas */}
@@ -493,15 +495,16 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {licitacao.fase === 'EM_DISPUTA' && 'Sessão de disputa em andamento'}
-                    {(licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' || estaNoPeriodoAcolhimento()) && 'Período aberto para envio de propostas'}
+                    {(licitacao.fase === 'ACOLHIMENTO_PROPOSTAS' || (licitacao.fase === 'PUBLICADO' && estaNoPeriodoAcolhimento())) && 'Período aberto para envio de propostas'}
                     {licitacao.fase === 'PUBLICADO' && 'Edital publicado, aguardando período de propostas'}
                     {licitacao.fase === 'IMPUGNACAO' && 'Período para impugnações e esclarecimentos'}
+                    {licitacao.fase === 'ANALISE_PROPOSTAS' && 'Prazo de propostas encerrado — etapa de lances e julgamento'}
                     {['JULGAMENTO', 'HABILITACAO'].includes(licitacao.fase) && 'Análise de documentos e habilitação'}
                     {['ADJUDICACAO', 'HOMOLOGACAO', 'CONCLUIDO'].includes(licitacao.fase) && 'Processo em fase de conclusão'}
                   </p>
                 </div>
               </div>
-              {diasRestantes() > 0 && diasRestantes() <= 7 && (
+              {['PUBLICADO', 'ACOLHIMENTO_PROPOSTAS'].includes(licitacao.fase) && diasRestantes() > 0 && diasRestantes() <= 7 && (
                 <Badge className="bg-orange-100 text-orange-800">
                   ⏰ {diasRestantes()} dias para abertura
                 </Badge>
@@ -544,7 +547,9 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                     <CheckCircle2 className="h-8 w-8 text-green-600" />
                   </div>
                   <p className="font-semibold text-green-700">Proposta Enviada</p>
-                  <p className="text-sm text-muted-foreground">Aguardando abertura da sessão</p>
+                  <p className="text-sm text-muted-foreground">
+                    {['PUBLICADO', 'ACOLHIMENTO_PROPOSTAS'].includes(licitacao.fase) ? 'Aguardando o fim do prazo de propostas' : 'Acompanhe a sessão e o resultado'}
+                  </p>
                   <div className="mt-4">
                     <Link href={`/fornecedor/propostas/${minhaProposta.id}`}>
                       <Button size="lg" className="w-full" variant="outline">
@@ -716,7 +721,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
               <div className="mt-6 grid grid-cols-2 gap-4">
                 <div className="p-4 bg-slate-50 rounded-lg">
                   <p className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Users className="h-4 w-4" /> Pregoeiro Responsável
+                    <Users className="h-4 w-4" /> {ehDispensa ? 'Agente de contratação' : 'Pregoeiro responsável'}
                   </p>
                   <p className="font-medium">{licitacao.pregoeiro_nome || 'Não informado'}</p>
                   {licitacao.pregoeiro_email && (

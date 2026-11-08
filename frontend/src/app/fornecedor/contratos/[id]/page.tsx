@@ -64,6 +64,7 @@ import {
   ExternalLink,
   FileSpreadsheet,
 } from 'lucide-react';
+import { TermoContratoFornecedor } from '@/components/fornecedor/TermoContratoFornecedor';
 import { API_URL, authFetch } from '@/lib/api';
 import { textoFrequenciaNaTela, textoUnidadeCronogramaNaTela } from '@/lib/cronograma-contrato';
 import { toast } from "sonner"
@@ -544,6 +545,15 @@ const STATUS_ETAPA: Record<string, { label: string; cor: string }> = {
 };
 
 // ============ MAIN COMPONENT ============
+
+const ROTULO_STATUS_CONTRATO: Record<string, string> = {
+  AGUARDANDO_ASSINATURA: 'Aguardando assinatura',
+  AGUARDANDO_LIBERACAO: 'Aguardando liberação',
+  VIGENTE: 'Vigente',
+  ENCERRADO: 'Encerrado',
+  RESCINDIDO: 'Rescindido',
+  SUSPENSO: 'Suspenso',
+};
 
 export default function FornecedorContratoDetalhePage() {
   const params = useParams();
@@ -2172,10 +2182,18 @@ export default function FornecedorContratoDetalhePage() {
           <h1 className="text-2xl font-bold">Contrato {contrato.numero_contrato}</h1>
           <p className="text-gray-500 text-sm">{contrato.objeto}</p>
         </div>
-        <Badge className={contrato.status === 'VIGENTE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>
-          {contrato.status}
+        <Badge className={contrato.status === 'VIGENTE' ? 'bg-green-100 text-green-700' : contrato.status === 'AGUARDANDO_ASSINATURA' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}>
+          {ROTULO_STATUS_CONTRATO[contrato.status] ?? contrato.status}
         </Badge>
       </div>
+
+      {/* Termo do contrato: assinatura pelo próprio fornecedor (homologação 08/11/2026) */}
+      {['AGUARDANDO_ASSINATURA', 'AGUARDANDO_LIBERACAO'].includes(contrato.status) && (
+        <TermoContratoFornecedor contratoId={contrato.id} numero={contrato.numero_contrato} onAssinado={carregarDados} />
+      )}
+      {contrato.status === 'AGUARDANDO_ASSINATURA' ? (
+        <p className="text-sm text-gray-600">Medições, cronograma e boletins ficam disponíveis depois que o contrato for assinado por todos.</p>
+      ) : (<>
 
       {/* Pré-OS de publicidade (só aparece em contratos de publicidade) */}
       {fornecedor?.id && (
@@ -4203,6 +4221,7 @@ export default function FornecedorContratoDetalhePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </>)}
     </div>
   );
 }

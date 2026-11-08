@@ -21,7 +21,7 @@ import {
   LicitacaoFixture,
   OrgaoFixture,
 } from './support';
-import { homologarResultado } from './support/resultado';
+import { habilitarVencedoresDispensa, homologarResultado } from './support/resultado';
 import { criarDispensaComPropostas, criarDispensaPublicada, encerrarEtapaDeLances } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao, SituacaoLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { TransicoesService } from '../src/licitacoes/transicoes/transicoes.service';
@@ -257,6 +257,7 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
       lic = await criarDispensaComPropostas(ctx, orgao, [{ fornecedor: f, valores: [90, 45] }]);
       await encerrarEtapaDeLances(ctx, lic); // IN 67 arts. 11 e 15
       await http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(orgao.token)).expect(201);
+      await habilitarVencedoresDispensa(ctx, lic.id, orgao.token);
       await homologarResultado(ctx, lic.id, orgao.token).expect(200);
     });
 

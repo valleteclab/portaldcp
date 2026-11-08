@@ -22,6 +22,7 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { ResumoLicitacoesFornecedor } from '@/components/fornecedor/ResumoLicitacoesFornecedor'
 import {
   carregarOverviewMedicoesFornecedor,
   formatarData,
@@ -391,36 +392,7 @@ export default function FornecedorDashboard() {
         </CardContent>
       </Card>
 
-      {/* Licitações Vazias */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Licitações Disponíveis</CardTitle>
-            <CardDescription>Oportunidades abertas para participação</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-12 text-muted-foreground">
-              <FileText className="h-12 w-12 mx-auto mb-4 opacity-20" />
-              <p>Nenhuma licitação disponível no momento</p>
-              <p className="text-sm">Novas licitações aparecerão aqui quando publicadas</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Minhas Participações</CardTitle>
-            <CardDescription>Licitações em andamento</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-12 text-muted-foreground">
-              <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-20" />
-              <p>Você ainda não está participando de nenhuma licitação</p>
-              <p className="text-sm">Complete seu cadastro para começar a participar</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <ResumoLicitacoesFornecedor />
     </div>
   )
 }

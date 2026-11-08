@@ -21,7 +21,7 @@ interface SessaoResumo {
 
 /** Modalidades conduzidas no próprio processo, sem sessão pública de lances. */
 const SEM_SESSAO: Record<string, string> = {
-  DISPENSA_ELETRONICA: 'A janela de lances da dispensa eletrônica é aberta e acompanhada no processo.',
+  DISPENSA_ELETRONICA: 'Na dispensa eletrônica a etapa de lances, as mensagens, o julgamento, a habilitação e a negociação ficam na página do processo (IN SEGES 67/2021) — a sala de disputa do pregão não se aplica.',
   INEXIGIBILIDADE: 'Inexigibilidade não tem sessão pública de disputa.',
   CONCURSO: 'O concurso é julgado pela comissão no processo (trabalhos, notas e premiação).',
   DIALOGO_COMPETITIVO: 'O diálogo competitivo é conduzido no processo (fase de diálogo e fase competitiva).',
@@ -96,7 +96,9 @@ export default function SessaoDoProcessoPage({ params }: { params: Promise<{ id:
         <Loader2 className="mr-2 h-6 w-6 animate-spin" /> Carregando a sessão do processo...
       </div>
     )
-  } else if (SEM_SESSAO[modalidade] && sessoes.length === 0) {
+  // Dispensa: mesmo com a sessão técnica criada pela janela de lances, a condução é no processo (homologação 08/11/2026:
+  // abria a sala do pregão, com base legal, etapas e "Encerrar item" que não são da dispensa)
+  } else if (SEM_SESSAO[modalidade] && (sessoes.length === 0 || modalidade === 'DISPENSA_ELETRONICA')) {
     conteudo = (
       <Card>
         <CardContent className="space-y-4 py-10 text-center text-slate-700">

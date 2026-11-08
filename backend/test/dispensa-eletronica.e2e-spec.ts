@@ -71,7 +71,7 @@ import {
   vincularOrgaoPncp,
 } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
-import { homologarResultado } from './support/resultado';
+import { habilitarVencedoresDispensa, homologarResultado } from './support/resultado';
 import { assinarContrato } from './support/contratos';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 
@@ -640,6 +640,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
     it('homologa e gera 1 contrato por fornecedor vencedor', async () => {
       pncpMock.limpar();
       // E6: homologação pelo resultado único — valor CALCULADO dos itens adjudicados
+      await habilitarVencedoresDispensa(ctx, lic.id, orgao.token);
       const r = await homologarResultado(ctx, lic.id, orgao.token).expect(200);
       expect(r.body.fase).toBe(FaseLicitacao.HOMOLOGACAO);
       expect(r.body.valorHomologado).toBe(1800);
@@ -899,6 +900,7 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
       .set(bearer(orgao.token))
       .send({ valor_homologado: 999_999 });
     expect(antiga.status).toBe(404);
+    await habilitarVencedoresDispensa(ctx, lic.id, orgao.token);
     await ctx
       .http()
       .post(`/api/resultado/licitacao/${lic.id}/homologar`)

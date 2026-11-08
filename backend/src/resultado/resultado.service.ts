@@ -406,6 +406,16 @@ export class ResultadoService implements OnModuleInit {
     };
   }
 
+  /** Quem pode registrar o ato (inclui os papéis AUTORIDADE e AGENTE_CONTRATACAO do usuário). */
+  private async motivoOperador(ator: Ator): Promise<string | null> {
+    let papeis: string[] = [];
+    if (ator.tipo === 'USUARIO' && (ator.usuarioId ?? ator.id)) {
+      const [u] = await this.dataSource.query(`SELECT papeis_fase_interna AS papeis FROM usuarios WHERE id::text = $1`, [ator.usuarioId ?? ator.id]).catch(() => []);
+      papeis = Array.isArray(u?.papeis) ? u.papeis : [];
+    }
+    return motivoOperadorInvalido(ator, papeis);
+  }
+
   /** Bloco da formalização no painel: modo, autoridades, operador, registros e pendência. */
   private async painelFormalizacao(lic: Licitacao, ator: Ator | null) {
     const orgaoId = String(lic.orgao_id);
@@ -439,7 +449,7 @@ export class ResultadoService implements OnModuleInit {
         assinatura: STATUS_EM_ANDAMENTO.includes(f.status) || f.status === StatusFormalizacao.FALHOU ? await this.formalizacao.situacaoAssinatura(f) : null,
       });
     }
-    const operadorMotivo = ator ? motivoOperadorInvalido(ator) : null;
+    const operadorMotivo = ator ? await this.motivoOperador(ator) : null;
     return {
       modo,
       rotuloModo: ROTULO_MODO[modo],
@@ -544,7 +554,7 @@ export class ResultadoService implements OnModuleInit {
    * (e-mail da autoridade na assinatura; arquivo no termo externo).
    */
   private async prepararRegistro(lic: Licitacao, atorJwt: Ator, opts: OpcoesRegistroAto) {
-    const invalido = motivoOperadorInvalido(atorJwt);
+    const invalido = await this.motivoOperador(atorJwt);
     if (invalido) throw new ForbiddenException(invalido);
     const orgaoId = String(lic.orgao_id);
     const modo = await this.formalizacao.modoDoOrgao(orgaoId);
@@ -1035,7 +1045,7 @@ export class ResultadoService implements OnModuleInit {
 
   /** Cancela o pedido pendente (ou que falhou): o documento no assinador é cancelado; nenhum efeito. */
   async cancelarFormalizacao(formalizacaoId: string, ator: Ator, motivo?: string | null) {
-    const invalido = motivoOperadorInvalido(ator);
+    const invalido = await this.motivoOperador(ator);
     if (invalido) throw new ForbiddenException(invalido);
     const f = await this.formalizacaoDoOrgao(formalizacaoId, ator);
     if (![StatusFormalizacao.PENDENTE_ASSINATURA, StatusFormalizacao.FALHOU].includes(f.status as StatusFormalizacao)) {
@@ -1051,7 +1061,7 @@ export class ResultadoService implements OnModuleInit {
 
   /** Assinado mas o efeito falhou (ex.: estado mudou e foi corrigido): tenta o efeito de novo. */
   async reprocessarFormalizacao(formalizacaoId: string, ator: Ator) {
-    const invalido = motivoOperadorInvalido(ator);
+    const invalido = await this.motivoOperador(ator);
     if (invalido) throw new ForbiddenException(invalido);
     const f = await this.formalizacaoDoOrgao(formalizacaoId, ator);
     if (f.status !== StatusFormalizacao.FALHOU) throw new ConflictException('Só se reprocessa a formalização assinada cujo efeito falhou.');
