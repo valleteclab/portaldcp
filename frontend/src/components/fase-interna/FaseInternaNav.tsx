@@ -40,7 +40,7 @@ const FASES_INTERNAS = [
 const SUPPORT_NAV: NavItem[] = [
   { href: "/orgao/pncp", label: "PNCP / Painel Preços", icon: ExternalLink },
   { href: "/orgao/configuracoes/modelos-documento", label: "Modelos de documento", icon: BookOpen },
-  { href: "/orgao/configuracoes/fluxos-aprovacao", label: "Fluxos de aprovação", icon: Settings2 },
+  { href: "/orgao/configuracoes/fluxos", label: "Fluxos de processo", icon: Settings2 },
 ];
 
 function NavGroup({
@@ -133,7 +133,7 @@ export function FaseInternaNav() {
           if (isMounted) setProcCount(0);
         }
 
-        const apRes = await authFetch(`${API_URL}/api/fase-interna/aprovacoes/caixa`);
+        const apRes = await authFetch(`${API_URL}/api/workflows/minhas-etapas?tipo=APROVACAO,APROVACAO_DEMANDA`);
         if (apRes.ok) {
           const apData = await apRes.json();
           if (isMounted) setAprovCount(Array.isArray(apData) ? apData.length : 0);
@@ -217,7 +217,7 @@ export function FaseInternaNav() {
         ]
       : []),
     {
-      href: "/orgao/aprovacoes?tab=documentos",
+      href: "/orgao/aprovacoes?tab=etapas",
       label: "Aprovações",
       icon: CheckSquare,
       badge: typeof aprovCount === "number" ? aprovCount : undefined,

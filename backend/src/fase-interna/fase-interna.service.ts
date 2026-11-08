@@ -37,7 +37,6 @@ import {
   linhasDoChecklist,
 } from './documentos-obrigatorios';
 import { conteudoEditavel, mesmoTextoDaSecao, registroDeEmissao, statusDaPeca } from './peca-regras';
-import { fluxoEhGenerico, fluxoParaTipo, rotuloAguardando } from './aprovacao-pecas-regras';
 import {
   RiscoIdentificado,
   MatrizRiscosDados,
@@ -255,83 +254,19 @@ export class FaseInternaService {
       where: { licitacao_id: licitacaoId, versao_atual: true },
     });
 
-    // APROVAÇÃO INTERNA DA ETAPA (F1 + fluxo de aprovação nas telas das
-    // etapas): só as peças das etapas com "aprovação interna" ligada no modelo
-    // de fluxo exigem a aprovação — a peça feita no sistema conta depois de
-    // APROVADA no fluxo do órgão (do tipo → genérico → aprovação única por
-    // quem conduz) ou ASSINADA. Fluxo cadastrado sem a aprovação interna não
-    // trava nada (a peça enviada à mão continua "em aprovação" até a decisão).
-    const manager = this.documentoRepository.manager;
-    const fluxos: Array<{ id: string; nome: string; tipo_documento: string | null; tipos_documento: string[] | null; ativo: boolean; updated_at: Date }> = await manager
-      .query(
-        `SELECT id::text AS id, nome, tipo_documento::text AS tipo_documento, tipos_documento, ativo, updated_at
-           FROM fluxos_aprovacao_documento
-          WHERE orgao_id = $1 AND ativo = true`,
-        [licitacao.orgao_id],
-      )
-      .catch(() => []);
-    const tiposComAprovacao = new Set<string>(operacional?.tipos_com_aprovacao ?? []);
-
-    // Etapa em análise de cada documento em aprovação (p/ mostrar com quem está)
-    const etapasAtuais: Array<{
-      documento_id: string;
-      ordem: number;
-      nome: string;
-      setor_nome: string | null;
-      usuario_nome: string | null;
-      total: string;
-    }> = await manager
-      .query(
-        `SELECT e.documento_id::text AS documento_id, e.ordem, e.nome, e.setor_nome, e.usuario_nome,
-                (SELECT COUNT(*) FROM aprovacoes_documento t
-                  WHERE t.documento_id = e.documento_id AND t.rodada = e.rodada AND t.status <> 'CANCELADA') AS total
-         FROM aprovacoes_documento e
-         WHERE e.licitacao_id = $1 AND e.status = 'EM_ANALISE'`,
-        [licitacaoId],
-      )
-      .catch(() => []);
-    // Última reprovação de cada documento (o motivo volta para quem fez a peça)
-    const reprovacoes: Array<{ documento_id: string; nome: string; justificativa: string | null; decidido_por_nome: string | null; data_decisao: Date | null }> = await manager
-      .query(
-        `SELECT DISTINCT ON (documento_id) documento_id::text AS documento_id, nome, justificativa, decidido_por_nome, data_decisao
-           FROM aprovacoes_documento
-          WHERE licitacao_id = $1 AND status = 'REPROVADA'
-          ORDER BY documento_id, data_decisao DESC NULLS LAST`,
-        [licitacaoId],
-      )
-      .catch(() => []);
-
+    // A aprovação interna das peças (fluxos de aprovação do motor antigo) saiu em 11/2026:
+    // quem aprova é a etapa de Aprovação do fluxo do processo. A peça conta pelo critério
+    // único (peca-regras.ts) — o mesmo da ponte do fluxo e da trava da lei.
     const itens = checklist.map((item) => {
       const doc = docs.find((d) => d.tipo === item.tipo);
-      const aprovacaoInterna = tiposComAprovacao.has(item.tipo as string);
-      const fluxo = fluxoParaTipo(fluxos, item.tipo as string);
-      const exigeAprovacao = aprovacaoInterna;
-      // Critério único (peca-regras.ts): o mesmo da ponte do fluxo e da trava da lei
-      const status = statusDaPeca(doc, { pode_nao_se_aplicar: item.pode_nao_se_aplicar, exige_aprovacao: exigeAprovacao });
-      let aprovacao:
-        | { etapa: number; total: number; etapa_nome: string; responsavel: string | null; rotulo: string }
-        | undefined;
+      const status = statusDaPeca(doc, { pode_nao_se_aplicar: item.pode_nao_se_aplicar });
       let reprovacao: { motivo: string | null; por: string | null; em: Date | null; etapa_nome: string } | undefined;
-      if (doc && status === 'EM_APROVACAO') {
-        const etapa = etapasAtuais.find((e) => e.documento_id === doc.id);
-        if (etapa) {
-          const total = Number(etapa.total);
-          aprovacao = {
-            etapa: Number(etapa.ordem),
-            total,
-            etapa_nome: etapa.nome,
-            responsavel: etapa.usuario_nome || etapa.setor_nome || null,
-            rotulo: rotuloAguardando({ ...etapa, ordem: Number(etapa.ordem) }, total),
-          };
-        }
-      }
       if (doc && doc.status === StatusDocumento.REPROVADO) {
-        const r = reprovacoes.find((x) => x.documento_id === doc.id);
         reprovacao = {
-          motivo: r?.justificativa ?? doc.observacao_aprovacao ?? null,
-          por: r?.decidido_por_nome ?? doc.aprovador_nome ?? null,
-          em: r?.data_decisao ?? null,
-          etapa_nome: r?.nome ?? 'Aprovação',
+          motivo: doc.observacao_aprovacao ?? null,
+          por: doc.aprovador_nome ?? null,
+          em: doc.data_aprovacao ?? null,
+          etapa_nome: 'Aprovação',
         };
       }
 
@@ -340,13 +275,7 @@ export class FaseInternaService {
         status,
         documento_id: doc?.id,
         justificativa: doc?.dados_estruturados?.justificativa_nao_se_aplica,
-        exige_aprovacao: exigeAprovacao,
-        aprovacao,
-        // Aprovação interna da etapa (telas das etapas): fluxo que vale para a
-        // peça e o aviso "ligada, mas sem fluxo cadastrado" (aprovação única)
-        aprovacao_interna: aprovacaoInterna,
-        fluxo_aprovacao: fluxo ? { id: fluxo.id, nome: fluxo.nome, generico: fluxoEhGenerico(fluxo) } : null,
-        sem_fluxo_aprovacao: aprovacaoInterna && !fluxo,
+        exige_aprovacao: false,
         reprovacao,
         pode_nao_se_aplicar: item.pode_nao_se_aplicar,
         peca: doc

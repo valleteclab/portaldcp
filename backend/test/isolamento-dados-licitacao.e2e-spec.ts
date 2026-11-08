@@ -1457,7 +1457,6 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         .set(bearer(pregB.token))
         .send({ tipo: 'ETP', titulo: 'ETP do órgão B' });
       const porId = await ctx.http().get(`/api/fase-interna/documento/${docFaseInterna}`).set(bearer(pregB.token));
-      const submeter = await ctx.http().put(`/api/fase-interna/documento/${docFaseInterna}/submeter-fluxo`).set(bearer(pregB.token)).send({});
       const estruturado = await ctx
         .http()
         .put(`/api/fase-interna/estruturado/${docFaseInterna}/dados`)
@@ -1470,13 +1469,12 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       const dono = await ctx.http().get(`/api/fase-interna/${L2.id}/documentos`).set(bearer(pregA.token));
       registrar(
         '14 órgão B fase-interna (L2)',
-        `lista=${lista.status} criar=${criar.status} porId=${porId.status} submeter=${submeter.status} estruturado=${estruturado.status} instrucao=${instrucao.status} avancar=${avancar.status} preparar=${preparar.status} F1=${fornecedor.status} dono=${dono.status}`,
+        `lista=${lista.status} criar=${criar.status} porId=${porId.status} estruturado=${estruturado.status} instrucao=${instrucao.status} avancar=${avancar.status} preparar=${preparar.status} F1=${fornecedor.status} dono=${dono.status}`,
       );
       expect(lista.status).toBe(404);
       expect(porId.status).toBe(404);
       expect(instrucao.status).toBe(404);
       expect(criar.status).toBe(403);
-      expect(submeter.status).toBe(403);
       expect(estruturado.status).toBe(403);
       expect(avancar.status).toBe(403);
       expect(preparar.status).toBe(403);
@@ -1512,7 +1510,7 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(JSON.stringify(divulgada.body)).not.toContain('documento_comprobatorio_path');
     });
 
-    test('órgão B não lê, altera nem remove modelo e fluxo de aprovação de A', async () => {
+    test('órgão B não lê, altera nem remove modelo de documento de A', async () => {
       const modelo = await ctx
         .http()
         .post('/api/fase-interna/modelos')
@@ -1520,35 +1518,22 @@ describe('Isolamento de dados da licitação (autorização)', () => {
         .send({ tipo: 'DFD', nome: 'Modelo de A (isolamento)', secoes: [{ id: 's1', titulo: 'Seção 1' }] });
       expect(modelo.status).toBe(201);
       expect(modelo.body.orgao_id).toBe(A.id);
-      const fluxo = await ctx
-        .http()
-        .post('/api/fase-interna/fluxos-aprovacao')
-        .set(bearer(A.token))
-        .send({ nome: 'Fluxo de A (isolamento)', tipo_documento: 'DFD', etapas: [{ nome: 'Chefia' }] });
-      expect(fluxo.status).toBe(201);
-      expect(fluxo.body.orgao_id).toBe(A.id);
 
       const lerModelo = await ctx.http().get(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(pregB.token));
       const putModelo = await ctx.http().put(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(pregB.token)).send({ nome: 'alterado por B' });
       const delModelo = await ctx.http().delete(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(pregB.token));
-      const putFluxo = await ctx.http().put(`/api/fase-interna/fluxos-aprovacao/${fluxo.body.id}`).set(bearer(pregB.token)).send({ nome: 'alterado por B' });
-      const delFluxo = await ctx.http().delete(`/api/fase-interna/fluxos-aprovacao/${fluxo.body.id}`).set(bearer(pregB.token));
-      const listaFluxosB = await ctx.http().get(`/api/fase-interna/fluxos-aprovacao?orgaoId=${A.id}`).set(bearer(B.token)).expect(200);
       registrar(
         '14 órgão B modelos/fluxos de A',
-        `lerModelo=${lerModelo.status} putModelo=${putModelo.status} delModelo=${delModelo.status} putFluxo=${putFluxo.status} delFluxo=${delFluxo.status}`,
+        `lerModelo=${lerModelo.status} putModelo=${putModelo.status} delModelo=${delModelo.status}`,
       );
       expect(lerModelo.status).toBe(404);
       expect(putModelo.status).toBe(403);
       expect(delModelo.status).toBe(403);
-      expect(putFluxo.status).toBe(403);
-      expect(delFluxo.status).toBe(403);
-      expect(listaFluxosB.body.some((f: any) => f.id === fluxo.body.id)).toBe(false);
       // O dono continua podendo
       await ctx.http().put(`/api/fase-interna/modelos/${modelo.body.id}`).set(bearer(A.token)).send({ nome: 'alterado por A' }).expect(200);
     });
 
-    test('caixas de entrada/aprovação: setor e usuário de outro órgão são recusados; servidor só vê a própria caixa', async () => {
+    test('caixa de entrada: setor e usuário de outro órgão são recusados; servidor só vê a própria caixa', async () => {
       const setorA = (
         await ctx.dataSource.query(`INSERT INTO setores (orgao_id, codigo, nome) VALUES ($1, $2, $3) RETURNING id`, [
           A.id,
@@ -1558,18 +1543,16 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       )[0].id;
       const entradaSetor = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?setorId=${setorA}`).set(bearer(B.token));
       const entradaUsuario = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?usuarioId=${pregA.id}`).set(bearer(B.token));
-      const aprovSetor = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?setorId=${setorA}`).set(bearer(B.token));
-      const aprovUsuario = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?usuarioId=${pregA.id}`).set(bearer(B.token));
       // Pregoeiro (sem papel ADMIN) não consulta a caixa de outra pessoa do próprio órgão
-      const outraPessoa = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?usuarioId=${A.id}`).set(bearer(pregA.token));
+      const outraPessoa = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?usuarioId=${A.id}`).set(bearer(pregA.token));
       // Controles: o próprio órgão / o próprio servidor
       const donoSetor = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?setorId=${setorA}`).set(bearer(A.token));
-      const propria = await ctx.http().get(`/api/fase-interna/aprovacoes/caixa?usuarioId=${pregA.id}`).set(bearer(pregA.token));
+      const propria = await ctx.http().get(`/api/fase-interna/tramitacoes/caixa-entrada?usuarioId=${pregA.id}`).set(bearer(pregA.token));
       registrar(
         '14 caixas',
-        `B setorA=${entradaSetor.status}/${aprovSetor.status} B usuarioA=${entradaUsuario.status}/${aprovUsuario.status} pregA outra=${outraPessoa.status} donoSetor=${donoSetor.status} propria=${propria.status}`,
+        `B setorA=${entradaSetor.status} B usuarioA=${entradaUsuario.status} pregA outra=${outraPessoa.status} donoSetor=${donoSetor.status} propria=${propria.status}`,
       );
-      expect([entradaSetor.status, entradaUsuario.status, aprovSetor.status, aprovUsuario.status]).toEqual([403, 403, 403, 403]);
+      expect([entradaSetor.status, entradaUsuario.status]).toEqual([403, 403]);
       expect(outraPessoa.status).toBe(403);
       expect(donoSetor.status).toBe(200);
       expect(propria.status).toBe(200);

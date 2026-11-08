@@ -288,10 +288,6 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
     let lic: LicitacaoFixture;
     const tramitar = (para: string, despacho: string) =>
       http().post(`/api/fase-interna/${lic.id}/tramitar`).set(bearer(A.token)).send({ para_setor_id: para, despacho });
-    const sugestao = async (token = A.token) => {
-      await esperar();
-      return (await http().get(`/api/fase-interna/${lic.id}/tramitacao/sugestao-envio`).set(bearer(token)).expect(200)).body;
-    };
 
     beforeAll(async () => {
       // sem agente designado (o condutor não resolve o papel do agente)
@@ -307,7 +303,9 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
       await esperar();
     });
 
-    it('D. depois das minutas: sugere o Jurídico (7b), mesmo com o agente também tendo o papel Jurídico', async () => {
+    // D (sugestão de envio do motor antigo) saiu em 11/2026: a próxima etapa é do fluxo do processo.
+    // Fica só o preparo do E: minutas, parecer e autorização, com o processo tramitando.
+    it('D. instrução até a autorização (minutas, parecer e autorização anexados)', async () => {
       for (const t of ['RAG', 'ME', 'MC']) {
         const r = await anexar(lic, t, A.token);
         expect([201, 400]).toContain(r.status); // tipo fora da instrução desta modalidade: recusado
@@ -315,24 +313,11 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
       const inst = await instrucao(lic);
       for (const i of inst.itens) if (i.tipo === 'JC' && i.status !== 'OK' && i.pode_nao_se_aplicar) await naoSeAplica(lic, 'JC', A.token);
       await tramitar(setor.licitacoes, 'A Licitações para as minutas.').expect(201);
-      const s = await sugestao(ana.token);
-      const principal = s.destinos.find((d: any) => d.principal);
-      expect(principal).toMatchObject({ setor_id: setor.juridico });
-      expect(principal.etapas.map(([c]: [string]) => c)).toEqual(['PARECER']);
-      expect(s.despacho_sugerido).toMatch(/Jurídico/);
-      expect(s.etapas_sem_destino).toEqual([]);
-    });
-
-    it('D. depois da autorização: sugere o setor do agente (Licitações), para a publicação — o suporte sem setor com o mesmo papel não tira a sugestão', async () => {
       // parecer antes da autorização (art. 53, §4º); a autorização é a última da instrução (art. 72, VIII)
       expect((await anexar(lic, 'PJ', A.token)).status).toBe(201);
       await tramitar(setor.presidencia, 'À Presidência para a autorização.').expect(201);
       expect((await anexar(lic, 'AA', A.token)).status).toBe(201);
-      const s = await sugestao(paulo.token);
-      const principal = s.destinos.find((d: any) => d.principal);
-      expect(principal).toMatchObject({ setor_id: setor.licitacoes });
-      expect(principal.etapas.map(([c]: [string]) => c)).toContain('PUBLICACAO');
-      expect(s.despacho_sugerido).toMatch(/Licitações/);
+      await esperar();
     });
 
     it('E. desfazer "não se aplica" de etapa concluída: motivo obrigatório; só quem conduz ou o responsável; dependentes "a revisar"', async () => {

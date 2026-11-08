@@ -10,6 +10,7 @@ import { PecasFaseInternaService } from './pecas-fase-interna.service';
 import { JuntadaPecasService } from './juntada-pecas.service';
 import { MigracaoEspelhoDocumentosBootService } from './migracao-espelho-documentos-boot.service';
 import { MigracaoPecaEmitidaBootService } from './migracao-peca-emitida-boot.service';
+import { ArquivoMotorAntigoBootService } from './arquivo-motor-antigo-boot.service';
 import { CopilotoInterrompidoBootService } from './copiloto-interrompido-boot.service';
 import { JuntadaAutosService } from './juntada-autos.service';
 import { MigracaoAutosCronologicosBootService } from './migracao-autos-cronologicos-boot.service';
@@ -42,13 +43,10 @@ import {
   FluxoProcessoFaseInterna,
   ModeloFluxoFaseInterna,
   PlanejamentoFluxoOrgao,
-  RascunhoModeloFluxo,
   RequisitoLegalFluxo,
   TravaAtoFluxo,
   VersaoModeloFluxo,
 } from './fluxo/modelo-fluxo.entities';
-import { ConstrutorFluxoController } from './fluxo/construtor-fluxo.controller';
-import { ConstrutorFluxoService } from './fluxo/construtor-fluxo.service';
 import { PlanejamentoFluxoService } from './fluxo/planejamento-fluxo.service';
 import { PendenciaDfdService } from './fluxo/pendencia-dfd.service';
 import { ModeloFluxoService } from './fluxo/modelo-fluxo.service';
@@ -56,8 +54,7 @@ import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { FluxoProcessoController, ModeloFluxoController } from './fluxo/modelo-fluxo.controller';
 import { MigracaoModeloFluxoBootService } from './fluxo/migracao-modelo-fluxo-boot.service';
-import { IntegracaoFluxoService } from './fluxo/integracao-fluxo.service';
-import { IntegracaoFluxoController } from './fluxo/integracao-fluxo.controller';
+import { DespachoEtapaController } from './despacho-etapa.controller';
 import { DespachoEtapaService } from './despacho-etapa.service';
 import { DespachoFaseInterna } from './entities/despacho-fase-interna.entity';
 import { RascunhoIaFaseInterna } from './ia-rascunho/rascunho-ia.entity';
@@ -71,16 +68,9 @@ import { ProcessoModule } from '../processo/processo.module';
 import { LogFaseInterna } from './entities/log-fase-interna.entity';
 import { ModeloDocumento } from './entities/modelo-documento.entity';
 import { TramitacaoProcesso } from './entities/tramitacao-processo.entity';
-import {
-  FluxoAprovacaoDocumento,
-  AprovacaoDocumento,
-  ModeloFluxoAprovacao,
-} from './entities/fluxo-aprovacao.entity';
 import { ModeloDocumentoService } from './modelo-documento.service';
 import { TramitacaoService } from './tramitacao.service';
 import { TramitacaoPrazosScheduler } from './tramitacao-prazos.scheduler';
-import { AprovacaoService } from './aprovacao.service';
-import { AprovacaoPecasService } from './aprovacao-pecas.service';
 import { AssinaturasInternasService } from './assinaturas-internas.service';
 import { AssinaturasInternasController } from './assinaturas-internas.controller';
 import { ProcessoEletronicoController } from './processo-eletronico.controller';
@@ -131,9 +121,6 @@ import {
       LogFaseInterna,
       ModeloDocumento,
       TramitacaoProcesso,
-      FluxoAprovacaoDocumento,
-      AprovacaoDocumento,
-      ModeloFluxoAprovacao,
       Setor,
       Orgao,
       Licitacao,
@@ -159,8 +146,6 @@ import {
       TravaAtoFluxo,
       FluxoProcessoFaseInterna,
       PlanejamentoFluxoOrgao,
-      // Construtor de fluxo: rascunho do grafo e histórico de versões
-      RascunhoModeloFluxo,
       VersaoModeloFluxo,
       // F3 — despacho das etapas de registro (folha dos autos)
       DespachoFaseInterna,
@@ -182,11 +167,9 @@ import {
     OrcamentoController,
     TelasAnaliseDecisaoController,
     ConformidadeController,
-    // Construtor de fluxo (antes do ModeloFluxoController: rotas mais específicas primeiro)
-    ConstrutorFluxoController,
     ModeloFluxoController,
     FluxoProcessoController,
-    IntegracaoFluxoController,
+    DespachoEtapaController,
     RascunhoIaController,
     AssinaturasInternasController,
   ],
@@ -201,8 +184,6 @@ import {
     // Demanda aprovada → aviso e pendência "Montar o DFD" para quem monta o DFD
     PendenciaDfdService,
     FluxoProcessoService,
-    ConstrutorFluxoService,
-    IntegracaoFluxoService,
     DespachoEtapaService,
     RevisaoIaService,
     RascunhoIaService,
@@ -212,6 +193,8 @@ import {
     JuntadaPecasService,
     MigracaoEspelhoDocumentosBootService,
     MigracaoPecaEmitidaBootService,
+    // Um motor só (11/2026): tabelas aposentadas vão para o schema backup_motor_antigo
+    ArquivoMotorAntigoBootService,
     CopilotoInterrompidoBootService,
     JuntadaAutosService,
     TarefasService,
@@ -231,8 +214,6 @@ import {
     ModeloDocumentoService,
     TramitacaoService,
     TramitacaoPrazosScheduler,
-    AprovacaoService,
-    AprovacaoPecasService,
     AssinaturasInternasService,
     DerivacaoService,
     AuditLogService,
@@ -269,15 +250,12 @@ import {
     GeradorPpService,
     ModeloDocumentoService,
     TramitacaoService,
-    AprovacaoService,
-    AprovacaoPecasService,
     TarefasService,
     OrcamentoService,
     ConformidadeService,
     ModeloFluxoService,
     PlanejamentoFluxoService,
     PendenciaDfdService,
-    IntegracaoFluxoService,
     JuntadaAutosService,
   ],
 })

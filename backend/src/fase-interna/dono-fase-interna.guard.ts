@@ -21,7 +21,7 @@ import { atorDaRequisicao, ehOrgao } from '../auth/acesso/ator';
  *  - exige ator do lado da Administração (ORGAO/USUARIO com órgão, ou ADMIN
  *    da plataforma): anônimo → 401, fornecedor → 403;
  *  - rota com `:licitacaoId` → órgão DONO da licitação;
- *  - rota marcada com @DonoPor('documento' | 'tramitacao' | 'etapa', 'param')
+ *  - rota marcada com @DonoPor('documento' | 'tramitacao' | 'despacho', 'param')
  *    → resolve a licitação do recurso e exige o órgão dono.
  *  Modo: GET → 'leitura' (outro órgão recebe 404); demais → 'escrita' (403),
  *  salvo @DonoModo('leitura') (404 também na escrita — tramitação).
@@ -29,7 +29,7 @@ import { atorDaRequisicao, ehOrgao } from '../auth/acesso/ator';
  * Roda ANTES dos interceptors (upload multer): arquivo de quem não é dono
  * nem chega a ser gravado.
  */
-export type RecursoFaseInterna = 'documento' | 'tramitacao' | 'etapa' | 'despacho';
+export type RecursoFaseInterna = 'documento' | 'tramitacao' | 'despacho';
 export const DONO_POR_KEY = 'fase-interna:dono-por';
 
 /** Licitação dona do recurso identificado pelo parâmetro `param` da rota. */
@@ -46,7 +46,6 @@ export const DonoModo = (modo: ModoAcesso) => SetMetadata(DONO_MODO_KEY, modo);
 const SQL_LICITACAO_DO_RECURSO: Record<RecursoFaseInterna, string> = {
   documento: `SELECT licitacao_id FROM documentos_fase_interna WHERE id = $1`,
   tramitacao: `SELECT licitacao_id FROM tramitacoes_processo WHERE id = $1`,
-  etapa: `SELECT licitacao_id FROM aprovacoes_documento WHERE id = $1`,
   // F3: despacho de etapa de registro (folha dos autos)
   despacho: `SELECT licitacao_id FROM despachos_fase_interna WHERE id = $1`,
 };
