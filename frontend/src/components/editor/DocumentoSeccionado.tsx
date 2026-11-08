@@ -29,6 +29,7 @@ import {
 import { toast } from "sonner"
 import { confirmarAcao } from "@/components/DialogoGlobal"
 import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
+import { pendenciaDe } from "@/lib/salvamentos-pendentes"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -193,8 +194,8 @@ export function DocumentoSeccionado({
 
   // ─── Auto-save por seção ───────────────────────────────────────────────────
 
-  const salvarSecao = useCallback(
-    async (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA' = 'USUARIO') => {
+  const gravarSecao = useCallback(
+    async (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA') => {
       setSaveStatus((prev) => ({ ...prev, [secaoId]: 'saving' }))
       try {
         const res = await authFetch(
@@ -224,6 +225,16 @@ export function DocumentoSeccionado({
     [licitacaoId, tipo],
   )
 
+  const salvarSecao = useCallback(
+    (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA' = 'USUARIO') => {
+      const pend = pendenciaDe(licitacaoId, tipo)
+      const pr = gravarSecao(secaoId, html, origem).finally(() => pend.emCurso.delete(pr))
+      pend.emCurso.add(pr)
+      return pr
+    },
+    [licitacaoId, tipo, gravarSecao],
+  )
+
   const handleSecaoChange = useCallback(
     (secaoId: string, html: string) => {
       setConteudo((prev) => ({ ...prev, [secaoId]: html }))
@@ -233,11 +244,15 @@ export function DocumentoSeccionado({
         clearTimeout(debounceTimers.current[secaoId])
       }
       setSaveStatus((prev) => ({ ...prev, [secaoId]: 'idle' }))
-      debounceTimers.current[secaoId] = setTimeout(() => {
-        salvarSecao(secaoId, html)
-      }, 700)
+      const pend = pendenciaDe(licitacaoId, tipo)
+      const salvar = () => {
+        pend.timers.delete(secaoId)
+        return salvarSecao(secaoId, html)
+      }
+      debounceTimers.current[secaoId] = setTimeout(salvar, 700)
+      pend.timers.set(secaoId, { t: debounceTimers.current[secaoId], salvar })
     },
-    [salvarSecao],
+    [salvarSecao, licitacaoId, tipo],
   )
 
   // ─── Inserir de IA ─────────────────────────────────────────────────────────

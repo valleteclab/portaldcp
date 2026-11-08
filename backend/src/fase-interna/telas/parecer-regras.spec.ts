@@ -34,6 +34,13 @@ describe('Roteiro do parecer (Entrega 3B) — lê o motor de conformidade (Entre
     expect(s).toMatchObject({ A72_I: 'CONFORME', A72_II: 'CONFORME', A72_IV: 'PENDENTE', A72_VI_VII: 'CONFORME', A72_VIII: 'CONFORME' });
   });
 
+  it('art. 72, VIII sem autorização ainda: "etapa seguinte", não pendente (homologação 07/11/2026)', () => {
+    const r = roteiroPrevio({ contratacao_direta: true, fundamento_referencia: 'art. 75, II', numero_processo: '1/2026', avaliacoes: [], instrucao: [linha('DFD'), linha('AA', 'PENDENTE')] });
+    const viii = r.find((i) => i.id === 'A72_VIII')!;
+    expect(viii.automatico.situacao).toBe('NAO_SE_APLICA');
+    expect(viii.automatico.detalhe).toMatch(/Etapa seguinte/);
+  });
+
   it('art. 72, VI e VII por modalidade (homologação 26/09/2026): dispensa eletrônica → critério e preço estimado aqui; inexigibilidade → relatório OU justificativa', () => {
     const base = { contratacao_direta: true, fundamento_referencia: 'art. 75, II', numero_processo: '1/2026', avaliacoes: [] };
     const disp = roteiroPrevio({ ...base, modalidade: 'DISPENSA_ELETRONICA', instrucao: [linha('RAG'), linha('JC', 'PENDENTE')] }).find((i) => i.id === 'A72_VI_VII')!;

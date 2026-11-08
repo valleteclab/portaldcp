@@ -11,23 +11,37 @@ import type { Andamento } from "@/lib/fluxo/andamento"
  * Processo da licitação e o andamento dele, quando segue um fluxo desenhado.
  * Nulo enquanto carrega ou quando não há fluxo (a tela usa a barra de sempre).
  */
-export function useFluxoDaLicitacao(licitacaoId: string, atualizacao?: unknown): { processoId: string; andamento: Andamento } | null {
-  const [dados, setDados] = useState<{ processoId: string; andamento: Andamento } | null>(null)
+/**
+ * Fluxo que conduz a licitação. `undefined` enquanto carrega (homologação
+ * 07/11/2026: a barra antiga da fase interna, em outra ordem, aparecia até a
+ * resposta chegar); `null` = processo sem fluxo desenhado.
+ */
+export function useFluxoDaLicitacao(licitacaoId: string, atualizacao?: unknown): { processoId: string; andamento: Andamento } | null | undefined {
+  const [dados, setDados] = useState<{ processoId: string; andamento: Andamento } | null | undefined>(undefined)
   useEffect(() => {
     let vivo = true
     ;(async () => {
+      let achado: { processoId: string; andamento: Andamento } | null = null
+      let falhou = false
       try {
         const rp = await authFetch(`${API_URL}/api/processos/referencia/LICITACAO/${licitacaoId}`)
-        if (!rp.ok) return
-        const p = (await rp.json()) as { id?: string }
-        if (!p?.id) return
-        const ra = await authFetch(`${API_URL}/api/processos/${p.id}/andamento`)
-        if (!ra.ok) return
-        const a = (await ra.json()) as Andamento
-        if (vivo && a?.modo === "FLUXO" && a.nos?.length) setDados({ processoId: p.id, andamento: a })
+        if (rp.status >= 500) falhou = true
+        if (rp.ok) {
+          const p = (await rp.json()) as { id?: string }
+          if (p?.id) {
+            const ra = await authFetch(`${API_URL}/api/processos/${p.id}/andamento`)
+            if (!ra.ok) falhou = true
+            if (ra.ok) {
+              const a = (await ra.json()) as Andamento
+              if (a?.modo === "FLUXO" && a.nos?.length) achado = { processoId: p.id, andamento: a }
+            }
+          }
+        }
       } catch {
-        /* sem fluxo: barra de sempre */
+        falhou = true
       }
+      // Falha passageira ao recarregar não troca a barra do fluxo pela antiga
+      if (vivo) setDados((ant) => (achado ?? (falhou && ant ? ant : null)))
     })()
     return () => {
       vivo = false

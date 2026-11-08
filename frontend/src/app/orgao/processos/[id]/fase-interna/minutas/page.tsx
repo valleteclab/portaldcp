@@ -26,6 +26,7 @@ import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/perm
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtDia, fmtMoeda, rotaDaTela } from "@/lib/fase-interna/telas"
+import { aguardarSalvamentosDaPeca } from "@/lib/salvamentos-pendentes"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
   ssr: false,
@@ -81,6 +82,11 @@ export default function MinutasPage() {
   const { confirmar, dialogo } = useDialogoConfirmacao()
   const [d, setD] = useState<MinutasTela | null>(null)
   const [aba, setAba] = useState<TipoMinuta>("RAG")
+  // "Corrigir peça" da conformidade abre na aba da peça (?peca=MC) — antes caía sempre no relatório
+  useEffect(() => {
+    const peca = new URLSearchParams(window.location.search).get("peca")
+    if (peca === "RAG" || peca === "ME" || peca === "MC") setAba(peca)
+  }, [])
   const [documento, setDocumento] = useState<any>(undefined)
   const [licitacao, setLicitacao] = useState<any>(null)
   const [editorChave, setEditorChave] = useState(0)
@@ -119,6 +125,7 @@ export default function MinutasPage() {
     if (p?.editada && !(await confirmar({ titulo: "Regerar pelo modelo?", mensagem: "O texto editado à mão será substituído pelo texto do modelo com os dados atuais do processo (a versão anterior fica no histórico quando já assinada ou anexada).", confirmarRotulo: "Regerar" }))) return
     setOcupado(true)
     try {
+      await Promise.all((tipo === "TODAS" ? ["RAG", "ME", "MC"] : [tipo]).map((t) => aguardarSalvamentosDaPeca(id, t)))
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/minutas/${tipo}/gerar`, { method: "POST" })
       if (!r.ok) throw new Error(await erroDaApi(r))
       toast.success(tipo === "TODAS" ? "Relatório e minutas gerados com os dados do processo." : "Peça gerada com os dados do processo.")

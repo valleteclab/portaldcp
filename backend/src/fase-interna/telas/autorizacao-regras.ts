@@ -96,3 +96,16 @@ export function resumoDaAutorizacao(e: {
     portao_b: portao,
   };
 }
+
+/**
+ * Aviso quando quem está com a etapa de autorização no fluxo não é quem assina
+ * o despacho (homologação 07/11/2026). Nulo = sem conflito.
+ */
+export function avisoDosSignatarios(e: { nomes: string[]; algumSignatarioTemAEtapa: boolean; atorTemAEtapa: boolean; atorAssina: boolean }): string | null {
+  const onde = 'Ajuste em Configurações › Fase interna › "Autorização da contratação — quem assina" (ou dê o papel "Autoridade" a quem autoriza).';
+  if (!e.nomes.length) return `Ninguém está definido para assinar a autorização. ${onde}`;
+  const lista = e.nomes.join(', ');
+  if (e.atorTemAEtapa && !e.atorAssina) return `A etapa de autorização está com você, mas o despacho é assinado por ${lista}. ${onde}`;
+  if (!e.algumSignatarioTemAEtapa) return `O despacho é assinado por ${lista}, mas a etapa de autorização do fluxo está com outra pessoa ou setor. ${onde}`;
+  return null;
+}

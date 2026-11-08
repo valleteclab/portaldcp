@@ -23,6 +23,7 @@ import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaix
 import { BaseEditavelAviso } from "@/components/fase-interna/etapas/BaseEditavelAviso"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtMoeda, rotaDaTela, vigenteEBaseDoEditor } from "@/lib/fase-interna/telas"
+import { aguardarSalvamentosDaPeca } from "@/lib/salvamentos-pendentes"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
   ssr: false,
@@ -108,6 +109,7 @@ export default function TrPage() {
     }
     setGerando(true)
     try {
+      await aguardarSalvamentosDaPeca(id, "TR")
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/documentos/TR/gerar`, { method: "POST" })
       if (!r.ok) throw new Error(await erroDaApi(r))
       const j = await r.json()

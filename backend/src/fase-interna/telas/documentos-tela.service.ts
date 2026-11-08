@@ -428,7 +428,8 @@ export class DocumentosTelaService {
    */
   async gerar(licitacaoId: string, tipoParam: string, autor: Autor) {
     const tipo = String(tipoParam || '').toUpperCase();
-    if (!TIPOS_GERAVEIS.has(tipo)) throw new BadRequestException('Geração pela tela disponível para DFD, ETP e TR.');
+    if (tipo === 'AR') return this.gerarAnaliseRiscos(licitacaoId, autor);
+    if (!TIPOS_GERAVEIS.has(tipo)) throw new BadRequestException('Geração pela tela disponível para DFD, ETP, TR e análise de riscos.');
     const t = tipo as TipoDocumentoFaseInterna;
     let atual = await this.docAtual(licitacaoId, t);
     if (atual && (atual.status === StatusDocumento.ASSINADO || atual.status === StatusDocumento.AGUARDANDO_ASSINATURA)) {
@@ -467,6 +468,36 @@ export class DocumentosTelaService {
     await this.revisaoIa.registrarNaEmissao(licitacaoId, t as 'DFD' | 'ETP' | 'TR', { documentoId: doc.id, autor, ato: 'gerado' });
     const final = await this.docAtual(licitacaoId, t);
     return { peca: this.resumoPeca(final), secoes: this.secoesDe(final), secoes_derivadas: ids };
+  }
+
+  /**
+   * ANÁLISE DE RISCOS pela tela (homologação 07/11/2026: só dava para anexar
+   * ou marcar "não se aplica"). A peça é a matriz cadastrada na tela de riscos
+   * (`dados_estruturados.riscos`); gerar = emitir o PDF dela. Exige ao menos
+   * um risco e o tratamento de cada um (art. 18, X; art. 22).
+   */
+  private async gerarAnaliseRiscos(licitacaoId: string, autor: Autor) {
+    const t = TipoDocumentoFaseInterna.ANALISE_RISCOS;
+    let atual = await this.docAtual(licitacaoId, t);
+    if (atual && (atual.status === StatusDocumento.ASSINADO || atual.status === StatusDocumento.AGUARDANDO_ASSINATURA)) {
+      throw new ConflictException('A versão atual está assinada ou em assinatura.');
+    }
+    if (atual?.dados_estruturados?.nao_se_aplica) throw new ConflictException('A análise de riscos está marcada como "não se aplica" — desfaça antes de gerar.');
+    const riscos: any[] = Array.isArray(atual?.dados_estruturados?.riscos) ? atual!.dados_estruturados.riscos : [];
+    if (!atual || !riscos.length) throw new BadRequestException('Cadastre ao menos um risco na matriz antes de gerar a análise de riscos.');
+    const semTratamento = riscos.filter((r) => !String(r?.mitigacao ?? r?.acoes_preventivas ?? '').trim() || !String(r?.descricao ?? '').trim());
+    if (semTratamento.length) {
+      const nomes = semTratamento.map((r, i) => `R-${String(r?.numero ?? i + 1).padStart(2, '0')}`).join(', ');
+      throw new BadRequestException(`Descreva o risco e o tratamento (mitigação) de cada um antes de gerar: ${nomes}.`);
+    }
+    if (atual.data_geracao_arquivo) atual = await this.novaVersaoCopiando(atual, autor);
+    if (!atual.titulo || atual.titulo === 'Mapa de Riscos' || atual.titulo === 'AR') {
+      await this.docRepo.update(atual.id, { titulo: TITULO_DOCUMENTO[t] ?? 'Análise de riscos' } as any);
+    }
+    if (!atual.criado_por_id && autor.id) await this.docRepo.update(atual.id, { criado_por_id: autor.id, criado_por_nome: autor.nome ?? undefined } as any);
+    await this.gerador.gerarPdf(atual.id, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
+    const final = await this.docAtual(licitacaoId, t);
+    return { peca: this.resumoPeca(final), secoes: {}, secoes_derivadas: [] as string[] };
   }
 
   /**

@@ -853,7 +853,10 @@ export class FaseInternaService {
    * uma VERSÃO NOVA em elaboração (a anterior vira SUBSTITUIDO). Devolve o
    * rascunho a editar (ou o próprio documento, se ainda é rascunho).
    */
-  async novaVersaoSeFinalizada(documento: DocumentoFaseInterna | null): Promise<DocumentoFaseInterna | null> {
+  async novaVersaoSeFinalizada(
+    documento: DocumentoFaseInterna | null,
+    repo: Repository<DocumentoFaseInterna> = this.documentoRepository,
+  ): Promise<DocumentoFaseInterna | null> {
     if (!documento) return null;
     const finalizada =
       documento.origem !== OrigemDocumento.INTERNO ||
@@ -862,12 +865,12 @@ export class FaseInternaService {
     if (!finalizada || documento.dados_estruturados?.nao_se_aplica) return documento;
     // Homologação E5: a versão nova parte do CONTEÚDO da última versão feita no sistema (a
     // própria, se foi feita aqui; senão a anterior ao anexo) — as seções não somem
-    const base = await this.baseEditavel(documento);
+    const base = await this.baseEditavel(documento, repo);
     documento.versao_atual = false;
     documento.status = StatusDocumento.SUBSTITUIDO;
-    await this.documentoRepository.save(documento);
+    await repo.save(documento);
     const dados = conteudoEditavel(base?.dados_estruturados);
-    return this.documentoRepository.create({
+    return repo.create({
       licitacao_id: documento.licitacao_id,
       tipo: documento.tipo,
       titulo: documento.origem === OrigemDocumento.INTERNO ? documento.titulo : TITULO_DOCUMENTO[documento.tipo] ?? documento.titulo,
@@ -888,9 +891,12 @@ export class FaseInternaService {
    * anexada (PDF feito fora), a versão interna mais recente. É o que a tela
    * mostra para gerar de novo; não conta como peça pronta (a vigente é o anexo).
    */
-  async baseEditavel(documento: Pick<DocumentoFaseInterna, 'licitacao_id' | 'tipo' | 'origem' | 'dados_estruturados' | 'versao'> & { id?: string }) {
+  async baseEditavel(
+    documento: Pick<DocumentoFaseInterna, 'licitacao_id' | 'tipo' | 'origem' | 'dados_estruturados' | 'versao'> & { id?: string },
+    repo: Repository<DocumentoFaseInterna> = this.documentoRepository,
+  ) {
     if (documento.origem === OrigemDocumento.INTERNO && Object.keys(conteudoEditavel(documento.dados_estruturados)).length) return documento as DocumentoFaseInterna;
-    const anteriores = await this.documentoRepository.find({
+    const anteriores = await repo.find({
       where: { licitacao_id: documento.licitacao_id, tipo: documento.tipo, origem: OrigemDocumento.INTERNO },
       order: { versao: 'DESC' },
       take: 20,
@@ -949,7 +955,33 @@ export class FaseInternaService {
   ): Promise<{ ok: boolean; secaoId: string; documento_id?: string }> {
     // Chaves internas (_edicoes, _dfd, _marca...) não são seções do editor
     if (!secaoId || secaoId.startsWith('_')) throw new BadRequestException('Seção inválida');
-    let documento = await this.documentoRepository.findOne({
+    // Homologação 07/11/2026 (seção do TR perdida): o editor salva cada seção
+    // por conta própria e duas gravações simultâneas liam o mesmo JSON e a
+    // segunda apagava a primeira. A trava da peça serializa as gravações.
+    return this.comTravaDaPeca(licitacaoId, tipo, (repo) => this.gravarSecao(repo, licitacaoId, tipo, secaoId, html, edicao));
+  }
+
+  /**
+   * TRAVA DA PEÇA: quem lê e regrava `dados_estruturados` de uma peça faz isso
+   * dentro desta transação, uma gravação por vez por (processo, tipo) — vale
+   * também quando a peça ainda não existe (duas criações simultâneas).
+   */
+  async comTravaDaPeca<T>(licitacaoId: string, tipo: string, fn: (repo: Repository<DocumentoFaseInterna>) => Promise<T>): Promise<T> {
+    return this.documentoRepository.manager.transaction(async (em) => {
+      await em.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`peca:${licitacaoId}:${tipo}`]);
+      return fn(em.getRepository(DocumentoFaseInterna));
+    });
+  }
+
+  private async gravarSecao(
+    repo: Repository<DocumentoFaseInterna>,
+    licitacaoId: string,
+    tipo: TipoDocumentoFaseInterna,
+    secaoId: string,
+    html: string,
+    edicao?: { autor?: { id: string | null; nome: string | null }; origem?: 'USUARIO' | 'IA_ACEITA' },
+  ): Promise<{ ok: boolean; secaoId: string; documento_id?: string }> {
+    let documento = await repo.findOne({
       where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
     });
     // Homologação (TR "Rascunho" depois de gerar): salvar a seção com o MESMO texto não é
@@ -958,10 +990,10 @@ export class FaseInternaService {
       return { ok: true, secaoId, documento_id: documento.id };
     }
 
-    documento = await this.novaVersaoSeFinalizada(documento);
+    documento = await this.novaVersaoSeFinalizada(documento, repo);
     if (!documento) {
       // Cria rascunho automaticamente se ainda não existir
-      documento = this.documentoRepository.create({
+      documento = repo.create({
         licitacao_id: licitacaoId,
         tipo,
         titulo: TITULO_DOCUMENTO[tipo] ?? tipo,
@@ -998,7 +1030,7 @@ export class FaseInternaService {
       .map(([, v]) => v)
       .join('\n');
 
-    const salvo = await this.documentoRepository.save(documento);
+    const salvo = await repo.save(documento);
     return { ok: true, secaoId, documento_id: salvo.id };
   }
 

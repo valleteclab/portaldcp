@@ -65,6 +65,8 @@ interface AutorizacaoTela {
   secoes: Record<string, string>
   signatarios: Array<{ usuario_id: string; nome: string; papel: string; status: string; data_assinatura: string | null }>
   signatarios_configurados: Array<{ usuario_id: string; nome: string; papel: string; ativo: boolean }>
+  /** Quem está com a etapa no fluxo não é quem assina (homologação 07/11/2026). */
+  aviso_signatarios?: string | null
   assinaturas: { total: number; assinaram: number; faltam: string[]; sou_signatario: boolean; ja_assinei: boolean; posso_assinar: boolean }
   pode_devolver: boolean
   /** "Regerar despacho": só antes de autorizar; depois, só pelo fluxo de nova autorização (motivo). */
@@ -435,6 +437,12 @@ export default function AutorizacaoPage() {
                 <span className="text-xs text-gray-600">{s.status === "ASSINADO" ? fmtDia(s.data_assinatura) : s.status === "—" ? "" : "pendente"}</span>
               </div>
             ))}
+            {d.aviso_signatarios && (
+              <p role="alert" className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                {d.aviso_signatarios}{" "}
+                <Link className="underline" href="/orgao/configuracoes/fase-interna">Abrir a configuração</Link>
+              </p>
+            )}
             {!d.signatarios.length && !d.signatarios_configurados.length && (
               <p className="text-sm text-amber-900">
                 Defina quem assina em <Link className="underline" href="/orgao/configuracoes/fase-interna">Configurações › Fase interna</Link> (ex.: os 4 membros da Mesa Diretora) ou dê o papel &quot;Autoridade&quot; a quem autoriza.

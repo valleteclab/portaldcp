@@ -120,7 +120,7 @@ export function ChecklistPrePublicacao({
     const podeReenviar = !!divulgacao?.banner?.pode_reenviar
     const n = bloqueantes.length
     motivoPrincipal = n
-      ? `Resolva ${n === 1 ? "a pendência" : `as ${n} pendências`} do checklist antes de reenviar.`
+      ? `Antes de reenviar, falta resolver: ${bloqueantes.map((i) => i.rotulo).join("; ")}.`
       : !podeReenviar
         ? "O envio já está em andamento ou foi aceito — aguarde a resposta do PNCP."
         : null
@@ -132,7 +132,8 @@ export function ChecklistPrePublicacao({
     )
   } else if (!aguardando && dispensa && !l.selecao_externa) {
     const n = bloqueantesDivulgar.length
-    motivoPrincipal = n ? `Resolva ${n === 1 ? "a pendência" : `as ${n} pendências`} do checklist para divulgar.` : null
+    // Homologação 07/11/2026: o botão dizia "1 pendência" sem dizer qual
+    motivoPrincipal = n ? `Falta resolver: ${bloqueantesDivulgar.map((i) => i.rotulo).join("; ")}.` : null
     principal = (
       <Button onClick={onDivulgarAviso} disabled={n > 0} aria-describedby={motivoPrincipal ? "motivo-principal" : undefined}>
         Gerar aviso e divulgar{n ? ` (${n} ${n === 1 ? "pendência" : "pendências"})` : ""}

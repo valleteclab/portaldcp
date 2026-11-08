@@ -455,7 +455,7 @@ export default function ConfiguracaoFaseInternaPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Autorização (etapa 6) — quem assina</CardTitle>
+          <CardTitle>Autorização da contratação — quem assina</CardTitle>
           <CardDescription>
             A autoridade pode ser colegiada (ex.: Mesa Diretora com Presidente, Vice, 1º e 2º Secretários): a autorização só vale quando todos assinam.
             Sem ninguém aqui, recebem o despacho os usuários com o papel &quot;Autoridade&quot;.

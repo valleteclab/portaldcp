@@ -119,3 +119,70 @@ export function motivoSigiloInvalido(sigiloso: boolean, justificativa: string | 
   if (sigiloso && String(justificativa ?? '').trim().length < 20) return 'Justifique o sigilo do orçamento (art. 24 da Lei 14.133/2021).';
   return null;
 }
+
+/**
+ * CLÁUSULAS PADRÃO DA MINUTA DO CONTRATO (homologação 07/11/2026: o modelo
+ * deixava 8 cláusulas obrigatórias do art. 92 em branco e a minuta "pronta"
+ * travava a publicação). Quando a seção do modelo vem vazia, a geração usa o
+ * texto padrão abaixo e, onde o TR já define o assunto, junta o texto do TR
+ * (modelo de execução, de gestão, medição e pagamento). Variáveis `{{…}}` são
+ * as do modelo (substituídas pelo serviço). Texto do usuário nunca é trocado:
+ * isto só vale na geração.
+ */
+export const CLAUSULAS_PADRAO_CONTRATO: Record<string, { texto: string; doTr?: string }> = {
+  regime_execucao: {
+    texto: '<p>O objeto será executado na forma do modelo de execução definido no termo de referência, que integra este contrato.</p>',
+    doTr: 'modelo_execucao',
+  },
+  preco: {
+    texto:
+      '<p>O valor deste contrato é o da proposta da contratada, limitado ao valor estimado de {{licitacao.valor_estimado}}, e inclui todas as despesas necessárias à execução do objeto. O preço é fixo e irreajustável por 12 (doze) meses contados da data do orçamento estimado; depois desse prazo, poderá ser reajustado pelo IPCA/IBGE (art. 25, §7º, e art. 92, V, da Lei nº 14.133/2021).</p>',
+  },
+  pagamento: {
+    texto:
+      '<p>O pagamento será feito em até 30 (trinta) dias do recebimento definitivo e da nota fiscal atestada pelo fiscal do contrato, conforme os critérios de medição do termo de referência e a ordem cronológica do art. 141 da Lei nº 14.133/2021.</p>',
+    doTr: 'pagamento',
+  },
+  prazos: {
+    texto:
+      '<p>Os prazos de vigência, de início, de execução e de recebimento do objeto são os definidos no termo de referência, contados da assinatura deste contrato ou da ordem de serviço ou de fornecimento, admitida a prorrogação nos termos dos arts. 105 a 114 da Lei nº 14.133/2021.</p>',
+  },
+  obrigacoes: {
+    texto:
+      '<p>Cabe à contratada executar o objeto conforme o termo de referência e a proposta; responder pelos danos causados à Administração ou a terceiros (art. 120); manter as condições de habilitação; e arcar com os encargos trabalhistas, previdenciários, fiscais e comerciais (art. 121 da Lei nº 14.133/2021). Cabe à contratante acompanhar e fiscalizar a execução, prestar as informações necessárias e pagar nas condições pactuadas.</p>',
+  },
+  penalidades: {
+    texto:
+      '<p>Pelas infrações do art. 155 da Lei nº 14.133/2021, a contratada fica sujeita às sanções do art. 156 — advertência, multa de 0,5% a 30% do valor do contrato, impedimento de licitar e contratar e declaração de inidoneidade —, aplicadas em processo com contraditório e ampla defesa (arts. 157 e 158).</p>',
+  },
+  gestao: {
+    texto:
+      '<p>A execução será acompanhada e fiscalizada pelo gestor e pelo fiscal do contrato designados pela Administração (art. 117 da Lei nº 14.133/2021), conforme o modelo de gestão do termo de referência.</p>',
+    doTr: 'modelo_gestao',
+  },
+  extincao: {
+    texto:
+      '<p>Este contrato poderá ser extinto nas hipóteses dos arts. 137 a 139 da Lei nº 14.133/2021 — por ato unilateral da Administração, por acordo entre as partes ou por decisão arbitral ou judicial —, assegurados o contraditório e a ampla defesa.</p>',
+  },
+};
+
+const temTexto = (v: unknown) => typeof v === 'string' && v.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().length > 0;
+
+/**
+ * Completa as cláusulas VAZIAS da minuta do contrato gerada pelo modelo: texto
+ * padrão (com as variáveis já substituídas por `substituir`) e, quando houver,
+ * o trecho correspondente do TR. Só mexe nas seções que o modelo tem.
+ */
+export function completarClausulasDoContrato(
+  secoes: Record<string, string>,
+  tr: Record<string, string> | null,
+  substituir: (texto: string) => string,
+): Record<string, string> {
+  const r = { ...secoes };
+  for (const [id, padrao] of Object.entries(CLAUSULAS_PADRAO_CONTRATO)) {
+    if (!(id in r) || temTexto(r[id])) continue;
+    const doTr = padrao.doTr && tr && temTexto(tr[padrao.doTr]) ? tr[padrao.doTr] : '';
+    r[id] = substituir(padrao.texto) + (doTr ? `\n<p>Conforme o termo de referência:</p>\n${doTr}` : '');
+  }
+  return r;
+}
