@@ -209,7 +209,7 @@ export function PainelEtapaFluxo({ processoId, andamento, onAtualizar }: { proce
         </p>
       </section>
     )
-  const ehAprovacao = no.tipo === "APROVACAO"
+  const ehAprovacao = no.tipo === "APROVACAO" || no.tipo === "APROVACAO_DEMANDA"
 
   return (
     <section className={s.bloco} aria-labelledby="painel-etapa-fluxo">

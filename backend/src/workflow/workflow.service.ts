@@ -528,8 +528,23 @@ export class WorkflowService {
    */
   private async aposCriarTarefa(instancia: WorkflowInstancia, acao: WorkflowAcao, tarefa: WorkflowTarefa, atorId: string | null) {
     const ctx = this.contexto(instancia, acao, tarefa, atorId);
-    await this.registro.emitir({ tipo: 'TAREFA_CRIADA', ctx });
     const executor = this.registro.executor(acao.tipo);
+    // Etapa já cumprida por outro caminho (ex.: aprovação da demanda vinda dos setores): conclui sozinha, com o motivo no histórico
+    if (executor?.concluiSozinha) {
+      try {
+        const motivo = await executor.concluiSozinha(ctx);
+        if (motivo) {
+          tarefa.resposta = { ...(tarefa.resposta ?? {}), decisao: 'APROVADO', automatica: true, motivo };
+          await this.tarefas.save(tarefa);
+          await this.historico.save(this.historico.create({ instancia_id: instancia.id, evento: 'CONCLUIDA_SOZINHA', descricao: `${acao.nome}: ${motivo}`.slice(0, 240), ator_id: null, detalhes: { motivo } }));
+          await this.avancar(instancia, tarefa, null);
+          return;
+        }
+      } catch (e) {
+        this.logger.warn(`Conclusão automática de ${acao.tipo} não avaliada (tarefa ${tarefa.id}): ${(e as Error).message}`);
+      }
+    }
+    await this.registro.emitir({ tipo: 'TAREFA_CRIADA', ctx });
     if (!definicaoDoNo(acao.tipo)?.automatico || !executor?.executarAutomatico) return;
     try {
       await executor.executarAutomatico({ ...ctx, atorId: null });
@@ -626,9 +641,9 @@ export class WorkflowService {
          JOIN workflow_acoes a ON a.id = t.acao_id
          LEFT JOIN processos p ON i.vinculo_tipo = 'PROCESSO' AND p.id = i.vinculo_id AND p.orgao_id = i.orgao_id
         WHERE i.orgao_id::text = $1 AND i.status = 'EM_ANDAMENTO' AND t.status = 'ABERTA'
-          AND ($2::text IS NULL OR a.tipo = $2::text)
+          AND ($2::text[] IS NULL OR a.tipo = ANY($2::text[]))
         ORDER BY t.prazo_em ASC NULLS LAST, t.created_at ASC`,
-      [orgaoId, tipo ? String(tipo).toUpperCase() : null],
+      [orgaoId, tipo ? String(tipo).toUpperCase().split(',').map((t) => t.trim()).filter(Boolean) : null],
     );
     const quem = await this.quemE(orgaoId, ator);
     return linhas

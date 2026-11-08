@@ -44,7 +44,10 @@ export const MODELOS_PRONTOS: readonly ModeloPronto[] = [
     tipo_processo: 'CONTRATACAO',
     aplicacao: null,
     etapas: [
-      { tipo: 'DFD', nome: 'DFD — pede autorização', setor: ADMINISTRACAO, prazo: 2 },
+      // Quem abre o processo faz o DFD (com as demandas dos setores ou sem demanda, ex.: feito fora);
+      // sem demanda aprovada, o DFD passa pela aprovação — que pula sozinha quando já existe (08/11/2026)
+      { tipo: 'DFD', nome: 'DFD — pede autorização', setor: [], prazo: 2, solicitante: true },
+      { tipo: 'APROVACAO_DEMANDA', nome: 'Aprovação da demanda', setor: PRESIDENCIA, prazo: 2 },
       { tipo: 'ETP', nome: 'Estudo técnico preliminar', setor: ADMINISTRACAO, prazo: 3 },
       { tipo: 'PESQUISA_PRECO', nome: 'Pesquisa de preços', setor: COMPRAS, prazo: 5 },
       { tipo: 'RESERVA_ORCAMENTARIA', nome: 'Dotação orçamentária', setor: CONTABILIDADE, prazo: 2 },

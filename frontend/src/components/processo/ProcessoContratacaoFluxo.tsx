@@ -169,7 +169,8 @@ export function ProcessoContratacaoFluxo({
   const proxima = idxAtual >= 0 ? andamento.nos[idxAtual + 1] ?? null : null
   const podeAgir = !!andamento.pode_agir && !andamento.encerrado
   const ponte = atual ? telaDaFaseInterna(atual.tipo, licitacaoId) : null
-  const ehAprovacao = atual?.tipo === "APROVACAO"
+  // Aprovação da demanda (08/11/2026): o aprovador decide como numa etapa de Aprovação
+  const ehAprovacao = atual?.tipo === "APROVACAO" || atual?.tipo === "APROVACAO_DEMANDA"
   const ehDefinicao = atual?.tipo === "DEFINICAO_MODALIDADE"
   // Etapa "Documento" (portaria, documentos do fornecedor…): sem tela própria na fase interna,
   // o documento é juntado aqui mesmo e a etapa só conclui com ele (no:<acao>)

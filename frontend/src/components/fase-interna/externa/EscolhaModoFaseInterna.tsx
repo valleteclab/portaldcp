@@ -117,6 +117,16 @@ export function EscolhaModoFaseInterna({
               escolha <b>&quot;Já foi feita fora&quot;</b> — você junta tudo de uma vez e o checklist do art. 72 mostra o que falta.
             </p>
           )}
+          {/* Decisão de 08/11/2026: com demandas aprovadas dos setores, o processo nasce do DFD consolidado (a aprovação
+              vem delas); sem demanda, abre por aqui e o DFD de quem abriu passa pela aprovação da demanda */}
+          <p className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+            <b>Tem demandas aprovadas dos setores?</b> Abra pelo{" "}
+            <Link href="/orgao/demandas/consolidacao" className="font-semibold text-[#1351b4] underline">
+              DFD consolidado
+            </Link>{" "}
+            — você monta o DFD com elas e a aprovação já vem das demandas. Abrindo por aqui, sem demanda, você faz o DFD e ele
+            passa pela <b>aprovação da demanda</b> (o DFD feito fora e anexado já conta como aprovado).
+          </p>
           <OpcoesModoFaseInterna valor={valor} onChange={setValor} modalidade={modalidade} />
           <p className="text-xs text-gray-600">
             Dá para misturar: quem começa guiado pode, no processo, &quot;Juntar documentos feitos fora&quot; a qualquer momento.

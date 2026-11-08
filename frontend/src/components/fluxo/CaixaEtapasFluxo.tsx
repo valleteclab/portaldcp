@@ -29,7 +29,7 @@ export function CaixaEtapasFluxo({ onContagem, todas = false }: { onContagem?: (
 
   const carregar = useCallback(async () => {
     try {
-      const r = await authFetch(`${API_URL}/api/workflows/minhas-etapas${todas ? "" : "?tipo=APROVACAO"}`)
+      const r = await authFetch(`${API_URL}/api/workflows/minhas-etapas${todas ? "" : "?tipo=APROVACAO,APROVACAO_DEMANDA"}`)
       const lista: EtapaMinha[] = r.ok ? await r.json() : []
       setItens(lista)
       onContagem?.(lista.length)
@@ -100,7 +100,7 @@ export function CaixaEtapasFluxo({ onContagem, todas = false }: { onContagem?: (
                   Abrir processo
                 </Link>
               ) : null}
-              {e.tipo === "APROVACAO" ? (
+              {e.tipo === "APROVACAO" || e.tipo === "APROVACAO_DEMANDA" ? (
                 <button type="button" onClick={() => aprovar(e)} disabled={aprovando !== null} className="rounded-lg bg-green-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
                   {aprovando === e.tarefa_id ? "Aprovando…" : "Aprovar"}
                 </button>
