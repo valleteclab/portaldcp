@@ -2014,6 +2014,9 @@ export class LicitacoesService {
       await manager.delete(LicitacaoTransicao, { licitacao_id: id });
       await manager.delete(ItemLicitacao, { licitacao_id: id });
       await manager.delete(LoteLicitacao, { licitacao_id: id });
+      // Tramitação (posse dos autos): a FK não tem cascade. Todo processo conduzido pelo fluxo
+      // tramita ("Encaminhado pelo fluxo") — sem isto o "Excluir processo" dava 500.
+      await manager.delete('tramitacoes_processo', { licitacao_id: id });
       // Processo eletrônico: a autuação sai junto (libera o número no órgão)
       await this.processos.aoExcluirLicitacao(id, manager);
       await manager.delete(Licitacao, id);
