@@ -1,4 +1,4 @@
-import { CAMPO_DISPUTA_DISPENSA, camposQueAfetamAPeca, decidirRegeracao, desatualizacaoRelevante, hashSecoes, incisosDoArt75Citados, normalizarNumero, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { CAMPO_DISPUTA_DISPENSA, CLAUSULAS_PADRAO_CONTRATO, completarClausulasDoContrato, camposQueAfetamAPeca, decidirRegeracao, desatualizacaoRelevante, hashSecoes, incisosDoArt75Citados, normalizarNumero, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 const gerada = (secoes: Record<string, string>, extra: Record<string, unknown> = {}) => ({
   id: 'd1',
@@ -75,5 +75,27 @@ describe('Despacho de autorização × modo de disputa (homologação 26/09/2026
     expect(desatualizacaoRelevante('ME', { campos: [CAMPO_DISPUTA_DISPENSA] })).toBe(true);
     expect(desatualizacaoRelevante('AA', { texto: 'sem campos' } as any)).toBe(true);
     expect(desatualizacaoRelevante('AA', null)).toBe(false);
+  });
+});
+
+describe('completarClausulasDoContrato (homologação 07/11/2026)', () => {
+  const subst = (t: string) => t.replace('{{licitacao.valor_estimado}}', 'R$ 18.240,00');
+
+  it('preenche as cláusulas vazias do modelo com o texto padrão e as variáveis', () => {
+    const r = completarClausulasDoContrato({ objeto: '<p>Objeto</p>', preco: '', extincao: '' }, null, subst);
+    expect(r.objeto).toBe('<p>Objeto</p>');
+    expect(r.preco).toContain('R$ 18.240,00');
+    expect(r.extincao).toContain('arts. 137 a 139');
+  });
+
+  it('junta o texto do TR onde ele define o assunto', () => {
+    const r = completarClausulasDoContrato({ regime_execucao: '', gestao: '<p></p>' }, { modelo_execucao: '<p>Visitas mensais.</p>', modelo_gestao: '' }, subst);
+    expect(r.regime_execucao).toContain('Visitas mensais.');
+    expect(r.gestao).toBe(subst(CLAUSULAS_PADRAO_CONTRATO.gestao.texto));
+  });
+
+  it('não cria seção que o modelo não tem e não troca texto escrito', () => {
+    const r = completarClausulasDoContrato({ preco: '<p>Preço do órgão</p>' }, null, subst);
+    expect(r).toEqual({ preco: '<p>Preço do órgão</p>' });
   });
 });

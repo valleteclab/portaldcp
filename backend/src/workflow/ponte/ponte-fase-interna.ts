@@ -82,6 +82,8 @@ export interface EstadoNaFaseInterna {
   travasDaLei?: string[];
   /** Rótulos das peças juntas da etapa (PECAS_JUNTAS_DA_ETAPA) que ainda não estão prontas. */
   pecasJuntasPendentes?: string[];
+  /** Conteúdo obrigatório faltando nas peças da etapa (ex.: cláusulas do art. 92 na minuta do contrato). */
+  conteudoFaltando?: string[];
 }
 
 const ROTULO: Record<string, string> = {
@@ -116,9 +118,20 @@ export function pendenciasDaPonte(tipoNo: string, e: EstadoNaFaseInterna): strin
   if (DOCUMENTO_DA_ETAPA[tipo]) {
     const doc = e.documentoPronto ? [] : [`Conclua ${ROTULO[tipo] ?? 'o documento'} na tela da fase interna: gere ou anexe o documento, ou marque "não se aplica".`];
     const juntas = (e.pecasJuntasPendentes ?? []).map((r) => `Falta ${r}.`);
-    return [...travas, ...doc, ...juntas];
+    return [...travas, ...doc, ...juntas, ...(e.conteudoFaltando ?? [])];
   }
   return [];
+}
+
+/**
+ * MINUTA DO CONTRATO SEM CLÁUSULA OBRIGATÓRIA (homologação 07/11/2026): a etapa
+ * de minutas concluía com 8 cláusulas do art. 92 vazias e o problema só
+ * aparecia na publicação, com a peça já fechada. A minuta feita no sistema
+ * segura a etapa; a anexada (PDF) e a "não se aplica" não são lidas aqui.
+ */
+export function pendenciaDaMinutaDoContrato(faltantes: string[]): string[] {
+  if (!faltantes.length) return [];
+  return [`Complete na minuta do contrato as cláusulas obrigatórias vazias (${faltantes.join('; ')}) ou gere a minuta de novo pelo modelo.`];
 }
 
 /** Portão da conformidade que segura o ato da etapa (B = autorizar, C = publicar); nulo = etapa sem trava. */
@@ -254,7 +267,9 @@ export function vezDoPasso(passos: PassoDaExecucao[], codigoPasso: string): VezD
 
 /** Texto do "Somente leitura" quando a peça não é da etapa atual. */
 export function motivoForaDaVez(vez: VezDoPasso, tituloPeca: string): string | null {
-  if (vez.situacao === 'CONCLUIDA') return `"${tituloPeca}" é da etapa ${vez.etapa.ordem} (${vez.etapa.nome}), já concluída no fluxo. Para alterar, peça a devolução da etapa na tela do processo.`;
-  if (vez.situacao === 'FUTURA') return `"${tituloPeca}" é da etapa ${vez.etapa.ordem} (${vez.etapa.nome}) do fluxo${vez.atual ? `; o processo está na etapa ${vez.atual.ordem} (${vez.atual.nome})` : ''}. Ela fica disponível quando o fluxo chegar nela.`;
+  // Sem o número: a ordem aqui é a do fluxo da modalidade e a tela do processo numera a contratação inteira
+  // (homologação 07/11/2026: "é da etapa 2" numa etapa que a barra mostrava como 9)
+  if (vez.situacao === 'CONCLUIDA') return `"${tituloPeca}" é da etapa "${vez.etapa.nome}", já concluída no fluxo. Para alterar, peça a devolução da etapa na tela do processo.`;
+  if (vez.situacao === 'FUTURA') return `"${tituloPeca}" é da etapa "${vez.etapa.nome}" do fluxo${vez.atual ? `; o processo está na etapa "${vez.atual.nome}"` : ''}. Ela fica disponível quando o fluxo chegar nela.`;
   return null;
 }

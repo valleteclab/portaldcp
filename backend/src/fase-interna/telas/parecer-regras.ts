@@ -107,7 +107,16 @@ export function roteiroPrevio(e: {
   } else {
     itens.push({ id: 'A72_VI_VII', ref: 'Art. 72, VI e VII', texto: 'Razão da escolha e justificativa do preço (relatório do agente)', tipos: ['RAG', 'JC'], automatico: pecas(I, ['RAG'], 'Relatório do agente') });
   }
-  itens.push({ id: 'A72_VIII', ref: 'Art. 72, VIII', texto: 'Autorização da autoridade competente', tipos: ['AA'], automatico: pecas(I, ['AA'], 'Autorização') });
+  // A autorização (art. 72, VIII) é o ato que vem DEPOIS do parecer: sem ela ainda, o item não fica
+  // "Pendente" no roteiro (homologação 07/11/2026) — a trava do portão C a cobra antes de publicar
+  const aa = pecas(I, ['AA'], 'Autorização');
+  itens.push({
+    id: 'A72_VIII',
+    ref: 'Art. 72, VIII',
+    texto: 'Autorização da autoridade competente',
+    tipos: ['AA'],
+    automatico: aa.situacao === 'PENDENTE' ? { situacao: 'NAO_SE_APLICA', detalhe: 'Etapa seguinte: a autoridade autoriza depois do parecer (conferido antes de publicar).' } : aa,
+  });
 
   // Enquadramento (ENQ-01): o inciso citado nas peças é o do processo?
   const enq = doMotor(e.avaliacoes, 'ENQ-01');

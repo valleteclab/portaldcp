@@ -13,7 +13,7 @@ import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { OrcamentoService } from '../orcamento/orcamento.service';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
 import { resumoIaDaPeca } from '../ia-rascunho/rascunho-ia-regras';
-import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, decidirRegeracao, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, completarClausulasDoContrato, decidirRegeracao, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
 
@@ -120,8 +120,16 @@ export class MinutasTelaService {
     const modelo = await this.modelos.resolverModelo(lic.orgao_id, tipo);
     if (!modelo) throw new BadRequestException(`Não há modelo para ${TITULO_DOCUMENTO[tipo] ?? tipo}.`);
     const contexto = await this.modelos.montarContextoVariaveis(licitacaoId);
-    const doModelo: Record<string, string> = {};
+    let doModelo: Record<string, string> = {};
     for (const s of modelo.secoes || []) doModelo[s.id] = s.texto_padrao ? this.modelos.substituirVariaveis(s.texto_padrao, contexto) : '';
+    if (tipo === TipoDocumentoFaseInterna.MINUTA_CONTRATO) {
+      // Cláusulas do art. 92 sem texto no modelo: texto padrão + o que o TR já define
+      const [tr] = await this.ds.query(
+        `SELECT dados_estruturados FROM documentos_fase_interna WHERE licitacao_id::text = $1 AND tipo::text = 'TR' AND versao_atual = true ORDER BY versao DESC NULLS LAST LIMIT 1`,
+        [licitacaoId],
+      );
+      doModelo = completarClausulasDoContrato(doModelo, secoesDaPeca(tr?.dados_estruturados), (t) => this.modelos.substituirVariaveis(t, contexto));
+    }
     // F4a: texto revisado do rascunho da IA no lugar do texto do modelo (só nas
     // seções do modelo). A impressão guardada é a do MODELO: a peça conta como
     // "editada" — se o processo mudar, ganha o aviso "desatualizada", nunca é

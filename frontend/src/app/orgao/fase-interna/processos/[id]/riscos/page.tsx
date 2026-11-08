@@ -2,12 +2,13 @@
 
 import { useState, use, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ChevronRight, Home, Plus, Sparkles, Loader2, Trash2 } from "lucide-react"
+import { ChevronRight, Home, Plus, Sparkles, Loader2, Trash2, FileText } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { API_URL, authFetch } from "@/lib/api"
+import { avisarFaseInternaAtualizada, erroDaApi } from "@/lib/fase-interna/telas"
 
 interface Risco {
   id: string
@@ -51,6 +52,9 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
   const [adicionando, setAdicionando] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [gerandoIA, setGerandoIA] = useState(false)
+  const [gerandoDoc, setGerandoDoc] = useState(false)
+  const [objeto, setObjeto] = useState("")
+  const [msgDoc, setMsgDoc] = useState<{ ok: boolean; texto: string } | null>(null)
   const [novoRisco, setNovoRisco] = useState({
     descricao: "",
     categoria: "Jurídico",
@@ -85,10 +89,18 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
     carregarRiscos()
   }, [carregarRiscos])
 
+  // Objeto do processo: a sugestão da IA é para ESTA contratação (antes o pedido era fixo em "serviços de TI")
+  useEffect(() => {
+    authFetch(`${API_URL}/api/fase-interna/${id}/etp`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setObjeto(String(d?.licitacao?.objeto ?? "")))
+      .catch(() => undefined)
+  }, [id])
+
   const gerarRiscosIA = async () => {
     setGerandoIA(true)
     try {
-      const prompt = `Liste 3 riscos adicionais típicos para processos licitatórios de serviços de TI, conforme a Lei 14.133/2021 (Art. 18, X). Para cada risco, informe: descrição, categoria e medida de mitigação. Retorne APENAS JSON: [{descricao, categoria, mitigacao}]`
+      const prompt = `Liste 3 riscos típicos desta contratação${objeto ? ` (objeto: ${objeto})` : ""}, conforme a Lei 14.133/2021 (Art. 18, X). Para cada risco, informe: descrição, categoria e medida de mitigação. Retorne APENAS JSON: [{descricao, categoria, mitigacao}]`
       const res = await authFetch(API_URL + "/api/ia/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -207,7 +219,23 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
   })
 
   const totalRiscos = riscos.length
-  const iaRiscosAdicionais = 3
+  const semTratamento = riscos.filter((r) => !String(r.mitigacao ?? "").trim())
+
+  // Homologação 07/11/2026: a análise de riscos só podia ser anexada — agora a matriz vira a peça
+  const gerarDocumento = async () => {
+    setGerandoDoc(true)
+    setMsgDoc(null)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/documentos/AR/gerar`, { method: "POST" })
+      if (!r.ok) throw new Error(await erroDaApi(r))
+      setMsgDoc({ ok: true, texto: "Análise de riscos gerada: o documento entrou no processo." })
+      avisarFaseInternaAtualizada(id)
+    } catch (e) {
+      setMsgDoc({ ok: false, texto: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setGerandoDoc(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -257,7 +285,7 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
               </>
             ) : (
               <>
-                <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Gerar com IA
+                <Sparkles className="w-3.5 h-3.5 mr-1.5" /> Sugerir riscos com IA
               </>
             )}
           </Button>
@@ -349,14 +377,6 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
         <Card className="border border-gray-100 shadow-sm">
           <CardHeader className="pb-3 flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Riscos identificados</CardTitle>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="text-xs text-gray-600 border-gray-200">
-                Filtrar
-              </Button>
-              <Button variant="outline" size="sm" className="text-xs text-gray-600 border-gray-200">
-                Exportar
-              </Button>
-            </div>
           </CardHeader>
           <CardContent className="p-0">
             {/* Formulário de novo risco */}
@@ -444,7 +464,7 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
 
             {riscos.length === 0 && !adicionando ? (
               <div className="py-12 text-center text-sm text-gray-400">
-                Nenhum risco identificado. Adicione manualmente ou use a IA.
+                Nenhum risco cadastrado. Use &ldquo;Novo risco&rdquo; (ou peça sugestões à IA e revise).
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -516,26 +536,25 @@ export default function MapaRiscosPage({ params }: { params: Promise<{ id: strin
         </Card>
       </div>
 
-      {/* IA alert box at bottom */}
-      <div className="flex items-center justify-between gap-4 bg-blue-50 border border-blue-200 rounded-lg px-5 py-4">
-        <div className="flex items-center gap-3">
-          <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
-          <p className="text-sm text-blue-700">
-            <span className="font-semibold">Procura+ AI</span> identificou {iaRiscosAdicionais} riscos adicionais com base em processos similares.
+      {/* Gerar a peça a partir da matriz */}
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-gray-200 rounded-lg px-5 py-4">
+        <div className="text-sm text-gray-700 max-w-2xl">
+          <p className="font-semibold text-gray-900">Documento da análise de riscos</p>
+          <p>
+            Gera o PDF com a matriz e o tratamento de cada risco; ele entra no processo como a análise de riscos (art. 72, I).
+            {totalRiscos === 0 && " Cadastre ao menos um risco."}
+            {semTratamento.length > 0 && ` Falta o tratamento de ${semTratamento.map((r) => r.id).join(", ")}.`}
           </p>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-blue-700 border-blue-300 hover:bg-blue-100 shrink-0"
-          onClick={gerarRiscosIA}
-          disabled={gerandoIA}
-        >
-          {gerandoIA ? (
-            <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Gerando…</>
-          ) : (
-            "Revisar sugestões"
+          {msgDoc && (
+            <p role={msgDoc.ok ? "status" : "alert"} className={`mt-1 ${msgDoc.ok ? "text-green-800" : "text-red-700"}`}>
+              {msgDoc.texto}{" "}
+              {msgDoc.ok && <Link href={`/orgao/processos/${id}/fase-interna/etp`} className="underline">Voltar ao ETP</Link>}
+            </p>
           )}
+        </div>
+        <Button onClick={gerarDocumento} disabled={gerandoDoc || totalRiscos === 0 || semTratamento.length > 0} className="bg-[#1351b4] hover:bg-[#0c326f] shrink-0">
+          {gerandoDoc ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <FileText className="w-4 h-4 mr-1.5" />}
+          Gerar análise de riscos (PDF)
         </Button>
       </div>
     </div>

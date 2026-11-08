@@ -253,7 +253,7 @@ export default function ConformidadePage() {
       titulo="Conformidade antes da publicação"
       subtitulo={
         <span>
-          Etapa 8 · O sistema cruza todas as peças dos autos entre si e só libera a publicação sem bloqueios abertos.
+          Antes da publicação · O sistema cruza todas as peças dos autos entre si e só libera a publicação sem bloqueios abertos.
           {d.revisao && (
             <span className="block text-xs text-gray-600 mt-0.5">
               Última revisão: {fmtDataHoraSeg(d.revisao.em)} · {ROTULO_ORIGEM[d.revisao.origem] ?? d.revisao.origem}

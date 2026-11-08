@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { linhasDoChecklist, MODALIDADES_CONTRATACAO_DIRETA } from '../../fase-interna/documentos-obrigatorios';
-import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, PECAS_JUNTAS_DA_ETAPA, pendenciasDaPonte, portaoDaEtapa } from './ponte-fase-interna';
+import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, PECAS_JUNTAS_DA_ETAPA, pendenciaDaMinutaDoContrato, pendenciasDaPonte, portaoDaEtapa } from './ponte-fase-interna';
+import { clausulasArt92Faltantes } from '../../fase-interna/conformidade/regras';
 import { pendenciasDoPortaoDoProcesso } from '../../fase-interna/conformidade/portoes';
 
 /**
@@ -57,6 +58,20 @@ export class PonteFaseInternaService {
         for (const junta of PECAS_JUNTAS_DA_ETAPA[tipo] ?? []) if (!(await pronta(junta.tipo))) pecasJuntasPendentes.push(junta.rotulo);
       }
     }
+    const conteudoFaltando: string[] = [];
+    if (tipo === 'MINUTAS') {
+      const [mc] = await this.ds.query(
+        `SELECT origem::text AS origem, dados_estruturados FROM documentos_fase_interna
+          WHERE licitacao_id::text = $1 AND tipo::text = 'MC' AND versao_atual = true ORDER BY versao DESC NULLS LAST LIMIT 1`,
+        [lic.id],
+      );
+      const dados = mc?.dados_estruturados;
+      if (mc && mc.origem === 'INTERNO' && dados && !dados.nao_se_aplica) {
+        // Só as cláusulas que o modelo usado tem (modelo próprio do órgão pode nomear as seções de outro jeito)
+        const doModelo = clausulasArt92Faltantes(dados).filter((f) => Object.prototype.hasOwnProperty.call(dados, f.replace(/^.*\((\w+)\)$/, '$1')));
+        conteudoFaltando.push(...pendenciaDaMinutaDoContrato(doModelo));
+      }
+    }
     let temDemanda = !!lic.demanda_id;
     if (!temDemanda && tipo === 'DEMANDA') {
       const [c] = await this.ds.query(`SELECT 1 FROM dfds_consolidados WHERE licitacao_id::text = $1 AND status <> 'CANCELADO' LIMIT 1`, [lic.id]);
@@ -66,6 +81,6 @@ export class PonteFaseInternaService {
     const portao = portaoDaEtapa(tipo);
     const publicada = !ehFaseInterna(lic.fase);
     const travasDaLei = portao && !publicada ? await pendenciasDoPortaoDoProcesso(lic.id, portao.portao, { ato: portao.ato, somenteAvaliacao: true }) : [];
-    return pendenciasDaPonte(tipo, { documentoPronto, publicada, temDemanda, travasDaLei, pecasJuntasPendentes });
+    return pendenciasDaPonte(tipo, { documentoPronto, publicada, temDemanda, travasDaLei, pecasJuntasPendentes, conteudoFaltando });
   }
 }

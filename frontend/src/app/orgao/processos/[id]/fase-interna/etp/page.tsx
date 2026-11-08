@@ -26,6 +26,7 @@ import { AssistenteEtp, type AnaliseEtp } from "@/components/fase-interna/etapas
 import { RascunhoIaFaixa } from "@/components/fase-interna/etapas/RascunhoIaFaixa"
 import { erroDaApi, vigenteEBaseDoEditor } from "@/lib/fase-interna/telas"
 import { PrevisaoPcaCard, type PrevisaoPcaTela } from "@/components/fase-interna/etapas/PrevisaoPcaCard"
+import { aguardarSalvamentosDaPeca } from "@/lib/salvamentos-pendentes"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
   ssr: false,
@@ -112,6 +113,7 @@ export default function EtpPage() {
   const gerar = async () => {
     setGerando(true)
     try {
+      await aguardarSalvamentosDaPeca(id, "ETP")
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/documentos/ETP/gerar`, { method: "POST" })
       if (!r.ok) throw new Error(await erroDaApi(r))
       toast.success("ETP gerado pelo modelo (PDF). Seções vazias foram completadas com o que já existe (DFD e processo) — revise.")

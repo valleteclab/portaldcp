@@ -14,8 +14,9 @@ import { OrcamentoService } from '../orcamento/orcamento.service';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { PassoFaseInterna, PapelFaseInterna } from '../tarefas/etapas-fase-interna';
 import { Autor, MinutasTelaService } from './minutas-tela.service';
-import { portaoBArt72, resumoDaAutorizacao, situacaoDaAutorizacao, situacaoDasAssinaturas, SignatarioSituacao } from './autorizacao-regras';
+import { avisoDosSignatarios, portaoBArt72, resumoDaAutorizacao, situacaoDaAutorizacao, situacaoDasAssinaturas, SignatarioSituacao } from './autorizacao-regras';
 import { pendenciasDoPortaoDoProcesso } from '../conformidade/portoes';
+import { responsavelDaEtapaAtualDoFluxo } from '../../workflow/ponte/ponte-fase-interna';
 
 const AA = TipoDocumentoFaseInterna.AUTORIZACAO_ABERTURA;
 /** Tarefa do agente quando a autoridade devolve (uma aberta por processo). */
@@ -143,6 +144,7 @@ export class AutorizacaoTelaService {
     const podeDevolver = await this.podeDecidir(lic.orgao_id, doc, ator);
     // Portão B (Entrega 4): o que impede autorizar agora (art. 72 e limite da dispensa)
     const bloqueiosPortaoB = situacao === 'AUTORIZADA' || !ehFaseInterna(lic.fase) ? [] : await pendenciasDoPortaoDoProcesso(licitacaoId, 'B', { ato: 'AUTORIZAR', somenteAvaliacao: true });
+    const avisoSignatarios = situacao === 'AUTORIZADA' ? null : await this.avisoDeSignatarios(licitacaoId, signatarios.length ? signatarios : configurados, ator);
     return {
       licitacao: {
         id: lic.id,
@@ -171,12 +173,44 @@ export class AutorizacaoTelaService {
       designacao: instrucao.itens.find((i) => i.tipo === 'DP') ?? null,
       signatarios,
       signatarios_configurados: configurados,
+      aviso_signatarios: avisoSignatarios,
       assinaturas: minhas,
       pode_devolver: podeDevolver && situacao === 'AGUARDANDO_ASSINATURAS',
       devolucoes,
       ultima_devolucao: devolucoes.length ? devolucoes[devolucoes.length - 1] : null,
       autos_pdf: `/api/licitacoes/${lic.id}/processo-pdf`,
     };
+  }
+
+  /**
+   * SIGNATÁRIO x QUEM ESTÁ COM A ETAPA (homologação 07/11/2026): a etapa de
+   * autorização chegou à Presidência, mas o despacho foi para outro usuário
+   * (o signatário da configuração) e quem recebeu não conseguia assinar.
+   * Só com a etapa AUTORIZACAO do fluxo aberta.
+   */
+  private async avisoDeSignatarios(licitacaoId: string, signatarios: Array<{ usuario_id: string | null; nome?: string | null }>, ator: Ator): Promise<string | null> {
+    const consulta = (sql: string, params: unknown[]) => this.ds.query(sql, params);
+    const algumResponsavel = async (ids: string[]) => {
+      for (const id of ids) if (await responsavelDaEtapaAtualDoFluxo(consulta, licitacaoId, id, ['AUTORIZACAO'])) return true;
+      return false;
+    };
+    const [aberta] = await this.ds.query(
+      `SELECT 1 FROM workflow_instancias i
+         JOIN processos p ON p.id = i.vinculo_id AND p.orgao_id = i.orgao_id
+         JOIN workflow_tarefas t ON t.instancia_id = i.id AND t.status = 'ABERTA'
+         JOIN workflow_acoes a ON a.id = t.acao_id AND a.tipo = 'AUTORIZACAO'
+        WHERE i.vinculo_tipo = 'PROCESSO' AND i.status = 'EM_ANDAMENTO' AND p.referencia_tipo = 'LICITACAO' AND p.referencia_id::text = $1
+        LIMIT 1`,
+      [licitacaoId],
+    );
+    if (!aberta) return null;
+    const ids = signatarios.map((s) => s.usuario_id).filter((x): x is string => !!x);
+    return avisoDosSignatarios({
+      nomes: signatarios.map((s) => s.nome ?? '').filter(Boolean),
+      algumSignatarioTemAEtapa: ids.length ? await algumResponsavel(ids) : false,
+      atorTemAEtapa: ator.usuarioId ? await responsavelDaEtapaAtualDoFluxo(consulta, licitacaoId, ator.usuarioId, ['AUTORIZACAO']) : false,
+      atorAssina: !!ator.usuarioId && ids.includes(ator.usuarioId),
+    });
   }
 
   /** Quem decide (assina/devolve): signatário designado da peça ou quem tem o papel AUTORIDADE. */

@@ -534,7 +534,7 @@ export class ConformidadeService implements OnModuleInit, OnModuleDestroy {
       resolvido_por_nome: a.resolvido_por_nome,
       motivo_resolucao: a.motivo_resolucao,
       primeira_deteccao: a.primeira_deteccao,
-      acao: { tipo: acao, rotulo: ROTULO_ACAO[acao] ?? acao, destino: tela ? `/orgao/processos/${licitacaoId}/fase-interna/${tela}` : `/orgao/processos/${licitacaoId}#fluxo-fase-interna` },
+      acao: { tipo: acao, rotulo: ROTULO_ACAO[acao] ?? acao, destino: tela ? `/orgao/processos/${licitacaoId}/fase-interna/${tela}${tipoAlvo ? `?peca=${encodeURIComponent(tipoAlvo)}` : ''}` : `/orgao/processos/${licitacaoId}#fluxo-fase-interna` },
       tarefa: tarefa ? { id: tarefa.id, status: tarefa.status } : null,
       historico: a.historico ?? [],
     };

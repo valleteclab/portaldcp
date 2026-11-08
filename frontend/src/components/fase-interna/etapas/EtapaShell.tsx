@@ -187,7 +187,10 @@ export function EtapaShell({
         )}
       </div>
 
-      {fluxo ? (
+      {fluxo === undefined ? (
+        // Ainda descobrindo se há fluxo: espaço reservado (sem piscar a barra antiga)
+        <div className="h-10 rounded-lg border bg-white" aria-busy="true" aria-label="Carregando as etapas" />
+      ) : fluxo ? (
         // Barra das etapas do fluxo + "Concluir etapa" aqui mesmo, quando a etapa em andamento é a desta tela
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-2 py-1.5">
           <div className="min-w-0 flex-1">

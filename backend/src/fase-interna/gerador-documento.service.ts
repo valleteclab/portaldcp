@@ -1099,36 +1099,36 @@ export class GeradorDocumentoService {
 
     // Tabela de riscos com coloração por nível
     html += `<h2>Riscos identificados</h2>`;
-    html += `<table><thead><tr><th>Nº</th><th>Categoria</th><th>Descrição</th><th>P</th><th>I</th><th>Grau</th><th>Nível</th><th>Resp.</th><th>Status</th></tr></thead><tbody>`;
+    // A tela de riscos grava `mitigacao` (tratamento); o modelo completo usa ações preventivas/contingência
+    const tratamento = (r: RiscoIdentificado) => String(r.acoes_preventivas || (r as any).mitigacao || '').trim();
+    const linha = (rotulo: string, v: unknown) => (String(v ?? '').trim() ? `<p><strong>${rotulo}:</strong> ${this.escapeHtml(String(v))}</p>` : '');
+    html += `<table><thead><tr><th>Nº</th><th>Categoria</th><th>Descrição</th><th>P</th><th>I</th><th>Nível</th><th>Tratamento</th><th>Resp.</th></tr></thead><tbody>`;
     for (const r of riscos) {
       const cls = `risco-${r.nivel}`;
       html += `<tr class="${cls}">`;
       html += `<td>R-${String(r.numero).padStart(2, '0')}</td>`;
-      html += `<td>${this.escapeHtml(r.categoria)}</td>`;
-      html += `<td>${this.escapeHtml(r.descricao)}</td>`;
+      html += `<td>${this.escapeHtml(r.categoria ?? '')}</td>`;
+      html += `<td>${this.escapeHtml(r.descricao ?? '')}</td>`;
       html += `<td>${r.probabilidade}</td>`;
       html += `<td>${r.impacto}</td>`;
-      html += `<td>${r.grau}</td>`;
       html += `<td>${this.escapeHtml(r.nivel ?? '')}</td>`;
-      html += `<td>${this.escapeHtml(r.responsavel)}</td>`;
-      html += `<td>${this.escapeHtml(r.status)}</td>`;
+      html += `<td>${this.escapeHtml(tratamento(r))}</td>`;
+      html += `<td>${this.escapeHtml(r.responsavel ?? '')}</td>`;
       html += `</tr>`;
     }
     html += `</tbody></table>`;
 
-    // Detalhamento por risco
+    // Detalhamento por risco (só o que foi preenchido)
     html += `<h2>Detalhamento dos riscos</h2>`;
     for (const r of riscos) {
-      html += `<h3>R-${String(r.numero).padStart(2, '0')} — ${this.escapeHtml(r.descricao)}</h3>`;
-      html += `<p><strong>Categoria:</strong> ${this.escapeHtml(r.categoria)} | <strong>Fase:</strong> ${this.escapeHtml(r.fase_aplicavel)} | <strong>Nível:</strong> ${this.escapeHtml(r.nivel ?? '')} (grau ${r.grau})</p>`;
-      html += `<p><strong>Causa:</strong> ${this.escapeHtml(r.causa)}</p>`;
-      html += `<p><strong>Consequência:</strong> ${this.escapeHtml(r.consequencia)}</p>`;
-      html += `<p><strong>Responsável (alocação):</strong> ${this.escapeHtml(r.responsavel)}</p>`;
-      html += `<p><strong>Ações preventivas:</strong> ${this.escapeHtml(r.acoes_preventivas)}</p>`;
-      html += `<p><strong>Ações de contingência:</strong> ${this.escapeHtml(r.acoes_contingencia)}</p>`;
-      if (r.responsavel_monitoramento) {
-        html += `<p><strong>Monitoramento:</strong> ${this.escapeHtml(r.responsavel_monitoramento)}</p>`;
-      }
+      html += `<h3>R-${String(r.numero).padStart(2, '0')} — ${this.escapeHtml(r.descricao ?? '')}</h3>`;
+      html += `<p><strong>Categoria:</strong> ${this.escapeHtml(r.categoria ?? '—')} | <strong>Nível:</strong> ${this.escapeHtml(r.nivel ?? '')} (grau ${r.grau})</p>`;
+      html += linha('Causa', r.causa);
+      html += linha('Consequência', r.consequencia);
+      html += linha('Responsável (alocação)', r.responsavel);
+      html += linha('Tratamento / ações preventivas', tratamento(r));
+      html += linha('Ações de contingência', r.acoes_contingencia);
+      html += linha('Monitoramento', r.responsavel_monitoramento);
       if (r.observacoes) {
         html += `<p><strong>Observações:</strong> ${this.escapeHtml(r.observacoes)}</p>`;
       }

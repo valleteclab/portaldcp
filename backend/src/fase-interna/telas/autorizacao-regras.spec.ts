@@ -85,3 +85,19 @@ describe('Autorização da autoridade (Entrega 3B)', () => {
     expect(validarSignatariosAutorizacao(null, [])).toEqual({ ok: true, valores: [] });
   });
 });
+
+describe('avisoDosSignatarios (homologação 07/11/2026)', () => {
+  const { avisoDosSignatarios } = require('./autorizacao-regras');
+  it('quem está com a etapa e não assina recebe o aviso', () => {
+    expect(avisoDosSignatarios({ nomes: ['Paulo Presidente'], algumSignatarioTemAEtapa: false, atorTemAEtapa: true, atorAssina: false })).toMatch(/está com você.*Paulo Presidente/);
+  });
+  it('nenhum signatário com a etapa', () => {
+    expect(avisoDosSignatarios({ nomes: ['Paulo Presidente'], algumSignatarioTemAEtapa: false, atorTemAEtapa: false, atorAssina: false })).toMatch(/outra pessoa ou setor/);
+  });
+  it('sem conflito', () => {
+    expect(avisoDosSignatarios({ nomes: ['Paulo'], algumSignatarioTemAEtapa: true, atorTemAEtapa: true, atorAssina: true })).toBeNull();
+  });
+  it('sem ninguém para assinar', () => {
+    expect(avisoDosSignatarios({ nomes: [], algumSignatarioTemAEtapa: false, atorTemAEtapa: false, atorAssina: false })).toMatch(/Ninguém/);
+  });
+});

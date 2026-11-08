@@ -110,8 +110,8 @@ describe('vezDoPasso — só a etapa atual edita (12/10/2026)', () => {
   });
 
   it('mensagens de somente leitura', () => {
-    expect(motivoForaDaVez(vezDoPasso(passos, 'DFD'), 'Formalizar a demanda (DFD)')).toMatch(/etapa 1 \(DFD\), já concluída.*devolução/);
-    expect(motivoForaDaVez(vezDoPasso(passos, 'TR'), 'Termo de referência')).toMatch(/etapa 4 .*está na etapa 2 \(Estudo técnico preliminar\)/);
+    expect(motivoForaDaVez(vezDoPasso(passos, 'DFD'), 'Formalizar a demanda (DFD)')).toMatch(/etapa "DFD", já concluída.*devolução/);
+    expect(motivoForaDaVez(vezDoPasso(passos, 'TR'), 'Termo de referência')).toMatch(/etapa "Termo de referência" .*está na etapa "Estudo técnico preliminar"/);
     expect(motivoForaDaVez(vezDoPasso(passos, 'ETP'), 'ETP')).toBeNull();
   });
 });
@@ -131,6 +131,16 @@ describe('etapaDaPonte (um motor só, 11/2026)', () => {
     expect(ROTA_DA_ETAPA.MINUTAS).toBe('minutas');
     expect(DOCUMENTO_DA_ETAPA.MINUTAS).toBe('RAG');
     expect(pendenciasDaPonte('MINUTAS', { documentoPronto: false, publicada: false, temDemanda: true })[0]).toContain('relatório do agente');
+  });
+});
+
+describe('minuta do contrato com cláusula vazia segura a etapa de minutas', () => {
+  const { pendenciaDaMinutaDoContrato } = require('./ponte-fase-interna');
+  it('lista as cláusulas e entra nas pendências da etapa', () => {
+    const p = pendenciaDaMinutaDoContrato(['art. 92, V (preco)']);
+    expect(p[0]).toMatch(/art\. 92, V/);
+    expect(pendenciasDaPonte('MINUTAS', { documentoPronto: true, publicada: false, temDemanda: true, conteudoFaltando: p })).toEqual(p);
+    expect(pendenciaDaMinutaDoContrato([])).toEqual([]);
   });
 });
 
