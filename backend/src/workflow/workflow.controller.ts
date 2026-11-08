@@ -18,7 +18,8 @@ const adminDoOrgao = (ator: Ator) => { const orgaoId = orgaoDo(ator); if (ehAdmi
 
 /** Fluxos de processo: desenho e execução. Parte do Processo Eletrônico — desliga junto com ele. */
 @Controller('workflows')
-@RequireModule(ModuloSistema.PROCESSOS)
+// Fluxo da contratação (08/11/2026): também para quem tem só Licitações
+@RequireModule(ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES)
 export class WorkflowController {
   constructor(private readonly service: WorkflowService, private readonly teams: TeamsService, private readonly whatsapp: WhatsAppService, private readonly desenhos: DesenhoFluxoService, private readonly checklist: ChecklistEtapaService, private readonly tempo: TempoEtapasService) {}
   /** Etapas que podem ser arrastadas para o desenho (paleta), com a trava legal de cada uma. */

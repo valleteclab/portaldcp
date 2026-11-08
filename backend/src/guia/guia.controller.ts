@@ -11,7 +11,8 @@ import { GuiaService } from './guia.service';
  */
 @Controller('guia')
 @SomenteOrgao()
-@RequireModule(ModuloSistema.PROCESSOS)
+// Fluxo da contratação (08/11/2026): também para quem tem só Licitações
+@RequireModule(ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES)
 export class GuiaController {
   constructor(private readonly guia: GuiaService) {}
 

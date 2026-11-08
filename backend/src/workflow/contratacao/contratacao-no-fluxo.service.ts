@@ -11,8 +11,8 @@ import { WorkflowService } from '../workflow.service';
  * DFD consolidado. Antes só o DFD consolidado ligava o fluxo; os outros caminhos
  * caíam no motor antigo (tarefas automáticas, envio manual).
  *
- * O fluxo é o módulo PROCESSOS: sem ele o órgão segue no caminho antigo até a
- * remoção (etapa 2 do plano). Com ele e nenhum fluxo de contratação cadastrado,
+ * O fluxo vale para quem tem LICITACOES ou PROCESSOS (decisão de 08/11/2026: o
+ * motor antigo sai). Sem fluxo de contratação cadastrado,
  * o órgão recebe o fluxo padrão (instrução + modalidades + padrão) já ativo; o
  * administrador ajusta depois em Configurações › Fluxos de processo.
  */
@@ -28,11 +28,13 @@ export class ContratacaoNoFluxoService {
     private readonly desenhos: DesenhoFluxoService,
   ) {}
 
-  /** O órgão contratou o Processo Eletrônico (onde mora o fluxo)? */
+  /** O órgão usa o fluxo da contratação (tem Licitações ou o Processo Eletrônico)? */
   async orgaoUsaOFluxo(orgaoId: string): Promise<boolean> {
     const [o] = await this.ds.query(`SELECT modulos_habilitados FROM orgaos WHERE id::text = $1`, [orgaoId]);
     const modulos = String(o?.modulos_habilitados ?? '').split(',').map((m) => m.trim());
-    return modulos.includes(ModuloSistema.PROCESSOS);
+    // Decisão do dono (08/11/2026): o fluxo da contratação faz parte de Licitações —
+    // quem tem Licitações usa o fluxo novo, com ou sem o módulo Processos
+    return modulos.includes(ModuloSistema.LICITACOES) || modulos.includes(ModuloSistema.PROCESSOS);
   }
 
   /**
