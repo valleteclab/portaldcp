@@ -49,6 +49,27 @@ export class ProcessoConteudoService implements OnModuleInit {
   /** Ponte: na contratação com fluxo desenhado, a posse da fase interna vai para quem responde pela etapa. */
   onModuleInit(): void {
     this.registro.registrarOuvinte({ aoEvento: (e) => this.posseDaContratacao(e) });
+    this.registro.registrarOuvinte({ aoEvento: (e) => this.encerrarAoFimDoFluxo(e) });
+  }
+
+  /**
+   * PROCESSO AVULSO QUE SEGUE UM FLUXO (homologação 08/11/2026): com todas as
+   * etapas concluídas, o processo continuava "Em andamento" e parado no último
+   * setor, sem como encerrar (o encerramento manual é bloqueado enquanto há
+   * fluxo). Ao concluir o fluxo, o processo avulso é encerrado com o motivo.
+   * Contratação, aditivo e renovação seguem as regras próprias.
+   */
+  private async encerrarAoFimDoFluxo(e: EventoFluxo): Promise<void> {
+    if (e.tipo !== 'FLUXO_CONCLUIDO' || !e.ctx.processoId) return;
+    try {
+      await this.ds.query(
+        `UPDATE processos SET situacao = 'ENCERRADO', encerrado_em = now(), motivo_encerramento = $3
+          WHERE id::text = $1 AND orgao_id::text = $2 AND tipo::text = 'AVULSO' AND situacao::text = 'ABERTO'`,
+        [e.ctx.processoId, e.ctx.orgaoId, 'Fluxo concluído: todas as etapas foram feitas.'],
+      );
+    } catch (err) {
+      this.logger.warn(`Processo ${e.ctx.processoId} não foi encerrado ao fim do fluxo: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   private async posseDaContratacao(e: EventoFluxo): Promise<void> {
