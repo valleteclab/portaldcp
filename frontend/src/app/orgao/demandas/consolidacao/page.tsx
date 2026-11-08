@@ -353,7 +353,7 @@ function DfdConsolidadoContent() {
             <p className="text-xs text-gray-600 mt-1">
               Quem monta: {permissoes.responsavel_dfd}.{' '}
               {permissoes.exige_aprovacao_dfd ? `2ª aprovação do DFD ligada (${permissoes.aprovador_dfd}).` : '2ª aprovação do DFD desligada.'}{' '}
-              <Link href="/orgao/configuracoes/fluxo" className="text-blue-800 underline">Configurações › Fluxo</Link>
+              <Link href="/orgao/configuracoes/fase-interna#planejamento" className="text-blue-800 underline">Configurações › Fase interna</Link>
             </p>
           )}
         </div>

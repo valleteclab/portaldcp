@@ -14,13 +14,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { AlertTriangle, ArrowLeft, CheckCircle2, GitBranch, Loader2, RotateCcw, Save } from "lucide-react"
+import { AlertTriangle, ArrowLeft, CheckCircle2, GitBranch, Loader2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_URL, authFetch } from "@/lib/api"
 import { ROTULO_PAPEL } from "@/lib/tarefas"
+import { PlanejamentoFluxoCard } from "@/components/fase-interna/fluxo/PlanejamentoFluxoCard"
 
 interface PassoConfig {
   passo: string
@@ -62,18 +63,6 @@ interface UsuarioPapel {
   papeis: string[]
 }
 
-const NOME_CURTO_PASSO: Record<string, string> = {
-  DFD: "DFD",
-  ETP: "ETP/riscos",
-  TR: "TR",
-  PESQUISA: "Pesquisa",
-  RESERVA: "Reserva",
-  AUTORIZACAO: "Autorização",
-  MINUTAS: "Minutas",
-  PARECER: "Parecer",
-  CONTROLE_INTERNO: "Controle interno",
-  PUBLICACAO: "Publicação",
-}
 
 const ROTULO_ROLE: Record<string, string> ={ ADMIN: "Administrador", PREGOEIRO: "Pregoeiro/agente", EQUIPE_APOIO: "Equipe de apoio" }
 
@@ -128,7 +117,6 @@ export default function ConfiguracaoFaseInternaPage() {
   /** Retorno visível do "Salvar configuração" (fica na tela — o aviso flutuante some sozinho). */
   const [retorno, setRetorno] = useState<Retorno | null>(null)
   /** Retorno do "Modelo Portaria 089": o que foi aplicado e o que mudou. */
-  const [avisoModelo, setAvisoModelo] = useState<{ mudancas: string[]; passosAlterados: string[] } | null>(null)
   /** Retorno do "Salvar" de cada usuário. */
   const [retornoUsuario, setRetornoUsuario] = useState<Record<string, Retorno>>({})
   const papelRefs = useRef<Record<string, HTMLInputElement | null>>({})
@@ -160,10 +148,7 @@ export default function ConfiguracaoFaseInternaPage() {
     setFocarSignatario(null)
   }, [focarSignatario])
 
-  const passosVisiveis = useMemo(
-    () => (cfg?.passos ?? []).filter((p) => p.passo !== "CONTROLE_INTERNO" || cfg?.controle_interno_ativo),
-    [cfg],
-  )
+
 
   const alterado = useMemo(() => !!cfg && !!gravado && JSON.stringify(corpoDaConfiguracao(cfg)) !== gravado, [cfg, gravado])
 
@@ -175,14 +160,6 @@ export default function ConfiguracaoFaseInternaPage() {
     )
   }
 
-  const alterarResponsavel = (passo: string, campo: "papel" | "setor_id", valor: string) =>
-    setCfg({ ...cfg, responsaveis: { ...cfg.responsaveis, [passo]: { ...cfg.responsaveis[passo], [campo]: valor || null } } })
-
-  const alterarPrazo = (passo: string, valor: string) =>
-    setCfg({ ...cfg, prazos: { ...cfg.prazos, [passo]: valor === "" ? null : Math.max(0, Math.floor(Number(valor))) } })
-
-  const rotuloPapel = (codigo: string | null | undefined) => cfg.papeis.find((x) => x.codigo === codigo)?.rotulo ?? codigo ?? "nenhum"
-  const rotuloPrazoDias = (v: number | null | undefined) => (v === null || v === undefined ? "sem prazo" : `${v} dia${v === 1 ? "" : "s"} úte${v === 1 ? "il" : "is"}`)
 
   /**
    * Modelo da Portaria 089/2024 (Câmara de LEM, arts. 79–87): prazos e papéis
@@ -191,35 +168,7 @@ export default function ConfiguracaoFaseInternaPage() {
    * foi aplicado e o que mudou — inclusive "nada mudou" (a configuração
    * padrão JÁ É o modelo 089).
    */
-  const aplicarModelo089 = () => {
-    const mudancas: string[] = []
-    const passosAlterados: string[] = []
-    for (const p of cfg.passos) {
-      const prazoAntes = cfg.prazos[p.passo] ?? null
-      const papelAntes = cfg.responsaveis[p.passo]?.papel ?? null
-      const setorAntes = cfg.responsaveis[p.passo]?.setor_id ?? null
-      const partes: string[] = []
-      if (prazoAntes !== p.prazo_padrao) partes.push(`prazo ${rotuloPrazoDias(prazoAntes)} → ${rotuloPrazoDias(p.prazo_padrao)}`)
-      if (papelAntes !== p.papel_padrao) partes.push(`papel ${rotuloPapel(papelAntes)} → ${rotuloPapel(p.papel_padrao)}`)
-      if (setorAntes) partes.push("setor → qualquer")
-      if (partes.length) {
-        passosAlterados.push(p.passo)
-        mudancas.push(`${p.titulo}: ${partes.join("; ")}`)
-      }
-    }
-    setCfg({
-      ...cfg,
-      responsaveis: Object.fromEntries(cfg.passos.map((p) => [p.passo, { papel: p.papel_padrao, setor_id: null }])),
-      prazos: Object.fromEntries(cfg.passos.map((p) => [p.passo, p.prazo_padrao])),
-    })
-    setAvisoModelo({ mudancas, passosAlterados })
-    setRetorno(null)
-    toast.info(
-      mudancas.length
-        ? `Modelo da Portaria 089/2024 aplicado: ${mudancas.length} etapa(s) mudaram — clique em "Salvar configuração" para gravar.`
-        : "A configuração já seguia o modelo da Portaria 089/2024 — nada mudou.",
-    )
-  }
+
 
   const salvar = async () => {
     setSalvando(true)
@@ -248,7 +197,7 @@ export default function ConfiguracaoFaseInternaPage() {
       })
       setCfg(comAsMesmasChaves)
       setGravado(JSON.stringify(corpoDaConfiguracao(comAsMesmasChaves)))
-      setAvisoModelo(null)
+      
       const texto = `Configuração salva às ${horaBrasilia(new Date())}. As tarefas abertas dos processos estão sendo ajustadas (em alguns instantes aparecem nas caixas).`
       setRetorno({ tipo: "ok", texto })
       toast.success(texto)
@@ -346,17 +295,16 @@ export default function ConfiguracaoFaseInternaPage() {
           Como as tarefas da fase interna são distribuídas no órgão. Qualquer peça pode sempre ser feita no sistema ou anexada em PDF feito fora.
         </p>
         <p className="text-sm text-slate-700 mt-2">
-          As etapas, as dependências entre elas, as opcionais (autorização de início, indicação da modalidade, controle interno) e a aprovação da
-          demanda ficam no{" "}
-          <Link href="/orgao/configuracoes/fluxo" className="text-blue-800 hover:underline font-medium">
-            modelo de fluxo
+          O caminho de cada processo — etapas, responsáveis, prazos e avisos — fica em{" "}
+          <Link href="/orgao/configuracoes/fluxos" className="text-blue-800 hover:underline font-medium">
+            Configurações › Fluxos de processo
           </Link>
-          {cfg.modelo_fluxo ? ` (${cfg.modelo_fluxo.nome}, versão ${cfg.modelo_fluxo.versao}${cfg.modelo_fluxo.proprio ? "" : " — padrão do sistema"})` : ""}. Os prazos e
-          responsáveis abaixo são os da dispensa e gravam no mesmo modelo.
+          . Aqui ficam as opções do órgão para a contratação, quem assina a autorização, os papéis dos usuários e o que vem antes do processo
+          (aprovação da demanda e DFD consolidado).
         </p>
         <Button asChild size="sm" className="mt-3">
-          <Link href="/orgao/configuracoes/fluxo">
-            <GitBranch aria-hidden="true" /> Desenhar o fluxo
+          <Link href="/orgao/configuracoes/fluxos">
+            <GitBranch aria-hidden="true" /> Fluxos de processo
           </Link>
         </Button>
         {!admin && <p className="text-sm text-amber-800 mt-2">Somente o administrador do órgão altera esta configuração.</p>}
@@ -370,26 +318,11 @@ export default function ConfiguracaoFaseInternaPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Modo de trabalho</CardTitle>
-          <CardDescription>O modo simples é o padrão: uma pessoa pode conduzir o processo inteiro.</CardDescription>
+          <CardTitle>Opções da contratação</CardTitle>
+          <CardDescription>Controle interno e o padrão da dispensa eletrônica.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <fieldset className="space-y-2" disabled={!admin}>
-            <legend className="sr-only">Modo</legend>
-            <label className="flex gap-2 items-start text-sm">
-              <input type="radio" name="modo" className="mt-1" checked={cfg.modo === "SIMPLES"} onChange={() => setCfg({ ...cfg, modo: "SIMPLES" })} />
-              <span>
-                <b>Simples</b> — todas as tarefas vão para o agente de contratação do processo (sem agente: para quem criou o processo).
-              </span>
-            </label>
-            <label className="flex gap-2 items-start text-sm">
-              <input type="radio" name="modo" className="mt-1" checked={cfg.modo === "POR_SETOR"} onChange={() => setCfg({ ...cfg, modo: "POR_SETOR" })} />
-              <span>
-                <b>Por setor</b> — cada etapa vai para o papel ou setor escolhido abaixo; quem tem o papel vê a tarefa e pode assumi-la.
-              </span>
-            </label>
-          </fieldset>
-          <label className="flex gap-2 items-start text-sm pt-2 border-t">
+          <label className="flex gap-2 items-start text-sm">
             <input
               type="checkbox"
               className="mt-1"
@@ -539,111 +472,6 @@ export default function ConfiguracaoFaseInternaPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 flex-wrap">
-          <div className="min-w-0 flex-1">
-            <CardTitle>Responsável e prazo por etapa</CardTitle>
-            <CardDescription>
-              Prazo em dias úteis pelo calendário do órgão (vazio = sem prazo). {cfg.modo === "SIMPLES" && "No modo simples, o responsável é sempre o agente do processo; os papéis abaixo valem no modo por setor."}
-            </CardDescription>
-          </div>
-          {admin && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={aplicarModelo089}
-              title="Prazos da Portaria 089/2024 (Câmara de LEM, arts. 79–87): DFD, ETP e TR sem prazo; Pesquisa 30; Reserva 3; Autorização 3; Minutas 5; Parecer 5; Controle interno 3; Publicação 5 dias úteis"
-            >
-              <RotateCcw className="w-4 h-4 mr-1" aria-hidden="true" /> Modelo Portaria 089
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          {avisoModelo && (
-            <div role="status" className={`mb-3 rounded-md border p-3 text-sm ${avisoModelo.mudancas.length ? "bg-blue-50 border-blue-200 text-blue-950" : "bg-slate-50 border-slate-200 text-slate-800"}`}>
-              <p className="font-medium">
-                {avisoModelo.mudancas.length
-                  ? `Modelo da Portaria 089/2024 aplicado na tela — ${avisoModelo.mudancas.length} etapa(s) mudaram (destacadas abaixo). Ainda não foi gravado: clique em "Salvar configuração".`
-                  : "Modelo da Portaria 089/2024 conferido: a configuração já seguia o modelo — nada mudou."}
-              </p>
-              <p className="text-xs mt-1">
-                Modelo (Câmara de LEM, arts. 79–87): {cfg.passos.map((p) => `${NOME_CURTO_PASSO[p.passo] ?? p.titulo} ${p.prazo_padrao === null ? "sem prazo" : p.prazo_padrao}`).join(" · ")}
-                {" "}(dias úteis). Papéis: o do setor de cada etapa (valem no modo por setor).
-              </p>
-              {avisoModelo.mudancas.length > 0 && (
-                <ul className="text-xs mt-1 list-disc ml-5">
-                  {avisoModelo.mudancas.map((m) => (
-                    <li key={m}>{m}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-600 border-b">
-                <th className="py-2 pr-2 font-medium">Etapa</th>
-                <th className="py-2 pr-2 font-medium">Papel</th>
-                <th className="py-2 pr-2 font-medium">Setor</th>
-                <th className="py-2 font-medium w-28">Prazo (dias úteis)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {passosVisiveis.map((p) => {
-                const r = cfg.responsaveis[p.passo] ?? { papel: p.papel_padrao, setor_id: null }
-                return (
-                  <tr key={p.passo} className={`border-b last:border-0 ${avisoModelo?.passosAlterados.includes(p.passo) ? "bg-blue-50" : ""}`}>
-                    <td className="py-2 pr-2">
-                      <div className="font-medium">{p.titulo}</div>
-                      <div className="text-xs text-slate-500">{p.etapa_titulo}</div>
-                    </td>
-                    <td className="py-2 pr-2">
-                      <select
-                        aria-label={`Papel responsável por ${p.titulo}`}
-                        className="border rounded h-8 px-1 bg-white w-full min-w-40"
-                        disabled={!admin || cfg.modo === "SIMPLES"}
-                        value={r.papel ?? ""}
-                        onChange={(e) => alterarResponsavel(p.passo, "papel", e.target.value)}
-                      >
-                        <option value="">— nenhum —</option>
-                        {cfg.papeis.map((x) => (
-                          <option key={x.codigo} value={x.codigo}>{x.rotulo}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2 pr-2">
-                      <select
-                        aria-label={`Setor responsável por ${p.titulo}`}
-                        className="border rounded h-8 px-1 bg-white w-full min-w-40"
-                        disabled={!admin || cfg.modo === "SIMPLES"}
-                        value={r.setor_id ?? ""}
-                        onChange={(e) => alterarResponsavel(p.passo, "setor_id", e.target.value)}
-                      >
-                        <option value="">— qualquer —</option>
-                        {cfg.setores.map((s) => (
-                          <option key={s.id} value={s.id}>{s.nome}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-2">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={365}
-                        aria-label={`Prazo de ${p.titulo} em dias úteis`}
-                        className="h-8 w-24"
-                        disabled={!admin}
-                        value={cfg.prazos[p.passo] ?? ""}
-                        onChange={(e) => alterarPrazo(p.passo, e.target.value)}
-                      />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
 
       {/* Barra de gravação (fica visível ao rolar): vale para os quatro quadros acima */}
       {admin && (
@@ -658,6 +486,16 @@ export default function ConfiguracaoFaseInternaPage() {
           </Button>
         </div>
       )}
+
+      <Card id="planejamento">
+        <CardHeader>
+          <CardTitle>Antes do processo: aprovação da demanda e DFD consolidado</CardTitle>
+          <CardDescription>Quem monta o DFD consolidado e quem aprova as demandas e o DFD.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PlanejamentoFluxoCard admin={!!admin} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

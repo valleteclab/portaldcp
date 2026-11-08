@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { ConflictException, BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { AdminGuard } from '../../auth/admin.guard';
 import { AtorAtual } from '../../auth/acesso/acesso.decorators';
 import type { Ator } from '../../auth/acesso/ator';
@@ -12,6 +12,9 @@ import { ModeloFluxo, ROTULO_TIPO_PROCESSO, TIPOS_PROCESSO_FLUXO, TipoProcessoFl
 import { ModeloFluxoService } from './modelo-fluxo.service';
 import { PlanejamentoFluxoService } from './planejamento-fluxo.service';
 import { ATOS_PROTEGIDOS, ROTULO_ATO } from './travas';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { licitacaoConduzidaPeloFluxo } from '../../workflow/ponte/ponte-fase-interna';
 
 /** Administração do órgão: login do órgão, usuário com papel ADMIN ou admin da plataforma. */
 export function exigirAdminDoOrgao(ator: Ator) {
@@ -192,11 +195,26 @@ export class ModeloFluxoController {
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard)
 export class FluxoProcessoController {
-  constructor(private readonly fluxo: FluxoProcessoService) {}
+  constructor(
+    private readonly fluxo: FluxoProcessoService,
+    @InjectDataSource() private readonly ds: DataSource,
+  ) {}
+
+  /**
+   * UM MOTOR SÓ (08/11/2026): o processo que segue o fluxo novo anda pela tela
+   * do processo (concluir, devolver, aprovar). As ações do quadro antigo da fase
+   * interna ficam recusadas para ele — eram um segundo caminho para as etapas.
+   */
+  private async exigirForaDoFluxoNovo(licitacaoId: string) {
+    if (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId)) {
+      throw new ConflictException('Este processo segue o fluxo: conclua, devolva ou aprove a etapa na tela do processo.');
+    }
+  }
 
   /** Voltar: { motivo } — a etapa reabre e as dependentes concluídas ficam "a revisar". */
   @Post(':licitacaoId/etapas/:codigo/reabrir')
-  reabrir(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
+  async reabrir(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    await this.exigirForaDoFluxoNovo(id);
     return this.fluxo.reabrir(id, codigo, body ?? {}, ator);
   }
 
@@ -205,7 +223,8 @@ export class FluxoProcessoController {
    * Construtor de fluxo: condição → { resposta: 'sim' | 'nao', texto? }.
    */
   @Post(':licitacaoId/etapas/:codigo/concluir')
-  concluir(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
+  async concluir(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    await this.exigirForaDoFluxoNovo(id);
     return this.fluxo.concluir(id, codigo, body ?? {}, ator);
   }
 
@@ -214,19 +233,22 @@ export class FluxoProcessoController {
    * etapa devolvida corrige e o processo volta direto para quem devolveu.
    */
   @Post(':licitacaoId/etapas/:codigo/devolver')
-  devolver(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
+  async devolver(@Param('licitacaoId') id: string, @Param('codigo') codigo: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    await this.exigirForaDoFluxoNovo(id);
     return this.fluxo.devolver(id, codigo, body ?? {}, ator);
   }
 
   /** { observacao? } — só quem o modelo designa (padrão: "pode aprovar demandas"). */
   @Post(':licitacaoId/demanda/aprovar')
-  aprovarDemanda(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+  async aprovarDemanda(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    await this.exigirForaDoFluxoNovo(id);
     return this.fluxo.aprovarDemanda(id, body ?? {}, ator);
   }
 
   /** { numero_ato, data_ato (AAAA-MM-DD), hipotese? } — art. 53, §5º. */
   @Post(':licitacaoId/parecer/dispensar')
-  dispensarParecer(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+  async dispensarParecer(@Param('licitacaoId') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    await this.exigirForaDoFluxoNovo(id);
     return this.fluxo.dispensarParecer(id, body ?? {}, ator);
   }
 }

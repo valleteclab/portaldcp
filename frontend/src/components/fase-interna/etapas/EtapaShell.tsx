@@ -14,13 +14,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { ArrowLeft, CheckCircle2, ChevronRight, Circle, CircleDashed, Clock, Loader2, Undo2 } from "lucide-react"
+import { ArrowLeft, Loader2, Undo2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { dependentesAfetados, type PassoFluxo } from "@/lib/fase-interna/visao-fluxo"
 import { API_URL, authFetch } from "@/lib/api"
 import { avisarTarefasAtualizadas } from "@/lib/tarefas"
-import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, rotaDaTela, type TelaEtapa } from "@/lib/fase-interna/telas"
+import { ETAPAS_DA_BARRA, aoAtualizarFaseInterna, avisarFaseInternaAtualizada, criarUltimaCarga, erroDaApi, type TelaEtapa } from "@/lib/fase-interna/telas"
 import { BarraEtapasFluxo, useFluxoDaLicitacao } from "@/components/fluxo/BarraEtapasFluxo"
 import { ConcluirEtapaDoFluxo } from "@/components/fluxo/ConcluirEtapaDoFluxo"
 import { AvisoSomenteLeitura, PERMISSAO_LIVRE, PermissaoEtapaContext, permissaoDoPasso, type PermissaoTrabalho, type PermissoesTrabalho } from "@/lib/fase-interna/permissao-etapa"
@@ -37,23 +37,6 @@ interface EtapasResposta {
   etapas: Array<{ etapa: string; situacao: string; passos: Array<PassoFluxo & { pode_reabrir?: boolean }> }>
   /** Isolamento das peças: quem está vendo pode trabalhar em cada etapa? */
   permissoes_trabalho?: PermissoesTrabalho
-}
-
-const ROTULO_SIT: Record<string, string> = {
-  CONCLUIDO: "concluída",
-  EM_ANDAMENTO: "em andamento",
-  DISPONIVEL: "a fazer",
-  AGUARDANDO: "aguardando",
-  NAO_REALIZADO: "não realizada",
-  CANCELADO: "cancelada",
-}
-
-function Icone({ s }: { s: string | null }) {
-  const cls = "w-3.5 h-3.5 shrink-0"
-  if (s === "CONCLUIDO") return <CheckCircle2 className={`${cls} text-green-700`} aria-hidden="true" />
-  if (s === "EM_ANDAMENTO") return <Clock className={`${cls} text-blue-700`} aria-hidden="true" />
-  if (s === "DISPONIVEL") return <Circle className={`${cls} text-blue-700`} aria-hidden="true" />
-  return <CircleDashed className={`${cls} text-slate-400`} aria-hidden="true" />
 }
 
 export function EtapaShell({
@@ -82,7 +65,6 @@ export function EtapaShell({
   children: React.ReactNode
 }) {
   const [lic, setLic] = useState<LicitacaoCabecalho | null>(null)
-  const [situacoes, setSituacoes] = useState<Record<string, string>>({})
   const [passos, setPassos] = useState<Array<PassoFluxo & { pode_reabrir?: boolean }>>([])
   const [voltando, setVoltando] = useState(false)
   const { pedirTexto, dialogo } = useDialogoConfirmacao()
@@ -105,9 +87,6 @@ export function EtapaShell({
       if (!r.ok) return
       const j = (await r.json()) as EtapasResposta
       if (!vigente()) return // uma carga mais nova já está valendo
-      const mapa: Record<string, string> = {}
-      for (const e of j.etapas || []) for (const p of e.passos || []) mapa[p.passo] = p.situacao
-      setSituacoes(mapa)
       setPassos((j.etapas || []).flatMap((e) => e.passos || []))
       setPermissao(permissaoDoPasso(j.permissoes_trabalho, passoDaTela))
       avisarTarefasAtualizadas()
@@ -198,50 +177,17 @@ export function EtapaShell({
           </div>
           <ConcluirEtapaDoFluxo licitacaoId={licitacaoId} processoId={fluxo.processoId} andamento={fluxo.andamento} telaAtual={tela} podeTrabalhar={permissao.pode} />
         </div>
-      ) : (
-      <nav aria-label="Etapas da fase interna" className="relative overflow-x-auto -mx-1 px-1">
-        <ol className="flex items-center gap-1 min-w-max text-xs">
-          {ETAPAS_DA_BARRA.filter((e) => !e.opcional || situacoes[e.passo] !== undefined || e.tela === tela).map((e, i, lista) => {
-            const sit = situacoes[e.passo] ?? null
-            const atual = e.tela === tela
-            const conteudo = (
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${
-                  atual ? "border-blue-700 bg-blue-50 text-blue-900 font-semibold" : "border-slate-200 bg-white text-slate-700"
-                }`}
-                title={sit ? ROTULO_SIT[sit] ?? sit : "sem peça nesta etapa"}
-              >
-                <Icone s={sit} />
-                <span className="font-mono text-[10px] text-slate-500">{e.numero}</span>
-                {e.titulo}
-              </span>
-            )
-            return (
-              <li key={e.passo} className="flex items-center gap-1">
-                {e.tela ? (
-                  <Link href={rotaDaTela(licitacaoId, e.tela)} aria-current={atual ? "page" : undefined}>
-                    {conteudo}
-                  </Link>
-                ) : (
-                  <Link href={`/orgao/processos/${licitacaoId}#fluxo-fase-interna`}>{conteudo}</Link>
-                )}
-                {i < lista.length - 1 && <ChevronRight className="w-3 h-3 text-slate-400" aria-hidden="true" />}
-              </li>
-            )
-          })}
-        </ol>
-      </nav>
-      )}
+      ) : null}
 
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold text-gray-900">{titulo}</h1>
           {subtitulo && <div className="text-sm text-gray-600 mt-0.5">{subtitulo}</div>}
         </div>
-        {(acoes || esta?.pode_reabrir) && (
+        {(acoes || (!fluxo && esta?.pode_reabrir)) && (
           <div className="flex items-center gap-2 flex-wrap">
             {acoes}
-            {esta?.pode_reabrir && (
+            {!fluxo && esta?.pode_reabrir && (
               <Button
                 variant="outline"
                 className="text-amber-900 border-amber-300 hover:bg-amber-50"

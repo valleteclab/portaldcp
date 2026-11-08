@@ -15,7 +15,6 @@ import { ContratosProcesso } from "./ContratosProcesso"
 import { EtapaDispensa } from "./EtapaDispensa"
 import { ConsumoLimiteDispensa } from "./ConsumoLimiteDispensa"
 import { PecasFaseInterna } from "./PecasFaseInterna"
-import { FluxoFaseInterna } from "./FluxoFaseInterna"
 import type { EtapasFluxo } from "./useEtapasFluxo"
 import { PublicacaoEdital, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
 import { SessaoPublicaCard } from "./SessaoPublicaCard"
@@ -118,7 +117,6 @@ export function AreaEtapaAtual({
             onAtualizado={onAtualizado}
           />
           {dispensa && <ConsumoLimiteDispensa licitacaoId={id} atualizacao={dados} />}
-          {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} fluxo={fluxo} interna={interna && ativa} onAtualizado={onAtualizado} />}
           {interna && (
             <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} permissoes={fluxo?.dados?.permissoes_trabalho ?? null} />
           )}
