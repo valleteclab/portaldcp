@@ -1,3 +1,4 @@
+import { JANELA_MINIMA_DE_TESTE_MIN, orgaoComPrazosDeTeste } from '../common/prazos/prazos-de-teste';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from '../sessao/entities/sessao-disputa.entity';
@@ -172,7 +173,10 @@ export class JanelaDispensaService {
   async abrir(licitacaoId: string, duracaoMinutos: number, prorrogacaoMinutos?: number) {
     // IN SEGES 67/2021, art. 11: a etapa de lances dura de 6 a 10 horas
     const informada = duracaoMinutos === undefined || duracaoMinutos === null || (duracaoMinutos as any) === '' ? null : Number(duracaoMinutos);
-    if (informada !== null && !(informada >= DURACAO_MINIMA_JANELA_MIN && informada <= DURACAO_MAXIMA_JANELA_MIN)) {
+    // Ensaio na homologação (Railway): órgão de teste abre a janela a partir de 5 min (common/prazos/prazos-de-teste.ts)
+    const [{ orgao_id: orgaoDaLicitacao } = { orgao_id: null }] = await this.dataSource.query(`SELECT orgao_id::text AS orgao_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    const minimaJanela = orgaoComPrazosDeTeste(orgaoDaLicitacao) ? JANELA_MINIMA_DE_TESTE_MIN : DURACAO_MINIMA_JANELA_MIN;
+    if (informada !== null && !(informada >= minimaJanela && informada <= DURACAO_MAXIMA_JANELA_MIN)) {
       throw new BadRequestException(
         `A etapa de lances da dispensa eletrônica dura de 6 a 10 horas (IN SEGES 67/2021, art. 11) — informe entre ${DURACAO_MINIMA_JANELA_MIN} e ${DURACAO_MAXIMA_JANELA_MIN} minutos.`,
       );
