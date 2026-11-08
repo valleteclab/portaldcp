@@ -216,13 +216,27 @@ export function conteudoEditavel(dados: unknown): Record<string, any> {
   return r;
 }
 
-/** O texto salvo da seção é o mesmo (ignorando só espaços nas pontas e o parágrafo vazio)? */
+/**
+ * Forma do HTML da seção para comparar conteúdo: sem parágrafos vazios, sem o
+ * `<p>` que o editor põe dentro de cada item de lista e sem diferença de
+ * espaços. Homologação 08/11/2026: o editor abria o TR gerado, reformatava
+ * `<li>texto</li>` como `<li><p>texto</p></li>` (+ um `<p></p>` no fim) e
+ * salvava — a peça emitida voltava a "em elaboração" sem ninguém ter mexido.
+ */
+export function normalizarHtmlDaSecao(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  return v
+    .replace(/<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, '')
+    .replace(/<\/?p>/gi, '\n')
+    .replace(/[ \t\r\f\v]+/g, ' ')
+    .replace(/ *\n[\n ]*/g, '\n')
+    .replace(/\n*(<\/?(?:li|ul|ol)>)\n*/gi, '$1')
+    .trim();
+}
+
+/** O texto salvo da seção é o mesmo (ignorando parágrafo vazio, `<p>` dentro da lista e espaços)? */
 export function mesmoTextoDaSecao(antes: unknown, depois: unknown): boolean {
-  const n = (v: unknown) => {
-    const t = typeof v === 'string' ? v.trim() : '';
-    return t === '<p></p>' ? '' : t;
-  };
-  return typeof antes === 'string' && n(antes) === n(depois);
+  return typeof antes === 'string' && normalizarHtmlDaSecao(antes) === normalizarHtmlDaSecao(depois);
 }
 
 // ---------------------------------------------------------------------------
