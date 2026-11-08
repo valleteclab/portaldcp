@@ -767,6 +767,8 @@ export function BlocoEnviar({
   posse,
   ehAvulso,
   podeEncerrar = true,
+  foraDoFluxo = false,
+  recebidoForaDoFluxo = false,
   onTramitou,
   onEncerrou,
 }: {
@@ -774,6 +776,10 @@ export function BlocoEnviar({
   etapaChave: string | null
   posse: ComQuemEsta | null
   ehAvulso: boolean
+  /** O processo segue um fluxo: envio só como exceção (consulta, diligência), com justificativa; a etapa não muda. */
+  foraDoFluxo?: boolean
+  /** Chegou por um envio fora do fluxo: quem recebeu devolve a quem enviou. */
+  recebidoForaDoFluxo?: boolean
   /** Licitação não encerra por aqui (tem revogação/anulação próprias). */
   podeEncerrar?: boolean
   onTramitou: () => void
@@ -787,6 +793,7 @@ export function BlocoEnviar({
   const [erro, setErro] = useState<string | null>(null)
   const [modo, setModo] = useState<"enviar" | "devolver" | "encerrar">("enviar")
   const [motivo, setMotivo] = useState("")
+  const [justificativa, setJustificativa] = useState("")
 
   useEffect(() => {
     let vivo = true
@@ -807,16 +814,22 @@ export function BlocoEnviar({
   async function enviar() {
     setErro(null)
     if (!destino) return setErro("Escolha para quem enviar o processo.")
-    if (despacho.trim().length < 3) return setErro("Escreva o despacho: diga ao destinatário o que precisa ser feito.")
+    if (foraDoFluxo && justificativa.trim().length < 10) return setErro("Escreva a justificativa do envio fora do fluxo (pelo menos 10 letras).")
+    if (!foraDoFluxo && despacho.trim().length < 3) return setErro("Escreva o despacho: diga ao destinatário o que precisa ser feito.")
     const [tipo, id] = destino.split(":")
     setEnviando(true)
     try {
       await chamarProcessos(`/${processoId}/enviar`, {
         metodo: "POST",
         padrao: "Não foi possível enviar o processo.",
-        corpo: { [tipo === "setor" ? "para_setor_id" : "para_usuario_id"]: id, despacho: despacho.trim() },
+        corpo: {
+          [tipo === "setor" ? "para_setor_id" : "para_usuario_id"]: id,
+          despacho: despacho.trim(),
+          ...(foraDoFluxo ? { justificativa_fora_do_fluxo: justificativa.trim() } : {}),
+        },
       })
       setDespacho("")
+      setJustificativa("")
       onTramitou()
     } catch (e) {
       setErro(textoDoErro(e, "Não foi possível enviar o processo."))
@@ -861,13 +874,19 @@ export function BlocoEnviar({
     }
   }
 
-  const podeDevolver = !!posse?.enviado_por
+  const podeDevolver = !!posse?.enviado_por && (!foraDoFluxo || recebidoForaDoFluxo)
 
   return (
     <section className={s.bloco} aria-labelledby="bloco-enviar">
       <div className={s.eyebrow} id="bloco-enviar">
-        {modo === "devolver" ? "Devolver" : modo === "encerrar" ? "Encerrar" : "Enviar para"}
+        {modo === "devolver" ? "Devolver" : modo === "encerrar" ? "Encerrar" : foraDoFluxo ? "Enviar para outro setor (fora do fluxo)" : "Enviar para"}
       </div>
+      {foraDoFluxo && modo === "enviar" ? (
+        <p className={s.texto} style={{ marginTop: 6 }}>
+          Exceção para consulta ou diligência: a etapa do fluxo continua com você, a justificativa vai para o despacho nos autos e quem recebe devolve o
+          processo.
+        </p>
+      ) : null}
 
       {modo === "enviar" ? (
         <div className={s.formulario} style={{ marginTop: 8 }}>
@@ -904,8 +923,22 @@ export function BlocoEnviar({
               </optgroup>
             ) : null}
           </select>
+          {foraDoFluxo ? (
+            <>
+              <label className={s.rotulo} htmlFor="justificativa-fora-fluxo">
+                Justificativa (obrigatória)
+              </label>
+              <textarea
+                id="justificativa-fora-fluxo"
+                className={s.campo}
+                value={justificativa}
+                onChange={(e) => setJustificativa(e.target.value)}
+                placeholder="Ex.: consulta ao RH sobre o saldo de férias do servidor."
+              />
+            </>
+          ) : null}
           <label className={s.rotulo} htmlFor="despacho-processo">
-            Despacho
+            {foraDoFluxo ? "Despacho (opcional)" : "Despacho"}
           </label>
           <textarea
             id="despacho-processo"
@@ -921,14 +954,14 @@ export function BlocoEnviar({
           ) : null}
           <div className={s.acoes}>
             <button type="button" className={`${s.botao} ${s.primario}`} onClick={enviar} disabled={enviando}>
-              {enviando ? "Enviando..." : "Enviar processo"}
+              {enviando ? "Enviando..." : foraDoFluxo ? "Enviar fora do fluxo" : "Enviar processo"}
             </button>
             {podeDevolver ? (
               <button type="button" className={`${s.botao} ${s.secundario}`} onClick={() => { setErro(null); setModo("devolver") }}>
                 Devolver
               </button>
             ) : null}
-            {ehAvulso && podeEncerrar ? (
+            {ehAvulso && podeEncerrar && !foraDoFluxo ? (
               <button type="button" className={`${s.botao} ${s.perigo}`} onClick={() => { setErro(null); setModo("encerrar") }}>
                 Encerrar o processo
               </button>

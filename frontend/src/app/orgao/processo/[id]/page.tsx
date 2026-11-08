@@ -277,7 +277,20 @@ export default function TelaDoProcessoPage() {
         </section>
       ) : encerrado ? (
         <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
-      ) : fluxoEmAndamento ? null : podeAgir && oficioPendente ? (
+      ) : fluxoEmAndamento ? (
+        podeAgir ? (
+          <BlocoEnviar
+            processoId={processo.id}
+            etapaChave={null}
+            posse={posse}
+            ehAvulso={ehAvulso}
+            foraDoFluxo
+            recebidoForaDoFluxo={String(tram?.atual?.despacho ?? "").startsWith("Envio fora do fluxo.")}
+            onTramitou={() => carregar(true)}
+            onEncerrou={() => carregar(true)}
+          />
+        ) : null
+      ) : podeAgir && oficioPendente ? (
         <BlocoOficio processoId={processo.id} onEnviado={() => carregar(true)} />
       ) : podeAgir && ehOficio && oficioJaEnviado ? (
         <BlocoProvidenciaOficio
