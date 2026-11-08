@@ -1,10 +1,9 @@
 import { redirect } from "next/navigation"
 
 /**
- * Compatibilidade de URL (E8): a aprovação dos documentos da fase interna é
- * pelo fluxo por etapa (Configurações › Fluxos de aprovação), na caixa da
- * Central de Aprovações — a antiga aprovação "por documento" foi removida.
+ * Compatibilidade de URL: a aprovação é etapa do fluxo do processo (11/2026),
+ * na aba "Etapas de processo" da Central de Aprovações.
  */
 export default function Page() {
-  redirect("/orgao/aprovacoes?tab=documentos")
+  redirect("/orgao/aprovacoes?tab=etapas")
 }

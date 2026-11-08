@@ -189,35 +189,17 @@ export class ProcessoConteudoService implements OnModuleInit {
     return tram.devolver(atual.id, String(body?.motivo ?? body?.despacho ?? '').trim(), ator, {});
   }
 
-  /** Setores e pessoas do órgão + o destino sugerido pelo fluxo da fase interna (sugestão, nunca trava). */
+  /** Setores e pessoas do órgão (destino do envio manual). */
   async destinosLicitacao(p: Processo, ator: Ator) {
     const { licId } = this.tramitacaoDaLicitacao(p);
     const [setores, usuarios] = await Promise.all([
       this.ds.query(`SELECT id::text AS id, nome, chefe_usuario_id::text AS chefe_usuario_id FROM setores WHERE orgao_id::text = $1 ORDER BY nome ASC`, [p.orgao_id]),
       this.ds.query(`SELECT id::text AS id, nome, cargo, setor_id::text AS setor_id FROM usuarios WHERE orgao_id::text = $1 AND ativo = true ORDER BY nome ASC LIMIT 500`, [p.orgao_id]),
     ]);
-    let sugerido: { setor_id: string | null; setor_nome: string | null; usuario_id: string | null; motivo: string } | null = null;
-    let despacho_sugerido: string | null = null;
-    const integracao = this.servico<any>('../fase-interna/fluxo/integracao-fluxo.service', 'IntegracaoFluxoService');
-    if (integracao) {
-      try {
-        const s = await integracao.sugestaoEnvio(licId, ator);
-        const d = (s?.destinos ?? []).find((x: any) => x.principal) ?? (s?.destinos ?? [])[0] ?? null;
-        if (d) {
-          const setor = d.setor_id ? setores.find((x: any) => x.id === String(d.setor_id)) : null;
-          const titulos = Array.isArray(d.etapas) ? [...new Set(d.etapas.map((e: any) => (Array.isArray(e) ? e[1] ?? e[0] : e)).filter(Boolean))] : [];
-          sugerido = {
-            setor_id: d.setor_id ? String(d.setor_id) : null,
-            setor_nome: setor?.nome ?? d.rotulo ?? null,
-            usuario_id: d.usuario_id ? String(d.usuario_id) : null,
-            motivo: titulos.length ? `Responsável pela etapa seguinte: ${titulos.join('; ')}.` : 'Responsável pela etapa seguinte do fluxo.',
-          };
-        }
-        despacho_sugerido = s?.despacho_sugerido ?? null;
-      } catch (e) {
-        this.logger.warn(`Sugestão de envio da licitação ${licId} indisponível: ${e instanceof Error ? e.message : e}`);
-      }
-    }
+    // Um motor só (11/2026): a sugestão de destino do motor antigo saiu — a próxima etapa é do fluxo
+    // do processo, e o envio por aqui é manual. Os campos ficam (nulos) para a tela não mudar.
+    const sugerido: { setor_id: string | null; setor_nome: string | null; usuario_id: string | null; motivo: string } | null = null;
+    const despacho_sugerido: string | null = null;
     return { processo_id: p.id, setores, usuarios, sugerido, despacho_sugerido };
   }
 

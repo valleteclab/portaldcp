@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao';
-import { CaixaDocumentosAprovacao } from '@/components/fase-interna/CaixaDocumentosAprovacao';
 import { CaixaEtapasFluxo } from '@/components/fluxo/CaixaEtapasFluxo';
 import { CaixaAssinaturas, carregarAssinaturasPendentes } from '@/components/fase-interna/CaixaAssinaturas';
 import { ModuloSistema, useModulosOrgao } from '@/hooks/useModulosOrgao';
@@ -289,7 +288,6 @@ export default function CentralAprovacoesPage() {
     setPendentesEtapas(n);
     setCarregadas(c => (c.etapas ? c : { ...c, etapas: true }));
   }, []);
-  const [pendentesDocumentos, setPendentesDocumentos] = useState(0);
   const [pendentesEtapas, setPendentesEtapas] = useState(0);
 
   // Permissões
@@ -427,7 +425,7 @@ export default function CentralAprovacoesPage() {
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (!tabParam) return;
-    const tabsPermitidas = new Set(['contratos', 'demandas', 'documentos', 'assinaturas', 'requisicoes', 'medicoes', 'ordens-servico']);
+    const tabsPermitidas = new Set(['contratos', 'demandas', 'etapas', 'assinaturas', 'requisicoes', 'medicoes', 'ordens-servico']);
     if (tabsPermitidas.has(tabParam)) {
       setActiveTab(tabParam);
     }
@@ -470,7 +468,6 @@ export default function CentralAprovacoesPage() {
       if (podeAprovarRequisicoes) carregarRequisicoes();
       carregarMedicoes();
       carregarOrdensServico();
-      carregarContagemDocumentos();
     }
   }, [loading, orgaoId, podeLiberarContratos, podeAprovarRequisicoes]);
 
@@ -570,18 +567,6 @@ export default function CentralAprovacoesPage() {
       setLoadingOS(false);
       marcarCarregada('ordens-servico');
     }
-  };
-
-  /** Peças do processo aguardando este usuário (a aba monta a lista; aqui só a contagem). */
-  const carregarContagemDocumentos = async () => {
-    try {
-      const res = await authFetch(`${API_URL}/api/fase-interna/aprovacoes/caixa`, { cache: 'no-store' });
-      if (res.ok) {
-        const lista = await res.json();
-        setPendentesDocumentos(Array.isArray(lista) ? lista.length : 0);
-      }
-    } catch { /* contagem fica 0 */ }
-    finally { marcarCarregada('documentos'); }
   };
 
   const recarregarTudo = () => {
@@ -1035,7 +1020,6 @@ export default function CentralAprovacoesPage() {
     // aparecem para quem contratou cada um. As demais são do dia a dia e
     // seguem a permissão do usuário, como sempre.
     { valor: 'etapas', visivel: (temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES)), pendentes: pendentesEtapas },
-    { valor: 'documentos', visivel: (temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES)), pendentes: pendentesDocumentos },
     { valor: 'assinaturas', visivel: temAcesso(ModuloSistema.PORTAL_ASSINATURAS), pendentes: assinaturasPendentes },
     { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
     { valor: 'medicoes', visivel: true, pendentes: medicoes.length },
@@ -1075,9 +1059,9 @@ export default function CentralAprovacoesPage() {
         {dialogo}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Aprovações</h1>
-          <p className="text-gray-500">Documentos da fase interna aguardando a sua etapa no fluxo de aprovação.</p>
+          <p className="text-gray-500">Etapas de processo aguardando a sua aprovação.</p>
         </div>
-        <CaixaDocumentosAprovacao />
+        <CaixaEtapasFluxo />
       </div>
     );
   }
@@ -1246,13 +1230,6 @@ export default function CentralAprovacoesPage() {
               )}
             </TabsTrigger>
           )}
-          <TabsTrigger value="documentos" className="flex items-center gap-2">
-            <FileCheck className="h-4 w-4" />
-            Documentos do processo
-            {pendentesDocumentos > 0 && (
-              <Badge className="ml-1 bg-sky-700 text-white text-xs px-1.5 py-0">{pendentesDocumentos}</Badge>
-            )}
-          </TabsTrigger>
           <TabsTrigger value="assinaturas" className="flex items-center gap-2">
             <PenLine className="h-4 w-4" />
             Assinaturas
@@ -1288,11 +1265,6 @@ export default function CentralAprovacoesPage() {
         {/* ============ TAB ETAPAS DE PROCESSO (aprovações dos fluxos desenhados) ==== */}
         <TabsContent value="etapas" className="space-y-4">
           <CaixaEtapasFluxo onContagem={contarEtapas} />
-        </TabsContent>
-
-        {/* ============ TAB DOCUMENTOS DO PROCESSO (fluxos de aprovação) ==== */}
-        <TabsContent value="documentos" className="space-y-4">
-          <CaixaDocumentosAprovacao onContagem={setPendentesDocumentos} />
         </TabsContent>
 
         {/* ============ TAB ASSINATURAS (o que o usuário do login assina) ==== */}

@@ -44,7 +44,6 @@ import { TarefasService } from './tarefas/tarefas.service';
 import { AuditLogService } from './audit-log.service';
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { JuntadaPecasService } from './juntada-pecas.service';
-import { AprovacaoPecasService } from './aprovacao-pecas.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
 import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
@@ -71,7 +70,6 @@ export class FaseInternaController {
     private readonly tarefas: TarefasService,
     private readonly auditLog: AuditLogService,
     private readonly juntada: JuntadaPecasService,
-    private readonly aprovacaoPecas: AprovacaoPecasService,
     private readonly fluxoProcesso: FluxoProcessoService,
     private readonly permissaoEtapa: PermissaoEtapaService,
   ) {}
@@ -107,12 +105,6 @@ export class FaseInternaController {
     // grava a peça e conclui renovação de dotação, devolução da autorização e
     // retorno à Procuradoria pendentes (Entregas 3A/3B)
     const doc = await this.juntada.anexar(licitacaoId, tipo, arquivo, body ?? {}, ator);
-    // Etapa com "aprovação interna": a peça anexada pela etapa vai para o fluxo
-    // de aprovação do órgão (a juntada em lote da fase feita fora não passa aqui)
-    await this.aprovacaoPecas.avaliarPeca(doc.id, { anexadaAgora: true });
-    // Sempre a peça RELIDA: o envio ao fluxo pode ter sido feito pela fila do
-    // processo antes desta avaliação (aí ela devolve false e o objeto em mãos
-    // ainda estaria com o status anterior)
     return (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
   }
 
@@ -172,9 +164,6 @@ export class FaseInternaController {
   async emitirPeca(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
     const autor = await this.tarefas.autor(ator);
     let doc = await this.pecas.emitirPeca(licitacaoId, tipo, ator, autor);
-    // Etapa com "aprovação interna": a peça emitida vai para o fluxo do órgão
-    await this.aprovacaoPecas.avaliarPeca(doc.id);
-    // Relida sempre (a fila do processo pode ter enviado antes desta avaliação)
     doc = (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
     const emAprovacao = doc.status === StatusDocumento.AGUARDANDO_APROVACAO;
     return { documento_id: doc.id, tipo: doc.tipo, versao: doc.versao, status: doc.status, emitido: doc.dados_estruturados?._emitido ?? null, em_aprovacao: emAprovacao };
@@ -297,9 +286,6 @@ export class FaseInternaController {
     );
     if (!String(body.descricao ?? '').trim()) return doc;
     const gerada = await this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);
-    // Etapa com "aprovação interna": a peça gerada vai para o fluxo do órgão
-    await this.aprovacaoPecas.avaliarPeca(gerada.id);
-    // Relida sempre (a fila do processo pode ter enviado antes desta avaliação)
     return (await this.faseInternaService.getDocumento(gerada.id).catch(() => null)) ?? gerada;
   }
 
@@ -424,9 +410,8 @@ export class FaseInternaController {
     return this.faseInternaService.getDocumento(id);
   }
 
-  // O envio para aprovação é pelo fluxo por etapa (`documento/:id/submeter-fluxo`,
-  // `aprovacoes/etapa/:id/{aprovar,reprovar}`); a aprovação por documento
-  // (submeter/aprovar/reprovar e GET aprovacoes) foi apagada na E9.
+  // A aprovação das peças é etapa de Aprovação do fluxo do processo (11/2026): os
+  // fluxos de aprovação por documento do motor antigo saíram.
 
   /** Preço de referência rápido por código CATMAT/CATSER (dados abertos) */
   @Get('preco-referencia')

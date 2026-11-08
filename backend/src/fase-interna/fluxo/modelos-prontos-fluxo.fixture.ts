@@ -1,6 +1,6 @@
 /**
- * MODELOS PRONTOS do construtor de fluxo — pontos de partida que o órgão
- * carrega no RASCUNHO (nada é ativado sozinho). Código porque descrevem o
+ * FIXTURE DE TESTE (motor-grafo.spec). Eram os modelos prontos do construtor
+ * de fluxo antigo, removido em 11/2026 — ficam só como grafos de exemplo. Código porque descrevem o
  * sistema (como a semente): o que o órgão faz com eles fica nos dados.
  *
  *  - "Câmara — Portaria 089": o modelo do sistema (a semente), como grafo;

@@ -19,7 +19,6 @@ import { DataSource } from 'typeorm';
 import { ModeloDocumentoService } from './modelo-documento.service';
 import { TramitacaoService } from './tramitacao.service';
 import type { TramitarDto } from './tramitacao.service';
-import { AprovacaoService } from './aprovacao.service';
 import { TipoDocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { ModeloDocumento } from './entities/modelo-documento.entity';
 import { ContextoUsuario } from './audit-log.service';
@@ -27,8 +26,6 @@ import { AtorAtual } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { DonoFaseInternaGuard, DonoModo, DonoPor } from './dono-fase-interna.guard';
-import { AprovacaoPecasService } from './aprovacao-pecas.service';
-import { TarefasService } from './tarefas/tarefas.service';
 import type { Response } from 'express';
 import * as fs from 'fs';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
@@ -36,7 +33,7 @@ import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa
 /**
  * Processo eletrônico da fase interna (estilo SEI):
  * modelos de documento personalizáveis, tramitação entre setores
- * e fluxo de aprovação multi-etapa.
+ * (a aprovação das peças é etapa do fluxo do processo — 11/2026).
  *
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard — toda rota exige órgão; com
  * `:licitacaoId`, tramitação, documento ou etapa por id exige o órgão DONO da
@@ -53,17 +50,8 @@ export class ProcessoEletronicoController {
   constructor(
     private readonly modelos: ModeloDocumentoService,
     private readonly tramitacao: TramitacaoService,
-    private readonly aprovacao: AprovacaoService,
     private readonly dataSource: DataSource,
-    private readonly aprovacaoPecas: AprovacaoPecasService,
-    private readonly tarefas: TarefasService,
   ) {}
-
-  /** Administração do órgão: login do órgão, usuário com papel ADMIN ou admin da plataforma. */
-  private exigirAdminDoOrgao(ator: Ator) {
-    if (ator.admin || ator.tipo === 'ORGAO' || (ator.tipo === 'USUARIO' && ator.role === 'ADMIN')) return;
-    throw new ForbiddenException('Só o administrador do órgão altera os fluxos de aprovação');
-  }
 
   /** Papéis do servidor que enxergam as caixas de todo o órgão. */
   private static readonly PAPEIS_CAIXA_DO_ORGAO = ['ADMIN'];
@@ -84,15 +72,6 @@ export class ProcessoEletronicoController {
     if (orgaoId !== ator.orgaoId) {
       if (modo === 'leitura') throw new NotFoundException('Modelo de documento não encontrado');
       throw new ForbiddenException('Acesso negado: modelo pertence a outro órgão');
-    }
-  }
-
-  /** Fluxo de aprovação por id: só o órgão dono (ou admin). */
-  private async assertFluxo(ator: Ator, id: string) {
-    const r = ehUuid(id) ? await this.dataSource.query(`SELECT orgao_id FROM fluxos_aprovacao_documento WHERE id = $1`, [id]) : [];
-    if (!r[0]) throw new NotFoundException('Fluxo de aprovação não encontrado');
-    if (!ator.admin && r[0].orgao_id !== ator.orgaoId) {
-      throw new ForbiddenException('Acesso negado: fluxo pertence a outro órgão');
     }
   }
 
@@ -322,138 +301,5 @@ export class ProcessoEletronicoController {
     res.setHeader('Content-Disposition', `inline; filename="${arq.nome}"`);
     res.setHeader('Cache-Control', 'private, no-store');
     res.send(fs.readFileSync(arq.caminho));
-  }
-
-  // ==========================================================================
-  // FLUXOS DE APROVAÇÃO (configuração por órgão)
-  // ==========================================================================
-
-  @Get('fluxos-aprovacao')
-  listarFluxos(@Query('orgaoId') orgaoIdInformado: string, @AtorAtual() ator: Ator) {
-    const orgaoId = this.orgaoDoAtor(ator, orgaoIdInformado);
-    if (!orgaoId) throw new BadRequestException('orgaoId é obrigatório');
-    return this.aprovacao.listarFluxos(orgaoId);
-  }
-
-  /** Catálogo de modelos prontos (dados). `?todos=1` inclui os desativados (admin da plataforma). */
-  @Get('fluxos-aprovacao/modelos-prontos')
-  modelosProntos(@AtorAtual() ator: Ator, @Query('todos') todos?: string) {
-    return this.aprovacaoPecas.modelosProntos(ator.admin && (todos === '1' || todos === 'true'));
-  }
-
-  /** Novo modelo pronto — só o admin da plataforma. */
-  @Post('fluxos-aprovacao/modelos-prontos')
-  criarModeloPronto(@Body() body: any, @AtorAtual() ator: Ator) {
-    return this.aprovacaoPecas.criarModeloPronto(ator, body ?? {});
-  }
-
-  /** Altera (ou desativa, `ativo: false`) um modelo pronto — só o admin da plataforma. */
-  @Put('fluxos-aprovacao/modelos-prontos/:id')
-  atualizarModeloPronto(@Param('id') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
-    return this.aprovacaoPecas.atualizarModeloPronto(ator, id, body ?? {});
-  }
-
-  /**
-   * Onde o fluxo vale: etapas do modelo de fluxo do órgão com "aprovação
-   * interna" ligada (por tipo de processo) e o fluxo usado para cada peça.
-   */
-  @Get('fluxos-aprovacao/cobertura')
-  cobertura(@Query('orgaoId') orgaoIdInformado: string, @AtorAtual() ator: Ator) {
-    const orgaoId = this.orgaoDoAtor(ator, orgaoIdInformado);
-    if (!orgaoId) throw new BadRequestException('orgaoId é obrigatório');
-    return this.aprovacaoPecas.cobertura(orgaoId);
-  }
-
-  @Post('fluxos-aprovacao')
-  async criarFluxo(@Body() body: any, @AtorAtual() ator: Ator) {
-    this.exigirAdminDoOrgao(ator);
-    const orgaoId = this.orgaoDoAtor(ator, body?.orgao_id);
-    if (!orgaoId) throw new BadRequestException('orgao_id é obrigatório');
-    return this.aprovacao.criarFluxo(orgaoId, body ?? {}, await this.tarefas.autor(ator));
-  }
-
-  @Put('fluxos-aprovacao/:id')
-  async atualizarFluxo(@Param('id') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
-    await this.assertFluxo(ator, id);
-    this.exigirAdminDoOrgao(ator);
-    return this.aprovacao.atualizarFluxo(id, body ?? {});
-  }
-
-  @Delete('fluxos-aprovacao/:id')
-  async removerFluxo(@Param('id') id: string, @AtorAtual() ator: Ator) {
-    await this.assertFluxo(ator, id);
-    this.exigirAdminDoOrgao(ator);
-    return this.aprovacao.removerFluxo(id);
-  }
-
-  // ==========================================================================
-  // APROVAÇÃO MULTI-ETAPA (instância por documento)
-  // ==========================================================================
-
-  /** Submete o documento instanciando as etapas do fluxo configurado (quem envia: o usuário do token). */
-  @TrabalhoNaEtapa({ documentoParam: 'id', acao: 'enviar para aprovação' })
-  @Put('documento/:id/submeter-fluxo')
-  @DonoPor('documento', 'id')
-  async submeterFluxo(@Param('id') id: string, @AtorAtual() ator: Ator, @Req() req: any) {
-    const autor = await this.tarefas.autor(ator);
-    return this.aprovacao.submeter(
-      id,
-      { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined, ip_origem: req?.ip, user_agent: req?.headers?.['user-agent'] },
-      { por: autor },
-    );
-  }
-
-  @Get('documento/:id/etapas-aprovacao')
-  @DonoPor('documento', 'id')
-  listarEtapas(@Param('id') id: string) {
-    return this.aprovacao.listarEtapasDocumento(id);
-  }
-
-  /**
-   * Caixa de aprovações. Sem filtro: a do usuário do token (Central de
-   * Aprovações — só as etapas que são dele). Com `setorId`/`usuarioId`: o
-   * login do órgão/ADMIN consulta um setor ou uma pessoa do órgão.
-   */
-  @Get('aprovacoes/caixa')
-  async caixaAprovacoes(
-    @AtorAtual() ator: Ator,
-    @Query('usuarioId') usuarioId?: string,
-    @Query('setorId') setorId?: string,
-  ) {
-    // A peça emitida agora vai para o fluxo depois do commit: espera a fila
-    await this.tarefas.aguardarPendentes();
-    const servidorComum = ator.tipo === 'USUARIO' && !ProcessoEletronicoController.PAPEIS_CAIXA_DO_ORGAO.includes(ator.role || '');
-    if (!ator.admin && (!(setorId || usuarioId) || servidorComum)) {
-      // Servidor comum: sempre a própria caixa (filtro de outra pessoa/órgão → 403)
-      if (setorId || usuarioId) await this.destinoDaCaixa(ator, setorId, usuarioId);
-      return this.aprovacaoPecas.caixa(ator);
-    }
-    return this.aprovacao.caixaAprovacoes(await this.destinoDaCaixa(ator, setorId, usuarioId));
-  }
-
-  /** Aprova a etapa — só quem é o responsável por ela (usuário do token); 403 se não é sua. */
-  @Put('aprovacoes/etapa/:etapaId/aprovar')
-  @DonoPor('etapa', 'etapaId')
-  @DonoModo('leitura')
-  aprovarEtapa(
-    @Param('etapaId') etapaId: string,
-    @Body() body: { justificativa?: string; papel?: string },
-    @AtorAtual() ator: Ator,
-    @Req() req: any,
-  ) {
-    return this.aprovacaoPecas.decidir(etapaId, ator, 'aprovar', body ?? {}, { ip: req?.ip, userAgent: req?.headers?.['user-agent'] });
-  }
-
-  /** Reprova a etapa (motivo obrigatório): a peça volta para quem a fez. */
-  @Put('aprovacoes/etapa/:etapaId/reprovar')
-  @DonoPor('etapa', 'etapaId')
-  @DonoModo('leitura')
-  reprovarEtapa(
-    @Param('etapaId') etapaId: string,
-    @Body() body: { justificativa?: string },
-    @AtorAtual() ator: Ator,
-    @Req() req: any,
-  ) {
-    return this.aprovacaoPecas.decidir(etapaId, ator, 'reprovar', body ?? {}, { ip: req?.ip, userAgent: req?.headers?.['user-agent'] });
   }
 }
