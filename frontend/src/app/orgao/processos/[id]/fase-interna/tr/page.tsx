@@ -89,8 +89,23 @@ export default function TrPage() {
   }, [carregar])
 
   const gerar = async () => {
-    // Antes de gerar: o que falta (as seções obrigatórias vazias saem como "não preenchida")
-    const faltando = d?.obrigatorias_faltando ?? []
+    // Antes de gerar: o que falta (as seções obrigatórias vazias saem como "não preenchida").
+    // Conferido DEPOIS de gravar o que ainda está sendo salvo (reteste 08/11/2026: o aviso
+    // listava como vazias as seções recém-digitadas, que só não tinham chegado ao servidor)
+    setGerando(true)
+    await aguardarSalvamentosDaPeca(id, "TR")
+    let faltando = d?.obrigatorias_faltando ?? []
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/tr`)
+      if (r.ok) {
+        const novo = await r.json()
+        setD(novo)
+        faltando = novo?.obrigatorias_faltando ?? []
+      }
+    } catch {
+      /* fica com o que a tela já tinha */
+    }
+    setGerando(false)
     const anexada = !!vigente && vigente.origem !== "INTERNO"
     if (faltando.length || anexada) {
       const ok = await confirmar({
