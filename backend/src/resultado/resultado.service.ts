@@ -260,6 +260,27 @@ export class ResultadoService implements OnModuleInit {
   }
 
   /**
+   * Unidades do plano que ainda NÃO estão adjudicadas a esse vencedor (item fora de
+   * ADJUDICADO/HOMOLOGADO ou com outro vencedor). Vazio = nada novo a adjudicar: o
+   * botão continuava ativo e o 2º clique gerava outro termo de adjudicação (ensaio
+   * do pregão 002/2026, 09/11/2026).
+   */
+  private async unidadesAAdjudicar(m: EntityManager, plano: PlanoAdjudicacao): Promise<PlanoAdjudicacao['unidades']> {
+    const faltam: PlanoAdjudicacao['unidades'] = [];
+    for (const u of plano.unidades) {
+      const ids = u.valores.map((v) => v.itemId);
+      if (!ids.length) continue;
+      const [r] = await m.query(
+        `SELECT COUNT(*)::int AS n FROM itens_licitacao
+          WHERE id::text = ANY($1) AND (status::text NOT IN ('ADJUDICADO','HOMOLOGADO') OR fornecedor_vencedor_id::text IS DISTINCT FROM $2)`,
+        [ids, String(u.fornecedorId)],
+      );
+      if (Number(r?.n) > 0) faltam.push(u);
+    }
+    return faltam;
+  }
+
+  /**
    * Painel do resultado (órgão dono): unidades com vencedor e valores
    * (gravados, ou a prévia do que a adjudicação gravará), total, pendências,
    * atos disponíveis e instrumentos gerados.
@@ -348,10 +369,16 @@ export class ResultadoService implements OnModuleInit {
         : []),
     ];
     const atoAdjudicar = lic.fase === FaseLicitacao.RECURSO ? ato(AtoLicitacao.DECIDIR_RECURSOS) : ato(AtoLicitacao.ADJUDICAR);
+    const nadaNovo = !!previa && previa.unidades.length > 0 && (await this.unidadesAAdjudicar(m, previa)).length === 0;
     const adjudicar = pelaSala && atoAdjudicar
       ? {
-          disponivel: atoAdjudicar.disponivel && !!previa && previa.pendencias.length === 0 && previa.unidades.length > 0 && bloqueios.length === 0,
-          pendencias: [...atoAdjudicar.pendencias, ...(previa?.pendencias ?? []), ...bloqueios],
+          disponivel:
+            atoAdjudicar.disponivel && !!previa && previa.pendencias.length === 0 && previa.unidades.length > 0 && bloqueios.length === 0 && !nadaNovo,
+          pendencias: [
+            ...(nadaNovo ? ['Todas as unidades já estão adjudicadas — siga para a homologação.'] : atoAdjudicar.pendencias),
+            ...(previa?.pendencias ?? []),
+            ...bloqueios,
+          ],
         }
       : null;
     const homologar = ato(AtoLicitacao.HOMOLOGAR);
@@ -728,6 +755,13 @@ export class ResultadoService implements OnModuleInit {
           ? 'Na dispensa eletrônica a adjudicação é feita pelo julgamento (POST /licitacoes/:id/julgar-dispensa).'
           : 'Nesta modalidade o resultado é registrado pelo resultado externo (POST /licitacoes/:id/resultado-externo).',
       );
+    }
+    // Nada novo a adjudicar (todas as unidades já adjudicadas a esse vencedor): não gera outro termo
+    {
+      const plano = await this.planoAdjudicacao(licitacaoId);
+      if (plano.unidades.length && !(await this.unidadesAAdjudicar(this.dataSource.manager, plano)).length) {
+        throw new ConflictException('Todas as unidades já estão adjudicadas — siga para a homologação.');
+      }
     }
     const { ctx, efeito } = await this.prepararRegistro(lic, atorJwt, opts);
     const ato = lic.fase === FaseLicitacao.RECURSO ? AtoLicitacao.DECIDIR_RECURSOS : AtoLicitacao.ADJUDICAR;
