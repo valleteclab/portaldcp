@@ -216,6 +216,12 @@ function CartaoRecurso({
       </div>
       <DetalheRecurso r={r} />
 
+      {r.aguardaFimDaJanela && (
+        <div className="border-t pt-2 text-xs text-slate-500">
+          Admissibilidade depois do fim da janela de intenção ({dataHoraBr(r.aguardaFimDaJanela)}), com todas as intenções conhecidas.
+        </div>
+      )}
+
       {/* Admissibilidade */}
       {r.podeAdmitir && (
         <div className="space-y-2 border-t pt-2">
