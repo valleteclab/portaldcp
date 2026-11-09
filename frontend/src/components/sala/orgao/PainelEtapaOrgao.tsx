@@ -83,6 +83,24 @@ export function PainelEtapaOrgao({
     painel = licitacaoId ? <ResultadoPanel licitacaoId={licitacaoId} /> : null
   }
 
+  // Consulta das etapas já concluídas: a proposta adequada aceita e os documentos de habilitação
+  // continuam à mão nas etapas seguintes — o recurso, por exemplo, é decidido olhando esses documentos.
+  // Antes, ao sair da etapa, o painel sumia da sala (ensaio do pregão 002/2026, 09/11/2026).
+  const ORDEM = ['ACEITACAO', 'NEGOCIACAO', 'HABILITACAO', 'RECURSOS', 'ADJUDICACAO', 'HOMOLOGACAO', 'ENCERRAMENTO']
+  const posicao = ORDEM.indexOf(etapa)
+  const consulta =
+    licitacaoId && contexto?.criterioJulgamento !== 'MAIOR_LANCE' && posicao > ORDEM.indexOf('NEGOCIACAO') ? (
+      <details className="group rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          Etapas anteriores: proposta aceita{posicao > ORDEM.indexOf('HABILITACAO') ? ' e documentos de habilitação' : ''} (consulta)
+        </summary>
+        <div className="space-y-4 border-t p-3">
+          <AceitacaoPanel sessaoId={sessaoId} />
+          {posicao > ORDEM.indexOf('HABILITACAO') && <HabilitacaoPanel licitacaoId={licitacaoId} />}
+        </div>
+      </details>
+    ) : null
+
   return (
     <div className="space-y-4">
       {/* Benefício ME/EPP (LC 123 arts. 44–45): com desempate em curso ou na etapa própria */}
@@ -94,6 +112,7 @@ export function PainelEtapaOrgao({
         <HabilitacaoPanel licitacaoId={licitacaoId} somentePreviaInversao />
       )}
       {painel}
+      {consulta}
       {chat}
     </div>
   )

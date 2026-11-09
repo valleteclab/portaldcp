@@ -456,9 +456,19 @@ export function AceitacaoPanel({ sessaoId, onMudou }: { sessaoId: string; onMudo
                     {u.historico
                       .filter((h) => h.status !== 'AGUARDANDO_ENVIO' && h.status !== 'ENVIADA')
                       .map((h) => (
-                        <div key={h.id}>
-                          {dataHora(h.decididaEm)} — {h.razaoSocial || h.fornecedorId}: {ROTULO_STATUS[h.status]}
-                          {h.decisaoMotivo ? ` (${h.decisaoMotivo})` : ''}
+                        <div key={h.id} className="flex flex-wrap items-center gap-2">
+                          <span>
+                            {dataHora(h.decididaEm)} — {h.razaoSocial || h.fornecedorId}: {ROTULO_STATUS[h.status]}
+                            {h.valorTotalReadequado ? ` · ${formatarMoeda(Number(h.valorTotalReadequado))}` : ''}
+                            {h.decisaoMotivo ? ` (${h.decisaoMotivo})` : ''}
+                          </span>
+                          {/* A proposta adequada continua acessível depois da decisão (antes sumia ao aceitar) */}
+                          {h.arquivo && (
+                            <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => abrirArquivo(h)}>
+                              <FileText className="mr-1 h-3 w-3" />
+                              Ver proposta ({h.arquivo.nome})
+                            </Button>
+                          )}
                         </div>
                       ))}
                   </div>
