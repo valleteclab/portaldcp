@@ -1,4 +1,6 @@
 import { orgaoComPrazosDeTeste } from '../common/prazos/prazos-de-teste';
+import { papelNoProcesso } from '../licitacoes/permissao-atos-processo';
+import { motivoOperadorInvalido } from '../resultado/formalizacao/regras-formalizacao';
 import {
   BadRequestException,
   ConflictException,
@@ -416,6 +418,8 @@ export class RecursosService {
         decisao: r.decisao,
         decididoPor: r.decidido_por,
         decididoPorCargo: r.decidido_por_cargo,
+        decisaoRegistradaPor: r.decisao_registrada_por_nome ?? null,
+        decisaoArquivo: r.decisao_arquivo_nome ? { nome: r.decisao_arquivo_nome, sha256: r.decisao_arquivo_sha256 } : null,
         instanciaDecisao: r.instancia_decisao,
         dataDecisao: r.data_decisao,
         efeitos: r.efeitos,
@@ -470,6 +474,12 @@ export class RecursosService {
       const bloqueio = await this.motivoNaoAbreJanela(licitacaoId, sessaoId, agora).catch((e) => e?.message ?? 'Indisponível');
       saida.podeAbrirJanela = !bloqueio;
       saida.motivoNaoAbreJanela = bloqueio;
+      // Para o agente registrar a decisão da autoridade superior (cadastro de autoridades do órgão)
+      saida.autoridades = await this.dataSource.query(
+        `SELECT a.id::text AS id, a.nome, a.cargo, a.padrao FROM autoridades_orgao a JOIN licitacoes l ON l.orgao_id::text = a.orgao_id::text
+          WHERE l.id::text = $1 AND a.ativo = true ORDER BY a.padrao DESC, a.nome`,
+        [licitacaoId],
+      );
     }
     if (visao.tipo === 'FORNECEDOR') {
       saida.podeManifestarIntencao = !motivoNaoRegistraIntencao(janelaAtual, agora);
@@ -914,6 +924,16 @@ export class RecursosService {
     return { nome: r.razoes_arquivo_nome || 'razoes', mime: r.razoes_arquivo_mime || 'application/octet-stream', conteudo: r.razoes_arquivo_conteudo };
   }
 
+  async arquivoDecisao(recursoId: string): Promise<{ nome: string; mime: string; conteudo: Buffer }> {
+    const r = await this.dataSource.manager
+      .createQueryBuilder(RecursoAdministrativo, 'r')
+      .addSelect('r.decisao_arquivo_conteudo')
+      .where('r.id = :id', { id: recursoId })
+      .getOne();
+    if (!r?.decisao_arquivo_conteudo) throw new NotFoundException('Arquivo da decisão não encontrado');
+    return { nome: r.decisao_arquivo_nome || 'decisao', mime: r.decisao_arquivo_mime || 'application/octet-stream', conteudo: r.decisao_arquivo_conteudo };
+  }
+
   async arquivoContrarrazao(recursoId: string, contrarrazaoId: string): Promise<{ nome: string; mime: string; conteudo: Buffer }> {
     const c = await this.dataSource.manager
       .createQueryBuilder(ContrarrazaoRecurso, 'c')
@@ -1011,22 +1031,42 @@ export class RecursosService {
    * reconsideração (segregação de funções, art. 7º §1º). O presidente da
    * Câmara, cadastrado como Autoridade, era recusado (ensaio de 09/11/2026).
    */
+  /** O usuário é autoridade superior do órgão da licitação (admin, papel Autoridade ou signatário)? */
+  private async ehAutoridadeSuperior(recurso: RecursoAdministrativo, ator: AtorTransicao, m: EntityManager = this.dataSource.manager): Promise<boolean> {
+    if (ator.tipo !== 'USUARIO') return false;
+    const [u] = await m.query(
+      `SELECT u.role::text AS role, u.papeis_fase_interna AS papeis,
+              (SELECT c.signatarios_autorizacao FROM configuracoes_fase_interna c WHERE c.orgao_id::text = l.orgao_id::text) AS signatarios
+         FROM usuarios u JOIN licitacoes l ON l.id::text = $2 AND l.orgao_id::text = u.orgao_id::text
+        WHERE u.id::text = $1 AND u.ativo = true`,
+      [ator.id, recurso.licitacao_id],
+    );
+    const papeis: string[] = Array.isArray(u?.papeis) ? u.papeis.map((p: unknown) => String(p).toUpperCase()) : [];
+    const signatarios: Array<{ usuario_id?: string }> = Array.isArray(u?.signatarios) ? u.signatarios : [];
+    return !!u && (u.role === 'ADMIN' || papeis.includes('AUTORIDADE') || signatarios.some((s) => s?.usuario_id === ator.id));
+  }
+
+  /**
+   * Registro da decisão da autoridade: o mesmo critério do registro da adjudicação/homologação
+   * (`motivoOperadorInvalido`) — agente de contratação/pregoeiro, ADMIN do órgão — ou quem conduz o processo.
+   */
+  private async exigirQuemRegistra(recurso: RecursoAdministrativo, ator: AtorTransicao & { role?: string | null; admin?: boolean }) {
+    const [u] = await this.dataSource.query(`SELECT role::text AS role, papeis_fase_interna AS papeis FROM usuarios WHERE id::text = $1 AND ativo = true`, [ator.id]);
+    const papeis: string[] = Array.isArray(u?.papeis) ? u.papeis : [];
+    if (u && !motivoOperadorInvalido({ tipo: 'USUARIO', role: u.role }, papeis)) return;
+    if ((await papelNoProcesso(this.dataSource, { tipo: 'USUARIO', usuarioId: ator.id } as any, recurso.licitacao_id)).conduz) return;
+    throw new ForbiddenException(
+      'Registrar a decisão da autoridade superior é do agente de contratação/pregoeiro (ou de um administrador do órgão); a própria autoridade também pode decidir pela conta dela.',
+    );
+  }
+
   async exigirAutoridade(recurso: RecursoAdministrativo, ator: AtorTransicao & { role?: string | null; admin?: boolean }, m: EntityManager = this.dataSource.manager) {
     if (ator.admin || ator.tipo === 'ADMIN') throw new ForbiddenException('A decisão do recurso é da autoridade superior do órgão.');
     if (ator.tipo === 'USUARIO') {
-      const [u] = await m.query(
-        `SELECT u.role::text AS role, u.papeis_fase_interna AS papeis,
-                (SELECT c.signatarios_autorizacao FROM configuracoes_fase_interna c WHERE c.orgao_id::text = l.orgao_id::text) AS signatarios
-           FROM usuarios u JOIN licitacoes l ON l.id::text = $2 AND l.orgao_id::text = u.orgao_id::text
-          WHERE u.id::text = $1 AND u.ativo = true`,
-        [ator.id, recurso.licitacao_id],
-      );
-      const papeis: string[] = Array.isArray(u?.papeis) ? u.papeis.map((p: unknown) => String(p).toUpperCase()) : [];
-      const signatarios: Array<{ usuario_id?: string }> = Array.isArray(u?.signatarios) ? u.signatarios : [];
-      const ehAutoridade = !!u && (u.role === 'ADMIN' || papeis.includes('AUTORIDADE') || signatarios.some((s) => s?.usuario_id === ator.id));
-      if (!ehAutoridade) {
+      if (!(await this.ehAutoridadeSuperior(recurso, ator, m))) {
         throw new ForbiddenException(
-          'Apenas a autoridade superior (conta do órgão, administrador do órgão ou usuário com o papel de Autoridade) decide o recurso mantido pelo agente.',
+          'Apenas a autoridade superior (conta do órgão, administrador do órgão ou usuário com o papel de Autoridade) decide o recurso mantido pelo agente — ' +
+            'ou o agente de contratação registra a decisão dela, escolhendo a autoridade no cadastro.',
         );
       }
       if (recurso.reconsideracao_por_tipo === 'USUARIO' && recurso.reconsideracao_por_id === ator.id) {
@@ -1035,48 +1075,88 @@ export class RecursosService {
     }
   }
 
+  /**
+   * Decisão da autoridade superior (art. 165 §2º). Dois jeitos:
+   *  - a própria autoridade decide pela conta dela (ou a conta do órgão);
+   *  - REGISTRO: quem conduz o processo (o agente de contratação, que opera a
+   *    fase externa) registra a decisão da autoridade escolhida no cadastro de
+   *    autoridades do órgão (`autoridadeId`), com a decisão assinada anexada
+   *    quando houver. A decisão é da autoridade; o registro, do agente.
+   */
   async decidirAutoridade(
     recursoId: string,
-    dados: { provido?: boolean; fundamentacao?: string; nome?: string; cargo?: string },
+    dados: { provido?: boolean | string; fundamentacao?: string; nome?: string; cargo?: string; autoridadeId?: string; arquivo?: ArquivoRecurso | null },
     ator: AtorRecurso & { role?: string | null; admin?: boolean },
   ) {
     const fundamentacao = (dados.fundamentacao ?? '').trim();
-    if (typeof dados.provido !== 'boolean') throw new BadRequestException('Informe se o recurso é provido (true) ou improvido (false).');
+    // multipart traz texto: "true"/"false"
+    const provido = typeof dados.provido === 'string' ? (dados.provido === 'true' ? true : dados.provido === 'false' ? false : undefined) : dados.provido;
+    if (typeof provido !== 'boolean') throw new BadRequestException('Informe se o recurso é provido (true) ou improvido (false).');
     if (fundamentacao.length < TAMANHO_MINIMO_FUNDAMENTACAO) {
       throw new BadRequestException(`A fundamentação da decisão é obrigatória (mín. ${TAMANHO_MINIMO_FUNDAMENTACAO} caracteres).`);
     }
-    const nome = (dados.nome ?? '').trim() || (ator.tipo === 'USUARIO' ? ator.nome ?? '' : '');
-    const cargo = (dados.cargo ?? '').trim();
-    if (!nome || !cargo) throw new BadRequestException('Informe o nome e o cargo da autoridade superior que decide o recurso.');
+    this.validarArquivo(dados.arquivo);
     const pre = await this.buscar(recursoId);
-    await this.exigirAutoridade(pre, ator);
+    let nome = (dados.nome ?? '').trim();
+    let cargo = (dados.cargo ?? '').trim();
+    let registro: { autoridadeId: string } | null = null;
+    if (dados.autoridadeId) {
+      const [a] = await this.dataSource.query(
+        `SELECT a.id::text AS id, a.nome, a.cargo FROM autoridades_orgao a JOIN licitacoes l ON l.orgao_id::text = a.orgao_id::text
+          WHERE a.id::text = $1 AND l.id::text = $2 AND a.ativo = true`,
+        [dados.autoridadeId, pre.licitacao_id],
+      );
+      if (!a) throw new BadRequestException('Autoridade não encontrada no cadastro de autoridades do órgão.');
+      nome = a.nome;
+      cargo = a.cargo;
+      registro = { autoridadeId: a.id };
+    }
+    if (!nome && ator.tipo === 'USUARIO') nome = ator.nome ?? '';
+    if (!nome || !cargo) throw new BadRequestException('Informe o nome e o cargo da autoridade superior que decide o recurso.');
+    // Quem decide pela própria conta é a autoridade; quem conduz o processo REGISTRA a decisão dela
+    const registrando = !!registro && ator.tipo === 'USUARIO' && !(await this.ehAutoridadeSuperior(pre, ator));
+    if (registrando) await this.exigirQuemRegistra(pre, ator);
+    else await this.exigirAutoridade(pre, ator);
+    const arq = dados.arquivo?.buffer?.length ? this.metaArquivo(dados.arquivo, 'decisao-autoridade') : null;
     const agora = new Date();
     const r = await this.dataSource.transaction(async (m) => {
       await exigirLicitacaoAtiva(m, pre.licitacao_id, { bloquear: true });
       await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`recursos:${pre.licitacao_id}`]);
       const r = await this.recursoTravado(m, recursoId);
       if (r.status !== StatusRecurso.AGUARDANDO_AUTORIDADE) throw new ConflictException('Este recurso não está aguardando a decisão da autoridade superior.');
-      r.status = dados.provido ? StatusRecurso.PROVIDO : StatusRecurso.IMPROVIDO;
+      r.status = provido ? StatusRecurso.PROVIDO : StatusRecurso.IMPROVIDO;
       r.decisao = fundamentacao;
       r.decidido_por = nome;
       r.decidido_por_cargo = cargo;
-      r.decidido_por_tipo = ator.tipo;
-      r.decidido_por_id = ator.id;
+      r.decidido_por_tipo = registrando ? 'AUTORIDADE_CADASTRO' : ator.tipo;
+      r.decidido_por_id = registrando ? registro!.autoridadeId : ator.id;
+      r.decisao_registrada_por_id = registrando ? ator.id : null;
+      r.decisao_registrada_por_nome = registrando ? (ator.nome ?? null) : null;
+      if (arq) {
+        r.decisao_arquivo_nome = arq.nome;
+        r.decisao_arquivo_mime = arq.mime;
+        r.decisao_arquivo_tamanho = arq.tamanho;
+        r.decisao_arquivo_sha256 = arq.sha256;
+        r.decisao_arquivo_conteudo = arq.conteudo;
+      }
       r.instancia_decisao = 'AUTORIDADE';
       r.data_decisao = agora;
-      if (dados.provido) r.efeitos = await this.aplicarEfeito(m, r, ator);
+      if (provido) r.efeitos = await this.aplicarEfeito(m, r, ator);
       await m.save(r);
       await this.evento(m, {
         sessaoId: r.sessao_id,
-        tipo: dados.provido ? TipoEvento.RECURSO_PROVIDO : TipoEvento.RECURSO_IMPROVIDO,
+        tipo: provido ? TipoEvento.RECURSO_PROVIDO : TipoEvento.RECURSO_IMPROVIDO,
         descricao:
-          `Recurso de ${r.fornecedor_nome ?? r.fornecedor_id} ${dados.provido ? 'PROVIDO' : 'IMPROVIDO'} pela autoridade superior ` +
-          `(${nome}, ${cargo} — art. 165 §2º). Fundamentação: ${fundamentacao}.` +
-          (dados.provido ? ` ${this.resumoEfeitos(r.efeitos)}` : ''),
+          `Recurso de ${r.fornecedor_nome ?? r.fornecedor_id} ${provido ? 'PROVIDO' : 'IMPROVIDO'} pela autoridade superior ` +
+          `(${nome}, ${cargo} — art. 165 §2º)` +
+          (registrando ? `, decisão registrada por ${ator.nome ?? 'agente de contratação'}` : '') +
+          (arq ? ` (decisão assinada: ${arq.nome}, SHA-256 ${arq.sha256.slice(0, 12)}…)` : '') +
+          `. Fundamentação: ${fundamentacao}.` +
+          (provido ? ` ${this.resumoEfeitos(r.efeitos)}` : ''),
         fornecedorId: r.fornecedor_id,
-        usuario: nome,
+        usuario: registrando ? (ator.nome ?? nome) : nome,
         sistema: false,
-        dados: { recurso_id: r.id, provido: dados.provido, instancia: 'AUTORIDADE', efeitos: r.efeitos ?? null },
+        dados: { recurso_id: r.id, provido, instancia: 'AUTORIDADE', registrada_por: registrando ? ator.id : null, efeitos: r.efeitos ?? null },
       });
       return r;
     });

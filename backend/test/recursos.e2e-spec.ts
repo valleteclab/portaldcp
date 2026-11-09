@@ -54,6 +54,7 @@ import {
   painelRecursos,
   precluirIntencaoDeRecurso,
   vencerPrazoDoRecurso,
+  PDF_RECURSO,
 } from './support/recursos';
 import { adjudicarResultado, homologarResultado, vencedoresPorUnidade } from './support/resultado';
 import { FaseLicitacao } from '../src/licitacoes/entities/licitacao.entity';
@@ -480,6 +481,67 @@ describe('E5 — recursos com efeito', () => {
         [sessaoId],
       );
       expect(ev.descricao).toMatch(/PRAZO DE TESTE da homologação: 10 min/);
+    });
+  });
+
+  // Na fase externa quem opera o sistema é o agente de contratação: a autoridade decide (e assina)
+  // e o agente REGISTRA a decisão, como na adjudicação e na homologação (decisão do dono, 09/11/2026).
+  describe('E. o agente de contratação registra a decisão da autoridade superior', () => {
+    test('pregoeira (quem manteve) registra a decisão do cadastro de autoridades, com a decisão assinada', async () => {
+      const { licId, sessaoId, item } = await pregaoJulgado();
+      await aceitarPropostaDaUnidade(ctx, sessaoId, item, orgao.token, A.token);
+      await habilitarLicitante(ctx, licId, A, orgao.token);
+      expect((await abrirJanelaIntencao(ctx, sessaoId, orgao.token)).status).toBe(201);
+      const d = await manifestarIntencao(ctx, sessaoId, D.token, {
+        motivacao: 'O atestado técnico de A não comprova a quantidade exigida',
+        atoRecorrido: 'HABILITACAO_TERCEIRO',
+        fornecedorAlvoId: A.id,
+      });
+      const id: string = d.body.id;
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      expect((await http().post(`/api/recursos/${id}/admitir`).set(bearer(pregoeira.token)).send({})).status).toBe(201);
+      expect((await enviarPeca(ctx, id, 'razoes', D.token, 'O atestado de A comprova só metade da quantidade exigida no edital.', null)).status).toBe(201);
+      await vencerPrazoDoRecurso(ctx, id, 'prazo_contrarrazoes');
+      const m = await http()
+        .post(`/api/recursos/${id}/reconsiderar`)
+        .set(bearer(pregoeira.token))
+        .send({ reconsiderar: false, fundamentacao: 'Mantenho: o atestado comprova a capacidade técnica exigida.' });
+      expect(m.body.status).toBe('AGUARDANDO_AUTORIDADE');
+      const [aut] = await q(
+        `INSERT INTO autoridades_orgao (orgao_id, nome, cargo, ativo, padrao) VALUES ($1, 'Presidente E5', 'Presidente da Câmara', true, false) RETURNING id::text AS id`,
+        [orgao.id],
+      );
+      const fund = 'Nego provimento: acolho os fundamentos do agente de contratação.';
+      // Sem escolher a autoridade do cadastro, a pregoeira não decide (ela não é a autoridade)
+      expect((await http().post(`/api/recursos/${id}/decisao-autoridade`).set(bearer(pregoeira.token)).send({ provido: false, fundamentacao: fund, nome: 'X', cargo: 'Y' })).status).toBe(403);
+      // Painel do órgão traz o cadastro de autoridades para a escolha
+      const p = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
+      expect(p.autoridades).toEqual(expect.arrayContaining([expect.objectContaining({ id: aut.id, nome: 'Presidente E5' })]));
+      const r = await http()
+        .post(`/api/recursos/${id}/decisao-autoridade`)
+        .set(bearer(pregoeira.token))
+        .field('provido', 'false')
+        .field('fundamentacao', fund)
+        .field('autoridadeId', aut.id)
+        .attach('arquivo', PDF_RECURSO, { filename: 'decisao-assinada.pdf', contentType: 'application/pdf' });
+      expect(r.status).toBe(201);
+      expect(r.body.status).toBe('IMPROVIDO');
+      const [rec] = await q(
+        `SELECT decidido_por, decidido_por_cargo, decidido_por_tipo, decidido_por_id, decisao_registrada_por_id, decisao_arquivo_nome FROM recursos_administrativos WHERE id = $1`,
+        [id],
+      );
+      expect(rec).toMatchObject({
+        decidido_por: 'Presidente E5',
+        decidido_por_cargo: 'Presidente da Câmara',
+        decidido_por_tipo: 'AUTORIDADE_CADASTRO',
+        decidido_por_id: aut.id,
+        decisao_registrada_por_id: pregoeira.id,
+        decisao_arquivo_nome: 'decisao-assinada.pdf',
+      });
+      const arq = await http().get(`/api/recursos/${id}/decisao/arquivo`).set(bearer(D.token));
+      expect(arq.status).toBe(200);
+      const [ev] = await q(`SELECT descricao FROM eventos_sessao WHERE sessao_id = $1 AND descricao LIKE '%IMPROVIDO%' ORDER BY created_at DESC LIMIT 1`, [sessaoId]);
+      expect(ev.descricao).toMatch(/Presidente E5, Presidente da Câmara.*decisão registrada por Pregoeira E5.*decisao-assinada\.pdf/);
     });
   });
 

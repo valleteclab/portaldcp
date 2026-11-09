@@ -155,16 +155,33 @@ export class RecursosController {
     return this.recursos.reconsiderar(recursoId, body ?? {}, await this.atorRecurso(ator));
   }
 
-  /** Decisão da autoridade superior (art. 165 §2º): `{ provido, fundamentacao, nome, cargo }`. */
+  /**
+   * Decisão da autoridade superior (art. 165 §2º): `{ provido, fundamentacao, nome, cargo }` pela
+   * autoridade, ou `{ provido, fundamentacao, autoridadeId }` + `arquivo` (decisão assinada,
+   * opcional) quando o agente de contratação REGISTRA a decisão. JSON ou multipart.
+   */
   @SomenteOrgao()
   @Post(':recursoId/decisao-autoridade')
+  @UseInterceptors(UPLOAD)
   async decidirAutoridade(
     @Param('recursoId') recursoId: string,
-    @Body() body: { provido?: boolean; fundamentacao?: string; nome?: string; cargo?: string },
+    @UploadedFile() arquivo: Express.Multer.File,
+    @Body() body: { provido?: boolean | string; fundamentacao?: string; nome?: string; cargo?: string; autoridadeId?: string },
     @AtorAtual() ator: Ator,
   ) {
     await this.recursoDoOrgao(ator, recursoId);
-    return this.recursos.decidirAutoridade(recursoId, body ?? {}, await this.atorRecurso(ator));
+    return this.recursos.decidirAutoridade(recursoId, { ...(body ?? {}), arquivo: arquivo ?? null }, await this.atorRecurso(ator));
+  }
+
+  /** Decisão assinada da autoridade: órgão dono ou licitante; o público, depois de decidido. */
+  @AutenticacaoOpcional()
+  @Get(':recursoId/decisao/arquivo')
+  async arquivoDecisao(@Param('recursoId') recursoId: string, @AtorAtual() ator: Ator | null) {
+    const r = await this.recursos.buscar(recursoId);
+    if (!r.decisao_arquivo_nome) throw new NotFoundException('Arquivo da decisão não encontrado');
+    if ((await this.visao(ator, r.licitacao_id)).tipo === 'PUBLICO' && !r.data_decisao) throw new NotFoundException('Recurso não encontrado');
+    const a = await this.recursos.arquivoDecisao(recursoId);
+    return new StreamableFile(a.conteudo, { type: a.mime, disposition: `inline; filename="${encodeURIComponent(a.nome)}"` });
   }
 
   // --------------------------------------------------------------------------
