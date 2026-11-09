@@ -658,10 +658,14 @@ export class HabilitacaoService {
         const cad = await this.nomes(m, [fornecedorId]);
         minha = this.visaoHabilitacao(h, exigencias, await this.documentos(m, h.id), dils, 'FORNECEDOR', cad.get(fornecedorId), agora);
       }
-      // Inversão, antes do primeiro envio: o que o cadastro já cobre (sem gravar nada)
-      const envioInversaoAberto = !!lic.inversao_fases && FASES_ENVIO_INVERSAO.includes(lic.fase) && !h;
+      // Inversão: o envio com a proposta fica aberto durante todo o recebimento — também DEPOIS do
+      // primeiro documento. Antes, o 1º anexo fechava o painel na página da proposta e o licitante
+      // ficava sem onde anexar o resto (pregão 2026/00073, 09/11/2026).
+      const envioInversaoAberto =
+        !!lic.inversao_fases && FASES_ENVIO_INVERSAO.includes(lic.fase) && (!h || h.status === StatusHabilitacao.AGUARDANDO_ENVIO);
       let previa: any = null;
-      if (envioInversaoAberto) {
+      // Antes do primeiro envio: o que o cadastro já cobre (sem gravar nada)
+      if (envioInversaoAberto && !h) {
         const { documentos, statusCadastro } = await documentosCadastroSql(m, fornecedorId);
         previa = preChecagemCadastro(exigencias, documentos, hojeBrasilia(agora), statusCadastro).map((c) => ({
           exigenciaId: c.exigenciaId,

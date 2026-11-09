@@ -563,6 +563,8 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect((await enviarDocumentoHabilitacao(ctx, lic.id, exFed.id, intruso.token)).status).toBe(403);
       const p1 = await enviarDocumentosFaltantes(ctx, lic.id, F1.token);
       expect(p1.minha).toMatchObject({ origem: 'INVERSAO', status: 'AGUARDANDO_ENVIO' });
+      // O envio continua aberto depois do 1º documento (o painel da proposta não pode fechar no meio)
+      expect(p1.envioInversaoAberto).toBe(true);
       const p2 = await enviarDocumentosFaltantes(ctx, lic.id, F2.token);
       expect(p2.minha.exigencias.find((e: any) => e.id === exFed.id)).toMatchObject({ cobertaPeloCadastro: true });
       expect(p2.minha.exigencias.find((e: any) => e.id === exFed.id).documentos[0].origem).toBe('CADASTRO');
