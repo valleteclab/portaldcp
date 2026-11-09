@@ -333,8 +333,8 @@ function CartaoRecurso({
             Decisão da autoridade superior (até {dataHoraBr(r.prazoDecisaoAutoridade)})
           </div>
           <div className="text-[11px] text-indigo-700">
-            Ato da autoridade superior: conta do órgão (informe nome e cargo) ou usuário administrador do órgão — nunca quem manteve a
-            decisão.
+            Ato da autoridade superior: conta do órgão (informe nome e cargo), administrador do órgão ou usuário com o papel de
+            Autoridade — nunca quem manteve a decisão.
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Input
