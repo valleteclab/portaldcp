@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
+import { toast } from 'sonner'
 import { API_URL, authFetch, getAuthToken } from '@/lib/api'
 import {
   DisputaMensagem,
@@ -85,19 +86,28 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     return actor
   }, [area])
 
+  // Ordem das buscas do quadro: cada lance dispara várias (novo_lance, lance_confirmado…) e o quadro
+  // leva ~2 s; sem isso, uma resposta ANTIGA que chegasse por último sobrescrevia a nova e a tela
+  // ficava no valor de antes do lance (ensaio do pregão com 2 lotes, 09/11/2026)
+  const ultimaBuscaBoardRef = useRef(0)
+  const ultimaBuscaMeusLancesRef = useRef(0)
+
   const refreshBoard = useCallback(
     async (resolvedSessaoId?: string) => {
       const actor = actorRef.current || carregarActor()
       const targetSessaoId = resolvedSessaoId || sessaoId
       if (!targetSessaoId || !actor) return
+      const minhaBusca = ++ultimaBuscaBoardRef.current
 
       // A visão (pregoeiro ou do próprio fornecedor) é decidida pelo token no backend
-      const response = await authFetch(`${API_URL}/api/disputa/sessao/${targetSessaoId}/board`)
+      const response = await authFetch(`${API_URL}/api/disputa/sessao/${targetSessaoId}/board`, { cache: 'no-store' })
       if (!response.ok) {
         throw new Error('Nao foi possivel carregar o board da disputa.')
       }
 
       const data = (await response.json()) as DisputaV3Board
+      // Resposta de uma busca mais antiga que outra já iniciada: descarta (a mais nova chega a seguir)
+      if (minhaBusca !== ultimaBuscaBoardRef.current) return
       setBoard(data)
       setSelectedItemId((current) => {
         if (current && [
@@ -123,9 +133,11 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
         setMeusLances([])
         return
       }
-      const res = await authFetch(`${API_URL}/api/disputa/sessao/${sid}/item/${iid}/lances-meus`)
+      const minhaBusca = ++ultimaBuscaMeusLancesRef.current
+      const res = await authFetch(`${API_URL}/api/disputa/sessao/${sid}/item/${iid}/lances-meus`, { cache: 'no-store' })
       if (!res.ok) return
       const data = (await res.json()) as DisputaV3LanceMeu[]
+      if (minhaBusca !== ultimaBuscaMeusLancesRef.current) return
       setMeusLances(Array.isArray(data) ? data : [])
     },
     [area, sessaoId, carregarActor],
@@ -295,7 +307,11 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     socket.on('erro', (payload: { mensagem?: string }) => {
       setSendingBid(false)
       setSendingMessage(false)
-      setActionError(payload?.mensagem || 'Erro ao operar a sala.')
+      const mensagem = payload?.mensagem || 'Erro ao operar a sala.'
+      setActionError(mensagem)
+      // O cartão de erro fica no topo da sala, fora da vista de quem está no campo de lance:
+      // o lance recusado (ex.: igual a outro já registrado) precisa aparecer na hora
+      toast.error(mensagem, { duration: 8000 })
     })
 
     return () => {

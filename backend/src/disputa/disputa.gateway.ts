@@ -239,22 +239,23 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     // Unidade de disputa: o lance do LOTE tem `item_id` nulo e `lote_id` (unidade-disputa.ts)
     const unidadeId = lance.lote_id ?? lance.item_id;
     try {
-      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id);
-      const aplicar = await this.sigilo.aplicador(licitacaoId, sessaoId);
-      const lancesPublicos = await this.disputaService.getTodosLances(unidadeId, sessaoId);
-      const clientesNaSala = await this.server.in(`sessao:${sessaoId}`).fetchSockets();
-      for (const socketCliente of clientesNaSala) {
+      // Aviso IMEDIATO a todos: o quadro de cada um (posição, melhor lance) a tela busca
+      // ao receber o aviso. Antes o servidor montava, em série, o quadro completo de cada
+      // cliente (~2 s cada) e o último da sala só sabia do lance ~10 s depois (ensaio do
+      // pregão com 2 lotes, 09/11/2026); nenhuma tela usava esse quadro do aviso.
+      const [codigo, aplicar, lancesPublicos, clientesNaSala] = await Promise.all([
+        this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id),
+        this.sigilo.aplicador(licitacaoId, sessaoId),
+        this.disputaService.getTodosLances(unidadeId, sessaoId),
+        this.server.in(`sessao:${sessaoId}`).fetchSockets(),
+      ]);
+      const visoes = clientesNaSala.map((s) => ({ socketCliente: s, visao: this.visaoDe(this.clientes.get(s.id)) }));
+      const lancesOrgao = visoes.some((v) => v.visao.tipo === 'ORGAO')
+        ? await this.disputaService.getTodosLances(unidadeId, sessaoId, { visaoOrgao: true })
+        : lancesPublicos;
+      for (const { socketCliente, visao } of visoes) {
         try {
-          const visao = this.visaoDe(this.clientes.get(socketCliente.id));
-          const orgao = visao.tipo === 'ORGAO';
-          const itensCliente = await this.disputaService.getItensPorStatus(
-            sessaoId,
-            visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : undefined,
-            { visaoOrgao: orgao },
-          );
-          const lances = orgao
-            ? await this.disputaService.getTodosLances(unidadeId, sessaoId, { visaoOrgao: true })
-            : lancesPublicos;
+          const lances = visao.tipo === 'ORGAO' ? lancesOrgao : lancesPublicos;
           socketCliente.emit(
             'novo_lance',
             aplicar(
@@ -270,7 +271,6 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
                   dataHora: lance.created_at,
                 },
                 lances,
-                itens: itensCliente,
               },
               visao,
             ),
