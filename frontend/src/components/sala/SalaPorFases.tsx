@@ -119,7 +119,7 @@ export function SalaPorFases({
   const tabela = (lista: LoteVisao[], titulo?: string) => (
     <div className="space-y-1">
       {titulo && <div className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{titulo}</div>}
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="w-0 min-w-full overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-slate-800 text-left text-xs text-white">
             <tr>
@@ -196,8 +196,8 @@ export function SalaPorFases({
   )
 
   return (
-    <section aria-label="Lotes da sessão por fase" className="space-y-3 rounded-xl border bg-white p-3">
-      <div className="flex gap-1 overflow-x-auto pb-1" role="tablist">
+    <section aria-label="Lotes da sessão por fase" className="min-w-0 space-y-3 rounded-xl border bg-white p-3">
+      <div className="flex w-0 min-w-full gap-1 overflow-x-auto pb-1" role="tablist">
         {[{ fase: 'TODOS' as const, rotulo: 'Todos', total: visao.lotes.length }, ...visao.fases].map((f) => (
           <button
             key={f.fase}
@@ -330,6 +330,7 @@ function ConteudoClassificacao({ sessaoId, loteId }: { sessaoId: string; loteId:
                       onClick={() => baixar(`${API_URL}/api/habilitacao/documentos/${d.id}/arquivo`, d.nome)}
                     >
                       <Download className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{d.exigencia}</span>
+                      {d.analise === 'NAO_ATENDE' && <span className="ml-1 shrink-0 rounded bg-red-100 px-1 text-[10px] font-semibold text-red-700">não atende</span>}
                     </button>
                   ))}
                   {p.documentosOcultos > 0 && (
