@@ -12,6 +12,7 @@ import { formatarMoeda, getStatusBadgeClass, getStatusLabel, rotuloModo } from '
 import { FilaOperacional } from './FilaOperacional'
 import { ItemEmFocoOrgao } from './ItemEmFocoOrgao'
 import { PainelEtapaOrgao } from './PainelEtapaOrgao'
+import { SalaPorFases } from '../SalaPorFases'
 import { DialogoJustificativa, DialogoSuspender } from './DialogosSalaOrgao'
 
 /**
@@ -54,6 +55,9 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
   const emDisputa = board?.colunas.emDisputa || []
   const encerrados = board?.colunas.encerrados || []
   const itemFoco = selectedItem || emDisputa[0] || aguardando[0] || encerrados[0] || null
+  // Depois dos lances (benefício ME/EPP em diante, nada em disputa nem aguardando) a etapa ocupa o centro
+  const ETAPAS_POS_LANCES = ['BENEFICIO_MPE', 'ACEITACAO', 'NEGOCIACAO', 'HABILITACAO', 'RECURSOS', 'ADJUDICACAO', 'HOMOLOGACAO', 'ENCERRAMENTO']
+  const posLances = ETAPAS_POS_LANCES.includes(contexto?.etapa?.codigo || '') && emDisputa.length === 0 && aguardando.length === 0
   const suspensaPorDesconexao = !!contexto?.operacao.motivoSuspensao?.startsWith('DESCONEXAO_AGENTE')
 
   return (
@@ -179,32 +183,15 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               </Card>
             )}
 
-            <div className="grid gap-4 md:grid-cols-4">
-              <Card>
-                <CardHeader>
-                  <CardDescription>Aguardando</CardDescription>
-                  <CardTitle>{board?.metricas.totalAguardando || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Em disputa</CardDescription>
-                  <CardTitle>{board?.metricas.totalEmDisputa || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Encerrados</CardDescription>
-                  <CardTitle>{board?.metricas.totalEncerrados || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Base legal da cronometria</CardDescription>
-                  <CardTitle className="text-base">{contexto?.cronometria.baseLegal || '-'}</CardTitle>
-                </CardHeader>
-              </Card>
-            </div>
+            {/* Lotes por fase (abas), 1º colocado, melhor lance e a classificação (troféu) — dono, 09/11/2026 */}
+            <SalaPorFases
+              sessaoId={sessaoId}
+              area="orgao"
+              itensAoVivo={[...emDisputa, ...aguardando, ...encerrados]}
+              selecionadoId={itemFoco?.id ?? null}
+              onSelecionar={setSelectedItemId}
+              atualizacao={board}
+            />
 
             {board?.solicitacoesCancelamento && board.solicitacoesCancelamento.length > 0 && (
               <Card className="border-amber-200 bg-amber-50/50">
@@ -239,6 +226,59 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               </Card>
             )}
 
+            {posLances ? (
+              // Depois dos lances: a etapa (aceitação, habilitação, recursos, resultado) ocupa o centro da
+              // sala; antes ficava espremida na coluna do chat, com texto cortado (ensaio de 09/11/2026)
+              <div className="grid gap-4 xl:grid-cols-12">
+                <div className="min-w-0 space-y-4 xl:col-span-9">
+                  <PainelEtapaOrgao
+                    sessaoId={sessaoId}
+                    contexto={contexto}
+                    negociacaoVersao={negociacaoVersao}
+                    mensagens={mensagens}
+                    onEnviarMensagem={enviarMensagem}
+                    enviandoMensagem={sendingMessage}
+                    parte="paineis"
+                  />
+                  <details className="rounded-xl border border-slate-200 bg-white">
+                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                      Lances da sessão (consulta)
+                    </summary>
+                    <div className="grid gap-4 border-t p-3 xl:grid-cols-12">
+                      <div className="space-y-4 xl:col-span-3">
+                        <FilaOperacional
+                          emDisputa={emDisputa}
+                          aguardando={aguardando}
+                          encerrados={encerrados}
+                          selectedItemId={selectedItemId}
+                          onSelecionar={setSelectedItemId}
+                          onIniciar={iniciarItens}
+                        />
+                      </div>
+                      <div className="space-y-4 xl:col-span-9">
+                        <ItemEmFocoOrgao
+                          item={itemFoco}
+                          contexto={contexto}
+                          onEncerrar={encerrarItem}
+                          onReiniciarDemais={() => setDialogo('reiniciarDemais')}
+                        />
+                      </div>
+                    </div>
+                  </details>
+                </div>
+                <div className="xl:col-span-3">
+                  <PainelEtapaOrgao
+                    sessaoId={sessaoId}
+                    contexto={contexto}
+                    negociacaoVersao={negociacaoVersao}
+                    mensagens={mensagens}
+                    onEnviarMensagem={enviarMensagem}
+                    enviandoMensagem={sendingMessage}
+                    parte="chat"
+                  />
+                </div>
+              </div>
+            ) : (
             <div className="grid gap-4 xl:grid-cols-12">
               <div className="space-y-4 xl:col-span-2">
                 <FilaOperacional
@@ -269,6 +309,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
                 />
               </div>
             </div>
+            )}
           </div>
         )}
       </div>

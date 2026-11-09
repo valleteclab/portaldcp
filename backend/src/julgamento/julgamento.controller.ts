@@ -17,6 +17,7 @@ import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { AceitacaoService, TAMANHO_MAXIMO_ARQUIVO } from './aceitacao.service';
+import { VisaoLotesService } from './visao-lotes.service';
 import { RankingService } from './ranking.service';
 
 /**
@@ -36,6 +37,7 @@ export class JulgamentoController {
     private readonly aceitacao: AceitacaoService,
     private readonly ranking: RankingService,
     private readonly acesso: AcessoLicitacaoService,
+    private readonly visaoLotes: VisaoLotesService,
   ) {}
 
   private async licitacaoDaSessao(sessaoId: string): Promise<string> {
@@ -89,7 +91,40 @@ export class JulgamentoController {
     };
   }
 
-  /** Arquivo da proposta adequada: órgão dono ou o próprio licitante. */
+  /**
+   * SALA POR FASES — os lotes/itens da sessão com a fase de cada um (abas), o 1º
+   * colocado e o melhor lance; para o licitante, só onde participa e a posição dele.
+   */
+  @OrgaoOuFornecedor()
+  @Get('sessao/:sessaoId/lotes')
+  async lotes(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    const licitacaoId = await this.licitacaoDaSessao(sessaoId);
+    if (ehFornecedor(ator)) {
+      const fornecedorId = await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
+      return this.visaoLotes.visao(sessaoId, licitacaoId, { tipo: 'FORNECEDOR', fornecedorId });
+    }
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    return this.visaoLotes.visao(sessaoId, licitacaoId, { tipo: 'ORGAO' });
+  }
+
+  /** Classificação da unidade (troféu): todos os participantes e os anexos visíveis a quem olha. */
+  @OrgaoOuFornecedor()
+  @Get('sessao/:sessaoId/lotes/:unidadeId/classificacao')
+  async classificacao(@Param('sessaoId') sessaoId: string, @Param('unidadeId') unidadeId: string, @AtorAtual() ator: Ator) {
+    this.exigirIds(unidadeId);
+    const licitacaoId = await this.licitacaoDaSessao(sessaoId);
+    if (ehFornecedor(ator)) {
+      const fornecedorId = await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
+      return this.visaoLotes.classificacao(sessaoId, licitacaoId, unidadeId, { tipo: 'FORNECEDOR', fornecedorId });
+    }
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    return this.visaoLotes.classificacao(sessaoId, licitacaoId, unidadeId, { tipo: 'ORGAO' });
+  }
+
+  /**
+   * Arquivo da proposta adequada: órgão dono, o próprio licitante e — decidida a
+   * aceitação (aceita ou recusada) — os demais licitantes (dono, 09/11/2026).
+   */
   @OrgaoOuFornecedor()
   @Get('sessao/:sessaoId/aceitacao/:aceitacaoId/arquivo')
   async arquivo(@Param('sessaoId') sessaoId: string, @Param('aceitacaoId') aceitacaoId: string, @AtorAtual() ator: Ator) {
@@ -97,7 +132,9 @@ export class JulgamentoController {
     const licitacaoId = await this.licitacaoDaSessao(sessaoId);
     let fornecedorId: string | undefined;
     if (ehFornecedor(ator)) {
-      fornecedorId = await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
+      const eu = await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
+      // de outro licitante: só depois de decidida a aceitação (senão, 404 como antes)
+      fornecedorId = (await this.visaoLotes.podeVerAnexo('PROPOSTA_ADEQUADA', aceitacaoId, eu)) ? undefined : eu;
     } else {
       await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
     }

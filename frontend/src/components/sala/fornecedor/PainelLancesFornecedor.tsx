@@ -20,6 +20,7 @@ import {
   getItemStatusClass,
   getItemStatusLabel,
   reducaoSuspeita,
+  abaixoDoEstimado,
   textoCronometro,
 } from '../utils'
 import { percentualDoCiclo } from '../orgao/ItemEmFocoOrgao'
@@ -68,7 +69,7 @@ export function PainelLancesFornecedor({
   const [valor, setValor] = useState('')
   const [erroValor, setErroValor] = useState<string | null>(null)
   const [confirmarFechado, setConfirmarFechado] = useState<number | null>(null)
-  const [confirmarReducao, setConfirmarReducao] = useState<{ valor: number; reducao: number } | null>(null)
+  const [confirmarReducao, setConfirmarReducao] = useState<{ valor: number; reducao: number | null; doEstimado: number | null } | null>(null)
   const [solicitarLanceId, setSolicitarLanceId] = useState<string | null>(null)
   const [motivo, setMotivo] = useState('')
 
@@ -95,8 +96,9 @@ export function PainelLancesFornecedor({
       return
     }
     const reducao = direcao === 'MENOR' ? reducaoSuspeita(numero, Number(item.meuMelhorLance) || null) : null
-    if (reducao !== null) {
-      setConfirmarReducao({ valor: numero, reducao })
+    const doEstimado = direcao === 'MENOR' ? abaixoDoEstimado(numero, Number(item.valorReferencia) || null) : null
+    if (reducao !== null || doEstimado !== null) {
+      setConfirmarReducao({ valor: numero, reducao, doEstimado })
       return
     }
     onLance(item.id, numero)
@@ -284,12 +286,22 @@ export function PainelLancesFornecedor({
       <Dialog open={confirmarReducao !== null} onOpenChange={(o) => !o && setConfirmarReducao(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirmar lance com redução grande</DialogTitle>
+            <DialogTitle>{confirmarReducao?.doEstimado != null ? 'Confirmar lance: indício de inexequibilidade' : 'Confirmar lance com redução grande'}</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-slate-700">
-            O lance de {formatarMoeda(confirmarReducao?.valor ?? 0)} é {confirmarReducao?.reducao}% menor que o seu último ({formatarMoeda(Number(item?.meuMelhorLance) || 0)}).
-            {ehLote(item) ? ' O lance é pelo valor global do lote.' : ' O lance é pelo valor TOTAL do item, não pelo preço unitário.'} Confira antes de enviar.
-          </p>
+          <div className="space-y-2 text-sm text-slate-700">
+            {confirmarReducao?.doEstimado != null && (
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                O lance de {formatarMoeda(confirmarReducao.valor)} equivale a {confirmarReducao.doEstimado}% do valor estimado ({formatarMoeda(Number(item?.valorReferencia) || 0)}) —
+                abaixo de 50% é indício de inexequibilidade (IN SEGES 73/2022, arts. 33 e 34). Se confirmar, o agente de contratação poderá exigir a comprovação da exequibilidade.
+              </p>
+            )}
+            {confirmarReducao?.reducao != null && (
+              <p>
+                O lance de {formatarMoeda(confirmarReducao.valor)} é {confirmarReducao.reducao}% menor que o seu último ({formatarMoeda(Number(item?.meuMelhorLance) || 0)}).
+              </p>
+            )}
+            <p>{ehLote(item) ? 'O lance é pelo valor global do lote.' : 'O lance é pelo valor TOTAL do item, não pelo preço unitário.'} Confira antes de enviar.</p>
+          </div>
           <DialogFooter className="gap-2 sm:justify-end">
             <Button type="button" variant="outline" onClick={() => setConfirmarReducao(null)}>Corrigir o valor</Button>
             <Button

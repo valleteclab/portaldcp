@@ -9,6 +9,7 @@ import { Processo, TipoProcesso } from './entities/processo.entity';
 import { ProcessoService } from './processo.service';
 import { ProcessoTramitacaoService } from './processo-tramitacao.service';
 import { temTramitacaoPropria } from './processo-tramitacao-regras';
+import { etapaDaLicitacao } from './processo-regras';
 
 export interface PosseResumida {
   setor_nome: string | null;
@@ -204,7 +205,7 @@ export class ProcessoConteudoService implements OnModuleInit {
   }
 
   /** "Está com" de vários processos do mesmo órgão em duas consultas (lista), sem uma chamada por linha. */
-  async comPosse(lista: Processo[]): Promise<Array<Processo & { esta_com: PosseResumida | null }>> {
+  async comPosse(lista: Processo[]): Promise<Array<Processo & { esta_com: PosseResumida | null; etapa: (ReturnType<typeof etapaDaLicitacao> & { licitacao_id: string }) | null }>> {
     if (!lista.length) return [];
     const orgaoId = lista[0].orgao_id;
     const posse = new Map<string, PosseResumida>();
@@ -230,7 +231,31 @@ export class ProcessoConteudoService implements OnModuleInit {
       }
     }
 
-    return lista.map((p) => Object.assign(p, { esta_com: posse.get(p.id) ?? null }));
+    // Onde a licitação está (fase, situação, sessão e contratos) — a lista mostrava só "Em andamento"
+    const etapas = new Map<string, ReturnType<typeof etapaDaLicitacao> & { licitacao_id: string }>();
+    if (comLicitacao.length) {
+      const ids = comLicitacao.map((p) => String(p.referencia_id));
+      const rows: Array<{ id: string; fase: string; situacao: string; modalidade: string; tem_sessao: boolean; contratos: Array<{ status: string }> | null }> =
+        await this.ds.query(
+          `SELECT l.id::text AS id, l.fase::text AS fase, l.situacao::text AS situacao, l.modalidade::text AS modalidade,
+                  EXISTS (SELECT 1 FROM sessoes_disputa s WHERE s.licitacao_id = l.id AND s.status::text <> 'AGUARDANDO_INICIO') AS tem_sessao,
+                  (SELECT json_agg(json_build_object('status', c.status::text)) FROM contratos c WHERE c.licitacao_id = l.id) AS contratos
+             FROM licitacoes l WHERE l.id::text = ANY($1::text[])`,
+          [ids],
+        );
+      const porId = new Map(rows.map((r) => [r.id, r]));
+      for (const p of comLicitacao) {
+        const r = porId.get(String(p.referencia_id));
+        if (r) {
+          etapas.set(p.id, {
+            ...etapaDaLicitacao({ fase: r.fase, situacao: r.situacao, modalidade: r.modalidade, temSessao: r.tem_sessao, contratos: r.contratos ?? [] }),
+            licitacao_id: r.id,
+          });
+        }
+      }
+    }
+
+    return lista.map((p) => Object.assign(p, { esta_com: posse.get(p.id) ?? null, etapa: etapas.get(p.id) ?? null }));
   }
 
   async fluxo(p: Processo, ator: Ator) {

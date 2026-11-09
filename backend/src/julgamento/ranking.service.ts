@@ -237,6 +237,18 @@ export class RankingService {
     });
   }
 
+  /**
+   * Ranking AO VIVO da unidade em disputa (sala por fases): as melhores ofertas
+   * ativas na direção do critério, sem situações e SEM gravar nada (o ranking
+   * do julgamento — `ranking()` — só nasce com a unidade encerrada).
+   */
+  async rankingAoVivo(u: UnidadeJulgamento, manager?: EntityManager): Promise<EntradaRanking[]> {
+    const m = this.m(manager);
+    const ofertas = await this.ofertasDaUnidade(u, m);
+    if (!ofertas.length) return [];
+    return montarRanking(ofertas, new Map(), await this.direcao(u.licitacaoId, m), { licitacaoId: u.licitacaoId, unidadeId: u.id });
+  }
+
   /** Quem está na vez na unidade (melhor não excluído). */
   async atual(u: UnidadeJulgamento | string, manager?: EntityManager): Promise<EntradaRanking | null> {
     return atualDaUnidade(await this.ranking(u, manager));

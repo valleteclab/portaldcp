@@ -24,6 +24,7 @@ export function PainelEtapaOrgao({
   mensagens,
   onEnviarMensagem,
   enviandoMensagem,
+  parte = 'tudo',
 }: {
   sessaoId: string
   contexto?: DisputaV3Contexto | null
@@ -31,6 +32,8 @@ export function PainelEtapaOrgao({
   mensagens: DisputaMensagem[]
   onEnviarMensagem: (texto: string) => void
   enviandoMensagem?: boolean
+  /** Depois dos lances a sala separa: painéis da etapa no centro (largos) e o chat na coluna lateral. */
+  parte?: 'tudo' | 'paineis' | 'chat'
 }) {
   const etapa = contexto?.etapa?.codigo || ''
   const licitacaoId = contexto?.licitacaoId
@@ -43,9 +46,10 @@ export function PainelEtapaOrgao({
       habilitado={!!contexto?.operacao.chatHabilitado}
       descricao="Mensagens oficiais do pregoeiro — ficam registradas na ata da sessão."
       placeholder="Envie uma orientação oficial para a sala..."
-      altura="h-[calc(100vh-560px)] min-h-[220px]"
+      altura={parte === 'chat' ? 'h-[calc(100vh-320px)] min-h-[320px]' : 'h-[calc(100vh-560px)] min-h-[220px]'}
     />
   )
+  if (parte === 'chat') return chat
 
   let painel: ReactNode = null
   if (contexto?.criterioJulgamento === 'MAIOR_LANCE' && licitacaoId && ['ACEITACAO', 'RECURSOS'].includes(etapa)) {
@@ -113,7 +117,7 @@ export function PainelEtapaOrgao({
       )}
       {painel}
       {consulta}
-      {chat}
+      {parte === 'tudo' && chat}
     </div>
   )
 }
