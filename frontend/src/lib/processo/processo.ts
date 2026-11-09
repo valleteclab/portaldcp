@@ -48,6 +48,8 @@ export interface ProcessoResumo {
   motivo_encerramento: string | null
   /** Só na listagem: com quem o processo está (null = sem tramitação). */
   esta_com?: { setor_nome: string | null; usuario_nome: string | null; recebida: boolean } | null
+  /** Só na listagem: onde a licitação do processo está (fase/situação/contrato) e se há sala da sessão. */
+  etapa?: { rotulo: string; tom: "interna" | "externa" | "resultado" | "encerrada"; sala: boolean; licitacao_id: string } | null
 }
 
 export interface ConteudoContrato {

@@ -179,6 +179,16 @@ export function calcularLanceSugerido(
  * R$ 1.220,00 — o preço de UM aparelho — foi aceito como valor total, 98% abaixo).
  * Devolve o percentual de redução quando passa do limite (para pedir confirmação); senão null.
  */
+/**
+ * Indício de inexequibilidade (IN SEGES 73/2022, arts. 33 e 34; o Compras.gov.br alerta o mesmo):
+ * lance abaixo de 50% do valor estimado. Devolve o percentual do estimado (ex.: 42) ou null.
+ * Sem estimado visível (orçamento sigiloso), não alerta.
+ */
+export function abaixoDoEstimado(novo: number, estimado: number | null | undefined, limite = 0.5): number | null {
+  if (!Number.isFinite(novo) || !estimado || !Number.isFinite(estimado) || estimado <= 0) return null
+  return novo < estimado * limite ? Math.round((novo / estimado) * 100) : null
+}
+
 export function reducaoSuspeita(novo: number, referencia: number | null | undefined, limite = 0.3): number | null {
   if (!Number.isFinite(novo) || !referencia || !Number.isFinite(referencia) || referencia <= 0) return null
   const reducao = (referencia - novo) / referencia

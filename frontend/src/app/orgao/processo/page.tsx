@@ -46,6 +46,19 @@ function textoEstaCom(p: ProcessoResumo): string {
   return c.recebida ? quem : `${quem} (a receber)`
 }
 
+/** Situação para a lista: a etapa da licitação, quando houver (antes: só "Em andamento"/"Encerrado"). */
+function textoSituacao(p: ProcessoResumo): string {
+  if (p.etapa) return p.etapa.rotulo
+  return p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"
+}
+
+function ChipSituacao({ p }: { p: ProcessoResumo }) {
+  const tom = p.etapa?.tom
+  const cls =
+    tom === "interna" ? s.chipInterna : tom === "externa" ? s.chipExterna : tom === "resultado" ? s.chipOk : tom === "encerrada" ? s.chipEncerrada : p.situacao === "ENCERRADO" ? s.chipOk : s.chipEspera
+  return <span className={`${s.chip} ${cls}`}>{textoSituacao(p)}</span>
+}
+
 /** Lista de processos do órgão (módulo Processo eletrônico) + "Novo processo" com todos os tipos. */
 export default function ListaProcessosPage() {
   const router = useRouter()
@@ -347,9 +360,14 @@ export default function ListaProcessosPage() {
                       <td className={s.celulaObjeto}>{p.objeto}</td>
                       <td>{rotuloDoTipo(p.tipo)}</td>
                       <td>
-                        <span className={`${s.chip} ${p.situacao === "ENCERRADO" ? s.chipOk : s.chipEspera}`}>
-                          {p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"}
-                        </span>
+                        <ChipSituacao p={p} />
+                        {p.etapa?.sala && (
+                          <div>
+                            <Link className={s.linkSala} href={`/orgao/processos/${p.etapa.licitacao_id}/sessao`}>
+                              Sala da sessão
+                            </Link>
+                          </div>
+                        )}
                       </td>
                       <td>{textoEstaCom(p)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{dataHora(p.aberto_em).slice(0, 10)}</td>
@@ -364,7 +382,7 @@ export default function ListaProcessosPage() {
                   <strong>{p.numero}</strong>
                   <span>{p.objeto}</span>
                   <span className={s.pecaMeta}>
-                    {rotuloDoTipo(p.tipo)} · {p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"}
+                    {rotuloDoTipo(p.tipo)} · {textoSituacao(p)}
                     {p.situacao !== "ENCERRADO" && p.esta_com ? ` · com ${textoEstaCom(p)}` : ""}
                   </span>
                 </Link>

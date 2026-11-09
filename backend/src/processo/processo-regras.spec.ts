@@ -88,3 +88,21 @@ describe('processo-regras', () => {
     await expect(esq.aoConcluirUltimaEtapa({ id: '1', orgao_id: 'o', tipo: TipoProcesso.PAGAMENTO, numero: '1', referencia_tipo: null, referencia_id: null })).resolves.toBeUndefined();
   });
 });
+
+describe('etapaDaLicitacao (lista de processos)', () => {
+  const { etapaDaLicitacao } = require('./processo-regras');
+  it('pregão homologado com contrato a assinar', () => {
+    expect(etapaDaLicitacao({ fase: 'HOMOLOGACAO', situacao: 'ATIVA', temSessao: true, contratos: [{ status: 'AGUARDANDO_ASSINATURA' }] })).toEqual({
+      rotulo: 'Homologada · contrato aguardando assinaturas',
+      tom: 'resultado',
+      sala: true,
+    });
+  });
+  it('fases da sessão e da fase interna', () => {
+    expect(etapaDaLicitacao({ fase: 'RECURSO', temSessao: true }).rotulo).toBe('Sessão · recurso');
+    expect(etapaDaLicitacao({ fase: 'TERMO_REFERENCIA' })).toMatchObject({ tom: 'interna', sala: false });
+  });
+  it('situação terminal prevalece sobre a fase', () => {
+    expect(etapaDaLicitacao({ fase: 'EM_DISPUTA', situacao: 'REVOGADA' })).toMatchObject({ rotulo: 'Revogada', tom: 'encerrada' });
+  });
+});
