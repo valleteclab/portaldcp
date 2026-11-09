@@ -1,7 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash, randomUUID } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { PDFDocument } from 'pdf-lib';
 import { isAbsolute, join, resolve } from 'path';
 import { DataSource, EntityManager } from 'typeorm';
 import { diretorioDeGravacao, resolverArquivoDeUrl } from '../common/arquivos/arquivos';
@@ -132,6 +134,48 @@ export class EditalService {
         autor,
       });
     });
+  }
+
+  /**
+   * EDITAL GERADO DA MINUTA (pregão 2026/00070, homologação 09/11/2026: no
+   * rito completo só dava para anexar o PDF feito fora). Junta, em um PDF, a
+   * minuta do edital (ME) e, como anexos, o termo de referência (TR) e a
+   * minuta do contrato (MC) da fase interna — e grava como o anexo do edital
+   * (RASCUNHO até publicar). `materializar` gera o PDF atual de uma peça.
+   */
+  async gerarDaMinuta(
+    licitacaoId: string,
+    autor: { id?: string | null; nome?: string | null },
+    materializar: (documentoId: string, destino: string) => Promise<unknown>,
+  ): Promise<DocumentoLicitacao> {
+    const [lic] = await this.dataSource.query(`SELECT numero_processo, numero_edital FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    if (!lic) throw new NotFoundException('Licitação não encontrada');
+    const pecas: Array<{ id: string; tipo: string }> = await this.dataSource.query(
+      `SELECT DISTINCT ON (tipo) id::text AS id, tipo::text AS tipo FROM documentos_fase_interna
+        WHERE licitacao_id::text = $1 AND tipo::text IN ('ME','TR','MC') AND versao_atual = true AND status::text <> 'SUBSTITUIDO'
+        ORDER BY tipo, versao DESC NULLS LAST`,
+      [licitacaoId],
+    );
+    const me = pecas.find((p) => p.tipo === 'ME');
+    if (!me) throw new BadRequestException('Não há minuta do edital na fase interna (etapa "Relatório do agente e minutas"). Gere a minuta ou anexe o PDF do edital.');
+    const final = await PDFDocument.create();
+    const dir = join(tmpdir(), `edital-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      for (const tipo of ['ME', 'TR', 'MC']) {
+        const p = pecas.find((x) => x.tipo === tipo);
+        if (!p) continue;
+        const destino = join(dir, `${tipo}.pdf`);
+        await materializar(p.id, destino);
+        const origem = await PDFDocument.load(readFileSync(destino));
+        for (const pg of await final.copyPages(origem, origem.getPageIndices())) final.addPage(pg);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const buffer = Buffer.from(await final.save());
+    const nome = `edital-${String(lic.numero_edital || lic.numero_processo || 'licitacao').replace(/[^\w.-]+/g, '-')}.pdf`;
+    return this.anexar(licitacaoId, { buffer, originalname: nome, mimetype: 'application/pdf', size: buffer.length }, autor);
   }
 
   /**

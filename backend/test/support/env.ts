@@ -101,6 +101,8 @@ Object.assign(process.env, {
   PNCP_API_URL: 'http://pncp.e2e.invalid/api/pncp/v1',
   PNCP_LOGIN: 'e2e-login',
   PNCP_SENHA: 'e2e-senha',
+  // Varredura de boot do alinhamento fase × fluxo: no e2e só o ouvinte (o teste chama `alinhar`)
+  ALINHAR_FASE_AO_FLUXO: 'false',
 });
 
 // Disponível para os helpers (guard do criarApp)

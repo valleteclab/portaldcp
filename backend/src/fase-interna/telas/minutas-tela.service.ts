@@ -14,7 +14,7 @@ import { OrcamentoService } from '../orcamento/orcamento.service';
 import { MINUTA_AVISO_PREAMBULO, RAG_CONCLUSAO_PADRAO, RAG_ENQUADRAMENTO_PADRAO } from '../modelos-padrao';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
 import { resumoIaDaPeca } from '../ia-rascunho/rascunho-ia-regras';
-import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, completarClausulasDoContrato, completarJustificativaDaLicitacao, decidirRegeracao, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, SECOES_DA_LICITACAO, secoesParaLicitacao, SQL_PORTARIA_JUNTADA_NO_PROCESSO, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, completarClausulasDoContrato, completarJustificativaDaLicitacao, decidirRegeracao, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, SECOES_DA_LICITACAO, secoesParaLicitacao, semFormaRepetida, SQL_PORTARIA_JUNTADA_NO_PROCESSO, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
 
@@ -149,6 +149,7 @@ export class MinutasTelaService {
       );
       doModelo = completarClausulasDoContrato(doModelo, secoesDaPeca(tr?.dados_estruturados), (t) => this.modelos.substituirVariaveis(t, contexto));
     }
+    for (const id of Object.keys(doModelo)) doModelo[id] = semFormaRepetida(doModelo[id]);
     // F4a: texto revisado do rascunho da IA no lugar do texto do modelo (só nas
     // seções do modelo). A impressão guardada é a do MODELO: a peça conta como
     // "editada" — se o processo mudar, ganha o aviso "desatualizada", nunca é
