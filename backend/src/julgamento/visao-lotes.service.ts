@@ -5,6 +5,10 @@ import { RankingService, UnidadeJulgamento } from './ranking.service';
 import { EntradaRanking } from './regras-julgamento';
 import { FaseLote, ORDEM_FASES_LOTE, ROTULO_FASE_LOTE, anexoVisivel, faseDoLote } from './visao-lotes.regras';
 import { STATUS_RECURSO_PENDENTES } from '../sessao/regras-recursos';
+import { ModoDisputaService } from '../disputa/modo-disputa.service';
+
+/** Quantos lances a lista ao vivo devolve (os mais recentes). */
+const LIMITE_LANCES_AO_VIVO = 60;
 
 /** Quem olha a sala: o órgão dono ou um licitante (pelo token). */
 export type VisaoSala = { tipo: 'ORGAO' } | { tipo: 'FORNECEDOR'; fornecedorId: string };
@@ -199,6 +203,70 @@ export class VisaoLotesService {
       classificados: participantes.filter((p) => !p.excluido),
       inabilitados: grupo(['INABILITADO']),
       desclassificados: grupo(['DESCLASSIFICADO', 'RECUSADO']),
+    };
+  }
+
+  /**
+   * LANCES AO VIVO da unidade (dono, 09/11/2026: "os fornecedores devem ver os
+   * lances e a posição de cada um, respeitando a anonimização" — quem mira o 4º
+   * lugar precisa saber quanto vale o 4º): a colocação de todos os participantes
+   * e os últimos lances, na ordem em que entraram.
+   *  - identidades: códigos (Fornecedor A, B…) até o fim da etapa de lances; o
+   *    licitante se vê como "Você";
+   *  - lance final fechado em curso continua sigiloso (mesmo filtro do ranking);
+   *  - lances cancelados não aparecem.
+   */
+  async lancesAoVivo(sessaoId: string, licitacaoId: string, unidadeId: string, visao: VisaoSala) {
+    const ctx = await this.contexto(sessaoId, licitacaoId, visao);
+    const u = ctx.unidades.find((x) => x.id === unidadeId);
+    if (!u) throw new NotFoundException('Lote/item não encontrado nesta sessão');
+    const ranking = await this.rankingDe(u);
+    const eu = visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : null;
+    if (eu && !ranking.some((e) => e.fornecedorId === eu)) throw new NotFoundException('Lote/item não encontrado nesta sessão');
+    const nomes = await this.cadastro(ranking.map((e) => e.fornecedorId));
+    const rotulo = (fornecedorId: string) => this.nome(fornecedorId, nomes.get(fornecedorId)?.razao, ctx, fornecedorId === eu);
+
+    const linhas: any[] =
+      u.tipo === 'LOTE'
+        ? await this.ds.query(
+            `SELECT l.id::text AS id, l.fornecedor_id::text AS f, l.valor, l.created_at, l.origem::text AS origem
+               FROM lances l
+              WHERE l.lote_id::text = $1 AND l.item_id IS NULL AND l.cancelado = false AND l.fornecedor_id IS NOT NULL
+                AND ${ModoDisputaService.SQL_LANCE_LOTE_VISIVEL}
+              ORDER BY l.created_at DESC LIMIT ${LIMITE_LANCES_AO_VIVO}`,
+            [unidadeId],
+          )
+        : await this.ds.query(
+            `SELECT l.id::text AS id, l.fornecedor_id::text AS f, l.valor, l.created_at, l.origem::text AS origem
+               FROM lances l JOIN itens_licitacao i ON i.id = l.item_id
+              WHERE l.item_id::text = $1 AND l.cancelado = false AND l.fornecedor_id IS NOT NULL
+                AND ${ModoDisputaService.SQL_LANCE_VISIVEL}
+              ORDER BY l.created_at DESC LIMIT ${LIMITE_LANCES_AO_VIVO}`,
+            [unidadeId],
+          );
+    const posicaoDe = new Map(ranking.filter((e) => !e.excluido).map((e, i) => [e.fornecedorId, i + 1]));
+    return {
+      unidade: { id: u.id, tipo: u.tipo, numero: u.numero },
+      identidades: !ctx.anonimizar,
+      encerrada: u.encerrada,
+      classificacao: ranking
+        .filter((e) => !e.excluido)
+        .map((e, i) => ({
+          posicao: i + 1,
+          participante: rotulo(e.fornecedorId),
+          souEu: e.fornecedorId === eu,
+          melhorValor: e.melhorValor,
+          me: nomes.get(e.fornecedorId)?.me ?? false,
+        })),
+      lances: linhas.map((l) => ({
+        id: l.id,
+        participante: rotulo(String(l.f)),
+        souEu: String(l.f) === eu,
+        valor: parseFloat(l.valor),
+        em: new Date(l.created_at).toISOString(),
+        origem: l.origem,
+        posicaoAtual: posicaoDe.get(String(l.f)) ?? null,
+      })),
     };
   }
 

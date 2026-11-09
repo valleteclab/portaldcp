@@ -15,6 +15,7 @@ import { NegociacaoFornecedorPanel } from '../NegociacaoFornecedorPanel'
 import { RecursosFornecedorPanel } from '../RecursosFornecedorPanel'
 import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
 import { ChatLateral } from '../ChatLateral'
+import { LancesAoVivo } from '../LancesAoVivo'
 import { PainelLancesFornecedor } from './PainelLancesFornecedor'
 
 /**
@@ -173,11 +174,17 @@ export function SalaFornecedor({
                   </>
                 )}
                 {['AGUARDANDO', 'DISPUTA'].includes(loteSel.fase) ? (
-                  painelLances
+                  <>
+                    {painelLances}
+                    <LancesAoVivo sessaoId={sessaoId} unidadeId={loteSel.id} atualizacao={board} />
+                  </>
                 ) : (
                   <details className="rounded-xl border border-slate-200 bg-white">
-                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Meus lances neste lote (consulta)</summary>
-                    <div className="border-t p-3">{painelLances}</div>
+                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Lances deste lote (consulta)</summary>
+                    <div className="space-y-4 border-t p-3">
+                      <LancesAoVivo sessaoId={sessaoId} unidadeId={loteSel.id} atualizacao={board} />
+                      {painelLances}
+                    </div>
                   </details>
                 )}
               </section>
