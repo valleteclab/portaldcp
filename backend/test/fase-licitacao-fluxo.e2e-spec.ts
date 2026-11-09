@@ -6,7 +6,8 @@
  *  - o edital (PDF) só podia ser anexado: agora é gerado da minuta do edital
  *    (com o TR e a minuta do contrato como anexos).
  */
-import { AppE2E, OrgaoFixture, criarApp, criarLicitacao, criarOrgao, prepararDocumentosEtapa } from './support';
+import { AppE2E, OrgaoFixture, criarApp, criarFornecedor, criarLicitacao, criarOrgao, prepararDocumentosEtapa } from './support';
+import { prepararPregaoEmAcolhimento } from './support/isolamento';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { FaseDaLicitacaoNoFluxoService } from '../src/workflow/ponte/fase-da-licitacao.service';
 
@@ -71,5 +72,28 @@ describe('Pregão no fluxo: fase da licitação e edital gerado da minuta', () =
     // outro órgão não gera
     const B = await criarOrgao(ctx, { nome: 'Outro órgão' });
     expect((await ctx.http().post(`/api/publicacao/licitacao/${lic.id}/edital/gerar-da-minuta`).set(bearer(B.token))).status).toBe(403);
+  });
+});
+
+describe('Sessão do pregão: a preparação vê as propostas enviadas', () => {
+  let ctx: AppE2E;
+  let A: OrgaoFixture;
+  beforeAll(async () => {
+    ctx = await criarApp();
+    A = await criarOrgao(ctx, { nome: 'Órgão da preparação da sessão' });
+  });
+  afterAll(async () => {
+    await ctx?.fechar();
+  });
+
+  test('a consulta das propostas não falha (fornecedores.cpf_cnpj) e o texto não repete o ano', async () => {
+    const F1 = await criarFornecedor(ctx, { razao_social: 'Fornecedor da sessão' });
+    const { lic } = await prepararPregaoEmAcolhimento(ctx, A, [{ fornecedor: F1, valores: [90, 40] }]);
+    const r = (await ctx.http().get(`/api/sessao/licitacao/${lic.id}/preparar`).set(bearer(A.token)).expect(200)).body;
+    expect(r.verificacoes.quantidadePropostas).toBe(1);
+    expect(r.verificacoes.propostasRecebidas).toBe(true);
+    expect(r.propostas[0].cnpj).toBeTruthy();
+    expect(r.licitacao.numero).not.toMatch(/\/\d{4}\/\d{4}/);
+    expect(r.verificacoes.prazoImpugnacaoMsg).not.toMatch(/GMT/);
   });
 });
