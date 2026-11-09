@@ -24,6 +24,22 @@ import { nomeDoPregoeiroSql } from '../licitacoes/migracao-legado-e9';
  * Servico de Controle da Sessao de Disputa
  * Implementa regras da Lei 14.133/2021 e IN SEGES/ME
  */
+
+/** "09/11/2026, 00:29" no relógio de Brasília (nunca o Date.toString cru). */
+export function dataHoraBrasilia(d: Date | string | null | undefined): string {
+  if (!d) return '—';
+  const x = new Date(d);
+  return Number.isNaN(x.getTime()) ? '—' : x.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/** "001/2026" fica como está; "001" ganha o ano da criação; vazio vira "s/n/ano". */
+export function numeroComAno(numero: string | null | undefined, criadoEm: Date | string | null | undefined): string {
+  const n = String(numero ?? '').trim();
+  if (/\/\d{4}$/.test(n)) return n;
+  const ano = criadoEm ? new Date(criadoEm).getFullYear() : new Date().getFullYear();
+  return `${n || 's/n'}/${ano}`;
+}
+
 @Injectable()
 export class SessaoService {
   private readonly logger = new Logger(SessaoService.name);
@@ -647,7 +663,7 @@ export class SessaoService {
           p.status,
           p.created_at,
           f.razao_social,
-          f.cnpj
+          f.cpf_cnpj AS cnpj
         FROM propostas p
         LEFT JOIN fornecedores f ON f.id = p.fornecedor_id
         WHERE p.licitacao_id = $1
@@ -730,7 +746,8 @@ export class SessaoService {
     return {
       licitacao: {
         id: licitacao.id,
-        numero: `${licitacao.modalidade?.substring(0, 2) || 'PE'} ${licitacao.numero_edital || ''}/${new Date(licitacao.created_at).getFullYear()}`,
+        // "PR 001/2026" — o número do edital já traz o ano (antes saía "001/2026/2026")
+        numero: `${licitacao.modalidade?.substring(0, 2) || 'PE'} ${numeroComAno(licitacao.numero_edital, licitacao.created_at)}`,
         numeroProcesso: licitacao.numero_processo,
         objeto: licitacao.objeto,
         modalidade: licitacao.modalidade,
@@ -755,7 +772,7 @@ export class SessaoService {
         prazoImpugnacao: prazoImpugnacaoEncerrado,
         prazoImpugnacaoMsg: prazoImpugnacaoEncerrado 
           ? 'Prazo de impugnação encerrado' 
-          : `Prazo de impugnação até ${licitacao.data_limite_impugnacao}`,
+          : `Prazo de impugnação até ${dataHoraBrasilia(licitacao.data_limite_impugnacao)}`,
         propostasRecebidas: temPropostas,
         propostasRecebidasMsg: temPropostas 
           ? `${propostasValidas.length} proposta(s) válida(s)` 
@@ -764,7 +781,7 @@ export class SessaoService {
         dataAbertura: dataAberturaChegou,
         dataAberturaMsg: dataAberturaChegou 
           ? 'Data de abertura atingida' 
-          : `Aguardando data de abertura: ${licitacao.data_abertura_sessao ? new Date(licitacao.data_abertura_sessao).toLocaleString('pt-BR') : 'não definida'}`,
+          : `Aguardando data de abertura: ${licitacao.data_abertura_sessao ? dataHoraBrasilia(licitacao.data_abertura_sessao) : 'não definida'}`,
         podeIniciar,
       },
       propostas,
