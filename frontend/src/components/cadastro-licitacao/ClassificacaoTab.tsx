@@ -15,6 +15,9 @@ import { Classificacao, ItemPCA, MODALIDADES, TIPOS_CONTRATACAO, CRITERIOS_JULGA
 
 import { API_URL, authFetch } from '@/lib/api'
 
+/** Modalidades em que a inversão de fases é admitida (art. 17 §1º; IN SEGES 73/2022 art. 8º §1º). */
+const MODALIDADES_COM_INVERSAO = ['PREGAO_ELETRONICO', 'CONCORRENCIA']
+
 // Textarea com debounce para evitar re-renders a cada tecla
 const DebouncedTextarea = memo(function DebouncedTextarea({
   value,
@@ -142,8 +145,8 @@ export function ClassificacaoTab({ dados, onChange, orgaoId, licitacaoId }: Clas
     if (v === 'DISPENSA_ELETRONICA') {
       onChange({ ...dados, modalidade: v, fundamento_legal: null, modo_disputa: 'ABERTO', criterio_julgamento: 'MENOR_PRECO', inversao_fases: false })
     } else {
-      // Inversão de fases só na concorrência (Lei 14.133 art. 17 §1º)
-      onChange({ ...dados, modalidade: v, fundamento_legal: null, ...(v !== 'CONCORRENCIA' ? { inversao_fases: false } : {}) })
+      // Inversão de fases no pregão e na concorrência (Lei 14.133 art. 17 §1º)
+      onChange({ ...dados, modalidade: v, fundamento_legal: null, ...(!MODALIDADES_COM_INVERSAO.includes(v) ? { inversao_fases: false } : {}) })
     }
   }
 
@@ -368,17 +371,34 @@ export function ClassificacaoTab({ dados, onChange, orgaoId, licitacaoId }: Clas
           </div>
         </div>
 
-        {/* Inversão de fases (Lei 14.133 art. 17 §1º) — só concorrência; definida no edital */}
-        {dados.modalidade === 'CONCORRENCIA' && (
-          <div className="flex items-start justify-between gap-4 rounded-lg border border-violet-200 bg-violet-50 p-4">
-            <div>
-              <Label className="text-base">Inversão de fases (habilitação antes do julgamento)</Label>
-              <p className="text-sm text-slate-600">
-                Todos os licitantes enviam a habilitação com a proposta; a comissão julga a habilitação de todos antes da disputa
-                e só os habilitados dão lances (art. 17 §1º). Não pode ser alterada depois da publicação.
-              </p>
+        {/* Inversão de fases (Lei 14.133 art. 17 §1º) — pregão e concorrência; definida no edital, com ato motivado */}
+        {MODALIDADES_COM_INVERSAO.includes(dados.modalidade) && (
+          <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <Label className="text-base">Inversão de fases (habilitação antes dos lances)</Label>
+                <p className="text-sm text-slate-600">
+                  Todos os licitantes enviam a habilitação com a proposta; o agente de contratação julga a habilitação de todos antes
+                  da disputa e só os habilitados dão lances (art. 17 §1º). Não pode ser alterada depois da publicação.
+                </p>
+              </div>
+              <Switch checked={!!dados.inversao_fases} onCheckedChange={(v) => updateField('inversao_fases', v)} />
             </div>
-            <Switch checked={!!dados.inversao_fases} onCheckedChange={(v) => updateField('inversao_fases', v)} />
+            {dados.inversao_fases && (
+              <div className="space-y-1">
+                <Label htmlFor="inversao_motivacao">Motivação e benefícios da inversão *</Label>
+                <Textarea
+                  id="inversao_motivacao"
+                  rows={3}
+                  value={dados.inversao_fases_motivacao ?? ''}
+                  onChange={(e) => updateField('inversao_fases_motivacao', e.target.value)}
+                  placeholder="Ex.: a habilitação prévia evita a análise sucessiva de propostas de licitantes inabilitados, comum neste objeto, e reduz o tempo da sessão."
+                />
+                <p className="text-xs text-slate-600">
+                  A lei exige ato motivado com a explicitação dos benefícios decorrentes (art. 17 §1º) — mínimo de 20 caracteres. Fica registrada no processo; cite-a no edital.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

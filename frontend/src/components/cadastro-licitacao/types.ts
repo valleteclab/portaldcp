@@ -229,6 +229,7 @@ export interface Classificacao {
   base_lance?: 'UNITARIO' | 'TOTAL_ITEM' | 'TOTAL_LOTE'
   /** Inversão de fases (Lei 14.133 art. 17 §1º) — só concorrência; habilitação antes da disputa. */
   inversao_fases?: boolean
+  inversao_fases_motivacao?: string | null
   justificativa_nao_parcelamento?: string
 }
 

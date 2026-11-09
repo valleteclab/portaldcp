@@ -186,22 +186,45 @@ export function motivoPrazoInvalido(horas: number | undefined | null, minimo: nu
 
 const FASES_INTERNAS_TXT = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA'];
 
+/** Modalidades em que a inversão de fases é admitida (art. 17 §1º; IN SEGES 73/2022 art. 8º §1º). */
+export const MODALIDADES_COM_INVERSAO = ['PREGAO_ELETRONICO', 'CONCORRENCIA'];
+
+/** Tamanho mínimo da motivação — o ato tem de explicitar os benefícios (art. 17 §1º). */
+export const MOTIVACAO_INVERSAO_MIN = 20;
+
 /**
- * `inversao_fases` só na CONCORRÊNCIA (Lei 14.133 art. 17 §1º — "desde que
- * expressamente previsto no edital") e só se altera antes da publicação.
- * Devolve o motivo (400/409) ou null.
+ * `inversao_fases` no PREGÃO e na CONCORRÊNCIA (Lei 14.133 art. 17 §1º — "mediante
+ * ato motivado com explicitação dos benefícios decorrentes", previsto no edital;
+ * IN SEGES 73/2022 art. 8º §1º). Exige a motivação ao ligar (ou ao alterá-la) e
+ * só se altera antes da publicação. Devolve o motivo (400/409) ou null.
  */
 export function motivoInversaoInvalida(p: {
   inversaoFinal: boolean;
   inversaoAtual: boolean;
   modalidadeFinal: string | null | undefined;
   faseAtual?: string | null;
+  /** Motivação que ficará gravada. `undefined` = não informada nesta gravação. */
+  motivacaoFinal?: string | null;
+  /** A motivação foi enviada nesta gravação (criação ou edição do campo). */
+  motivacaoAlterada?: boolean;
 }): { status: 400 | 409; mensagem: string } | null {
-  if (p.inversaoFinal && p.modalidadeFinal !== 'CONCORRENCIA') {
-    return { status: 400, mensagem: 'Inversão de fases (habilitação antes do julgamento) só é admitida na concorrência (Lei 14.133/2021, art. 17 §1º).' };
+  if (p.inversaoFinal && !MODALIDADES_COM_INVERSAO.includes(p.modalidadeFinal ?? '')) {
+    return {
+      status: 400,
+      mensagem: 'Inversão de fases (habilitação antes do julgamento) só é admitida no pregão e na concorrência (Lei 14.133/2021, art. 17 §1º).',
+    };
   }
   if (p.inversaoFinal !== p.inversaoAtual && p.faseAtual && !FASES_INTERNAS_TXT.includes(p.faseAtual)) {
     return { status: 409, mensagem: 'A inversão de fases é definida no edital: não pode ser alterada depois da publicação (retificação — art. 55 §1º).' };
+  }
+  if (p.motivacaoAlterada && p.inversaoAtual && p.faseAtual && !FASES_INTERNAS_TXT.includes(p.faseAtual)) {
+    return { status: 409, mensagem: 'A motivação da inversão de fases consta do edital: não pode ser alterada depois da publicação.' };
+  }
+  if (p.inversaoFinal && (!p.inversaoAtual || p.motivacaoAlterada) && (p.motivacaoFinal ?? '').trim().length < MOTIVACAO_INVERSAO_MIN) {
+    return {
+      status: 400,
+      mensagem: `Informe a motivação da inversão de fases, com os benefícios esperados (mínimo de ${MOTIVACAO_INVERSAO_MIN} caracteres — Lei 14.133/2021, art. 17 §1º).`,
+    };
   }
   return null;
 }
