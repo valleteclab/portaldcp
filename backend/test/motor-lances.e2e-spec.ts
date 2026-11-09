@@ -313,6 +313,9 @@ describe('E2 — motor de lances único', () => {
         .send({ justificativa: 'Falha de conexão generalizada comprovada' })
         .expect(201);
       expect(r.body.lancesCancelados).toBe(ativosAntes);
+      // A sessão pública segue aberta (não volta à abertura): só os lances recomeçam
+      const [sess] = await ctx.dataSource.query(`SELECT status::text AS status, etapa::text AS etapa FROM sessoes_disputa WHERE id = $1`, [sessaoId]);
+      expect(sess).toEqual({ status: 'EM_ANDAMENTO', etapa: 'ANALISE_PROPOSTAS' });
 
       const depois = await ctx.dataSource.query(`SELECT id, cancelado, cancelado_por, cancelado_motivo FROM lances WHERE item_id = $1`, [itemId]);
       expect(depois).toHaveLength(antes.length);
@@ -331,7 +334,6 @@ describe('E2 — motor de lances único', () => {
     });
 
     test('reabrir o item recria uma proposta-lance ativa por fornecedor (índice único impede duplicata)', async () => {
-      await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token));
       const ini = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
       expect(ini.status).toBe(201);
       expect(ini.body.itensIniciados).toBe(1);
