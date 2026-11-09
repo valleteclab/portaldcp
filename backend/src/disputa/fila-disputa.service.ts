@@ -1,3 +1,5 @@
+import { AtoLicitacao } from '../licitacoes/transicoes/transicoes.tipos';
+import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -25,6 +27,7 @@ export class FilaDisputaService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly disputa: DisputaService,
     private readonly gateway: DisputaGateway,
+    private readonly transicoes: TransicoesService,
   ) {}
 
   async estado(sessaoId: string) {
@@ -50,19 +53,27 @@ export class FilaDisputaService {
     if (STATUS_SEM_FILA.includes(s.status)) throw new BadRequestException('A fila não pode ser ligada com a sessão suspensa ou encerrada.');
     const max = Number(cfg.maxSimultaneos);
     const aviso = Number(cfg.avisoMinutos ?? 0);
-    await this.ds.getRepository(SessaoDisputa).update(sessaoId, {
-      fila_ativa: true,
-      fila_max_simultaneos: max,
-      fila_aviso_minutos: aviso,
-      fila_proxima_unidade_id: null,
-      fila_proxima_abertura_em: null,
-    });
+    // Nenhuma unidade aberta ainda: confere AGORA se os lances podem começar (ex.: inversão de fases com
+    // habilitação pendente). Antes, a recusa vinha depois de a fila já estar gravada como ligada — ela
+    // ficava tentando a cada segundo e abria os itens sozinha quando a pendência sumia (pregão 2026/00073).
+    const { aguardando, total } = await this.unidades(s);
+    if (aguardando.length > 0 && aguardando.length === total) {
+      await this.transicoes.verificar(s.licitacao_id, AtoLicitacao.INICIAR_DISPUTA, { ator });
+    }
+    const repo = this.ds.getRepository(SessaoDisputa);
+    await repo.update(sessaoId, { fila_ativa: true, fila_max_simultaneos: max, fila_aviso_minutos: aviso, fila_proxima_unidade_id: null, fila_proxima_abertura_em: null });
+    try {
+      await this.processar({ ...s, fila_ativa: true, fila_max_simultaneos: max, fila_aviso_minutos: aviso, fila_proxima_unidade_id: null, fila_proxima_abertura_em: null } as SessaoDisputa, ator);
+    } catch (e) {
+      // A primeira abertura foi recusada: a fila não fica ligada pela metade
+      await repo.update(sessaoId, { fila_ativa: false, fila_proxima_unidade_id: null, fila_proxima_abertura_em: null });
+      throw e;
+    }
     await this.mensagem(
       sessaoId,
       `Fila automática ligada: até ${max} ${max === 1 ? 'unidade' : 'unidades'} em disputa ao mesmo tempo, na ordem da numeração` +
         (aviso ? `, com aviso prévio de ${aviso} min antes de cada abertura.` : ', abrindo assim que houver vaga.'),
     );
-    await this.processar({ ...s, fila_ativa: true, fila_max_simultaneos: max, fila_aviso_minutos: aviso, fila_proxima_unidade_id: null, fila_proxima_abertura_em: null } as SessaoDisputa, ator);
     return this.estado(sessaoId);
   }
 
@@ -114,7 +125,7 @@ export class FilaDisputaService {
   }
 
   /** Unidades da sessão: aguardando (na ordem da numeração) e quantas estão em disputa. */
-  private async unidades(s: SessaoDisputa): Promise<{ aguardando: Array<{ id: string; numero: number }>; emDisputa: number; rotulo: string }> {
+  private async unidades(s: SessaoDisputa): Promise<{ aguardando: Array<{ id: string; numero: number }>; emDisputa: number; total: number; rotulo: string }> {
     const params = await this.disputa.parametrosDaSessao(s.id);
     const porLote = params.baseLance === BaseLance.TOTAL_LOTE;
     const linhas: Array<{ id: string; numero: number; st: string | null }> = porLote
@@ -127,6 +138,7 @@ export class FilaDisputaService {
     return {
       aguardando: linhas.filter((l) => !l.st || l.st === 'AGUARDANDO').map((l) => ({ id: l.id, numero: Number(l.numero) })),
       emDisputa: linhas.filter((l) => l.st === 'EM_DISPUTA' || l.st === 'TEMPO_ALEATORIO').length,
+      total: linhas.length,
       rotulo: porLote ? 'Lote' : 'Item',
     };
   }

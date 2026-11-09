@@ -587,6 +587,13 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       const it = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
       expect(it.status).toBe(400);
       expect(JSON.stringify(it.body)).toMatch(/Inversão de fases/);
+      // A fila automática também é recusada — e NÃO fica ligada pela metade (com ou sem aviso prévio)
+      for (const avisoMinutos of [0, 1]) {
+        const fila = await http().post(`/api/disputa/sessao/${sessaoId}/fila`).set(bearer(orgao.token)).send({ maxSimultaneos: 1, avisoMinutos });
+        expect(fila.status).toBe(400);
+        expect(JSON.stringify(fila.body)).toMatch(/Inversão de fases/);
+        expect((await http().get(`/api/disputa/sessao/${sessaoId}/fila`).set(bearer(orgao.token)).expect(200)).body.ativa).toBe(false);
+      }
     });
 
     test('comissão julga todos: F1 e F2 habilitados, F3 inabilitado (proposta desclassificada)', async () => {
