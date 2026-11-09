@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Clock3, Database, FileSearch, FileText, RefreshCw, Scale, TimerReset, UserCheck, XCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -93,15 +93,30 @@ export function HabilitacaoPanel({
   const [texto, setTexto] = useState('')
   const [horas, setHoras] = useState('')
   const [salvando, setSalvando] = useState(false)
+  // "Atende" sem travar o painel (gravação do pregão 2026/00072, 09/11/2026): cada clique levava ~10 s
+  // (gravar + recarregar o painel inteiro) com TODOS os botões travados — 28 documentos, ~5 minutos.
+  // Agora o documento fica marcado na hora; só o botão dele espera, e o painel se atualiza ao fundo.
+  const [atendeLocal, setAtendeLocal] = useState<Set<string>>(() => new Set())
+  const [analisando, setAnalisando] = useState<Set<string>>(() => new Set())
+  const pedidos = useRef(0)
+  const aplicado = useRef(0)
   const [agora, setAgora] = useState(Date.now())
   const [aberta, setAberta] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!licitacaoId) return
+    const n = ++pedidos.current
     setCarregando(true)
     try {
-      const res = await authFetch(`${API_URL}/api/habilitacao/licitacao/${licitacaoId}`)
-      if (res.ok) setPainel(await res.json())
+      const res = await authFetch(`${API_URL}/api/habilitacao/licitacao/${licitacaoId}`, { cache: 'no-store' })
+      // Resposta mais antiga que a já aplicada (consultas sobrepostas): descarta
+      if (res.ok && n >= aplicado.current) {
+        const j = await res.json()
+        if (n >= aplicado.current) {
+          aplicado.current = n
+          setPainel(j)
+        }
+      }
     } catch {
       /* polling: ignora falha pontual */
     } finally {
@@ -136,7 +151,32 @@ export function HabilitacaoPanel({
     }
   }
 
-  const analisar = (doc: DocumentoHab) => ato(`/api/habilitacao/documentos/${doc.id}/analisar`, { resultado: 'ATENDE' }, 'Não foi possível registrar a análise')
+  const alterarConjunto = (set: (f: (s: Set<string>) => Set<string>) => void, id: string, incluir: boolean) =>
+    set((atual) => {
+      const novo = new Set(atual)
+      if (incluir) novo.add(id)
+      else novo.delete(id)
+      return novo
+    })
+  const analisar = async (doc: DocumentoHab) => {
+    setErro(null)
+    alterarConjunto(setAnalisando, doc.id, true)
+    alterarConjunto(setAtendeLocal, doc.id, true)
+    try {
+      const res = await authFetch(`${API_URL}/api/habilitacao/documentos/${doc.id}/analisar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resultado: 'ATENDE' }),
+      })
+      if (!res.ok) throw new Error(await mensagemDeErro(res, 'Não foi possível registrar a análise'))
+    } catch (e) {
+      alterarConjunto(setAtendeLocal, doc.id, false)
+      setErro(e instanceof Error ? e.message : 'Não foi possível registrar a análise')
+    } finally {
+      alterarConjunto(setAnalisando, doc.id, false)
+      void carregar()
+    }
+  }
 
   const confirmar = async () => {
     if (!acao) return
@@ -146,6 +186,7 @@ export function HabilitacaoPanel({
       case 'prorrogar':
         return ato(`/api/habilitacao/${acao.hab.id}/prorrogar`, { motivo: texto }, 'Não foi possível prorrogar')
       case 'naoAtende':
+        alterarConjunto(setAtendeLocal, acao.doc.id, false)
         return ato(`/api/habilitacao/documentos/${acao.doc.id}/analisar`, { resultado: 'NAO_ATENDE', motivo: texto }, 'Não foi possível registrar a análise')
       case 'diligencia':
         return ato(`/api/habilitacao/${acao.hab.id}/diligencia`, { motivo: texto, prazoHoras: Number(horas), exigenciaIds: acao.exigenciaIds }, 'Não foi possível abrir a diligência')
@@ -174,7 +215,12 @@ export function HabilitacaoPanel({
   const posFaseInversao = painel.inversaoFases && (painel.fase === 'JULGAMENTO' || painel.fase === 'HABILITACAO')
   const aceitos = new Set(painel.ranking.filter((r) => r.unidades.some((u) => u.situacao === 'ACEITO')).map((r) => r.fornecedorId))
   const naUnidade = (r: LicitanteRanking) => !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero)
-  const daUnidade = new Set(painel.ranking.filter(naUnidade).map((r) => r.fornecedorId))
+  // Na vista de um lote, só quem chegou à habilitação NESTE lote (aceito, habilitado, inabilitado ou
+  // vencedor): no pregão 2026/00072, o lote 1 mostrava também a Alfa, que só deu lance nele
+  const SITUACOES_HABILITACAO = ['ACEITO', 'HABILITADO', 'INABILITADO', 'VENCEDOR']
+  const chegouNaUnidade = (r: LicitanteRanking) =>
+    !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero && SITUACOES_HABILITACAO.includes(u.situacao))
+  const daUnidade = new Set(painel.ranking.filter(chegouNaUnidade).map((r) => r.fornecedorId))
   const convocaveis = painel.ranking.filter((r) => r.podeConvocar && naUnidade(r))
   const ordenadas = [...painel.habilitacoes].filter((h) => !unidade || daUnidade.has(h.fornecedorId)).sort((a, b) => {
     const peso = (h: Habilitacao) => (['AGUARDANDO_ENVIO', 'ENVIADA', 'EM_DILIGENCIA'].includes(h.status) ? 0 : 1)
@@ -299,7 +345,8 @@ export function HabilitacaoPanel({
                               <Badge className={sit.cls}>{sit.label}</Badge>
                             </div>
                             {e.documentos.map((d) => {
-                              const an = ROTULO_ANALISE[d.analise]
+                              const analise = atendeLocal.has(d.id) ? 'ATENDE' : d.analise
+                              const an = ROTULO_ANALISE[analise]
                               // arquivo do registro cadastral: baixado pela habilitação (autenticado), nunca por link direto
                               const link = d.origem === 'CADASTRO' && !!d.cadastro?.caminhoArquivo
                               return (
@@ -326,7 +373,7 @@ export function HabilitacaoPanel({
                                   {d.analiseMotivo && <div className="mt-1 text-xs text-red-700">{d.analiseMotivo}</div>}
                                   {h.podeAnalisar && (
                                     <div className="mt-2 flex flex-wrap gap-1">
-                                      <Button size="sm" variant="outline" className="h-7 text-emerald-700" disabled={salvando || d.analise === 'ATENDE'} onClick={() => analisar(d)}>
+                                      <Button size="sm" variant="outline" className="h-7 text-emerald-700" disabled={analisando.has(d.id) || analise === 'ATENDE'} onClick={() => analisar(d)}>
                                         <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Atende
                                       </Button>
                                       <Button size="sm" variant="outline" className="h-7 text-red-700" disabled={salvando} onClick={() => { setTexto(''); setAcao({ tipo: 'naoAtende', hab: h, doc: d, exigencia: e }) }}>
