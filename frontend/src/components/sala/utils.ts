@@ -173,3 +173,14 @@ export function calcularLanceSugerido(
   const decremento = Math.max(0.01, Math.ceil(minima * 100) / 100)
   return Math.max(0, Number((referencia - decremento).toFixed(2)))
 }
+
+/**
+ * Lance com redução grande em relação ao próprio último lance (pregão 2026/00070:
+ * R$ 1.220,00 — o preço de UM aparelho — foi aceito como valor total, 98% abaixo).
+ * Devolve o percentual de redução quando passa do limite (para pedir confirmação); senão null.
+ */
+export function reducaoSuspeita(novo: number, referencia: number | null | undefined, limite = 0.3): number | null {
+  if (!Number.isFinite(novo) || !referencia || !Number.isFinite(referencia) || referencia <= 0) return null
+  const reducao = (referencia - novo) / referencia
+  return reducao > limite ? Math.round(reducao * 100) : null
+}

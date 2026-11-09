@@ -196,6 +196,9 @@ export function DocumentoSeccionado({
 
   const gravarSecao = useCallback(
     async (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA') => {
+      // Somente leitura (processo com outro setor, fase encerrada): o editor não grava — a
+      // normalização do texto ao abrir disparava PATCH e voltava 403 (homologação 09/11/2026)
+      if (somenteLeitura) return
       setSaveStatus((prev) => ({ ...prev, [secaoId]: 'saving' }))
       try {
         const res = await authFetch(
@@ -222,7 +225,7 @@ export function DocumentoSeccionado({
         setSaveStatus((prev) => ({ ...prev, [secaoId]: 'error' }))
       }
     },
-    [licitacaoId, tipo],
+    [licitacaoId, tipo, somenteLeitura],
   )
 
   const salvarSecao = useCallback(

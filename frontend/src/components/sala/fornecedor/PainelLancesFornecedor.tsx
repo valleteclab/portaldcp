@@ -19,6 +19,7 @@ import {
   formatarMoeda,
   getItemStatusClass,
   getItemStatusLabel,
+  reducaoSuspeita,
   textoCronometro,
 } from '../utils'
 import { percentualDoCiclo } from '../orgao/ItemEmFocoOrgao'
@@ -73,6 +74,7 @@ export function PainelLancesFornecedor({
   const [valor, setValor] = useState('')
   const [erroValor, setErroValor] = useState<string | null>(null)
   const [confirmarFechado, setConfirmarFechado] = useState<number | null>(null)
+  const [confirmarReducao, setConfirmarReducao] = useState<{ valor: number; reducao: number } | null>(null)
   const [solicitarLanceId, setSolicitarLanceId] = useState<string | null>(null)
   const [motivo, setMotivo] = useState('')
 
@@ -96,6 +98,11 @@ export function PainelLancesFornecedor({
     setErroValor(null)
     if (etapaFechada) {
       setConfirmarFechado(numero)
+      return
+    }
+    const reducao = direcao === 'MENOR' ? reducaoSuspeita(numero, Number(item.meuMelhorLance) || null) : null
+    if (reducao !== null) {
+      setConfirmarReducao({ valor: numero, reducao })
       return
     }
     onLance(item.id, numero)
@@ -280,6 +287,33 @@ export function PainelLancesFornecedor({
           </>
         )}
       </CardContent>
+
+      <Dialog open={confirmarReducao !== null} onOpenChange={(o) => !o && setConfirmarReducao(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar lance com redução grande</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-700">
+            O lance de {formatarMoeda(confirmarReducao?.valor ?? 0)} é {confirmarReducao?.reducao}% menor que o seu último ({formatarMoeda(Number(item?.meuMelhorLance) || 0)}).
+            {ehLote(item) ? ' O lance é pelo valor global do lote.' : ' O lance é pelo valor TOTAL do item, não pelo preço unitário.'} Confira antes de enviar.
+          </p>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setConfirmarReducao(null)}>Corrigir o valor</Button>
+            <Button
+              type="button"
+              disabled={enviandoLance || !item || confirmarReducao === null}
+              onClick={() => {
+                if (!item || confirmarReducao === null) return
+                onLance(item.id, confirmarReducao.valor)
+                setValor('')
+                setConfirmarReducao(null)
+              }}
+            >
+              Enviar mesmo assim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmarFechado !== null} onOpenChange={(o) => !o && setConfirmarFechado(null)}>
         <DialogContent>

@@ -684,7 +684,7 @@ export default function PropostasPage() {
                                       <span className="text-muted-foreground">-</span>
                                     )}
                                   </td>
-                                  <td className="text-center p-2">{item.quantidade} {item.unidade}</td>
+                                  <td className="text-center p-2">{Number(item.quantidade).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} {item.unidade}</td>
                                   <td className="text-right p-2">{formatarMoeda(item.valor_unitario)}</td>
                                   <td className="text-right p-2 font-medium">{formatarMoeda(item.quantidade * item.valor_unitario)}</td>
                                 </tr>

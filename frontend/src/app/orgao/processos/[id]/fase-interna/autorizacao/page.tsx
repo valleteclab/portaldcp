@@ -56,7 +56,7 @@ interface AutorizacaoTela {
     documentos: string
     documentos_ok: boolean
     folhas: number | null
-    portao_b: { linhas: LinhaPortao[]; ok: boolean; pendentes: string[] }
+    portao_b: { linhas: LinhaPortao[]; ok: boolean; pendentes: string[]; rito?: "ART72" | "ART18" }
   }
   /** Entrega 4: o que impede autorizar agora (art. 72, I, II e IV; limite da dispensa). */
   portao_b_bloqueios?: string[]
@@ -271,6 +271,7 @@ export default function AutorizacaoPage() {
   }
 
   const sit = SITUACAO[d.situacao]
+  const art18 = d.resumo.portao_b.rito === "ART18"
   const aguardando = d.situacao === "AGUARDANDO_ASSINATURAS"
   const podeGerar = d.licitacao.fase_interna && !aguardando && perm.pode
   // Depois de autorizado o despacho não é regerado (só pelo fluxo explícito de nova autorização)
@@ -377,10 +378,10 @@ export default function AutorizacaoPage() {
             )}
           </section>
 
-          <section aria-label="Trava da lei — autorizar (art. 72)" className="rounded-lg border bg-white p-4 space-y-2">
+          <section aria-label={`Trava da lei — autorizar (art. ${art18 ? "18" : "72"})`} className="rounded-lg border bg-white p-4 space-y-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h2 className="text-sm font-semibold text-gray-900">
-                Instrução do art. 72 — trava da lei para autorizar <AjudaTravaDaLei destaque="B" />
+                {art18 ? "Instrução do art. 18 — peças exigidas para autorizar" : <>Instrução do art. 72 — trava da lei para autorizar <AjudaTravaDaLei destaque="B" /></>}
               </h2>
               <span className={`text-xs rounded px-2 py-0.5 border ${d.resumo.portao_b.ok ? "bg-green-50 text-green-900 border-green-200" : "bg-amber-50 text-amber-900 border-amber-200"}`}>
                 {d.resumo.portao_b.ok ? "Peças exigidas para autorizar: completas" : `${d.resumo.portao_b.pendentes.length} pendência(s)`}
@@ -397,7 +398,11 @@ export default function AutorizacaoPage() {
                 <Link className="text-blue-800 hover:underline" href={`/orgao/processos/${id}/fase-interna/conformidade`}>Ver na conformidade</Link>
               </div>
             ) : (
+              art18 ? (
+                <p className="text-xs text-gray-600">Na licitação, a autoridade autoriza a abertura com a fase interna instruída (art. 18 da Lei 14.133/2021): estudo técnico, termo de referência com a justificativa, pesquisa de preços, parecer jurídico, dotação e designação do agente.</p>
+              ) : (
               <p className="text-xs text-gray-600">A trava da lei do art. 72 bloqueia a autorização (envio, assinatura e anexo do despacho) enquanto faltar peça dos incisos I, II ou IV — e, na inexigibilidade (sem aviso), a razão da escolha e o preço (VI e VII). Na dispensa eletrônica, VI e VII se cumprem depois da seleção do fornecedor.</p>
+              )
             )}
             <ul className="divide-y">
               {d.resumo.portao_b.linhas.map((l) => (

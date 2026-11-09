@@ -1,5 +1,6 @@
 "use client"
 
+import { ROTULO_CRITERIO, ROTULO_MODO_DISPUTA } from "@/lib/licitacao-rotulos"
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import { 
@@ -327,8 +328,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="pt-4">
           <div className="flex items-center gap-4 text-sm">
-            <Badge variant="outline" className="bg-white">Critério: {licitacao?.criterio_julgamento}</Badge>
-            <Badge variant="outline" className="bg-white">Modo: {licitacao?.modo_disputa}</Badge>
+            <Badge variant="outline" className="bg-white">Critério: {ROTULO_CRITERIO[licitacao?.criterio_julgamento ?? ""] ?? licitacao?.criterio_julgamento}</Badge>
+            <Badge variant="outline" className="bg-white">Modo: {ROTULO_MODO_DISPUTA[licitacao?.modo_disputa ?? ""] ?? licitacao?.modo_disputa}</Badge>
           </div>
         </CardContent>
       </Card>

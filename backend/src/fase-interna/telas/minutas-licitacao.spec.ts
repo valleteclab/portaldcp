@@ -2,6 +2,7 @@ import { MINUTA_AVISO_PREAMBULO, MODELO_JC_LICITACAO, MODELOS_PADRAO, RAG_CONCLU
 import { TipoDocumentoFaseInterna } from '../entities/documento-fase-interna.entity';
 import { SECOES_DA_LICITACAO, completarJustificativaDaLicitacao, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, secoesParaLicitacao } from './minutas-regras';
 import { PECAS_JUNTAS_DA_LICITACAO } from '../../workflow/ponte/ponte-fase-interna';
+import { portaoBDaAutorizacao } from './autorizacao-regras';
 
 /**
  * Pregão 2026/00070 (homologação 09/11/2026): o relatório e a minuta do edital
@@ -69,5 +70,20 @@ describe('justificativa da contratação na licitação (art. 18, IX) — peça 
 
   it('a etapa do TR da licitação exige a justificativa (ponte do fluxo)', () => {
     expect(PECAS_JUNTAS_DA_LICITACAO.TR.map((p) => p.tipo)).toEqual(['JC']);
+  });
+});
+
+describe('autorização na licitação: peças do art. 18 (não do art. 72)', () => {
+  const l = (tipo: string, status = 'OK', fundamento = 'Art. 18') => ({ tipo, titulo: tipo, status, obrigatorio: true, fundamento });
+  it('pregão: linhas das obrigatórias; a autorização é desta etapa; pendência listada', () => {
+    const r = portaoBDaAutorizacao([l('DFD'), l('ETP'), l('TR'), l('JC', 'PENDENTE'), l('PJ'), l('AA', 'PENDENTE'), l('DO')], 'PREGAO_ELETRONICO');
+    expect(r.rito).toBe('ART18');
+    expect(r.linhas.some((x) => x.referencia.includes('72'))).toBe(false);
+    expect(r.linhas.find((x) => x.inciso === 'AA')).toMatchObject({ exigido: false, momento: 'ESTA_ETAPA' });
+    expect(r.ok).toBe(false);
+    expect(r.pendentes).toEqual(['JC — Art. 18']);
+  });
+  it('dispensa continua no art. 72', () => {
+    expect(portaoBDaAutorizacao([l('DFD'), l('PP'), l('DO')], 'DISPENSA_ELETRONICA').rito).toBe('ART72');
   });
 });
