@@ -4,9 +4,9 @@
  *
  *  A. Portão C: PUBLICAR é recusado com achado BLOQUEIO aberto (VINC-01 lido
  *     do PDF anexado da minuta do contrato — o "PA 115/2025" do caso real),
- *     com o que falta e onde (peça e folha); o achado cria a TAREFA do
- *     responsável pela peça; corrigida a peça (versão nova), o achado se
- *     resolve sozinho, a tarefa conclui e a publicação passa.
+ *     com o que falta e onde (peça e folha); o achado é regra + relatório
+ *     (sem tarefa desde c42f0ce0, 13/10/2026); corrigida a peça (versão
+ *     nova), o achado se resolve sozinho e a publicação passa.
  *  B. ATENÇÃO que exige justificativa (marca "similar ou superior ao ARION"
  *     no ETP anexado) segura a publicação até ser JUSTIFICADO; a
  *     justificativa vai para os autos; bloqueio não se justifica (409).
@@ -15,8 +15,8 @@
  *     segura a etapa da pesquisa; reduzido o valor, libera (LIM-02 ATENÇÃO).
  *  D. Portão B: sem o art. 72, I, II e IV completos não se anexa, não se envia
  *     e não se assina o despacho de autorização.
- *  E. EXERC-01: reserva de um exercício e publicação no seguinte → tarefa da
- *     Contabilidade (renovar a dotação), concluída quando o achado se resolve.
+ *  E. EXERC-01: reserva de um exercício e publicação no seguinte → achado
+ *     para agendar a renovação da dotação, resolvido com a dotação renovada.
  *  F. Processo já publicado não é travado (o portão vale para o ato que ainda
  *     vai ser praticado): a conferência fica congelada, os atos seguem.
  *  G. Isolamento de todos os endpoints novos (outro órgão 404/403, fornecedor
@@ -108,7 +108,7 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
   });
 
   // ==========================================================================
-  describe('A. portão C: BLOQUEIO aberto impede publicar; corrigido, libera (tarefa do achado)', () => {
+  describe('A. portão C: BLOQUEIO aberto impede publicar; corrigido, libera', () => {
     let lic: LicitacaoFixture;
     let achadoId: string;
 
@@ -127,7 +127,8 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       expect(a).toMatchObject({ severidade: 'BLOQUEIO', status: 'ABERTO', pode_justificar: false });
       expect(a.mensagem).toMatch(/PA nº 115\/2025.*não é este processo \(PA 777\/2026/);
       expect(a.evidencias[0]).toMatchObject({ tipo: 'MC', folha: expect.any(Number), trecho: expect.stringMatching(/115\/2025/) });
-      expect(a.acao).toMatchObject({ tipo: 'CORRIGIR_PECA', destino: `/orgao/processos/${lic.id}/fase-interna/minutas` });
+      // "Corrigir peça" abre a aba certa das minutas (eb4b6cbe, 07/11/2026)
+      expect(a.acao).toMatchObject({ tipo: 'CORRIGIR_PECA', destino: `/orgao/processos/${lic.id}/fase-interna/minutas?peca=MC` });
       expect(t.contagem.bloqueios).toBe(1);
       expect(t.publicar).toMatchObject({ pode: false, rotulo: 'Publicar — resolva 1 bloqueio' });
       expect(t.aviso.canais.length).toBeGreaterThan(0);
@@ -136,11 +137,12 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       achadoId = a.id;
     });
 
-    it('o achado BLOQUEIO cria a tarefa (origem ACHADO) do responsável pela peça; a caixa leva à conformidade', async () => {
-      const [t] = await sql(`SELECT * FROM tarefas WHERE licitacao_id = $1 AND chave = $2`, [lic.id, `achado:${achadoId}`]);
-      expect(t).toMatchObject({ status: 'ABERTA', origem: 'ACHADO', tipo: 'ACHADO', origem_id: achadoId, passo: 'MINUTAS', tipo_peca: 'MC', responsavel_usuario_id: agente.id });
-      const cx = (await http().get('/api/tarefas?aba=para-mim').set(bearer(agente.token)).expect(200)).body;
-      expect(cx.tarefas.find((x: any) => x.id === t.id).destino).toBe(`/orgao/processos/${lic.id}/fase-interna/conformidade#achado-${achadoId}`);
+    it('o achado BLOQUEIO é regra + relatório: aparece na conformidade e no resumo, sem tarefa', async () => {
+      // Um motor só, passo 3 (c42f0ce0, 13/10/2026): a conformidade deixou de criar tarefas (achado:* e
+      // renovar dotação) — o bloqueio aparece na tela da peça, na conformidade e ao concluir a etapa no fluxo
+      expect(await sql(`SELECT id FROM tarefas WHERE licitacao_id = $1 AND chave = $2`, [lic.id, `achado:${achadoId}`])).toEqual([]);
+      const a = (await conformidade(lic)).achados.find((x: any) => x.id === achadoId);
+      expect(a).toMatchObject({ status: 'ABERTO', severidade: 'BLOQUEIO', tarefa: null });
       const resumo = (await http().get(`/api/fase-interna/${lic.id}/conformidade/resumo`).set(bearer(agente.token)).expect(200)).body;
       expect(resumo).toMatchObject({ aplicavel: true, bloqueios: 1, impedem_publicar: 1 });
     });
@@ -163,7 +165,7 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       expect(l.fase).toBe(FaseLicitacao.APROVACAO_INTERNA);
     });
 
-    it('corrigida a minuta (versão nova), o achado se resolve sozinho, a tarefa conclui e a publicação passa', async () => {
+    it('corrigida a minuta (versão nova), o achado se resolve sozinho e a publicação passa', async () => {
       expect((await anexar(lic, 'MC', agente.token, 'Minuta do contrato vinculada ao PA 777/2026 Dispensa 031/2026')).status).toBe(201);
       const t = await conformidade(lic);
       expect(t.achados.some((x: any) => x.regra === 'VINC-01')).toBe(false);
@@ -171,8 +173,6 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       expect(resolvido).toMatchObject({ status: 'RESOLVIDO', motivo_resolucao: expect.stringMatching(/Deixou de ocorrer/) });
       expect(resolvido.historico.map((h: any) => h.acao)).toEqual(['DETECTADO', 'RESOLVIDO']);
       expect(t.publicar.pode).toBe(true);
-      const [tarefa] = await sql(`SELECT status FROM tarefas WHERE licitacao_id = $1 AND chave = $2`, [lic.id, `achado:${achadoId}`]);
-      expect(tarefa.status).toBe('CONCLUIDA');
       // idempotente: revisar de novo não muda nada
       const antes = await sql(`SELECT id, status, updated_at FROM achados_conformidade WHERE licitacao_id = $1 ORDER BY id`, [lic.id]);
       await http().post(`/api/fase-interna/${lic.id}/conformidade/revisar`).set(bearer(agente.token)).expect(201);
@@ -253,19 +253,18 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       l2 = await criarLicitacao(ctx, X, ModalidadeLicitacao.DISPENSA_ELETRONICA, { itens: [{ descricao: 'Serviço B', quantidade: 1, valor_unitario_estimado: 30_000 }], extras: { pregoeiro_id: agenteX.id } });
       // E6 (homologação multiusuário): o ramo é o da classe do catálogo — item sem código não soma com outras dispensas
       await classificar();
-      // A pesquisa só anda com a demanda aprovada (ordem do fluxo) — e só então nasce a tarefa do achado
+      // A pesquisa só anda com a demanda aprovada (ordem do fluxo)
       await cumprirEtapasAnteriores(ctx, l2, 'PESQUISA');
     });
     const classificar = () =>
       sql(`UPDATE itens_licitacao SET classe_catalogo = '0859', tipo_item = 'SERVICO' WHERE licitacao_id IN (SELECT id FROM licitacoes WHERE orgao_id = $1)`, [X.id]);
 
-    it('soma do ramo (R$ 70.000,00) acima do limite: LIM-01 BLOQUEIO com tarefa da pesquisa', async () => {
+    it('soma do ramo (R$ 70.000,00) acima do limite: LIM-01 BLOQUEIO na pesquisa (sem tarefa — c42f0ce0)', async () => {
       const t = await conformidade(l2, X.token);
       const a = t.achados.find((x: any) => x.regra === 'LIM-01');
       expect(a).toMatchObject({ severidade: 'BLOQUEIO', etapa: 'PESQUISA', portao: 'A' });
       expect(a.mensagem).toMatch(/R\$\s?70\.000,00.*2 processo\(s\)/);
-      const [tarefa] = await sql(`SELECT passo, status FROM tarefas WHERE licitacao_id = $1 AND chave = $2`, [l2.id, `achado:${a.id}`]);
-      expect(tarefa).toMatchObject({ passo: 'PESQUISA', status: 'ABERTA' });
+      expect(await sql(`SELECT id FROM tarefas WHERE licitacao_id = $1 AND chave = $2`, [l2.id, `achado:${a.id}`])).toEqual([]);
     });
 
     it('CONCLUIR_PESQUISA_PRECOS recusado; a etapa da pesquisa não conclui (as seguintes não abrem)', async () => {
@@ -361,8 +360,8 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
   });
 
   // ==========================================================================
-  describe('E. EXERC-01: reserva de um exercício e publicação no seguinte → tarefa da Contabilidade', () => {
-    it('cria a tarefa "renovar a dotação" (origem ACHADO) e a conclui quando o achado se resolve', async () => {
+  describe('E. EXERC-01: reserva de um exercício e publicação no seguinte → aviso para renovar a dotação', () => {
+    it('o achado pede para agendar a renovação (sem tarefa — c42f0ce0) e se resolve com a dotação renovada', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       const ano = Number(hoje().slice(0, 4));
       await sql(`UPDATE licitacoes SET data_publicacao_edital = $2 WHERE id = $1`, [lic.id, `${ano + 1}-01-15 12:00:00`]);
@@ -375,13 +374,11 @@ describe('Fase interna — Entrega 4 (motor de conformidade e portões A, B e C)
       const a = t.achados.find((x: any) => x.regra === 'EXERC-01');
       expect(a).toMatchObject({ severidade: 'ATENCAO', acao: expect.objectContaining({ tipo: 'AGENDAR' }) });
       expect(a.mensagem).toMatch(new RegExp(`reserva é de ${ano}`));
-      const [tarefa] = await sql(`SELECT * FROM tarefas WHERE licitacao_id = $1 AND chave = 'sistema:renovar-dotacao'`, [lic.id]);
-      expect(tarefa).toMatchObject({ status: 'ABERTA', origem: 'ACHADO', origem_id: a.id, passo: 'RESERVA', tipo_peca: 'DO' });
-      // dotação renovada para o exercício da publicação: o achado se resolve e a tarefa conclui
+      // um motor só, passo 3 (c42f0ce0, 13/10/2026): a conformidade não cria mais a tarefa "renovar a dotação"
+      expect(await sql(`SELECT id FROM tarefas WHERE licitacao_id = $1 AND origem = 'ACHADO'`, [lic.id])).toEqual([]);
+      // dotação renovada para o exercício da publicação: o achado se resolve
       await sql(`UPDATE reservas_orcamentarias SET exercicio_base = $2, updated_at = now() WHERE licitacao_id = $1`, [lic.id, ano + 1]);
       await http().post(`/api/fase-interna/${lic.id}/conformidade/revisar`).set(bearer(agente.token)).expect(201);
-      const [depois] = await sql(`SELECT status FROM tarefas WHERE id = $1`, [tarefa.id]);
-      expect(depois.status).toBe('CONCLUIDA');
       const [ach] = await sql(`SELECT status FROM achados_conformidade WHERE id = $1`, [a.id]);
       expect(ach.status).toBe('RESOLVIDO');
     });

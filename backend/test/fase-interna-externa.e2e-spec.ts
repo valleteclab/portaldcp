@@ -367,11 +367,11 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
 
   // ==========================================================================
   describe('D. "Juntar documentos feitos fora" num processo criado pelo assistente', () => {
-    it('junta vários PDFs de uma vez; tarefa aberta conclui, as demais nascem concluídas; etiqueta MISTA', async () => {
+    it('junta vários PDFs de uma vez; as tarefas dos passos cumpridos nascem concluídas; etiqueta MISTA', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       await esperar();
-      const [dfdAntes] = await sql(`SELECT id, status FROM tarefas WHERE licitacao_id = $1 AND chave = 'etapa:DFD'`, [lic.id]);
-      expect(dfdAntes.status).toBe('ABERTA');
+      // Um motor só (11/2026): o processo não nasce mais com a tarefa aberta do DFD (o fluxo conduz as etapas)
+      expect(await sql(`SELECT id FROM tarefas WHERE licitacao_id = $1 AND chave = 'etapa:DFD'`, [lic.id])).toEqual([]);
       // o checklist considera o que o processo já tem
       const q = (await http().post(`/api/fase-interna/${lic.id}/externa/checklist`).set(bearer(agente.token)).send({ classificadas: ['DFD'] }).expect(201)).body;
       expect(q.checklist.linhas.find((l: any) => l.tipo === 'DFD')).toMatchObject({ status: 'OK', origem: 'ARQUIVO' });
@@ -385,10 +385,9 @@ describe('Fase interna feita fora do sistema (entrada "já tenho os documentos")
       expect(r.body.modo).toBe('MISTA');
       expect(r.body.juntadas.map((j: any) => j.tipo)).toEqual(['DFD', 'TR', 'PP']);
       await esperar();
-      const [dfd] = await sql(`SELECT status, concluida_por_nome FROM tarefas WHERE id = $1`, [dfdAntes.id]);
-      expect(dfd).toMatchObject({ status: 'CONCLUIDA', concluida_por_nome: 'Ana Agente' });
-      const ts = await sql(`SELECT passo, status FROM tarefas WHERE licitacao_id = $1 AND passo IN ('ETP','TR','PESQUISA')`, [lic.id]);
-      expect(ts.map((t: any) => `${t.passo}:${t.status}`).sort()).toEqual(['ETP:CONCLUIDA', 'PESQUISA:CONCLUIDA', 'TR:CONCLUIDA']);
+      const ts = await sql(`SELECT passo, status, concluida_por_nome FROM tarefas WHERE licitacao_id = $1 AND passo IN ('DFD','ETP','TR','PESQUISA')`, [lic.id]);
+      expect(ts.map((t: any) => `${t.passo}:${t.status}`).sort()).toEqual(['DFD:CONCLUIDA', 'ETP:CONCLUIDA', 'PESQUISA:CONCLUIDA', 'TR:CONCLUIDA']);
+      expect(ts.every((t: any) => t.concluida_por_nome === 'Ana Agente')).toBe(true);
       const [l] = await sql(`SELECT fase_interna_externa FROM licitacoes WHERE id = $1`, [lic.id]);
       expect(l.fase_interna_externa).toMatchObject({ modo: 'MISTA', por_nome: 'Ana Agente' });
       // a próxima juntada: peça já pronta → nova versão; "não se aplica" de peça pronta é recusado

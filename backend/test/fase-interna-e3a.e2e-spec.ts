@@ -6,7 +6,8 @@
  *     pelo modelo) → ETP "não se aplica" (art. 72, I) → TR gerado do processo
  *     (fundamento legal único) → pesquisa (parâmetros do art. 23 com "sem
  *     retorno", 3 cotações, método e justificativas, mapa e certidão) →
- *     reserva com 2 exercícios → as tarefas da Entrega 2 concluem sozinhas.
+ *     reserva com 2 exercícios → as etapas concluem sozinhas (um motor só,
+ *     11/2026: sem as tarefas de etapa da Entrega 2).
  *     Renovar dotação cria a versão nova e a tarefa (que a sincronização não
  *     mexe) e a nova emissão a conclui.
  *  B. Pesquisa feita fora: anexar o mapa + valor unitário nos itens.
@@ -55,8 +56,17 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
     await tarefas().aguardarPendentes();
     return sql(`SELECT * FROM tarefas WHERE licitacao_id = $1 ORDER BY created_at`, [lic.id]);
   };
-  const situacaoDoPasso = async (lic: { id: string }, passo: string) =>
-    (await tarefasDoProcesso(lic)).filter((t: any) => t.passo === passo && t.origem === 'ETAPA').map((t: any) => t.status);
+  /**
+   * Situação do passo no cálculo das etapas (GET /etapas). Um motor só (11/2026): o motor antigo não cria
+   * mais tarefa de etapa — a tela de cada etapa conclui o PASSO (o fluxo do processo conduz o resto).
+   */
+  const situacaoDoPasso = async (lic: { id: string }, passo: string) => {
+    await tarefas().aguardarPendentes();
+    const et = (await http().get(`/api/fase-interna/${lic.id}/etapas`).set(bearer(agente.token)).expect(200)).body;
+    return et.etapas.flatMap((e: any) => e.passos).find((x: any) => x.passo === passo)?.situacao;
+  };
+  const tarefasDeEtapa = async (lic: { id: string }, passo: string) =>
+    (await tarefasDoProcesso(lic)).filter((t: any) => t.passo === passo && t.origem === 'ETAPA');
   const naoSeAplica = (lic: { id: string }, tipo: string, token: string) =>
     http().post(`/api/fase-interna/${lic.id}/instrucao/${tipo}/nao-se-aplica`).set(bearer(token)).send({ justificativa: 'Contratação direta de objeto simples (art. 72, I — "se for o caso").' });
 
@@ -91,7 +101,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       expect(r0.body.opcoes.setores.map((s: any) => s.id)).toEqual([setorA]);
       expect(r0.body.checklist.find((c: any) => c.chave === 'pca').ok).toBe(false);
       expect(r0.body.checklist.find((c: any) => c.chave === 'itens').texto).toMatch(/2 itens sem código CATMAT\/CATSER/);
-      expect(await situacaoDoPasso(lic, 'DFD')).toEqual(['ABERTA']);
+      expect(await situacaoDoPasso(lic, 'DFD')).toBe('DISPONIVEL');
 
       // setor de outro órgão: recusado (lista vem da tabela do órgão)
       await http().put(`/api/fase-interna/${lic.id}/dfd`).set(bearer(agente.token)).send({ unidade_requisitante_id: setorB }).expect(400);
@@ -123,13 +133,10 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       expect(g.body.secoes.quantidade).toMatch(/Item E2E 1/);
       const pdf = await http().get(`/api/fase-interna/documento/${g.body.peca.documento_id}/arquivo`).set(bearer(agente.token)).expect(200);
       expect(pdf.headers['content-type']).toMatch(/pdf/);
-      expect(await situacaoDoPasso(lic, 'DFD')).toEqual(['CONCLUIDA']);
-      const abertas = (await tarefasDoProcesso(lic)).filter((t: any) => t.status === 'ABERTA').map((t: any) => t.passo).sort();
-      expect(abertas).toEqual(['ETP', 'PESQUISA', 'TR']);
-      // a caixa leva direto à tela da etapa
-      const cx = (await http().get('/api/tarefas?aba=para-mim').set(bearer(agente.token)).expect(200)).body;
-      const t = cx.tarefas.find((x: any) => x.processo.id === lic.id && x.passo === 'PESQUISA');
-      expect(t.destino).toBe(`/orgao/processos/${lic.id}/fase-interna/pesquisa`);
+      expect(await situacaoDoPasso(lic, 'DFD')).toBe('CONCLUIDO');
+      for (const c of ['ETP', 'PESQUISA', 'TR']) expect([c, await situacaoDoPasso(lic, c)]).toEqual([c, 'DISPONIVEL']);
+      // sem tarefa de etapa (um motor só, 11/2026)
+      expect((await tarefasDoProcesso(lic)).filter((t: any) => t.status === 'ABERTA')).toEqual([]);
     });
 
     it('ETP na dispensa: "não se aplica" (art. 72, I) com a análise de riscos conclui a etapa', async () => {
@@ -139,7 +146,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       expect(e.body.obrigatorios_vazios.map((i: any) => i.inciso)).toEqual(['I', 'IV', 'VI', 'VIII', 'XIII']);
       expect((await naoSeAplica(lic, 'ETP', agente.token)).status).toBe(201);
       expect((await naoSeAplica(lic, 'AR', agente.token)).status).toBe(201);
-      expect(await situacaoDoPasso(lic, 'ETP')).toEqual(['CONCLUIDA']);
+      expect(await situacaoDoPasso(lic, 'ETP')).toBe('CONCLUIDO');
       const e2 = await http().get(`/api/fase-interna/${lic.id}/etp`).set(bearer(agente.token)).expect(200);
       expect(e2.body.etp.peca).toMatchObject({ nao_se_aplica: true });
     });
@@ -162,7 +169,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       expect(g.body.secoes.modelo_execucao).toBe('<p>Entrega em até 10 dias na sede.</p>');
       expect(g.body.secoes.estimativa_valor_tr).toMatch(/R\$\s?2\.000,00/);
       expect(g.body.peca.tem_arquivo).toBe(true);
-      expect(await situacaoDoPasso(lic, 'TR')).toEqual(['CONCLUIDA']);
+      expect(await situacaoDoPasso(lic, 'TR')).toBe('CONCLUIDO');
     });
 
     it('pesquisa: parâmetros do art. 23 com "consultado sem retorno"; 3 propostas; método e justificativas obrigatórios; mapa e certidão', async () => {
@@ -235,7 +242,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       // o valor de referência (menor) vira o valor dos itens na fase interna
       const itens = await sql(`SELECT numero_item, valor_unitario_estimado FROM itens_licitacao WHERE licitacao_id = $1 ORDER BY numero_item`, [lic.id]);
       expect(itens.map((i: any) => Number(i.valor_unitario_estimado))).toEqual([90, 45]);
-      expect(await situacaoDoPasso(lic, 'PESQUISA')).toEqual(['CONCLUIDA']);
+      expect(await situacaoDoPasso(lic, 'PESQUISA')).toBe('CONCLUIDO');
     });
 
     it('tabelas do órgão: dotações por exercício e leis (tabela única); validação', async () => {
@@ -268,7 +275,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       expect(r0.body.atual).toBeNull();
       expect(r0.body.opcoes.dotacoes).toHaveLength(2);
       expect(r0.body.valor_estimado).toBe(1800);
-      expect(await situacaoDoPasso(lic, 'RESERVA')).toEqual(['ABERTA']);
+      expect(await situacaoDoPasso(lic, 'RESERVA')).toBe('DISPONIVEL');
 
       // LOA escolhida no campo da LDO: recusado; linha repetida: recusado
       await http().put(`/api/fase-interna/${lic.id}/reserva`).set(bearer(agente.token)).send({ lei_ldo_id: loaAno }).expect(400);
@@ -308,7 +315,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       expect(doc.descricao).toMatch(/3\.3\.90\.40/);
       expect(doc.descricao).toMatch(new RegExp(`Lei nº 1\\.234/${ANO - 1} \\(LDO ${ANO}\\)`));
       expect(doc.descricao).not.toMatch(/empenh/i);
-      expect(await situacaoDoPasso(lic, 'RESERVA')).toEqual(['CONCLUIDA']);
+      expect(await situacaoDoPasso(lic, 'RESERVA')).toBe('CONCLUIDO');
       // emitida não se edita: nova versão
       await http().put(`/api/fase-interna/${lic.id}/reserva`).set(bearer(agente.token)).send({ observacao: 'x' }).expect(409);
       // o TR passa a ler a dotação da reserva
@@ -376,7 +383,7 @@ describe('Fase interna — Entrega 3A (telas por etapa)', () => {
       const [l] = await sql(`SELECT valor_total_estimado FROM licitacoes WHERE id = $1`, [lic.id]);
       expect(Number(l.valor_total_estimado)).toBe(2410);
       // a etapa conta como concluída (anexada) — e não fica tarefa aberta dela
-      expect(await situacaoDoPasso(lic, 'PESQUISA')).not.toContain('ABERTA');
+      expect(await tarefasDeEtapa(lic, 'PESQUISA')).toEqual([]);
       const et = await http().get(`/api/fase-interna/${lic.id}/etapas`).set(bearer(agente.token)).expect(200);
       const passo = et.body.etapas.flatMap((e: any) => e.passos).find((x: any) => x.passo === 'PESQUISA');
       expect(passo.situacao).toBe('CONCLUIDO');

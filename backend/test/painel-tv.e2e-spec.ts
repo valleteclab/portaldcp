@@ -32,6 +32,7 @@ import { criarDispensaPublicada, vincularOrgaoPncp } from './support/dispensa';
 import { Licitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 import { TarefasService } from '../src/fase-interna/tarefas/tarefas.service';
+import { PassoFaseInterna } from '../src/fase-interna/fluxo/codigos';
 import { CHAVES_PROIBIDAS, chavesProibidasEm } from '../src/painel-tv/painel-tv-regras';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -134,8 +135,18 @@ describe('Painel para TV', () => {
     expect(susp.status).toBe(201);
     await ctx.app.get(TarefasService).aguardarPendentes();
 
-    // tarefa aberta do processo atrasado vence ontem ("o tempo passou")
-    await sql(`UPDATE tarefas SET prazo = now() - interval '2 days' WHERE licitacao_id = $1 AND status = 'ABERTA'`, [proc.atrasado.id]);
+    // tarefa aberta do processo atrasado vence ontem ("o tempo passou"). Um motor só (11/2026): o
+    // processo não nasce mais com tarefa de etapa — a tarefa aberta é uma do sistema (ex.: renovar dotação)
+    const tarefaAtrasada = await ctx.app.get(TarefasService).criarTarefaDoSistema(proc.atrasado.id, {
+      chave: 'sistema:e2e-painel-atrasada',
+      passo: PassoFaseInterna.RESERVA,
+      titulo: 'Renovar a dotação (e2e do painel)',
+      descricao: 'Tarefa do sistema do teste do painel.',
+      notificar: false,
+    });
+    expect(tarefaAtrasada).toBeTruthy();
+    const venceu = await sql(`UPDATE tarefas SET prazo = now() - interval '2 days' WHERE licitacao_id = $1 AND status = 'ABERTA' RETURNING id`, [proc.atrasado.id]);
+    expect(venceu.length).toBeGreaterThanOrEqual(1);
     // achado de BLOQUEIO aberto (o motor o grava assim — a TV mostra só a quantidade)
     await sql(
       `INSERT INTO achados_conformidade (orgao_id, licitacao_id, regra, chave, severidade, etapa, portao, titulo, mensagem, status, primeira_deteccao, ultima_deteccao)
@@ -277,9 +288,8 @@ describe('Painel para TV', () => {
       const sig = cartao(d, proc.sigiloso.numero_processo);
       expect(sig).toMatchObject({ coluna: 'DEMANDA', etapa: 'Demanda (DFD)', modalidade: 'Pregão', suspenso: false });
       expect(sig.objeto.length).toBeLessThanOrEqual(70);
-      // F3: com quem está vem da tramitação (posse inicial com o agente), com desde/prazo/atraso
-      expect(sig.com_quem).toMatchObject({ nome: 'Pedro Pregoeiro', tipo: 'PESSOA', prazo: null, atrasado: false });
-      expect(new Date(sig.com_quem.desde).getTime()).toBeLessThanOrEqual(Date.now());
+      // Um motor só (11/2026): sem a posse inicial da tramitação nem tarefa aberta, o cartão mostra o agente do processo
+      expect(sig.com_quem).toEqual({ nome: 'Pedro Pregoeiro', tipo: 'AGENTE', desde: null, prazo: null, atrasado: false });
       expect(sig.dias_na_etapa).toBe(0);
       expect(['VERDE', 'AMARELO', null]).toContain(sig.cor_prazo);
 

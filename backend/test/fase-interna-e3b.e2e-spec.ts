@@ -74,6 +74,9 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
     await esperar();
     return sql(`SELECT * FROM tarefas WHERE licitacao_id = $1 ORDER BY created_at`, [lic.id]);
   };
+  /** Passo calculado da fase interna (GET /etapas) — um motor só (11/2026): sem tarefa de etapa, a situação é a do cálculo. */
+  const passoDe = async (lic: LicitacaoFixture, codigo: string, token = lic.orgao.token) =>
+    (await http().get(`/api/fase-interna/${lic.id}/etapas`).set(bearer(token)).expect(200)).body.etapas.flatMap((e: any) => e.passos).find((p: any) => p.passo === codigo);
   const instrucao = async (lic: LicitacaoFixture, token = lic.orgao.token) => (await http().get(`/api/fase-interna/${lic.id}/instrucao`).set(bearer(token)).expect(200)).body;
   const itemDe = (inst: any, tipo: string) => inst.itens.find((i: any) => i.tipo === tipo);
   const anexar = (lic: { id: string }, tipo: string, token: string) =>
@@ -212,10 +215,10 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       expect(doc.folha_inicial).toBeGreaterThanOrEqual(1);
       expect(itemDe(await instrucao(lic), 'AA').status).toBe('OK');
 
-      // designação "não se aplica" → a etapa 6 conclui e a tarefa dela também
+      // designação "não se aplica" → a etapa 6 conclui (um motor só, 11/2026: sem a tarefa de etapa do motor antigo)
       expect((await naoSeAplica(lic, 'DP', agente.token)).status).toBe(201);
-      const t = (await tarefasDoProcesso(lic)).find((x: any) => x.chave === 'etapa:AUTORIZACAO');
-      expect(t).toMatchObject({ status: 'CONCLUIDA' });
+      expect((await passoDe(lic, 'AUTORIZACAO')).situacao).toBe('CONCLUIDO');
+      expect((await tarefasDoProcesso(lic)).some((x: any) => x.chave === 'etapa:AUTORIZACAO')).toBe(false);
     });
   });
 
@@ -408,8 +411,10 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       expect(r.roteiro.map((i: any) => i.id)).toEqual(expect.arrayContaining(['A72_I', 'A72_II', 'A72_IV', 'A72_VIII', 'ART75', 'ART41', 'ART24', 'ART92', 'VINC']));
       expect(r.roteiro.find((i: any) => i.id === 'VINC').situacao).toBe('CONFORME');
       expect((await http().get(`/api/fase-interna/${lic.id}/parecer`).set(bearer(agenteC.token)).expect(200)).body.pode_emitir).toBe(false);
-      const t = (await tarefasDoProcesso(lic)).find((x: any) => x.chave === 'etapa:PARECER');
-      expect(t).toMatchObject({ status: 'ABERTA', responsavel_papel: 'JURIDICO' });
+      // a etapa do parecer é da Procuradoria (um motor só, 11/2026: o responsável previsto, sem a tarefa de etapa)
+      const p = await passoDe(lic, 'PARECER');
+      expect(p.responsavel_previsto).toMatchObject({ papel: 'JURIDICO' });
+      expect(p.tarefa).toBeNull();
     });
 
     it('sem o papel Jurídico: não abre diligência, não salva o roteiro, não emite (403)', async () => {
@@ -486,7 +491,9 @@ describe('Fase interna — Entrega 3B (autorização, minutas, parecer, controle
       expect(pj.assinaturas).toHaveLength(1);
       expect(itemDe(await instrucao(lic), 'PJ').status).toBe('OK');
       const ts = await tarefasDoProcesso(lic);
-      expect(ts.find((x: any) => x.chave === 'etapa:PARECER')).toMatchObject({ status: 'CONCLUIDA', concluida_por_id: juridicoC.id });
+      // a etapa do parecer conclui (sem a tarefa de etapa do motor antigo — 11/2026); a tarefa do retorno da diligência conclui
+      expect((await passoDe(lic, 'PARECER')).situacao).toBe('CONCLUIDO');
+      expect(ts.some((x: any) => x.chave === 'etapa:PARECER')).toBe(false);
       expect(ts.find((x: any) => x.chave === `parecer-retorno:${r.analise.id}`)).toMatchObject({ status: 'CONCLUIDA' });
     });
 
