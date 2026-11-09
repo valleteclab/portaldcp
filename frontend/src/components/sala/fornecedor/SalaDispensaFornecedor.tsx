@@ -8,6 +8,7 @@
  * público e ANÔNIMO. Tempo real pelo canal único (socket /disputa).
  */
 
+import { InputMoeda } from '@/components/ui/input-moeda'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { Loader2, MessageSquare, TimerReset, TrendingDown, Trophy, Wifi, WifiOff } from 'lucide-react'
@@ -275,8 +276,7 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
                 </div>
                 {painel.aberta && it.meu_valor != null && (
                   <div className="mt-3 flex items-center gap-2">
-                    <Input
-                      inputMode="decimal"
+                    <InputMoeda
                       placeholder="Novo valor unitário (menor que o seu)"
                       value={valores[it.item_licitacao_id] || ''}
                       onChange={(e) => setValores((p) => ({ ...p, [it.item_licitacao_id]: e.target.value }))}

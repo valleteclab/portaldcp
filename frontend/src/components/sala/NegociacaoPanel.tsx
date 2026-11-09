@@ -1,5 +1,7 @@
 'use client'
 
+import { InputMoeda } from '@/components/ui/input-moeda'
+import { lerValorMonetario } from '@/lib/moeda'
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Ban, CheckCircle2, Eye, Handshake, MessageSquare, RefreshCw, Send } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
@@ -180,7 +182,7 @@ export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; ve
   const enviarMensagem = (n: Negociacao) =>
     executar(`/${n.id}/mensagem`, { texto: mensagem[n.id] || '' }).then((ok) => ok && setMensagem((m) => ({ ...m, [n.id]: '' })))
   const enviarContraproposta = (n: Negociacao) =>
-    executar(`/${n.id}/contraproposta`, { valor: Number(String(contra[n.id] || '').replace(',', '.')), mensagem: mensagem[n.id] || undefined }).then(
+    executar(`/${n.id}/contraproposta`, { valor: lerValorMonetario(String(contra[n.id] || '')), mensagem: mensagem[n.id] || undefined }).then(
       (ok) => ok && (setContra((c) => ({ ...c, [n.id]: '' })), setMensagem((m) => ({ ...m, [n.id]: '' }))),
     )
   const confirmar = async () => {
@@ -308,10 +310,7 @@ export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; ve
                       <div className="flex flex-wrap items-end gap-2">
                         <div className="w-40">
                           <label className="text-xs text-slate-500">Contraproposta ({rotuloBase(n.baseLance)})</label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min={0}
+                          <InputMoeda
                             value={contra[n.id] || ''}
                             onChange={(e) => setContra((c) => ({ ...c, [n.id]: e.target.value }))}
                           />

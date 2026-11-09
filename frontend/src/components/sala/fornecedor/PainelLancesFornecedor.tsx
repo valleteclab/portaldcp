@@ -23,16 +23,10 @@ import {
   textoCronometro,
 } from '../utils'
 import { percentualDoCiclo } from '../orgao/ItemEmFocoOrgao'
+import { lerValorMonetario, moedaDeNumero } from '@/lib/moeda'
+import { InputMoeda } from '@/components/ui/input-moeda'
 
-/**
- * Valor digitado → número. Com vírgula: formato brasileiro ("1.234,56");
- * sem vírgula: ponto decimal ("1234.56"). Nunca remove o ponto de "1234.56".
- */
-export function lerValorMonetario(texto: string): number {
-  const t = texto.trim().replace(/[R$\s]/g, '')
-  if (!t) return NaN
-  return t.includes(',') ? Number(t.replace(/\./g, '').replace(',', '.')) : Number(t)
-}
+export { lerValorMonetario } from '@/lib/moeda'
 
 function classePosicao(posicao?: number | null) {
   if (posicao === 1) return 'text-emerald-700'
@@ -218,14 +212,13 @@ export function PainelLancesFornecedor({
                   )}
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <Input
+                  <InputMoeda
                     value={valor}
-                    inputMode="decimal"
                     onChange={(e) => setValor(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') enviar()
                     }}
-                    placeholder="Digite o valor em R$"
+                    placeholder="R$ 0,00"
                     disabled={!podeDarLance || enviandoLance}
                   />
                   {erroValor && <p className="text-xs text-red-700">{erroValor}</p>}
@@ -234,7 +227,7 @@ export function PainelLancesFornecedor({
                     <button
                       type="button"
                       className="font-medium text-emerald-700 disabled:text-slate-400"
-                      onClick={() => sugerido !== null && setValor(sugerido.toFixed(2).replace('.', ','))}
+                      onClick={() => sugerido !== null && setValor(moedaDeNumero(sugerido))}
                       disabled={sugerido === null}
                     >
                       {sugerido === null ? '-' : formatarMoeda(sugerido)}
