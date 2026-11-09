@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronRight, Download, FileText, Loader2, Trophy } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
+import { useConsultaAoVivo } from '@/hooks/useConsultaAoVivo'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -87,29 +88,11 @@ export function SalaPorFases({
   /** Recebe os lotes carregados (o detalhe do lote usa a fase de cada um). */
   onLotes?: (lotes: LoteVisao[]) => void
 }) {
-  const [visao, setVisao] = useState<VisaoLotes | null>(null)
+  const [visao] = useConsultaAoVivo<VisaoLotes>(`${API_URL}/api/julgamento/sessao/${sessaoId}/lotes`, atualizacao, {
+    aoReceber: (j) => onLotes?.(j.lotes),
+  })
   const [aba, setAba] = useState<FaseLote | 'TODOS'>('TODOS')
   const [classificacaoDe, setClassificacaoDe] = useState<LoteVisao | null>(null)
-
-  useEffect(() => {
-    let vivo = true
-    const buscar = () =>
-      authFetch(`${API_URL}/api/julgamento/sessao/${sessaoId}/lotes`, { cache: 'no-store' })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((j: VisaoLotes | null) => {
-          if (vivo && j) {
-            setVisao(j)
-            onLotes?.(j.lotes)
-          }
-        })
-        .catch(() => {})
-    buscar()
-    const t = setInterval(buscar, 20_000)
-    return () => {
-      vivo = false
-      clearInterval(t)
-    }
-  }, [sessaoId, atualizacao, onLotes])
 
   const aoVivo = useMemo(() => new Map(itensAoVivo.map((i) => [i.id, i])), [itensAoVivo])
   const lotes = useMemo(() => (visao?.lotes ?? []).filter((l) => aba === 'TODOS' || l.fase === aba), [visao, aba])

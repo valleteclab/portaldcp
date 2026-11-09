@@ -5,10 +5,11 @@
  * define quantas unidades ficam em disputa ao mesmo tempo e o aviso prévio; a
  * próxima unidade (ordem da numeração) abre sozinha quando há vaga.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { ListOrdered, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { API_URL, authFetch } from '@/lib/api'
+import { useConsultaAoVivo } from '@/hooks/useConsultaAoVivo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -23,27 +24,10 @@ interface EstadoFila {
 }
 
 export function FilaAutomaticaBarra({ sessaoId, atualizacao }: { sessaoId: string; atualizacao?: unknown }) {
-  const [estado, setEstado] = useState<EstadoFila | null>(null)
+  const [estado, setEstado] = useConsultaAoVivo<EstadoFila>(`${API_URL}/api/disputa/sessao/${sessaoId}/fila`, atualizacao, { intervaloMs: 15_000 })
   const [max, setMax] = useState('1')
   const [aviso, setAviso] = useState('1')
   const [ocupado, setOcupado] = useState(false)
-
-  useEffect(() => {
-    let vivo = true
-    const buscar = () =>
-      authFetch(`${API_URL}/api/disputa/sessao/${sessaoId}/fila`, { cache: 'no-store' })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((j: EstadoFila | null) => {
-          if (vivo && j) setEstado(j)
-        })
-        .catch(() => {})
-    buscar()
-    const t = setInterval(buscar, 15_000)
-    return () => {
-      vivo = false
-      clearInterval(t)
-    }
-  }, [sessaoId, atualizacao])
 
   const enviar = async (url: string, corpo?: Record<string, unknown>) => {
     setOcupado(true)
@@ -51,7 +35,7 @@ export function FilaAutomaticaBarra({ sessaoId, atualizacao }: { sessaoId: strin
       const r = await authFetch(url, { method: 'POST', body: JSON.stringify(corpo ?? {}) })
       const j = await r.json().catch(() => null)
       if (!r.ok) throw new Error(j?.message || 'Não foi possível alterar a fila.')
-      setEstado(j)
+      if (j) setEstado(j)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
