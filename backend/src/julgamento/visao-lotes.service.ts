@@ -44,13 +44,21 @@ export class VisaoLotesService {
     return u.encerrada ? this.ranking.ranking(u) : this.ranking.rankingAoVivo(u);
   }
 
+  /**
+   * A fase de recursos dura enquanto houver recurso pendente, a janela de intenção estiver aberta
+   * ou — sessão já na etapa de intenção — a janela ainda não tiver sido aberta pela pregoeira. Antes,
+   * neste último caso o lote aparecia "Em adjudicação" sem poder ser adjudicado (pregão 2026/00072).
+   */
   private async recursosPendentes(licitacaoId: string): Promise<boolean> {
     const [r] = await this.ds.query(
       `SELECT (SELECT COUNT(*) FROM recursos_administrativos WHERE licitacao_id::text = $1 AND status::text = ANY($2::text[]))::int AS pendentes,
-              (SELECT COUNT(*) FROM janelas_intencao_recurso WHERE licitacao_id::text = $1 AND superada_em IS NULL AND fecha_em > now())::int AS janelas`,
+              (SELECT COUNT(*) FROM janelas_intencao_recurso WHERE licitacao_id::text = $1 AND superada_em IS NULL AND fecha_em > now())::int AS janelas,
+              (SELECT COUNT(*) FROM sessoes_disputa s
+                WHERE s.licitacao_id::text = $1 AND s.etapa::text = 'INTENCAO_RECURSO'
+                  AND NOT EXISTS (SELECT 1 FROM janelas_intencao_recurso j WHERE j.licitacao_id::text = $1 AND j.superada_em IS NULL))::int AS aguarda_janela`,
       [licitacaoId, [...STATUS_RECURSO_PENDENTES]],
     );
-    return Number(r?.pendentes) > 0 || Number(r?.janelas) > 0;
+    return Number(r?.pendentes) > 0 || Number(r?.janelas) > 0 || Number(r?.aguarda_janela) > 0;
   }
 
   private async estadoDisputa(licitacaoId: string): Promise<Map<string, { status: string | null; iniciada: Date | null; encerrada: Date | null }>> {

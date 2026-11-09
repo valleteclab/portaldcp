@@ -70,8 +70,19 @@ describe('Sala por fases', () => {
     const docs = c.classificados.find((x: any) => x.posicao === 1).documentos;
     expect(docs.length).toBeGreaterThan(0);
     expect((await http().get(`/api/habilitacao/documentos/${docs[0].id}/arquivo`).set(bearer(B.token))).status).toBe(200);
-    // fase do lote: recursos (janela ainda não aberta → em adjudicação)
-    expect(['RECURSOS', 'EM_ADJUDICACAO']).toContain((await lotes(orgao.token).expect(200)).body.lotes[0].fase);
+    // Sessão na etapa de intenção de recurso, janela ainda não aberta: o lote está em RECURSOS
+    // (antes aparecia "Em adjudicação" sem poder ser adjudicado — pregão 2026/00072)
+    const [sessao] = await ctx.dataSource.query(`SELECT etapa::text AS etapa FROM sessoes_disputa WHERE id = $1`, [sessaoId]);
+    expect(sessao.etapa).toBe('INTENCAO_RECURSO');
+    expect((await lotes(orgao.token).expect(200)).body.lotes[0].fase).toBe('RECURSOS');
+    // Janela aberta: RECURSOS; janela encerrada sem intenção: EM_ADJUDICACAO
+    const [j] = await ctx.dataSource.query(
+      `INSERT INTO janelas_intencao_recurso (sessao_id, licitacao_id, aberta_em, fecha_em, minutos) VALUES ($1, $2, now(), now() + interval '10 minutes', 10) RETURNING id`,
+      [sessaoId, licId],
+    );
+    expect((await lotes(orgao.token).expect(200)).body.lotes[0].fase).toBe('RECURSOS');
+    await ctx.dataSource.query(`UPDATE janelas_intencao_recurso SET aberta_em = now() - interval '20 minutes', fecha_em = now() - interval '10 minutes' WHERE id = $1`, [j.id]);
+    expect((await lotes(orgao.token).expect(200)).body.lotes[0].fase).toBe('EM_ADJUDICACAO');
   });
 
   test('quem não participa não vê a sala por fases', async () => {
