@@ -52,13 +52,20 @@ export class VisaoLotesService {
   private async recursosPendentes(licitacaoId: string): Promise<boolean> {
     const [r] = await this.ds.query(
       `SELECT (SELECT COUNT(*) FROM recursos_administrativos WHERE licitacao_id::text = $1 AND status::text = ANY($2::text[]))::int AS pendentes,
-              (SELECT COUNT(*) FROM janelas_intencao_recurso WHERE licitacao_id::text = $1 AND superada_em IS NULL AND fecha_em > now())::int AS janelas,
               (SELECT COUNT(*) FROM sessoes_disputa s
                 WHERE s.licitacao_id::text = $1 AND s.etapa::text = 'INTENCAO_RECURSO'
                   AND NOT EXISTS (SELECT 1 FROM janelas_intencao_recurso j WHERE j.licitacao_id::text = $1 AND j.superada_em IS NULL))::int AS aguarda_janela`,
       [licitacaoId, [...STATUS_RECURSO_PENDENTES]],
     );
-    return Number(r?.pendentes) > 0 || Number(r?.janelas) > 0 || Number(r?.aguarda_janela) > 0;
+    if (Number(r?.pendentes) > 0 || Number(r?.aguarda_janela) > 0) return true;
+    // O fim da janela é comparado aqui, como no serviço de recursos — e não com o now() do banco, cujo
+    // fuso pode diferir do servidor: no Railway a janela aberta aparecia como encerrada (pregão 2026/00072)
+    const janelas: Array<{ fecha_em: Date }> = await this.ds.query(
+      `SELECT fecha_em FROM janelas_intencao_recurso WHERE licitacao_id::text = $1 AND superada_em IS NULL`,
+      [licitacaoId],
+    );
+    const agora = Date.now();
+    return janelas.some((j) => new Date(j.fecha_em).getTime() > agora);
   }
 
   private async estadoDisputa(licitacaoId: string): Promise<Map<string, { status: string | null; iniciada: Date | null; encerrada: Date | null }>> {
