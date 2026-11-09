@@ -15,7 +15,6 @@ import { NegociacaoFornecedorPanel } from '../NegociacaoFornecedorPanel'
 import { RecursosFornecedorPanel } from '../RecursosFornecedorPanel'
 import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
 import { ChatLateral } from '../ChatLateral'
-import { LancesAoVivo } from '../LancesAoVivo'
 import { PainelLancesFornecedor } from './PainelLancesFornecedor'
 
 /**
@@ -68,6 +67,8 @@ export function SalaFornecedor({
     <PainelLancesFornecedor
       item={itemDoLote}
       contexto={contexto}
+      sessaoId={sessaoId}
+      atualizacao={board}
       meusLances={meusLances}
       enviandoLance={sendingBid}
       enviandoCancelamento={sendingCancel}
@@ -174,17 +175,11 @@ export function SalaFornecedor({
                   </>
                 )}
                 {['AGUARDANDO', 'DISPUTA'].includes(loteSel.fase) ? (
-                  <>
-                    {painelLances}
-                    <LancesAoVivo sessaoId={sessaoId} unidadeId={loteSel.id} atualizacao={board} />
-                  </>
+                  painelLances
                 ) : (
                   <details className="rounded-xl border border-slate-200 bg-white">
                     <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Lances deste lote (consulta)</summary>
-                    <div className="space-y-4 border-t p-3">
-                      <LancesAoVivo sessaoId={sessaoId} unidadeId={loteSel.id} atualizacao={board} />
-                      {painelLances}
-                    </div>
+                    <div className="border-t p-3">{painelLances}</div>
                   </details>
                 )}
               </section>
