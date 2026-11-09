@@ -430,7 +430,12 @@ export class RecursosService {
         base.minhaContrarrazao = cs.find((c) => c.fornecedor_id === visao.fornecedorId)?.id ?? null;
       }
       if (visao.tipo === 'ORGAO') {
-        base.podeAdmitir = r.status === StatusRecurso.INTENCAO;
+        // Admissibilidade só depois de encerrada a janela de intenção: o prazo das razões de todos
+        // os recorrentes conta do mesmo momento (ensaio do pregão 002/2026, 09/11/2026)
+        const janelaDoRecurso = janelas.find((j) => j.id === r.janela_id);
+        const janelaAberta = !!janelaDoRecurso && estadoJanela(janelaDoRecurso, agora) === 'ABERTA';
+        base.podeAdmitir = r.status === StatusRecurso.INTENCAO && !janelaAberta;
+        base.aguardaFimDaJanela = r.status === StatusRecurso.INTENCAO && janelaAberta ? janelaDoRecurso!.fecha_em : null;
         base.podeReconsiderar = r.status === StatusRecurso.EM_ANALISE;
         base.podeDecidirAutoridade = r.status === StatusRecurso.AGUARDANDO_AUTORIDADE;
       }
@@ -707,6 +712,7 @@ export class RecursosService {
       await exigirLicitacaoAtiva(m, pre.licitacao_id, { bloquear: true });
       const r = await this.recursoTravado(m, recursoId);
       if (r.status !== StatusRecurso.INTENCAO) throw new ConflictException('A intenção deste recurso já foi apreciada.');
+      await this.exigirJanelaEncerrada(m, r, agora);
       r.status = StatusRecurso.AGUARDANDO_RAZOES;
       r.intencao_aceita = true;
       r.intencao_decidida_em = agora;
@@ -742,6 +748,18 @@ export class RecursosService {
     return { id: r.id, status: r.status, prazoRazoes: r.prazo_razoes };
   }
 
+  /** A admissibilidade é decidida depois do fim da janela de intenção (todas as intenções conhecidas). */
+  private async exigirJanelaEncerrada(m: EntityManager, r: RecursoAdministrativo, agora: Date): Promise<void> {
+    if (!r.janela_id) return;
+    const j = await m.findOne(JanelaIntencaoRecurso, { where: { id: r.janela_id } });
+    if (j && estadoJanela(j, agora) === 'ABERTA') {
+      throw new ConflictException(
+        `A janela de intenção de recurso está aberta até ${dataHora(j.fecha_em)}: a admissibilidade é decidida depois dela, ` +
+          'com todas as intenções conhecidas (o prazo das razões conta do mesmo momento para todos).',
+      );
+    }
+  }
+
   /** Não admite a intenção — só por falta EVIDENTE de pressuposto, com motivo. */
   async recusar(recursoId: string, dados: { pressuposto?: string; motivo?: string }, ator: AtorRecurso) {
     const motivo = (dados.motivo ?? '').trim();
@@ -757,6 +775,7 @@ export class RecursosService {
       await exigirLicitacaoAtiva(m, pre.licitacao_id, { bloquear: true });
       const r = await this.recursoTravado(m, recursoId);
       if (r.status !== StatusRecurso.INTENCAO) throw new ConflictException('A intenção deste recurso já foi apreciada.');
+      await this.exigirJanelaEncerrada(m, r, new Date());
       r.status = StatusRecurso.NAO_CONHECIDO;
       r.intencao_aceita = false;
       r.motivo_recusa_intencao = motivo;

@@ -195,6 +195,14 @@ describe('E5 — recursos com efeito', () => {
       expect(JSON.stringify(adj.body)).toMatch(/Janela de intenção de recurso em curso|art\. 168/);
     });
 
+    test('com a janela aberta, a admissibilidade espera o fim dela (409) e o painel avisa', async () => {
+      const cedo = await http().post(`/api/recursos/${recursoA}/admitir`).set(bearer(pregoeira.token)).send({});
+      expect(cedo.status).toBe(409);
+      expect(cedo.body.message).toMatch(/janela de intenção de recurso está aberta/);
+      const p = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
+      expect(recursoDe(p, A.id)).toMatchObject({ podeAdmitir: false, aguardaFimDaJanela: expect.any(String) });
+    });
+
     test('encerrada a janela, a intenção preclui (409)', async () => {
       await encerrarJanelaNoRelogio(ctx, sessaoId);
       const tarde = await manifestarIntencao(ctx, sessaoId, D.token, { motivacao: 'Intenção depois do prazo', atoRecorrido: 'OUTRO' });

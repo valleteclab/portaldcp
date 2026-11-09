@@ -83,6 +83,8 @@ export interface Recurso {
   minhaContrarrazao?: string | null;
   // visão do órgão
   podeAdmitir?: boolean;
+  /** Intenção à espera do fim da janela para a admissibilidade (fim da janela). */
+  aguardaFimDaJanela?: string | null;
   podeReconsiderar?: boolean;
   podeDecidirAutoridade?: boolean;
 }
