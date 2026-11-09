@@ -89,8 +89,13 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
   // Ordem das buscas do quadro: cada lance dispara várias (novo_lance, lance_confirmado…) e o quadro
   // leva ~2 s; sem isso, uma resposta ANTIGA que chegasse por último sobrescrevia a nova e a tela
   // ficava no valor de antes do lance (ensaio do pregão com 2 lotes, 09/11/2026)
+  // Aplica a resposta mais nova que chegar, sem descartar uma busca só porque outra começou depois:
+  // com a resposta levando mais que o intervalo entre buscas (Railway, 09/11/2026), descartar assim
+  // fazia "Meus lances" nunca atualizar — ficava a lista do lote anterior (pregão 2026/00072)
   const ultimaBuscaBoardRef = useRef(0)
+  const boardAplicadoRef = useRef(0)
   const ultimaBuscaMeusLancesRef = useRef(0)
+  const meusLancesAplicadoRef = useRef(0)
 
   const refreshBoard = useCallback(
     async (resolvedSessaoId?: string) => {
@@ -106,8 +111,9 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       }
 
       const data = (await response.json()) as DisputaV3Board
-      // Resposta de uma busca mais antiga que outra já iniciada: descarta (a mais nova chega a seguir)
-      if (minhaBusca !== ultimaBuscaBoardRef.current) return
+      // Resposta mais antiga que a já aplicada: descarta
+      if (minhaBusca < boardAplicadoRef.current) return
+      boardAplicadoRef.current = minhaBusca
       setBoard(data)
       setSelectedItemId((current) => {
         if (current && [
@@ -137,7 +143,9 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       const res = await authFetch(`${API_URL}/api/disputa/sessao/${sid}/item/${iid}/lances-meus`, { cache: 'no-store' })
       if (!res.ok) return
       const data = (await res.json()) as DisputaV3LanceMeu[]
-      if (minhaBusca !== ultimaBuscaMeusLancesRef.current) return
+      // Mais antiga que a já aplicada, ou de outro item (o licitante trocou de lote): descarta
+      if (minhaBusca < meusLancesAplicadoRef.current || iid !== selectedItemIdRef.current) return
+      meusLancesAplicadoRef.current = minhaBusca
       setMeusLances(Array.isArray(data) ? data : [])
     },
     [area, sessaoId, carregarActor],

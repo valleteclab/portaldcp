@@ -53,8 +53,10 @@ export function ChatLateral({
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="min-h-0 flex-1 p-3">
-            <ChatSala mensagens={mensagens} onEnviar={onEnviar} enviando={enviando} habilitado={habilitado} descricao={descricao} placeholder={placeholder} altura="h-[calc(100vh-260px)]" />
+          {/* A lista de mensagens cede espaço ao campo e ao botão de envio: com 260 px de folga, numa tela
+              de 800 px o botão "Enviar mensagem" ficava fora da tela (gravação do pregão 2026/00072) */}
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <ChatSala mensagens={mensagens} onEnviar={onEnviar} enviando={enviando} habilitado={habilitado} descricao={descricao} placeholder={placeholder} altura="h-[max(160px,calc(100dvh-430px))]" />
           </div>
         </div>
       )}
