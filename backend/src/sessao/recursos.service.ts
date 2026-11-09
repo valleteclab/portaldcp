@@ -1,3 +1,4 @@
+import { orgaoComPrazosDeTeste } from '../common/prazos/prazos-de-teste';
 import {
   BadRequestException,
   ConflictException,
@@ -66,6 +67,9 @@ import {
 } from './regras-recursos';
 import { faseDaJanelaRecursal, resultadoDeclarado, situacoesDeResultado } from '../modalidades-especiais/perfil-modalidade';
 import { unidadesSemResultadoDeclaradoSql } from '../modalidades-especiais/resultado-declarado.sql';
+
+/** Ensaio na homologação: minutos para razões e para contrarrazões (órgãos de TESTE no Railway). */
+export const MINUTOS_RECURSO_DE_TESTE = 10;
 
 /** Arquivo das razões/contrarrazões (PDF/JPG/PNG, até 10 MB — mesmo padrão da proposta adequada). */
 export interface ArquivoRecurso {
@@ -163,6 +167,8 @@ export class RecursosService {
     return {
       // Calendário de feriados do órgão da licitação (art. 183, III — E7a)
       cal: calendarioDoOrgao(l?.orgao_id ?? null),
+      // Ensaio na homologação (órgão de TESTE no Railway): razões e contrarrazões em minutos
+      minutosDeTeste: orgaoComPrazosDeTeste(l?.orgao_id) ? MINUTOS_RECURSO_DE_TESTE : null,
       minutosIntencao: minutosDaJanela(p?.prazo_intencao_recurso_minutos),
       diasRazoes: Number(p?.prazo_recursal_dias_uteis) > 0 ? Number(p.prazo_recursal_dias_uteis) : DIAS_UTEIS_RAZOES_PADRAO,
       diasContrarrazoes:
@@ -706,7 +712,9 @@ export class RecursosService {
       r.intencao_decidida_em = agora;
       r.intencao_decidida_por_tipo = ator.tipo;
       r.intencao_decidida_por_id = ator.id;
-      r.prazo_razoes = prazoRazoes(agora, prazos.diasRazoes, prazos.cal);
+      r.prazo_razoes = prazos.minutosDeTeste
+        ? new Date(agora.getTime() + prazos.minutosDeTeste * 60_000)
+        : prazoRazoes(agora, prazos.diasRazoes, prazos.cal);
       await m.save(r);
       // Prazo recursal: licitação → RECURSO (idempotente para a 2ª intenção admitida)
       await this.transicoes.executar(r.licitacao_id, AtoLicitacao.ABRIR_PRAZO_RECURSAL, {
@@ -721,7 +729,9 @@ export class RecursosService {
         tipo: TipoEvento.INTENCAO_RECURSO_ACEITA,
         descricao:
           `Intenção de recurso de ${r.fornecedor_nome ?? r.fornecedor_id} ADMITIDA. Razões até ${dataHora(r.prazo_razoes)} ` +
-          `(${prazos.diasRazoes} dias úteis — art. 165 I); contrarrazões dos demais licitantes nos ${prazos.diasContrarrazoes} dias úteis seguintes (IN SEGES 73/2022, art. 40 §2º).`,
+          (prazos.minutosDeTeste
+            ? `(PRAZO DE TESTE da homologação: ${prazos.minutosDeTeste} min; contrarrazões nos ${prazos.minutosDeTeste} min seguintes — na produção, 3 + 3 dias úteis).`
+            : `(${prazos.diasRazoes} dias úteis — art. 165 I); contrarrazões dos demais licitantes nos ${prazos.diasContrarrazoes} dias úteis seguintes (IN SEGES 73/2022, art. 40 §2º).`),
         fornecedorId: r.fornecedor_id,
         usuario: ator.nome ?? 'Agente de contratação',
         sistema: false,
@@ -795,7 +805,9 @@ export class RecursosService {
       r.data_razoes = agora;
       r.status = StatusRecurso.CONTRARRAZOES;
       // Contrarrazões: 3 dias úteis do FIM do prazo das razões (IN 73 art. 40 §2º)
-      r.prazo_contrarrazoes = prazoContrarrazoes(new Date(r.prazo_razoes), prazos.diasContrarrazoes, prazos.cal);
+      r.prazo_contrarrazoes = prazos.minutosDeTeste
+        ? new Date(new Date(r.prazo_razoes).getTime() + prazos.minutosDeTeste * 60_000)
+        : prazoContrarrazoes(new Date(r.prazo_razoes), prazos.diasContrarrazoes, prazos.cal);
       if (dados.arquivo?.buffer?.length) {
         const a = this.metaArquivo(dados.arquivo, 'razoes');
         r.razoes_arquivo_nome = a.nome;

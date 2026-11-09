@@ -421,6 +421,48 @@ describe('E5 — recursos com efeito', () => {
     });
   });
   // ==========================================================================
+  // Ensaio na homologação (decisão do dono, 08/11/2026): órgão de TESTE no Railway testa o recurso
+  // sem esperar os dias úteis — razões e contrarrazões em minutos. Fora do Railway nada muda (cenários A e B).
+  describe('D. prazos de teste (órgão de teste no Railway)', () => {
+    const envAntes = { proj: process.env.RAILWAY_PROJECT_ID, orgs: process.env.PRAZOS_DE_TESTE_ORGAOS };
+    afterAll(() => {
+      for (const [k, v] of [['RAILWAY_PROJECT_ID', envAntes.proj], ['PRAZOS_DE_TESTE_ORGAOS', envAntes.orgs]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+
+    test('razões e contrarrazões em 10 minutos cada; a ata diz que é prazo de teste', async () => {
+      const { licId, sessaoId, item } = await pregaoJulgado();
+      await aceitarPropostaDaUnidade(ctx, sessaoId, item, orgao.token, A.token);
+      await habilitarLicitante(ctx, licId, A, orgao.token);
+      expect((await abrirJanelaIntencao(ctx, sessaoId, orgao.token)).status).toBe(201);
+      const d = await manifestarIntencao(ctx, sessaoId, D.token, {
+        motivacao: 'O atestado técnico de A não comprova a quantidade exigida',
+        atoRecorrido: 'HABILITACAO_TERCEIRO',
+        fornecedorAlvoId: A.id,
+      });
+      expect(d.status).toBe(201);
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      process.env.RAILWAY_PROJECT_ID = 'projeto-de-teste';
+      process.env.PRAZOS_DE_TESTE_ORGAOS = orgao.id;
+      const antes = Date.now();
+      const adm = await http().post(`/api/recursos/${d.body.id}/admitir`).set(bearer(pregoeira.token)).send({});
+      expect(adm.status).toBe(201);
+      const razoes = new Date(adm.body.prazoRazoes).getTime();
+      expect(razoes - antes).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+      expect(razoes - antes).toBeLessThan(11 * 60_000);
+      const env = await enviarPeca(ctx, d.body.id, 'razoes', D.token, 'O atestado de A comprova só metade da quantidade exigida no edital.', null);
+      expect(env.status).toBe(201);
+      expect(new Date(env.body.prazoContrarrazoes).getTime() - razoes).toBe(10 * 60_000);
+      const [ev] = await q(
+        `SELECT descricao FROM eventos_sessao WHERE sessao_id = $1 AND descricao LIKE '%ADMITIDA%' ORDER BY created_at DESC LIMIT 1`,
+        [sessaoId],
+      );
+      expect(ev.descricao).toMatch(/PRAZO DE TESTE da homologação: 10 min/);
+    });
+  });
+
   describe('C. migração do fluxo antigo (idempotente)', () => {
     test('intenções por evento, janelas e contrarrazões JSON vão ao modelo novo; rodar de novo não duplica', async () => {
       const { sessaoId, licId } = await pregaoJulgado();
