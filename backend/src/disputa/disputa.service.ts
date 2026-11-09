@@ -1341,7 +1341,11 @@ export class DisputaService {
         },
       );
 
-      await m.update(SessaoDisputa, sessaoId, { status: StatusSessao.AGUARDANDO_INICIO, etapa: EtapaSessao.ANALISE_PROPOSTAS });
+      // A sessão pública CONTINUA aberta: só a etapa de lances recomeça. Antes voltava a
+      // AGUARDANDO_INICIO e a tela da pregoeira caía na abertura da sessão, com conferências
+      // que já não passam (licitação em julgamento, propostas classificadas) — sessão travada
+      // (ensaio do pregão 002/2026, 09/11/2026)
+      await m.update(SessaoDisputa, sessaoId, { status: StatusSessao.EM_ANDAMENTO, etapa: EtapaSessao.ANALISE_PROPOSTAS });
       await this.lotes.reiniciarLotes(m, sessao.licitacao_id);
       // Julgamento (E3) recomeça: convocações de aceitação canceladas, situações descartadas
       await reiniciarJulgamentoDaLicitacao(m, sessao.licitacao_id, motivo);
