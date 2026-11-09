@@ -107,6 +107,20 @@ export class JulgamentoController {
     return this.visaoLotes.visao(sessaoId, licitacaoId, { tipo: 'ORGAO' });
   }
 
+  /** Lances ao vivo da unidade: colocação de todos e últimos lances, com as identidades em código até o fim dos lances. */
+  @OrgaoOuFornecedor()
+  @Get('sessao/:sessaoId/lotes/:unidadeId/lances')
+  async lancesAoVivo(@Param('sessaoId') sessaoId: string, @Param('unidadeId') unidadeId: string, @AtorAtual() ator: Ator) {
+    this.exigirIds(unidadeId);
+    const licitacaoId = await this.licitacaoDaSessao(sessaoId);
+    if (ehFornecedor(ator)) {
+      const fornecedorId = await this.acesso.assertFornecedorParticipa(ator, licitacaoId);
+      return this.visaoLotes.lancesAoVivo(sessaoId, licitacaoId, unidadeId, { tipo: 'FORNECEDOR', fornecedorId });
+    }
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    return this.visaoLotes.lancesAoVivo(sessaoId, licitacaoId, unidadeId, { tipo: 'ORGAO' });
+  }
+
   /** Classificação da unidade (troféu): todos os participantes e os anexos visíveis a quem olha. */
   @OrgaoOuFornecedor()
   @Get('sessao/:sessaoId/lotes/:unidadeId/classificacao')

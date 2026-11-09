@@ -17,7 +17,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { authFetch } from '@/lib/api'
 
 export function useConsultaAoVivo<T>(
-  url: string,
+  /** `null` = nada a consultar agora (a consulta fica parada). */
+  url: string | null,
   gatilho: unknown,
   { intervaloMs = 20_000, minimoMs = 3_000, aoReceber }: { intervaloMs?: number; minimoMs?: number; aoReceber?: (dados: T) => void } = {},
 ): [T | null, (dados: T) => void] {
@@ -33,6 +34,7 @@ export function useConsultaAoVivo<T>(
   }, [aoReceber])
 
   const buscar = useCallback(() => {
+    if (!url) return
     ultimaBusca.current = Date.now()
     const n = ++pedidos.current
     authFetch(url, { cache: 'no-store' })

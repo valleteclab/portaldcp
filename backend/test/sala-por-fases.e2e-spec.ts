@@ -51,6 +51,32 @@ describe('Sala por fases', () => {
     expect(a.lotes[0]).toMatchObject({ minhaPosicao: 1, vencendo: true });
   });
 
+  test('lances ao vivo: colocação de todos e últimos lances, em código para os licitantes', async () => {
+    const lances = (token: string) => http().get(`/api/julgamento/sessao/${sessaoId}/lotes/${item}/lances`).set(bearer(token));
+    let b = (await lances(B.token).expect(200)).body;
+    expect(b.identidades).toBe(false);
+    expect(b.classificacao.map((c: any) => [c.posicao, c.souEu, c.melhorValor])).toEqual([[1, false, 90], [2, true, 95]]);
+    // O outro licitante aparece só pelo código; nenhuma razão social vaza
+    expect(JSON.stringify(b)).not.toContain(A.razao_social);
+    expect(b.classificacao[0].participante).toMatch(/^Fornecedor /);
+    expect(b.lances).toHaveLength(2);
+    // B cobre: passa a 1º, e A vê a própria queda para 2º com o valor do líder
+    expect((await http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(B.token)).send({ itemId: item, valor: 88 })).status).toBe(201);
+    const a = (await lances(A.token).expect(200)).body;
+    expect(a.classificacao.map((c: any) => [c.posicao, c.souEu, c.melhorValor])).toEqual([[1, false, 88], [2, true, 90]]);
+    expect(a.lances[0]).toMatchObject({ valor: 88, souEu: false, origem: 'LANCE', posicaoAtual: 1 });
+    expect(JSON.stringify(a)).not.toContain(B.razao_social);
+    // A retoma a liderança (os testes seguintes esperam A em 1º)
+    expect((await http().post(`/api/disputa/sessao/${sessaoId}/lance`).set(bearer(A.token)).send({ itemId: item, valor: 87 })).status).toBe(201);
+    b = (await lances(B.token).expect(200)).body;
+    expect(b.classificacao.map((c: any) => [c.posicao, c.souEu, c.melhorValor])).toEqual([[1, false, 87], [2, true, 88]]);
+    expect(b.lances).toHaveLength(4);
+    // Órgão vê; quem não participa, não
+    expect((await lances(orgao.token).expect(200)).body.classificacao).toHaveLength(2);
+    const X = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+    expect((await lances(X.token)).status).toBe(403);
+  });
+
   test('encerrado: aceitação → habilitação; anexos de A só para os outros depois da decisão', async () => {
     expect((await http().post(`/api/disputa/sessao/${sessaoId}/encerrar-item/${item}`).set(bearer(orgao.token))).status).toBe(201);
     expect((await lotes(orgao.token).expect(200)).body.lotes[0].fase).toBe('JULGAMENTO');

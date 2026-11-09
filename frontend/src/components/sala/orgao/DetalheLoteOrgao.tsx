@@ -14,6 +14,7 @@ import { DesempatePanel } from '../DesempatePanel'
 import { HabilitacaoPanel } from '../HabilitacaoPanel'
 import { NegociacaoPanel } from '../NegociacaoPanel'
 import { RecursosPanel } from '../RecursosPanel'
+import { LancesAoVivo } from '../LancesAoVivo'
 import type { LoteVisao } from '../SalaPorFases'
 import type { DisputaV3Contexto, DisputaV3ItemBoard } from '../types'
 import { formatarMoeda } from '../utils'
@@ -53,7 +54,13 @@ export function DetalheLoteOrgao({
   const pos = ORDEM.indexOf(lote.fase)
   const passou = (fase: string) => pos > ORDEM.indexOf(fase)
   const rotulo = lote.tipo === 'ITEM' ? 'Item' : 'Lote'
-  const lances = item ? <ItemEmFocoOrgao item={item} contexto={contexto} onEncerrar={onEncerrar} onReiniciarDemais={onReiniciarDemais} /> : null
+  const lances = item ? (
+    <>
+      <ItemEmFocoOrgao item={item} contexto={contexto} onEncerrar={onEncerrar} onReiniciarDemais={onReiniciarDemais} />
+      {/* Colocação de todos e últimos lances (o `item` muda a cada atualização do quadro) */}
+      <LancesAoVivo sessaoId={sessaoId} unidadeId={lote.id} atualizacao={item} />
+    </>
+  ) : null
 
   let principal: ReactNode = null
   switch (lote.fase) {

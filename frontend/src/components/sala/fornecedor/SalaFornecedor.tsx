@@ -67,6 +67,8 @@ export function SalaFornecedor({
     <PainelLancesFornecedor
       item={itemDoLote}
       contexto={contexto}
+      sessaoId={sessaoId}
+      atualizacao={board}
       meusLances={meusLances}
       enviandoLance={sendingBid}
       enviandoCancelamento={sendingCancel}
@@ -176,7 +178,7 @@ export function SalaFornecedor({
                   painelLances
                 ) : (
                   <details className="rounded-xl border border-slate-200 bg-white">
-                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Meus lances neste lote (consulta)</summary>
+                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Lances deste lote (consulta)</summary>
                     <div className="border-t p-3">{painelLances}</div>
                   </details>
                 )}
