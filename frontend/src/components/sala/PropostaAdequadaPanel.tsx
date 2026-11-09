@@ -1,5 +1,7 @@
 'use client'
 
+import { lerValorMonetario } from '@/lib/moeda'
+import { InputMoeda } from '@/components/ui/input-moeda'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, FileUp, RefreshCw, Send, XCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
@@ -65,7 +67,7 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
   const [erro, setErro] = useState<string | null>(null)
 
   const linhas = c.limites.itens.map((i) => {
-    const unit = Number(String(valores[i.itemId] ?? '').replace(',', '.'))
+    const unit = lerValorMonetario(String(valores[i.itemId] ?? ''))
     const total = Number.isFinite(unit) ? arred(arred(unit, 4) * (i.quantidade || 1), 2) : 0
     const acima = i.valorMaximoTotal != null && total > i.valorMaximoTotal + 0.005
     return { ...i, unit, total, acima }
@@ -121,9 +123,8 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
                 </td>
                 <td className="py-1 text-right">{l.quantidade}</td>
                 <td className="py-1 text-right">
-                  <Input
+                  <InputMoeda
                     className="ml-auto w-32 text-right"
-                    inputMode="decimal"
                     value={valores[l.itemId] ?? ''}
                     onChange={(e) => setValores((v) => ({ ...v, [l.itemId]: e.target.value }))}
                   />

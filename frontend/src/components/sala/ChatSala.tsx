@@ -50,19 +50,19 @@ export function ChatSala({
         {descricao && <CardDescription>{descricao}</CardDescription>}
       </CardHeader>
       <CardContent className="space-y-4">
-        <ScrollArea className={`${altura} pr-3`}>
+        <ScrollArea className={`${altura} pr-3 [&_[data-radix-scroll-area-viewport]>div]:!block`}>
           <div className="space-y-3">
             {mensagens.length === 0 ? (
               <div className="rounded-lg border border-dashed px-3 py-5 text-sm text-slate-400">Nenhuma mensagem ainda.</div>
             ) : (
               mensagens.map((mensagem, index) => (
-                <div key={`${mensagem.remetente}-${index}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div key={`${mensagem.remetente}-${index}`} className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <Badge variant="outline">{mensagem.tipo}</Badge>
-                    <span className="text-xs text-slate-400">{new Date(mensagem.dataHora).toLocaleTimeString('pt-BR')}</span>
+                    <span className="text-xs text-slate-400">{new Date(mensagem.dataHora).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</span>
                   </div>
                   <div className="text-sm font-medium text-slate-800">{mensagem.remetente}</div>
-                  <div className="mt-1 text-sm text-slate-600">{mensagem.conteudo}</div>
+                  <div className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-600 [overflow-wrap:anywhere]">{mensagem.conteudo}</div>
                 </div>
               ))
             )}

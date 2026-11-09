@@ -1,5 +1,7 @@
 'use client'
 
+import { lerValorMonetario } from '@/lib/moeda'
+import { InputMoeda } from '@/components/ui/input-moeda'
 import { useCallback, useEffect, useState } from 'react'
 import { Scale, Send, ShieldCheck } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
@@ -82,7 +84,7 @@ export function DisputaFinalPanel({ sessaoId }: { sessaoId: string }) {
     setOcupado(true)
     setErro(null)
     try {
-      const valor = Number(String(valores[confirmar.id] ?? '').replace(',', '.'))
+      const valor = lerValorMonetario(String(valores[confirmar.id] ?? ''))
       const res = await authFetch(`${API_URL}/api/julgamento/sessao/${sessaoId}/desempate/${confirmar.id}/oferta`, {
         method: 'POST',
         body: JSON.stringify({ valor }),
@@ -136,11 +138,10 @@ export function DisputaFinalPanel({ sessaoId }: { sessaoId: string }) {
               <div className="flex flex-wrap items-end gap-2 rounded bg-blue-50 p-2">
                 <div className="w-40">
                   <label className="text-xs text-slate-600">Nova proposta (R$)</label>
-                  <Input
-                    inputMode="decimal"
+                  <InputMoeda
                     value={valores[d.id] ?? ''}
                     onChange={(e) => setValores((v) => ({ ...v, [d.id]: e.target.value }))}
-                    placeholder="0,00"
+                    placeholder="R$ 0,00"
                   />
                 </div>
                 <Button size="sm" disabled={!valores[d.id]} onClick={() => setConfirmar(d)}>
@@ -196,7 +197,7 @@ export function DisputaFinalPanel({ sessaoId }: { sessaoId: string }) {
           <DialogHeader>
             <DialogTitle>Confirmar nova proposta</DialogTitle>
             <DialogDescription>
-              A nova proposta da disputa final é única e não pode ser alterada: {formatarMoeda(Number(String(valores[confirmar?.id ?? ''] ?? '').replace(',', '.')) || 0)}.
+              A nova proposta da disputa final é única e não pode ser alterada: {formatarMoeda(lerValorMonetario(String(valores[confirmar?.id ?? ''] ?? '')) || 0)}.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
