@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputaService } from './disputa.service';
 import { SigiloDisputaService } from './sigilo-disputa.service';
+import { FilaDisputaService } from './fila-disputa.service';
 import { DisputaGateway } from './disputa.gateway';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import {
@@ -41,6 +42,7 @@ export class DisputaController {
     private readonly acesso: AcessoLicitacaoService,
     private readonly sigilo: SigiloDisputaService,
     private readonly gateway: DisputaGateway,
+    private readonly fila: FilaDisputaService,
   ) {}
 
   /** Licitação da sessão (404 se não existe). */
@@ -170,6 +172,28 @@ export class DisputaController {
   // ============================================================================
   // AÇÕES DO PREGOEIRO (alternativa ao WebSocket) — só o órgão dono
   // ============================================================================
+
+  // Fila automática (dono, 09/11/2026): até N unidades simultâneas, aviso prévio, ordem da numeração
+  @SomenteOrgao()
+  @Get('sessao/:sessaoId/fila')
+  async estadoFila(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    return this.fila.estado(sessaoId);
+  }
+
+  @SomenteOrgao()
+  @Post('sessao/:sessaoId/fila')
+  async ligarFila(@Param('sessaoId') sessaoId: string, @Body() body: { maxSimultaneos?: number; avisoMinutos?: number }, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    return this.fila.ligar(sessaoId, body ?? {}, atorTransicaoDe(ator));
+  }
+
+  @SomenteOrgao()
+  @Post('sessao/:sessaoId/fila/desligar')
+  async desligarFila(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    return this.fila.desligar(sessaoId);
+  }
 
   @SomenteOrgao()
   @Post('sessao/:sessaoId/iniciar-itens')

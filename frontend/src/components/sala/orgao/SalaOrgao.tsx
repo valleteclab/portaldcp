@@ -13,6 +13,7 @@ import { FilaOperacional } from './FilaOperacional'
 import { ItemEmFocoOrgao } from './ItemEmFocoOrgao'
 import { PainelEtapaOrgao } from './PainelEtapaOrgao'
 import { SalaPorFases } from '../SalaPorFases'
+import { FilaAutomaticaBarra } from './FilaAutomaticaBarra'
 import { DialogoJustificativa, DialogoSuspender } from './DialogosSalaOrgao'
 
 /**
@@ -192,6 +193,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               onSelecionar={setSelectedItemId}
               atualizacao={board}
             />
+            <FilaAutomaticaBarra sessaoId={sessaoId} atualizacao={board} />
 
             {board?.solicitacoesCancelamento && board.solicitacoesCancelamento.length > 0 && (
               <Card className="border-amber-200 bg-amber-50/50">
