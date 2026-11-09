@@ -59,6 +59,8 @@ import { MigracaoHabilitacaoBootService } from '../src/habilitacao/migracao-habi
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const diaMais = (dias: number) => new Date(Date.now() + dias * 86_400_000).toISOString().slice(0, 10);
 
+const MOTIVACAO = 'Habilitação prévia evita analisar em sequência propostas de licitantes inabilitados e encurta a sessão.';
+
 describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
   let ctx: AppE2E;
   const http = () => ctx.http();
@@ -143,18 +145,27 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect((await http().get(`/api/habilitacao/licitacao/${lic.id}/exigencias`).expect(200)).body.editavel).toBe(false);
     });
 
-    test('inversão de fases só na concorrência e só antes da publicação (art. 17 §1º)', async () => {
+    test('inversão de fases no pregão e na concorrência, motivada e só antes da publicação (art. 17 §1º)', async () => {
       const orgao = await criarOrgao(ctx, { nome: 'Prefeitura Inversão Config E4' });
-      const pregao = await http()
-        .post('/api/licitacoes')
-        .set(bearer(orgao.token))
-        .send({ numero_processo: `E4-INV-${Date.now()}`, orgao_id: orgao.id, objeto: 'Teste', modalidade: 'PREGAO_ELETRONICO', inversao_fases: true });
-      expect(pregao.status).toBe(400);
-      const lic = await criarLicitacao(ctx, orgao, ModalidadeLicitacao.CONCORRENCIA, { extras: { inversao_fases: true } });
-      expect((await buscarLicitacao(ctx, lic)).inversao_fases).toBe(true);
+      const criar = (modalidade: string, extras: Record<string, unknown>) =>
+        http()
+          .post('/api/licitacoes')
+          .set(bearer(orgao.token))
+          .send({ numero_processo: `E4-INV-${Date.now()}-${Math.random()}`, orgao_id: orgao.id, objeto: 'Teste', modalidade, tipo_contratacao: 'COMPRA', criterio_julgamento: 'MENOR_PRECO', inversao_fases: true, ...extras });
+      // Sem motivação (ato motivado com os benefícios) → 400
+      const semMotivo = await criar('PREGAO_ELETRONICO', {});
+      expect(semMotivo.status).toBe(400);
+      expect(semMotivo.body.message).toMatch(/motivação/);
+      // Fora de pregão/concorrência → 400
+      expect((await criar('DISPENSA_ELETRONICA', { inversao_fases_motivacao: MOTIVACAO })).status).toBe(400);
+      const lic = await criarLicitacao(ctx, orgao, ModalidadeLicitacao.PREGAO_ELETRONICO, { extras: { inversao_fases: true, inversao_fases_motivacao: MOTIVACAO } });
+      const gravada = await buscarLicitacao(ctx, lic);
+      expect(gravada).toMatchObject({ inversao_fases: true, inversao_fases_motivacao: MOTIVACAO });
+      // Apagar a motivação na fase interna → 400
+      expect((await http().put(`/api/licitacoes/${lic.id}`).set(bearer(orgao.token)).send({ inversao_fases_motivacao: '' })).status).toBe(400);
       await levarAteFase(ctx, lic, FaseLicitacao.PUBLICADO);
-      const r = await http().put(`/api/licitacoes/${lic.id}`).set(bearer(orgao.token)).send({ inversao_fases: false });
-      expect(r.status).toBe(409);
+      expect((await http().put(`/api/licitacoes/${lic.id}`).set(bearer(orgao.token)).send({ inversao_fases: false })).status).toBe(409);
+      expect((await http().put(`/api/licitacoes/${lic.id}`).set(bearer(orgao.token)).send({ inversao_fases_motivacao: MOTIVACAO + ' Alterada.' })).status).toBe(409);
     });
   });
 
@@ -510,7 +521,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
   });
 
   // --------------------------------------------------------------------------
-  describe('D. inversão de fases (concorrência — art. 17 §1º): só os habilitados disputam', () => {
+  describe.each([ModalidadeLicitacao.CONCORRENCIA, ModalidadeLicitacao.PREGAO_ELETRONICO])('D. inversão de fases (%s — art. 17 §1º): só os habilitados disputam', (modalidade) => {
     let orgao: OrgaoFixture;
     let F1: FornecedorFixture;
     let F2: FornecedorFixture;
@@ -521,17 +532,17 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
     let propostas: Record<string, string>;
 
     beforeAll(async () => {
-      orgao = await criarOrgao(ctx, { nome: 'Prefeitura Concorrência Inversão E4' });
+      orgao = await criarOrgao(ctx, { nome: `Prefeitura Inversão E4 ${modalidade}` });
       F1 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
       F2 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
       F3 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
       intruso = await criarFornecedor(ctx, { porte: 'DEMAIS' });
       await documentoNoCadastro(ctx, F2.id, { tipo: 'CND_RECEITA_FEDERAL_PGFN', data_validade: diaMais(60) });
-      lic = await criarLicitacao(ctx, orgao, ModalidadeLicitacao.CONCORRENCIA, {
+      lic = await criarLicitacao(ctx, orgao, modalidade, {
         modo_disputa: ModoDisputa.ABERTO,
         criterio: CriterioJulgamento.MENOR_PRECO,
         itens: [{ descricao: 'Serviço de manutenção predial', quantidade: 1, valor_unitario_estimado: 1000 }],
-        extras: { inversao_fases: true },
+        extras: { inversao_fases: true, inversao_fases_motivacao: MOTIVACAO },
       });
       await levarAteFase(ctx, lic, FaseLicitacao.ACOLHIMENTO_PROPOSTAS);
       propostas = {};

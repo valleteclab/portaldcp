@@ -222,9 +222,17 @@ describe('Habilitação — regras puras (plano E4)', () => {
     });
 
     test('inversão de fases só na concorrência e só antes da publicação', () => {
+      const mot = 'Habilitação prévia reduz recursos na fase de lances e evita retrabalho.';
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'DISPENSA_ELETRONICA', motivacaoFinal: mot })?.status).toBe(400);
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'PREGAO_ELETRONICO', motivacaoFinal: mot })).toBeNull();
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'CONCORRENCIA', faseAtual: 'APROVACAO_INTERNA', motivacaoFinal: mot })).toBeNull();
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'CONCORRENCIA', faseAtual: 'PUBLICADO', motivacaoFinal: mot })?.status).toBe(409);
+      // Motivação obrigatória ao ligar; já ligada sem motivação (legado) não trava outras edições
       expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'PREGAO_ELETRONICO' })?.status).toBe(400);
-      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'CONCORRENCIA', faseAtual: 'APROVACAO_INTERNA' })).toBeNull();
-      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'CONCORRENCIA', faseAtual: 'PUBLICADO' })?.status).toBe(409);
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: false, modalidadeFinal: 'PREGAO_ELETRONICO', motivacaoFinal: 'curta' })?.status).toBe(400);
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: true, modalidadeFinal: 'PREGAO_ELETRONICO', faseAtual: 'PLANEJAMENTO' })).toBeNull();
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: true, modalidadeFinal: 'PREGAO_ELETRONICO', faseAtual: 'PLANEJAMENTO', motivacaoFinal: '', motivacaoAlterada: true })?.status).toBe(400);
+      expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: true, modalidadeFinal: 'PREGAO_ELETRONICO', faseAtual: 'PUBLICADO', motivacaoFinal: mot + '!', motivacaoAlterada: true })?.status).toBe(409);
       expect(motivoInversaoInvalida({ inversaoFinal: true, inversaoAtual: true, modalidadeFinal: 'CONCORRENCIA', faseAtual: 'PUBLICADO' })).toBeNull();
     });
   });

@@ -199,11 +199,12 @@ export class LicitacoesService {
     if (createDto.natureza_objeto !== undefined) {
       createDto.natureza_objeto = this.naturezaValida(createDto.natureza_objeto);
     }
-    // Inversão de fases (art. 17 §1º; plano E4): só concorrência
+    // Inversão de fases (art. 17 §1º; plano E4): pregão e concorrência, com motivação
     const vedacaoInversao = motivoInversaoInvalida({
       inversaoFinal: !!(createDto as any).inversao_fases,
-      inversaoAtual: !!(createDto as any).inversao_fases,
+      inversaoAtual: false,
       modalidadeFinal: createDto.modalidade,
+      motivacaoFinal: (createDto as any).inversao_fases_motivacao,
     });
     if (vedacaoInversao) throw new BadRequestException(vedacaoInversao.mensagem);
     // Nº do processo administrativo: digitado (único no órgão → 409) ou gerado
@@ -763,15 +764,20 @@ export class LicitacoesService {
       dadosLicitacao.modo_disputa ?? licitacao.modo_disputa,
     );
     if (vedacaoModalidade) throw new BadRequestException(vedacaoModalidade);
-    // Inversão de fases (art. 17 §1º; plano E4): só concorrência, definida antes da publicação
+    // Inversão de fases (art. 17 §1º; plano E4): pregão e concorrência, motivada, definida antes da publicação
     if (dadosLicitacao.inversao_fases !== undefined) {
       dadosLicitacao.inversao_fases = dadosLicitacao.inversao_fases === true || dadosLicitacao.inversao_fases === 'true';
     }
+    const motivacaoAlterada =
+      dadosLicitacao.inversao_fases_motivacao !== undefined &&
+      (dadosLicitacao.inversao_fases_motivacao ?? '') !== (licitacao.inversao_fases_motivacao ?? '');
     const vedacaoInversao = motivoInversaoInvalida({
       inversaoFinal: !!(dadosLicitacao.inversao_fases ?? licitacao.inversao_fases),
       inversaoAtual: !!licitacao.inversao_fases,
       modalidadeFinal: dadosLicitacao.modalidade ?? licitacao.modalidade,
       faseAtual: licitacao.fase,
+      motivacaoFinal: dadosLicitacao.inversao_fases_motivacao !== undefined ? dadosLicitacao.inversao_fases_motivacao : licitacao.inversao_fases_motivacao,
+      motivacaoAlterada,
     });
     if (vedacaoInversao) {
       if (vedacaoInversao.status === 409) throw new ConflictException(vedacaoInversao.mensagem);
