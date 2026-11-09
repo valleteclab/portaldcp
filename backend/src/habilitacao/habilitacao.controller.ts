@@ -20,6 +20,9 @@ import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { HabilitacaoService, TAMANHO_MAXIMO_DOCUMENTO } from './habilitacao.service';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { anexoVisivel } from '../julgamento/visao-lotes.regras';
 
 /**
  * HABILITAÇÃO (plano E4) — rotas em /api/habilitacao.
@@ -39,6 +42,7 @@ export class HabilitacaoController {
   constructor(
     private readonly habilitacao: HabilitacaoService,
     private readonly acesso: AcessoLicitacaoService,
+    @InjectDataSource() private readonly ds: DataSource,
   ) {}
 
   private exigirIds(...ids: string[]) {
@@ -231,7 +235,12 @@ export class HabilitacaoController {
   // Arquivo
   // --------------------------------------------------------------------------
 
-  /** Arquivo do documento: órgão dono ou o próprio licitante. */
+  /**
+   * Arquivo do documento: órgão dono, o próprio licitante e — com o resultado da
+   * habilitação daquele licitante (habilitado ou inabilitado) — os demais
+   * licitantes da licitação (dono, 09/11/2026: "os documentos devem ser vistos
+   * por todos, depois da habilitação").
+   */
   @OrgaoOuFornecedor()
   @Get('documentos/:documentoId/arquivo')
   async arquivo(@Param('documentoId') documentoId: string, @AtorAtual() ator: Ator) {
@@ -239,8 +248,20 @@ export class HabilitacaoController {
     const dono = await this.habilitacao.donoDoDocumento(documentoId);
     if (!dono) throw new NotFoundException('Documento não encontrado');
     if (ehFornecedor(ator)) {
-      // documento de outro licitante: 404 (não revela a existência)
-      if (this.acesso.fornecedorDoToken(ator) !== dono.fornecedorId) throw new NotFoundException('Documento não encontrado');
+      const eu = this.acesso.fornecedorDoToken(ator);
+      if (eu !== dono.fornecedorId) {
+        // documento de outro licitante: só decidido e para quem participa; senão 404 (não revela a existência)
+        await this.acesso.assertFornecedorParticipa(ator, dono.licitacaoId).catch(() => {
+          throw new NotFoundException('Documento não encontrado');
+        });
+        const [h] = await this.ds.query(
+          `SELECT h.status::text AS status FROM documentos_habilitacao d JOIN habilitacoes_licitante h ON h.id = d.habilitacao_id WHERE d.id::text = $1`,
+          [documentoId],
+        );
+        if (!anexoVisivel({ tipo: 'HABILITACAO', souOrgao: false, souDono: false, statusHabilitacao: h?.status })) {
+          throw new NotFoundException('Documento não encontrado');
+        }
+      }
     } else {
       await this.acesso.assertOrgaoDaLicitacao(ator, dono.licitacaoId, 'leitura');
     }

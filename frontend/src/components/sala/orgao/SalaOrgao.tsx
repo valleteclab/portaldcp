@@ -12,6 +12,7 @@ import { formatarMoeda, getStatusBadgeClass, getStatusLabel, rotuloModo } from '
 import { FilaOperacional } from './FilaOperacional'
 import { ItemEmFocoOrgao } from './ItemEmFocoOrgao'
 import { PainelEtapaOrgao } from './PainelEtapaOrgao'
+import { SalaPorFases } from '../SalaPorFases'
 import { DialogoJustificativa, DialogoSuspender } from './DialogosSalaOrgao'
 
 /**
@@ -182,32 +183,15 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               </Card>
             )}
 
-            <div className="grid gap-4 md:grid-cols-4">
-              <Card>
-                <CardHeader>
-                  <CardDescription>Aguardando</CardDescription>
-                  <CardTitle>{board?.metricas.totalAguardando || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Em disputa</CardDescription>
-                  <CardTitle>{board?.metricas.totalEmDisputa || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Encerrados</CardDescription>
-                  <CardTitle>{board?.metricas.totalEncerrados || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Base legal da cronometria</CardDescription>
-                  <CardTitle className="text-base">{contexto?.cronometria.baseLegal || '-'}</CardTitle>
-                </CardHeader>
-              </Card>
-            </div>
+            {/* Lotes por fase (abas), 1º colocado, melhor lance e a classificação (troféu) — dono, 09/11/2026 */}
+            <SalaPorFases
+              sessaoId={sessaoId}
+              area="orgao"
+              itensAoVivo={[...emDisputa, ...aguardando, ...encerrados]}
+              selecionadoId={itemFoco?.id ?? null}
+              onSelecionar={setSelectedItemId}
+              atualizacao={board}
+            />
 
             {board?.solicitacoesCancelamento && board.solicitacoesCancelamento.length > 0 && (
               <Card className="border-amber-200 bg-amber-50/50">

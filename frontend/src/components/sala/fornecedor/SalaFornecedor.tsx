@@ -16,6 +16,7 @@ import { DisputaFinalPanel } from '../DisputaFinalPanel'
 import { HabilitacaoFornecedorPanel } from '../HabilitacaoFornecedorPanel'
 import { NegociacaoFornecedorPanel } from '../NegociacaoFornecedorPanel'
 import { RecursosFornecedorPanel } from '../RecursosFornecedorPanel'
+import { SalaPorFases } from '../SalaPorFases'
 import { PainelLancesFornecedor } from './PainelLancesFornecedor'
 
 /**
@@ -110,6 +111,16 @@ export function SalaFornecedor({
                 <CardContent className="py-4 text-sm text-red-700">{actionError}</CardContent>
               </Card>
             )}
+
+            {/* Meus lotes por fase, Vencendo × Perdendo, e a classificação (troféu) — dono, 09/11/2026 */}
+            <SalaPorFases
+              sessaoId={sessaoId}
+              area="fornecedor"
+              itensAoVivo={itens}
+              selecionadoId={itemFoco?.id ?? null}
+              onSelecionar={setSelectedItemId}
+              atualizacao={board}
+            />
 
             {/* Painéis pós-disputa: cada um só aparece quando este licitante tem algo a fazer/ver */}
             <DesempateMeEppFornecedorPanel sessaoId={sessaoId} />
