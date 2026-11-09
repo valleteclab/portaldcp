@@ -1005,15 +1005,29 @@ export class RecursosService {
 
   /**
    * Autoridade superior: conta do ÓRGÃO (ato próprio, com nome e cargo da
-   * autoridade) ou usuário ADMIN do órgão — nunca o mesmo usuário que
-   * praticou a reconsideração (segregação de funções, art. 7º §1º).
+   * autoridade), usuário ADMIN do órgão ou o usuário que o órgão designou
+   * como AUTORIDADE (papel funcional ou signatário da autorização, na
+   * configuração da fase interna) — nunca o mesmo usuário que praticou a
+   * reconsideração (segregação de funções, art. 7º §1º). O presidente da
+   * Câmara, cadastrado como Autoridade, era recusado (ensaio de 09/11/2026).
    */
   async exigirAutoridade(recurso: RecursoAdministrativo, ator: AtorTransicao & { role?: string | null; admin?: boolean }, m: EntityManager = this.dataSource.manager) {
     if (ator.admin || ator.tipo === 'ADMIN') throw new ForbiddenException('A decisão do recurso é da autoridade superior do órgão.');
     if (ator.tipo === 'USUARIO') {
-      const [u] = await m.query(`SELECT role::text AS role FROM usuarios WHERE id::text = $1`, [ator.id]);
-      if (u?.role !== 'ADMIN') {
-        throw new ForbiddenException('Apenas a autoridade superior (conta do órgão ou usuário administrador do órgão) decide o recurso mantido pelo agente.');
+      const [u] = await m.query(
+        `SELECT u.role::text AS role, u.papeis_fase_interna AS papeis,
+                (SELECT c.signatarios_autorizacao FROM configuracoes_fase_interna c WHERE c.orgao_id::text = l.orgao_id::text) AS signatarios
+           FROM usuarios u JOIN licitacoes l ON l.id::text = $2 AND l.orgao_id::text = u.orgao_id::text
+          WHERE u.id::text = $1 AND u.ativo = true`,
+        [ator.id, recurso.licitacao_id],
+      );
+      const papeis: string[] = Array.isArray(u?.papeis) ? u.papeis.map((p: unknown) => String(p).toUpperCase()) : [];
+      const signatarios: Array<{ usuario_id?: string }> = Array.isArray(u?.signatarios) ? u.signatarios : [];
+      const ehAutoridade = !!u && (u.role === 'ADMIN' || papeis.includes('AUTORIDADE') || signatarios.some((s) => s?.usuario_id === ator.id));
+      if (!ehAutoridade) {
+        throw new ForbiddenException(
+          'Apenas a autoridade superior (conta do órgão, administrador do órgão ou usuário com o papel de Autoridade) decide o recurso mantido pelo agente.',
+        );
       }
       if (recurso.reconsideracao_por_tipo === 'USUARIO' && recurso.reconsideracao_por_id === ator.id) {
         throw new ForbiddenException('Quem manteve a decisão (agente de contratação) não pode decidir o recurso como autoridade superior (art. 165 §2º).');

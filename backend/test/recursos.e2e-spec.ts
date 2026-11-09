@@ -59,6 +59,7 @@ import { adjudicarResultado, homologarResultado, vencedoresPorUnidade } from './
 import { FaseLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao } from '../src/sessao/entities/sessao-disputa.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
+import { RecursosService } from '../src/sessao/recursos.service';
 import { migrarRecursos } from '../src/sessao/migracao-recursos';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -391,6 +392,17 @@ describe('E5 — recursos com efeito', () => {
       ).toBe(400);
       const p = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
       expect(recursoDe(p, D.id)).toMatchObject({ status: 'AGUARDANDO_AUTORIDADE', autoridadeAtrasada: false, podeDecidirAutoridade: true });
+    });
+
+    test('usuário com o papel de Autoridade (não administrador) é autoridade superior; sem o papel → 403', async () => {
+      const presidente = await criarUsuarioOrgao(ctx, orgao, { nome: 'Presidente E5', role: RoleUsuario.EQUIPE_APOIO });
+      const corpo = { provido: false, fundamentacao: 'Teste de competência: ainda sem o papel de Autoridade.', cargo: 'Presidente' };
+      expect((await http().post(`/api/recursos/${recursoD}/decisao-autoridade`).set(bearer(presidente.token)).send(corpo)).status).toBe(403);
+      await q(`UPDATE usuarios SET papeis_fase_interna = $2 WHERE id = $1`, [presidente.id, JSON.stringify(['AUTORIDADE'])]);
+      // Com o papel, passa pela competência (a decisão em si é tomada no teste seguinte, pela outra autoridade)
+      const svc = ctx.app.get(RecursosService, { strict: false });
+      const rec = await svc.buscar(recursoD);
+      await expect(svc.exigirAutoridade(rec, { tipo: 'USUARIO', id: presidente.id } as any)).resolves.toBeUndefined();
     });
 
     test('PROVIDO pela autoridade: A INABILITADO, licitação volta ao JULGAMENTO e D é convocado para a aceitação', async () => {
