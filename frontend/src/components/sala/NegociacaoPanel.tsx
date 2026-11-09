@@ -122,7 +122,7 @@ export function ConversaNegociacao({ mensagens, eu }: { mensagens: MensagemNegoc
 
 type Acao = { tipo: 'encerrar' | 'desclassificar'; negociacao: Negociacao; unidade: UnidadeNeg }
 
-export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; versao?: number }) {
+export function NegociacaoPanel({ sessaoId, versao = 0, unidadeId }: { sessaoId: string; versao?: number; /** Só esta unidade (detalhe do lote). */ unidadeId?: string }) {
   const [painel, setPainel] = useState<PainelNeg | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -194,7 +194,7 @@ export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; ve
     }
   }
 
-  const unidades = (painel?.unidades || []).filter((u) => u.encerrada)
+  const unidades = (painel?.unidades || []).filter((u) => u.encerrada && (!unidadeId || u.id === unidadeId))
 
   return (
     <Card>

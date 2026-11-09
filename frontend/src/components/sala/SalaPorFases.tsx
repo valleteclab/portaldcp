@@ -17,7 +17,7 @@ import { baixarArquivo } from './recursos-comum'
 import type { DisputaV3ItemBoard } from './types'
 import { formatarMoeda, textoCronometro } from './utils'
 
-type Fase =
+export type FaseLote =
   | 'AGUARDANDO'
   | 'DISPUTA'
   | 'DESEMPATE'
@@ -29,12 +29,12 @@ type Fase =
   | 'HOMOLOGADO'
   | 'SEM_RESULTADO'
 
-interface LoteVisao {
+export interface LoteVisao {
   id: string
   tipo: 'ITEM' | 'LOTE'
   numero: number
   descricao: string
-  fase: Fase
+  fase: FaseLote
   faseRotulo: string
   inicioFase: string | null
   participantes: number
@@ -47,11 +47,11 @@ interface LoteVisao {
 interface VisaoLotes {
   lancesEncerrados: boolean
   identidades: boolean
-  fases: Array<{ fase: Fase; rotulo: string; total: number }>
+  fases: Array<{ fase: FaseLote; rotulo: string; total: number }>
   lotes: LoteVisao[]
 }
 
-const COR_FASE: Record<Fase, string> = {
+const COR_FASE: Record<FaseLote, string> = {
   AGUARDANDO: 'bg-slate-100 text-slate-700',
   DISPUTA: 'bg-emerald-100 text-emerald-800',
   DESEMPATE: 'bg-amber-100 text-amber-800',
@@ -74,6 +74,7 @@ export function SalaPorFases({
   selecionadoId,
   onSelecionar,
   atualizacao,
+  onLotes,
 }: {
   sessaoId: string
   area: 'orgao' | 'fornecedor'
@@ -83,9 +84,11 @@ export function SalaPorFases({
   onSelecionar?: (id: string) => void
   /** Muda a cada evento da sala: recarrega a visão por fases. */
   atualizacao?: unknown
+  /** Recebe os lotes carregados (o detalhe do lote usa a fase de cada um). */
+  onLotes?: (lotes: LoteVisao[]) => void
 }) {
   const [visao, setVisao] = useState<VisaoLotes | null>(null)
-  const [aba, setAba] = useState<Fase | 'TODOS'>('TODOS')
+  const [aba, setAba] = useState<FaseLote | 'TODOS'>('TODOS')
   const [classificacaoDe, setClassificacaoDe] = useState<LoteVisao | null>(null)
 
   useEffect(() => {
@@ -94,7 +97,10 @@ export function SalaPorFases({
       authFetch(`${API_URL}/api/julgamento/sessao/${sessaoId}/lotes`, { cache: 'no-store' })
         .then((r) => (r.ok ? r.json() : null))
         .then((j: VisaoLotes | null) => {
-          if (vivo && j) setVisao(j)
+          if (vivo && j) {
+            setVisao(j)
+            onLotes?.(j.lotes)
+          }
         })
         .catch(() => {})
     buscar()
@@ -103,7 +109,7 @@ export function SalaPorFases({
       vivo = false
       clearInterval(t)
     }
-  }, [sessaoId, atualizacao])
+  }, [sessaoId, atualizacao, onLotes])
 
   const aoVivo = useMemo(() => new Map(itensAoVivo.map((i) => [i.id, i])), [itensAoVivo])
   const lotes = useMemo(() => (visao?.lotes ?? []).filter((l) => aba === 'TODOS' || l.fase === aba), [visao, aba])

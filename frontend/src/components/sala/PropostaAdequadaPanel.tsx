@@ -157,7 +157,7 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
   )
 }
 
-export function PropostaAdequadaPanel({ sessaoId }: { sessaoId: string }) {
+export function PropostaAdequadaPanel({ sessaoId, unidade }: { sessaoId: string; /** Só esta unidade (detalhe do lote). */ unidade?: { tipo: 'ITEM' | 'LOTE'; numero: number } }) {
   const [convocacoes, setConvocacoes] = useState<Convocacao[]>([])
   const [carregando, setCarregando] = useState(true)
   const [agora, setAgora] = useState(() => Date.now())
@@ -191,7 +191,10 @@ export function PropostaAdequadaPanel({ sessaoId }: { sessaoId: string }) {
     return () => clearInterval(t)
   }, [])
 
-  const visiveis = useMemo(() => convocacoes.filter((c) => c.status !== 'CANCELADA'), [convocacoes])
+  const visiveis = useMemo(
+    () => convocacoes.filter((c) => c.status !== 'CANCELADA' && (!unidade || (c.unidade?.tipo === unidade.tipo && c.unidade?.numero === unidade.numero))),
+    [convocacoes, unidade],
+  )
 
   const pedirProrrogacao = async () => {
     if (!pedido) return

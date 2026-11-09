@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { AlertTriangle, Pause, Play, RefreshCw, ShieldAlert } from 'lucide-react'
 import { useSalaDisputa } from '@/hooks/useSalaDisputa'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +12,12 @@ import { formatarMoeda, getStatusBadgeClass, getStatusLabel, rotuloModo } from '
 import { FilaOperacional } from './FilaOperacional'
 import { ItemEmFocoOrgao } from './ItemEmFocoOrgao'
 import { PainelEtapaOrgao } from './PainelEtapaOrgao'
-import { SalaPorFases } from '../SalaPorFases'
+import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
+import { ChatLateral } from '../ChatLateral'
+import { DetalheLoteOrgao } from './DetalheLoteOrgao'
+import { BeneficioMeEppPanel } from '../BeneficioMeEppPanel'
+import { DesempatePanel } from '../DesempatePanel'
+import { HabilitacaoPanel } from '../HabilitacaoPanel'
 import { FilaAutomaticaBarra } from './FilaAutomaticaBarra'
 import { DialogoJustificativa, DialogoSuspender } from './DialogosSalaOrgao'
 
@@ -56,9 +61,12 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
   const emDisputa = board?.colunas.emDisputa || []
   const encerrados = board?.colunas.encerrados || []
   const itemFoco = selectedItem || emDisputa[0] || aguardando[0] || encerrados[0] || null
-  // Depois dos lances (benefício ME/EPP em diante, nada em disputa nem aguardando) a etapa ocupa o centro
-  const ETAPAS_POS_LANCES = ['BENEFICIO_MPE', 'ACEITACAO', 'NEGOCIACAO', 'HABILITACAO', 'RECURSOS', 'ADJUDICACAO', 'HOMOLOGACAO', 'ENCERRAMENTO']
-  const posLances = ETAPAS_POS_LANCES.includes(contexto?.etapa?.codigo || '') && emDisputa.length === 0 && aguardando.length === 0
+  // Sala por fases + detalhe do lote (dono, 09/11/2026): a fila de início fica ao lado só enquanto há lances
+  const emLances = emDisputa.length > 0 || aguardando.length > 0
+  const [lotes, setLotes] = useState<LoteVisao[]>([])
+  const aoCarregarLotes = useCallback((l: LoteVisao[]) => setLotes(l), [])
+  const loteSel = lotes.find((l) => l.id === (selectedItemId ?? itemFoco?.id)) ?? lotes[0] ?? null
+  const itemDoLote = loteSel ? [...emDisputa, ...aguardando, ...encerrados].find((i) => i.id === loteSel.id) ?? null : null
   const suspensaPorDesconexao = !!contexto?.operacao.motivoSuspensao?.startsWith('DESCONEXAO_AGENTE')
 
   return (
@@ -87,6 +95,16 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {contexto?.criterioJulgamento !== 'MAIOR_LANCE' && (
+                <ChatLateral
+                  mensagens={mensagens}
+                  onEnviar={enviarMensagem}
+                  enviando={sendingMessage}
+                  habilitado={!!contexto?.operacao.chatHabilitado}
+                  descricao="Mensagens oficiais do pregoeiro — ficam registradas na ata da sessão."
+                  placeholder="Envie uma orientação oficial para a sala..."
+                />
+              )}
               {acoesCabecalho}
               {contexto?.operacao.suspensa ? (
                 <Button onClick={retomarSessao} className="bg-emerald-600 hover:bg-emerald-700">
@@ -192,6 +210,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               selecionadoId={itemFoco?.id ?? null}
               onSelecionar={setSelectedItemId}
               atualizacao={board}
+              onLotes={aoCarregarLotes}
             />
             <FilaAutomaticaBarra sessaoId={sessaoId} atualizacao={board} />
 
@@ -228,59 +247,8 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               </Card>
             )}
 
-            {posLances ? (
-              // Depois dos lances: a etapa (aceitação, habilitação, recursos, resultado) ocupa o centro da
-              // sala; antes ficava espremida na coluna do chat, com texto cortado (ensaio de 09/11/2026)
-              <div className="grid gap-4 xl:grid-cols-12">
-                <div className="min-w-0 space-y-4 xl:col-span-9">
-                  <PainelEtapaOrgao
-                    sessaoId={sessaoId}
-                    contexto={contexto}
-                    negociacaoVersao={negociacaoVersao}
-                    mensagens={mensagens}
-                    onEnviarMensagem={enviarMensagem}
-                    enviandoMensagem={sendingMessage}
-                    parte="paineis"
-                  />
-                  <details className="rounded-xl border border-slate-200 bg-white">
-                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                      Lances da sessão (consulta)
-                    </summary>
-                    <div className="grid gap-4 border-t p-3 xl:grid-cols-12">
-                      <div className="space-y-4 xl:col-span-3">
-                        <FilaOperacional
-                          emDisputa={emDisputa}
-                          aguardando={aguardando}
-                          encerrados={encerrados}
-                          selectedItemId={selectedItemId}
-                          onSelecionar={setSelectedItemId}
-                          onIniciar={iniciarItens}
-                        />
-                      </div>
-                      <div className="space-y-4 xl:col-span-9">
-                        <ItemEmFocoOrgao
-                          item={itemFoco}
-                          contexto={contexto}
-                          onEncerrar={encerrarItem}
-                          onReiniciarDemais={() => setDialogo('reiniciarDemais')}
-                        />
-                      </div>
-                    </div>
-                  </details>
-                </div>
-                <div className="xl:col-span-3">
-                  <PainelEtapaOrgao
-                    sessaoId={sessaoId}
-                    contexto={contexto}
-                    negociacaoVersao={negociacaoVersao}
-                    mensagens={mensagens}
-                    onEnviarMensagem={enviarMensagem}
-                    enviandoMensagem={sendingMessage}
-                    parte="chat"
-                  />
-                </div>
-              </div>
-            ) : (
+            {contexto?.criterioJulgamento === 'MAIOR_LANCE' ? (
+              // Leilão (arrematantes, sem aceitação/habilitação): mantém a sala em colunas
             <div className="grid gap-4 xl:grid-cols-12">
               <div className="space-y-4 xl:col-span-2">
                 <FilaOperacional
@@ -311,6 +279,45 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
                 />
               </div>
             </div>
+            ) : (
+              <>
+                {/* Inversão de fases (art. 17 §1º): habilitação de todos antes da disputa */}
+                {contexto?.licitacaoId && ['ABERTURA', 'ANALISE_PROPOSTAS'].includes(contexto?.etapa?.codigo || '') && (
+                  <HabilitacaoPanel licitacaoId={contexto.licitacaoId} somentePreviaInversao />
+                )}
+                {/* Benefício ME/EPP e desempate: aparecem sozinhos quando há algo a decidir */}
+                <BeneficioMeEppPanel sessaoId={sessaoId} />
+                <DesempatePanel sessaoId={sessaoId} />
+                <div className={`grid gap-4 ${emLances ? 'xl:grid-cols-12' : ''}`}>
+                  {emLances && (
+                    <div className="space-y-4 xl:col-span-3">
+                      <FilaOperacional
+                        emDisputa={emDisputa}
+                        aguardando={aguardando}
+                        encerrados={encerrados}
+                        selectedItemId={selectedItemId}
+                        onSelecionar={setSelectedItemId}
+                        onIniciar={iniciarItens}
+                      />
+                    </div>
+                  )}
+                  <div className={`min-w-0 space-y-4 ${emLances ? 'xl:col-span-9' : ''}`}>
+                    {loteSel ? (
+                      <DetalheLoteOrgao
+                        sessaoId={sessaoId}
+                        contexto={contexto}
+                        lote={loteSel}
+                        item={itemDoLote}
+                        negociacaoVersao={negociacaoVersao}
+                        onEncerrar={encerrarItem}
+                        onReiniciarDemais={() => setDialogo('reiniciarDemais')}
+                      />
+                    ) : (
+                      <div className="rounded-xl border bg-white px-4 py-6 text-sm text-slate-500">Abra um lote na tabela acima (›) para ver as ações da fase dele.</div>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}
