@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DisputaService } from './disputa.service';
 import { DisputaGateway } from './disputa.gateway';
 import { DisputaController } from './disputa.controller';
+import { FilaDisputaService } from './fila-disputa.service';
 import { DisputaTimerService } from './disputa-timer.service';
 import { AnonimizacaoService } from './anonimizacao.service';
 import { SigiloDisputaService } from './sigilo-disputa.service';
@@ -54,6 +55,7 @@ import { TransicoesModule } from '../licitacoes/transicoes/transicoes.module';
     DisputaLoteService,
     DisputaGateway,
     DisputaTimerService,
+    FilaDisputaService,
     AnonimizacaoService,
     SigiloDisputaService,
     ParametrosDisputaService,

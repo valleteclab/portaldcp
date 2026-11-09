@@ -15,6 +15,7 @@ import { ParametrosDisputa } from './parametros-disputa';
 import { JanelaDispensaService } from './janela-dispensa.service';
 import { ModoDisputaService, MudancaFase } from './modo-disputa.service';
 import { AcaoExpiracao } from './modos-disputa';
+import { FilaDisputaService } from './fila-disputa.service';
 
 /**
  * ============================================================================
@@ -49,6 +50,7 @@ export class DisputaTimerService {
     private readonly disputaService: DisputaService,
     private readonly janelaDispensa: JanelaDispensaService,
     private readonly modos: ModoDisputaService,
+    private readonly fila: FilaDisputaService,
   ) {}
 
   @Cron(CronExpression.EVERY_SECOND)
@@ -61,6 +63,8 @@ export class DisputaTimerService {
         this.logger.error(`Relógio da sessão ${sessao.id}: ${e?.message ?? e}`);
       }
     }
+    // Fila automática (abre a próxima unidade quando há vaga) — depois dos encerramentos deste tique
+    await this.fila.processarSessoesComFila().catch((e) => this.logger.error(`Fila automática: ${e?.message ?? e}`));
   }
 
   private async processarSessao(sessao: SessaoDisputa) {
