@@ -178,3 +178,28 @@ describe('Emissão do parecer', () => {
     expect(html).toMatch(/sanada: corrigida/);
   });
 });
+
+describe('roteiro do parecer prévio na licitação (art. 18) — pregão 2026/00070', () => {
+  const linha = (tipo: string, status = 'OK', obrigatorio = true) => ({ tipo, titulo: tipo, status, obrigatorio });
+  const instrucao = [
+    linha('DFD'), linha('ETP'), linha('TR'), linha('JC', 'PENDENTE'), linha('PP'), linha('MCP'), linha('PJ', 'PENDENTE'), linha('AA', 'PENDENTE'), linha('DP'), linha('DO'),
+    linha('AR', 'PENDENTE', false), linha('RAG', 'OK', false), linha('ME', 'OK', false), linha('MC', 'OK', false),
+  ];
+  const r = roteiroPrevio({ contratacao_direta: false, modalidade: 'PREGAO_ELETRONICO', instrucao, fundamento_referencia: 'art. 28, I', numero_processo: '2026/00070', avaliacoes: [] });
+  const item = (id: string) => r.find((i) => i.id === id)!;
+
+  it('cita o art. 18 (nenhum item do art. 72) e confere relatório, minuta do edital e minuta do contrato', () => {
+    expect(r.some((i) => i.ref.includes('72'))).toBe(false);
+    expect(item('A18_I').automatico.situacao).toBe('CONFORME'); // AR facultativa não feita fica fora
+    expect(item('A18_VIII').automatico.situacao).toBe('CONFORME');
+    expect(item('A8').automatico.situacao).toBe('CONFORME');
+    expect(item('ART53').automatico.situacao).toBe('CONFORME');
+    expect(item('ART92').automatico.detalhe).not.toContain('Sem minuta de contrato');
+    expect(item('AUT').automatico.situacao).toBe('NAO_SE_APLICA');
+  });
+
+  it('minuta do edital faltando fica pendente', () => {
+    const sem = roteiroPrevio({ contratacao_direta: false, instrucao: instrucao.map((l) => (l.tipo === 'ME' ? { ...l, status: 'PENDENTE' } : l)), fundamento_referencia: null, numero_processo: '1', avaliacoes: [] });
+    expect(sem.find((i) => i.id === 'ART53')!.automatico.situacao).toBe('PENDENTE');
+  });
+});

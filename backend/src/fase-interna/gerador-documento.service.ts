@@ -91,6 +91,7 @@ export class GeradorDocumentoService {
       const modelo = await this.modeloDocumentoService.resolverModelo(
         lic.orgao_id || null,
         doc.tipo,
+        lic.modalidade,
       );
       const cabecalho = modelo?.cabecalho_html ? aplicarVars(stripHtml(modelo.cabecalho_html)) : '';
       const rodape = modelo?.rodape_html ? aplicarVars(stripHtml(modelo.rodape_html)) : null;
@@ -612,7 +613,7 @@ export class GeradorDocumentoService {
     const lic: any = (documento as any).licitacao || {};
     let secoes: Array<{ id: string; titulo: string; obrigatorio: boolean }> = [];
     try {
-      const modelo = await this.modeloDocumentoService.resolverModelo(lic.orgao_id || null, documento.tipo);
+      const modelo = await this.modeloDocumentoService.resolverModelo(lic.orgao_id || null, documento.tipo, lic.modalidade);
       secoes = (modelo?.secoes || []).map((s) => ({ id: s.id, titulo: s.titulo, obrigatorio: s.obrigatorio !== false }));
     } catch {
       secoes = [];

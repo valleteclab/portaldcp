@@ -170,8 +170,8 @@ export function DocumentoSeccionado({
   alturaLivre = false,
   somenteLeitura = false,
 }: DocumentoSeccionadoProps) {
-  const secoes = getSecoes(tipo)
-  const template = getTemplate(tipo)
+  const secoes = getSecoes(tipo, licitacao?.modalidade)
+  const template = getTemplate(tipo, licitacao?.modalidade)
   const tituloDocumento = TITULOS_TIPO[tipo] || tipo
 
   // Estado do conteúdo por seção (HTML)

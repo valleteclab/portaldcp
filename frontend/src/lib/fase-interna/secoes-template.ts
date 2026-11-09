@@ -364,6 +364,34 @@ Responda APENAS com JSON válido:
 {"amparo_legal":"...","objeto_contratacao":"...","justificativa":"...","caracterizacao":"..."}`,
 }
 
+// ─── Justificativa da contratação (licitação — art. 18, IX) ──────────────────
+// Mesmas seções do MODELO_JC_LICITACAO do backend (modelos-padrao.ts). Na
+// contratação direta a JC é outra peça e não usa este template.
+
+const justificativaLicitacao: TemplateDocumento = {
+  titulo: 'Justificativa da contratação',
+  intro:
+    'Motivação circunstanciada das condições do edital: modalidade e critério, exigências de habilitação, parcelamento e tratamento das ME/EPP (art. 18, IX).',
+  artigo: 'Art. 18, IX · Lei 14.133/2021',
+  secoes: [
+    { id: 'motivacao', titulo: '1. Motivação da contratação', placeholder: 'Necessidade e interesse público que justificam a contratação…', obrigatorio: true, fundamentoLegal: 'Art. 18, I e IX' },
+    { id: 'modalidade', titulo: '2. Modalidade, critério de julgamento e modo de disputa', placeholder: 'Por que a modalidade, o critério e o modo de disputa escolhidos…', obrigatorio: true, fundamentoLegal: 'Art. 18, VIII e IX · arts. 28, 33 e 56' },
+    { id: 'habilitacao', titulo: '3. Exigências de habilitação', placeholder: 'Qualificação técnica e econômico-financeira exigidas e por quê…', obrigatorio: true, fundamentoLegal: 'Art. 18, IX · arts. 62 a 70' },
+    { id: 'parcelamento', titulo: '4. Parcelamento, consórcio e subcontratação', placeholder: 'Divisão em itens ou lotes, participação de consórcios e subcontratação…', obrigatorio: true, fundamentoLegal: 'Art. 18, VIII · art. 40 · art. 15' },
+    { id: 'me_epp', titulo: '5. Tratamento diferenciado às ME e EPP', placeholder: 'Benefícios da LC 123/2006 aplicáveis ou motivo para não aplicar…', obrigatorio: false, fundamentoLegal: 'Art. 4º · LC 123/2006' },
+  ],
+  buildPrompt: (ctx) => `Você elabora a Justificativa da contratação de uma licitação conforme o art. 18, IX, da Lei 14.133/2021 (motivação circunstanciada das condições do edital).
+
+Objeto: ${ctx.objeto}
+Modalidade: ${ctx.modalidade || 'Pregão eletrônico'}
+Critério de julgamento: ${ctx.criterio_julgamento || ctx.criterio || 'Menor preço'}
+
+Gere as 5 seções em JSON. Seja objetivo e formal, com citações legais.
+
+Responda APENAS com JSON válido:
+{"motivacao":"...","modalidade":"...","habilitacao":"...","parcelamento":"...","me_epp":"..."}`,
+}
+
 // ─── Minuta do Edital ─────────────────────────────────────────────────────────
 
 const edital: TemplateDocumento = {
@@ -590,6 +618,7 @@ export const TITULOS_TIPO: Record<string, string> = {
   ETP: 'Estudo Técnico Preliminar',
   AR: 'Análise de Riscos',
   TR: 'Termo de Referência',
+  JC: 'Justificativa da contratação',
   PP: 'Pesquisa de Preços',
   PJ: 'Parecer Jurídico',
   PT: 'Parecer Técnico',
@@ -644,13 +673,22 @@ export const VARIAVEIS_PECA_PROCESSO = [
  * Retorna o template de um documento pelo tipo (enum value ou nome longo).
  * Retorna null se o tipo não tiver template de seções (ex: AR, PP).
  */
-export function getTemplate(tipo: string): TemplateDocumento | null {
-  return TEMPLATES_DOCUMENTOS[tipo.toUpperCase()] || null
+export function getTemplate(tipo: string, modalidade?: string | null): TemplateDocumento | null {
+  const t = tipo.toUpperCase()
+  // Justificativa da contratação: na licitação é a do art. 18, IX (na contratação direta, outra peça)
+  if ((t === 'JC' || t === 'JUSTIFICATIVA_CONTRATACAO') && ehLicitacaoCompetitiva(modalidade)) return justificativaLicitacao
+  return TEMPLATES_DOCUMENTOS[t] || null
+}
+
+/** Pregão, concorrência… (não dispensa, inexigibilidade nem credenciamento). */
+export function ehLicitacaoCompetitiva(modalidade?: string | null): boolean {
+  const m = String(modalidade ?? '').toUpperCase()
+  return !!m && !['DISPENSA_ELETRONICA', 'INEXIGIBILIDADE', 'CREDENCIAMENTO'].includes(m) && !m.startsWith('DISPENSA')
 }
 
 /**
  * Retorna as seções de um documento pelo tipo.
  */
-export function getSecoes(tipo: string): SecaoTemplate[] {
-  return getTemplate(tipo)?.secoes || []
+export function getSecoes(tipo: string, modalidade?: string | null): SecaoTemplate[] {
+  return getTemplate(tipo, modalidade)?.secoes || []
 }

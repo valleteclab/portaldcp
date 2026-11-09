@@ -79,33 +79,35 @@ export function roteiroPrevio(e: {
 }): ItemRoteiro[] {
   const itens: ItemRoteiro[] = [];
   const I = e.instrucao;
-  itens.push({ id: 'A72_I', ref: 'Art. 72, I', texto: 'DFD e, se for o caso, ETP, riscos e TR juntados', tipos: ['DFD', 'ETP', 'AR', 'TR'], automatico: pecas(I, ['DFD', 'ETP', 'AR', 'TR'], 'Planejamento') });
-  itens.push({ id: 'A72_II', ref: 'Art. 72, II', texto: 'Estimativa de despesa conforme o art. 23', tipos: ['PP', 'MCP'], automatico: pecas(I, ['PP'], 'Pesquisa de preços') });
-  itens.push({ id: 'A72_IV', ref: 'Art. 72, IV', texto: 'Compatibilidade orçamentária', tipos: ['DO'], automatico: pecas(I, ['DO'], 'Informação orçamentária') });
-  if (e.modalidade && selecaoPosterior(e.modalidade)) {
-    // Dispensa eletrônica / credenciamento: aqui, o critério de escolha e o preço ESTIMADO (relatório do agente);
-    // o contratado e o preço final são conferidos no parecer da fase externa
-    itens.push({
-      id: 'A72_VI_VII',
-      ref: 'Art. 72, VI e VII',
-      texto: 'Critério de escolha e preço estimado (relatório do agente) — o contratado e o preço final são conferidos no parecer da fase externa',
-      tipos: ['RAG', 'JC'],
-      automatico: pecas(I, ['RAG'], 'Relatório do agente'),
-    });
-  } else if (contratacaoSemAviso(e.modalidade)) {
-    // Contratação direta sem aviso (inexigibilidade): escolha e preço antes da autorização — relatório OU justificativa
-    const s = situacaoEscolhaPreco(I);
-    itens.push({
-      id: 'A72_VI_VII',
-      ref: 'Art. 72, VI e VII',
-      texto: 'Razão da escolha do contratado e justificativa do preço (art. 23, §4º)',
-      tipos: ['RAG', 'JC'],
-      automatico: s.ok
-        ? { situacao: 'CONFORME', detalhe: 'Relatório do agente ou justificativa da contratação direta juntado' }
-        : { situacao: 'PENDENTE', detalhe: 'Falta o relatório do agente ou a justificativa da contratação direta' },
-    });
-  } else {
-    itens.push({ id: 'A72_VI_VII', ref: 'Art. 72, VI e VII', texto: 'Razão da escolha e justificativa do preço (relatório do agente)', tipos: ['RAG', 'JC'], automatico: pecas(I, ['RAG'], 'Relatório do agente') });
+  if (!e.contratacao_direta) itens.push(...roteiroDaInstrucaoArt18(I));
+  else {
+    itens.push({ id: 'A72_I', ref: 'Art. 72, I', texto: 'DFD e, se for o caso, ETP, riscos e TR juntados', tipos: ['DFD', 'ETP', 'AR', 'TR'], automatico: pecas(I, ['DFD', 'ETP', 'AR', 'TR'], 'Planejamento') });
+    itens.push({ id: 'A72_II', ref: 'Art. 72, II', texto: 'Estimativa de despesa conforme o art. 23', tipos: ['PP', 'MCP'], automatico: pecas(I, ['PP'], 'Pesquisa de preços') });
+    itens.push({ id: 'A72_IV', ref: 'Art. 72, IV', texto: 'Compatibilidade orçamentária', tipos: ['DO'], automatico: pecas(I, ['DO'], 'Informação orçamentária') });
+    if (e.modalidade && selecaoPosterior(e.modalidade)) {
+      // Dispensa eletrônica / credenciamento: aqui, o critério de escolha e o preço ESTIMADO (relatório do agente);
+      // o contratado e o preço final são conferidos no parecer da fase externa
+      itens.push({
+        id: 'A72_VI_VII',
+        ref: 'Art. 72, VI e VII',
+        texto: 'Critério de escolha e preço estimado (relatório do agente) — o contratado e o preço final são conferidos no parecer da fase externa',
+        tipos: ['RAG', 'JC'],
+        automatico: pecas(I, ['RAG'], 'Relatório do agente'),
+      });
+    } else if (contratacaoSemAviso(e.modalidade)) {
+      // Contratação direta sem aviso (inexigibilidade): escolha e preço antes da autorização — relatório OU justificativa
+      const s = situacaoEscolhaPreco(I);
+      itens.push({
+        id: 'A72_VI_VII',
+        ref: 'Art. 72, VI e VII',
+        texto: 'Razão da escolha do contratado e justificativa do preço (art. 23, §4º)',
+        tipos: ['RAG', 'JC'],
+        automatico: s.ok
+          ? { situacao: 'CONFORME', detalhe: 'Relatório do agente ou justificativa da contratação direta juntado' }
+          : { situacao: 'PENDENTE', detalhe: 'Falta o relatório do agente ou a justificativa da contratação direta' },
+      });
+    } else {
+      itens.push({ id: 'A72_VI_VII', ref: 'Art. 72, VI e VII', texto: 'Razão da escolha e justificativa do preço (relatório do agente)', tipos: ['RAG', 'JC'], automatico: pecas(I, ['RAG'], 'Relatório do agente') });
   }
   // A autorização (art. 72, VIII) é o ato que vem DEPOIS do parecer: sem ela ainda, o item não fica
   // "Pendente" no roteiro (homologação 07/11/2026) — a trava do portão C a cobra antes de publicar
@@ -117,6 +119,7 @@ export function roteiroPrevio(e: {
     tipos: ['AA'],
     automatico: aa.situacao === 'PENDENTE' ? { situacao: 'NAO_SE_APLICA', detalhe: 'Etapa seguinte: a autoridade autoriza depois do parecer (conferido antes de publicar).' } : aa,
   });
+  }
 
   // Enquadramento (ENQ-01): o inciso citado nas peças é o do processo?
   const enq = doMotor(e.avaliacoes, 'ENQ-01');
@@ -194,6 +197,33 @@ export function roteiroPrevio(e: {
     itens.push({ id: 'ART53', ref: 'Art. 53', texto: 'Minuta do edital e anexos', tipos: ['ME'], automatico: pecas(I, ['ME'], 'Minuta do edital') });
   }
   return itens;
+}
+
+/**
+ * Licitação (pregão, concorrência…): a instrução é a do art. 18, não a do
+ * art. 72 (pregão 2026/00070: o roteiro citava o art. 72 e dizia que o
+ * relatório estava "fora da instrução"). Peça facultativa ainda não feita
+ * (ex.: análise de riscos) fica fora da conferência; a autorização vem
+ * depois do parecer.
+ */
+function roteiroDaInstrucaoArt18(instrucao: LinhaInstrucaoPortao[]): ItemRoteiro[] {
+  const I = instrucao.filter((l) => l.obrigatorio !== false || l.status !== 'PENDENTE');
+  const aa = pecas(I, ['AA'], 'Autorização');
+  return [
+    { id: 'A18_I', ref: 'Art. 18, I e §1º', texto: 'DFD, estudo técnico preliminar e análise de riscos juntados', tipos: ['DFD', 'ETP', 'AR'], automatico: pecas(I, ['DFD', 'ETP', 'AR'], 'Planejamento') },
+    { id: 'A18_II', ref: 'Art. 18, II c/c art. 6º, XXIII', texto: 'Termo de referência com a definição do objeto e as condições de execução', tipos: ['TR', 'JC'], automatico: pecas(I, ['TR'], 'Termo de referência') },
+    { id: 'A18_IV', ref: 'Art. 18, IV c/c art. 23', texto: 'Orçamento estimado com a pesquisa de preços', tipos: ['PP', 'MCP'], automatico: pecas(I, ['PP', 'MCP'], 'Pesquisa de preços') },
+    { id: 'A18_ORC', ref: 'Art. 18, caput c/c art. 150', texto: 'Previsão de recursos orçamentários', tipos: ['DO'], automatico: pecas(I, ['DO'], 'Informação orçamentária') },
+    { id: 'A8', ref: 'Art. 8º', texto: 'Designação do agente de contratação/pregoeiro', tipos: ['DP'], automatico: pecas(I, ['DP'], 'Designação') },
+    { id: 'A18_VIII', ref: 'Art. 18, VIII c/c art. 28', texto: 'Modalidade, critério de julgamento e modo de disputa (relatório do agente)', tipos: ['RAG'], automatico: pecas(I, ['RAG'], 'Relatório do agente') },
+    {
+      id: 'AUT',
+      ref: 'Autorização',
+      texto: 'Autorização da autoridade competente para a abertura',
+      tipos: ['AA'],
+      automatico: aa.situacao === 'PENDENTE' ? { situacao: 'NAO_SE_APLICA', detalhe: 'Etapa seguinte: a autoridade autoriza depois do parecer (conferido antes de publicar).' } : aa,
+    },
+  ];
 }
 
 /** ROTEIRO DO PARECER DA FASE EXTERNA (antes da adjudicação). */

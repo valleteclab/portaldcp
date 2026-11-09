@@ -81,6 +81,13 @@ export class TelasAnaliseDecisaoController {
     return this.minutas.obter(id);
   }
 
+  /** Justificativa da contratação da licitação (art. 18, IX) — peça da etapa do TR. */
+  @TrabalhoNaEtapa({ passo: 'TR', acao: 'gerar a justificativa da contratação' })
+  @Post(':licitacaoId/tr/justificativa/gerar')
+  async gerarJustificativa(@Param('licitacaoId') id: string, @AtorAtual() ator: Ator) {
+    return this.minutas.gerarJustificativaDaLicitacao(id, await this.autor(ator));
+  }
+
   /** :tipo = RAG | ME | MC | TODAS. */
   @TrabalhoNaEtapa({ passo: 'MINUTAS', acao: 'gerar minuta' })
   @Post(':licitacaoId/minutas/:tipo/gerar')

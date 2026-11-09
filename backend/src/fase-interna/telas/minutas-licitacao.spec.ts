@@ -1,6 +1,7 @@
-import { MINUTA_AVISO_PREAMBULO, MODELOS_PADRAO, RAG_CONCLUSAO_PADRAO, RAG_ENQUADRAMENTO_PADRAO } from '../modelos-padrao';
+import { MINUTA_AVISO_PREAMBULO, MODELO_JC_LICITACAO, MODELOS_PADRAO, RAG_CONCLUSAO_PADRAO, RAG_ENQUADRAMENTO_PADRAO } from '../modelos-padrao';
 import { TipoDocumentoFaseInterna } from '../entities/documento-fase-interna.entity';
-import { SECOES_DA_LICITACAO, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, secoesParaLicitacao } from './minutas-regras';
+import { SECOES_DA_LICITACAO, completarJustificativaDaLicitacao, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, secoesParaLicitacao } from './minutas-regras';
+import { PECAS_JUNTAS_DA_LICITACAO } from '../../workflow/ponte/ponte-fase-interna';
 
 /**
  * Pregão 2026/00070 (homologação 09/11/2026): o relatório e a minuta do edital
@@ -47,5 +48,26 @@ describe('portaria juntada por etapa do fluxo', () => {
     expect(numeroDaPortariaJuntada({ titulo: 'PORTARIA N. 7/2026' })).toBe('PORTARIA N. 7/2026');
     expect(numeroDaPortariaJuntada({ titulo: 'Designação da equipe', numero_documento: '014/2026' })).toBe('Portaria nº 014/2026');
     expect(numeroDaPortariaJuntada(null)).toBeNull();
+  });
+});
+
+describe('justificativa da contratação na licitação (art. 18, IX) — peça da etapa do TR', () => {
+  it('o modelo da licitação tem as seções do art. 18, IX; o ETP e o TR completam motivação, habilitação e parcelamento', () => {
+    expect(MODELO_JC_LICITACAO.secoes.map((s) => s.id)).toEqual(['motivacao', 'modalidade', 'habilitacao', 'parcelamento', 'me_epp']);
+    const r = completarJustificativaDaLicitacao(
+      { motivacao: '<p>Padrão.</p>', modalidade: '<p>Pregão.</p>', habilitacao: '<p>Padrão.</p>', parcelamento: '<p>Padrão.</p>' },
+      { ETP: { necessidade: '<p>Aparelhos sem manutenção.</p>', parcelamento: '<p>Não parcelar.</p>' }, TR: { selecao_habilitacao: '<p>Atestado de capacidade.</p>' } },
+    );
+    expect(r.motivacao).toContain('Conforme o estudo técnico preliminar');
+    expect(r.motivacao).toContain('Aparelhos sem manutenção');
+    expect(r.habilitacao).toContain('Atestado de capacidade');
+    expect(r.parcelamento).toContain('Não parcelar');
+    expect(r.modalidade).toBe('<p>Pregão.</p>');
+    // sem ETP/TR: fica o texto padrão
+    expect(completarJustificativaDaLicitacao({ motivacao: '<p>Padrão.</p>' }, { ETP: null, TR: null })).toEqual({ motivacao: '<p>Padrão.</p>' });
+  });
+
+  it('a etapa do TR da licitação exige a justificativa (ponte do fluxo)', () => {
+    expect(PECAS_JUNTAS_DA_LICITACAO.TR.map((p) => p.tipo)).toEqual(['JC']);
   });
 });

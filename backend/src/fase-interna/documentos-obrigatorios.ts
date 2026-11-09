@@ -158,6 +158,19 @@ export const CHECKLIST_CONTRATACAO_DIRETA: ReadonlyArray<LinhaChecklistInstrucao
 ];
 
 /**
+ * Rito completo: peças que o parecer do art. 53 analisa sem travar etapa
+ * (pregão 2026/00070, 09/11/2026: o roteiro dizia "fora da instrução"). Entram
+ * só na leitura do parecer (`getInstrucao(…, { comFacultativasDaLicitacao })`) —
+ * no checklist mudariam o cálculo das etapas dos processos em andamento.
+ */
+export const LINHAS_FACULTATIVAS_RITO_COMPLETO: ReadonlyArray<LinhaChecklistInstrucao> = [
+  { tipo: TipoDocumentoFaseInterna.ANALISE_RISCOS, titulo: 'Análise de riscos', obrigatorio: false, fundamento: 'Art. 18, X' },
+  { tipo: TipoDocumentoFaseInterna.RELATORIO_AGENTE, titulo: 'Relatório do agente de contratação', obrigatorio: false, fundamento: 'Art. 18 c/c art. 53' },
+  { tipo: TipoDocumentoFaseInterna.MINUTA_EDITAL, titulo: 'Minuta do edital', obrigatorio: false, fundamento: 'Art. 18, V c/c art. 25 e art. 53' },
+  { tipo: TipoDocumentoFaseInterna.MINUTA_CONTRATO, titulo: 'Minuta do contrato', obrigatorio: false, fundamento: 'Art. 18, VI c/c art. 92' },
+];
+
+/**
  * LINHAS DA INSTRUÇÃO do processo (fonte única do checklist — `getInstrucao`
  * e a entrada "fase interna feita fora", antes de o processo existir):
  *  - contratação direta: o art. 72 (acima);
