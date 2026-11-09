@@ -111,9 +111,8 @@ describe('Fase interna — correções da homologação (estados, conformidade, 
         .send({ responsavel_id: agente.id, data_pretendida: somarDias(hoje(), 30), necessidade_html: '<p>As rotinas usam ferramentas fragmentadas e sem rastreabilidade.</p>' })
         .expect(200);
       expect(await statusDa(lic, 'DFD')).toBe('EM_ELABORACAO');
-      expect(await passo(lic, 'DFD')).not.toBe('CONCLUIDO');
-      const [t] = await sql(`SELECT status FROM tarefas WHERE licitacao_id = $1 AND passo = 'DFD' ORDER BY created_at DESC LIMIT 1`, [lic.id]);
-      expect(t.status).toBe('ABERTA');
+      // a etapa segue aberta (um motor só, 11/2026: é a situação do passo — não há mais a tarefa de etapa)
+      expect(['DISPONIVEL', 'EM_ANDAMENTO']).toContain(await passo(lic, 'DFD'));
     });
 
     it('DFD gerado: pronta (a etapa conclui); editar depois volta a "em elaboração"; gerar de novo, pronta', async () => {

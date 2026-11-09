@@ -15,6 +15,7 @@ import { VesperaPrazoScheduler } from './avisos/vespera-prazo.scheduler';
 import { NotificarExecutor } from './nos/notificar.executor';
 import { DesenhoFluxoService } from './desenho/desenho-fluxo.service';
 import { ChecklistEtapaService } from './checklist/checklist-etapa.service';
+import { FaseDaLicitacaoNoFluxoService } from './ponte/fase-da-licitacao.service';
 import { PonteFaseInternaService } from './ponte/ponte-fase-interna.service';
 import { IaModule } from '../ia/ia.module';
 import { ExecutorDemandaDfd } from './nos/no-demanda-dfd.service';
@@ -29,7 +30,7 @@ import { DefinicaoModalidadeExecutor } from './nos/no-definicao-modalidade.servi
     IaModule,
   ],
   controllers: [WorkflowController],
-  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService, PonteFaseInternaService, TempoEtapasService, DefinicaoModalidadeExecutor, ContratacaoNoFluxoService, ExecutorAprovacaoDemanda],
+  providers: [WorkflowService, RegistroNos, TeamsService, AvisosService, VesperaPrazoScheduler, NotificarExecutor, ExecutorDemandaDfd, DesenhoFluxoService, ChecklistEtapaService, PonteFaseInternaService, FaseDaLicitacaoNoFluxoService, TempoEtapasService, DefinicaoModalidadeExecutor, ContratacaoNoFluxoService, ExecutorAprovacaoDemanda],
   exports: [WorkflowService, RegistroNos, TeamsService, TempoEtapasService, ContratacaoNoFluxoService],
 })
 export class WorkflowModule {}

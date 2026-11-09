@@ -288,3 +288,6 @@ export function completarJustificativaDaLicitacao(
   }
   return r;
 }
+
+/** "Pregão eletrônico, na forma eletrônica" → "Pregão eletrônico" (a modalidade já diz a forma). */
+export const semFormaRepetida = (html: string) => String(html ?? '').replace(/(eletr[ôo]nic[oa]), na forma eletr[ôo]nica/gi, '$1');

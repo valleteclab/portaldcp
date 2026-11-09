@@ -79,11 +79,13 @@ const SINCRONIZACAO_ORGAO_PARALELA = 3;
 export type PosseVigente = Posse & { tramitacao_id: string; posse_inicial: boolean };
 
 /**
- * F3: o que a sincronização acabou de calcular e aplicar — para quem integra
- * a tramitação (posse inicial, envio automático, "Enviar o processo",
- * "Aprovar a demanda"). Roda na MESMA fila do processo, depois das tarefas
- * de etapa e antes dos avisos das tarefas criadas (assim o aviso da
- * tramitação vem primeiro e o da tarefa não se repete).
+ * O que a sincronização acabou de calcular — para as rotinas que rodam depois
+ * dela, na MESMA fila do processo (`registrarDepoisDeSincronizar`): a
+ * reconciliação das tarefas "Assinar <peça>" e o rascunho da IA ao chegar.
+ *
+ * Um motor só (11/2026): a integração com a tramitação (posse inicial, envio
+ * automático, "Enviar o processo") saiu; por isso não há mais posse, destinos
+ * nem tarefas de etapa concluídas aqui.
  */
 export interface ResultadoSincronizacao {
   lic: { id: string; orgao_id: string; numero_processo: string; objeto: string | null; fase: string; situacao: string | null; pregoeiro_id: string | null };
@@ -93,13 +95,10 @@ export interface ResultadoSincronizacao {
   modelo: ModeloFluxo;
   estado: EstadoFluxoParaEtapas;
   ctx: ContextoFluxoProcesso | null;
-  /** Passos cujas tarefas foram concluídas NESTA sincronização (e quem cumpriu). */
-  concluidas: Array<{ passo: string; autor: { id: string | null; nome: string | null } }>;
-  /** false na migração de boot: nada avisa nem se move sozinho (só a posse inicial, que não avisa). */
+  /** false na migração de boot: nada avisa nem se move sozinho. */
   notificar: boolean;
-  condutor_id: string | null;
-  posse: PosseVigente | null;
-  destinos: Record<string, DestinoEtapa | null>;
+  /** O processo é conduzido pelo fluxo novo (workflow)? */
+  conduzido_pelo_fluxo: boolean;
 }
 
 /** F1: responsável de cada etapa do modelo de fluxo (o que `responsavelDoPasso` lê). */
@@ -156,7 +155,7 @@ export class TarefasService {
     (opcoes.porUltimo ? this.antesDeSincronizarPorUltimo : this.antesDeSincronizar).push(fn);
   }
 
-  /** F3: rotinas depois de aplicar o plano (integração com a tramitação). */
+  /** Rotinas depois da sincronização (reconciliação das assinaturas, rascunho da IA ao chegar). */
   private readonly depoisDeSincronizar: Array<(r: ResultadoSincronizacao) => Promise<unknown>> = [];
 
   registrarDepoisDeSincronizar(fn: (r: ResultadoSincronizacao) => Promise<unknown>) {
@@ -494,6 +493,20 @@ export class TarefasService {
     // Construtor de fluxo: a resposta que o sistema acabou de dar a uma condição fica gravada (não muda
     // mais se o dado mudar); a devolução termina quando quem devolveu conclui
     if (fluxo.ctx && FASES_INTERNAS.includes(lic.fase)) await this.gravarDecisoesEDevolucoes(fluxo.ctx, passos);
+    // Processo revogado ou anulado na fase interna: TODAS as abertas são canceladas — inclusive as do
+    // sistema (assinatura, diligência, devolução da autorização, renovar dotação), que a sincronização
+    // não mexe enquanto o processo está vivo. Antes do motor único, o plano da sincronização fazia isso.
+    if (SITUACOES_ENCERRAM_TUDO.includes(lic.situacao) && FASES_INTERNAS.includes(lic.fase)) {
+      const motivo = 'Processo revogado ou anulado.';
+      const [canceladas] = await this.ds.query(
+        `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $2, updated_at = now()
+          WHERE licitacao_id::text = $1 AND status = 'ABERTA' RETURNING id::text AS id`,
+        [licitacaoId, motivo],
+      );
+      for (const t of (canceladas ?? []) as Array<{ id: string }>) {
+        await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CANCELADA, `Tarefa cancelada: ${motivo}`, null, { tarefa_id: t.id, motivo });
+      }
+    }
     // UM MOTOR SÓ (08/11/2026): as etapas da contratação são conduzidas pelo fluxo novo — aqui só se calcula.
     // As tarefas do motor antigo que ainda estejam abertas (etapa, "Enviar o processo", "Aprovar a demanda")
     // são canceladas. As tarefas do sistema (diligência do parecer, devolução da autorização, assinatura,
@@ -504,6 +517,28 @@ export class TarefasService {
           AND (origem IN ('ETAPA', 'TRAMITACAO') OR chave LIKE 'demanda:aprovar%')`,
       [licitacaoId, 'O processo segue o fluxo: as etapas são conduzidas por ele.'],
     );
+
+    // As rotinas registradas para depois da sincronização continuam valendo: sem elas, a tarefa
+    // "Assinar <peça>" da versão substituída (ou assinada pelo link do portal) ficava aberta para sempre
+    // — a tarefa do sistema agora sobrevive à sincronização, e quem a reconcilia é esta rodada.
+    const resultado: ResultadoSincronizacao = {
+      lic,
+      etapas,
+      passos,
+      config,
+      modelo: fluxo.modelo,
+      estado: fluxo.estado,
+      ctx: fluxo.ctx,
+      notificar: opcoes.notificar !== false,
+      conduzido_pelo_fluxo: await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId),
+    };
+    for (const fn of this.depoisDeSincronizar) {
+      try {
+        await fn(resultado);
+      } catch (e: any) {
+        this.logger.warn(`Rotina depois da sincronização do processo ${licitacaoId} falhou: ${e?.message ?? e}`);
+      }
+    }
     return { etapas, config, criadas: 0 };
   }
 

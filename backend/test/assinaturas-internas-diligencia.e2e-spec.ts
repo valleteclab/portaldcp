@@ -132,6 +132,10 @@ describe('Homologação multiusuário — assinaturas internas, diligência e tr
     });
 
     it('A. enviar para assinatura: tarefa "Assinar" e aviso para o signatário; aparece só na Central dele', async () => {
+      // Um motor só (11/2026): o processo não vai mais sozinho para Compras (envio automático do motor antigo) —
+      // o envio manual do beforeAll acabou de avisar o Carlos, e o aviso da tarefa não se repete dentro da
+      // janela (F3, destinatariosSemAvisoRecente). "O tempo passou": aquele aviso da tramitação fica antigo.
+      await sql(`UPDATE notificacoes SET created_at = created_at - interval '2 days' WHERE entidade_id = $1 AND tipo::text = 'PROCESSO_TRAMITADO'`, [lic.id]);
       const env = await http()
         .post(`/api/fase-interna/${lic.id}/documentos/TR/assinatura`)
         .set(bearer(carlos.token))
