@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Clock3, Database, FileSearch, FileText, RefreshCw, Scale, TimerReset, UserCheck, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Clock3, Database, FileSearch, FileText, RefreshCw, Scale, TimerReset, UserCheck, XCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -251,7 +251,16 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                       {h.prorrogadaEm && <span className="ml-1 text-slate-500">— prorrogado</span>}
                     </div>
                   )}
-                  {h.decisaoMotivo && <div className="mt-1 text-xs text-slate-600">Motivo: {h.decisaoMotivo}</div>}
+                  {h.decisaoMotivo && (
+                    <div className="mt-1 text-xs text-slate-600">
+                      {h.status === 'HABILITADO' ? 'Observação' : 'Motivo'}: {h.decisaoMotivo}
+                    </div>
+                  )}
+                  {/* Os documentos continuam acessíveis depois da decisão: o cartão recolhe, mas o caminho fica à vista */}
+                  <div className="mt-1 flex items-center gap-1 text-xs font-medium text-blue-700">
+                    {expandida ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    {expandida ? 'Ocultar documentos' : `Ver os documentos enviados (${h.exigencias.reduce((n, e) => n + e.documentos.length, 0)})`}
+                  </div>
                 </div>
                 <Badge className={st.cls}>{st.label}</Badge>
               </button>
