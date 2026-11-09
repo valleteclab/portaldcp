@@ -24,6 +24,8 @@ import { BaseEditavelAviso } from "@/components/fase-interna/etapas/BaseEditavel
 import { useDialogoConfirmacao } from "@/components/licitacao/useDialogoConfirmacao"
 import { erroDaApi, fmtMoeda, rotaDaTela, vigenteEBaseDoEditor } from "@/lib/fase-interna/telas"
 import { aguardarSalvamentosDaPeca } from "@/lib/salvamentos-pendentes"
+import { JustificativaDaLicitacao } from "@/components/fase-interna/etapas/JustificativaDaLicitacao"
+import { ehLicitacaoCompetitiva } from "@/lib/fase-interna/secoes-template"
 
 const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoSeccionado").then((m) => ({ default: m.DocumentoSeccionado })), {
   ssr: false,
@@ -284,6 +286,15 @@ export default function TrPage() {
             <DocumentoSeccionado key={editorChave} licitacaoId={id} tipo="TR" documento={documento} licitacao={licitacao} ocultarPdf somenteLeitura={somenteLeitura} />
           )}
         </div>
+      )}
+      {licitacao && ehLicitacaoCompetitiva(licitacao.modalidade) && (
+        <JustificativaDaLicitacao
+          licitacaoId={id}
+          licitacao={licitacao}
+          somenteLeitura={!d.licitacao.fase_interna || !perm.pode}
+          atualizacao={atualizacao}
+          onAtualizado={() => setAtualizacao((n) => n + 1)}
+        />
       )}
     </EtapaShell>
   )

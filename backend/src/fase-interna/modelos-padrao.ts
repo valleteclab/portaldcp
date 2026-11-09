@@ -64,7 +64,7 @@ export const AUTORIZACAO_TEXTO_E1 =
 export const MINUTA_AVISO_PREAMBULO =
   '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público o procedimento referente ao Processo Administrativo nº {{licitacao.numero_processo}} ({{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}), com fundamento na {{licitacao.fundamento_legal}}, cujo objeto é {{licitacao.objeto}}. Valor estimado: {{licitacao.valor_publico}}.</p>';
 
-/** Textos do relatório do agente pensados para a contratação direta (art. 72) — na licitação, `adaptarPecaParaLicitacao` troca. */
+/** Textos do relatório do agente pensados para a contratação direta (art. 72) — na licitação, `secoesParaLicitacao` (minutas-regras) troca. */
 export const RAG_ENQUADRAMENTO_PADRAO =
   '<p>A contratação enquadra-se na {{licitacao.fundamento_legal}}. Limite aplicável no exercício: {{licitacao.limite_dispensa}}.</p>';
 export const RAG_CONCLUSAO_PADRAO =
@@ -73,6 +73,67 @@ export const RAG_CONCLUSAO_PADRAO =
 /** Texto ANTIGO do preâmbulo da minuta (só "licitação") — o seed troca pelo novo. */
 export const MINUTA_AVISO_PREAMBULO_ANTIGO =
   '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público que realizará licitação na modalidade {{licitacao.modalidade}}, referente ao Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}.</p>';
+
+/**
+ * JUSTIFICATIVA DA CONTRATAÇÃO NA LICITAÇÃO (pregão, concorrência…) — art. 18,
+ * IX: motivação circunstanciada das condições do edital. O modelo padrão do
+ * tipo JC no banco é o "Aviso de contratação direta" (dispensa); na licitação
+ * vale este (decisão do dono, 09/11/2026: a JC é peça da etapa do TR).
+ * `resolverModelo(…, modalidade)` escolhe.
+ */
+export const MODELO_JC_LICITACAO: ModeloPadraoDef = {
+  tipo: TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO,
+  nome: 'Justificativa da contratação',
+  fundamento_legal: 'Art. 18, IX · Lei 14.133/2021',
+  intro: 'Motivação circunstanciada das condições do edital: modalidade e critério, exigências de habilitação, parcelamento e tratamento das ME/EPP (art. 18, IX).',
+  secoes: [
+    {
+      id: 'motivacao',
+      titulo: '1. Motivação da contratação',
+      placeholder: 'Necessidade e interesse público que justificam a contratação…',
+      obrigatorio: true,
+      fundamento_legal: 'Art. 18, I e IX',
+      texto_padrao:
+        '<p>A contratação de {{licitacao.objeto}} atende à necessidade descrita no Documento de Formalização da Demanda e no Estudo Técnico Preliminar, que demonstram o interesse público envolvido (art. 18, I, da Lei nº 14.133/2021).</p>',
+    },
+    {
+      id: 'modalidade',
+      titulo: '2. Modalidade, critério de julgamento e modo de disputa',
+      placeholder: 'Por que a modalidade, o critério e o modo de disputa escolhidos…',
+      obrigatorio: true,
+      fundamento_legal: 'Art. 18, VIII e IX · arts. 28, 33 e 56',
+      texto_padrao:
+        '<p>Adota-se a modalidade {{licitacao.modalidade}}, na forma eletrônica (art. 17, §2º, da Lei nº 14.133/2021), com critério de julgamento {{licitacao.criterio_julgamento}} (art. 33) e modo de disputa {{licitacao.modo_disputa}} (art. 56), adequados à natureza do objeto e à seleção da proposta mais vantajosa (art. 11, I).</p>',
+    },
+    {
+      id: 'habilitacao',
+      titulo: '3. Exigências de habilitação',
+      placeholder: 'Qualificação técnica e econômico-financeira exigidas e por quê…',
+      obrigatorio: true,
+      fundamento_legal: 'Art. 18, IX · arts. 62 a 70',
+      texto_padrao:
+        '<p>As exigências de habilitação limitam-se às indispensáveis à garantia do cumprimento das obrigações (art. 37, XXI, da Constituição), compatíveis com o porte e a natureza do objeto, na forma dos arts. 62 a 70 da Lei nº 14.133/2021.</p>',
+    },
+    {
+      id: 'parcelamento',
+      titulo: '4. Parcelamento, consórcio e subcontratação',
+      placeholder: 'Divisão em itens ou lotes, participação de consórcios e subcontratação…',
+      obrigatorio: true,
+      fundamento_legal: 'Art. 18, VIII · art. 40, V, b, e §§2º e 3º · art. 15',
+      texto_padrao:
+        '<p>A decisão quanto ao parcelamento do objeto, à participação de consórcios e à subcontratação segue o estudo técnico preliminar, observados o art. 40, V, b, e §§2º e 3º, e o art. 15 da Lei nº 14.133/2021.</p>',
+    },
+    {
+      id: 'me_epp',
+      titulo: '5. Tratamento diferenciado às ME e EPP',
+      placeholder: 'Benefícios da LC 123/2006 aplicáveis ou motivo para não aplicar…',
+      obrigatorio: false,
+      fundamento_legal: 'Art. 4º · LC 123/2006, arts. 42 a 49',
+      texto_padrao:
+        '<p>Aplica-se o tratamento diferenciado e simplificado às microempresas e empresas de pequeno porte previsto nos arts. 42 a 49 da Lei Complementar nº 123/2006, nos termos do art. 4º da Lei nº 14.133/2021.</p>',
+    },
+  ],
+};
 
 export const MODELOS_PADRAO: ModeloPadraoDef[] = [
   {

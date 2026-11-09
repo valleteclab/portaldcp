@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ehFaseInterna } from '../../licitacoes/transicoes/fases';
 import { linhasDoChecklist, MODALIDADES_CONTRATACAO_DIRETA } from '../../fase-interna/documentos-obrigatorios';
-import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, PECAS_JUNTAS_DA_ETAPA, pendenciaDaMinutaDoContrato, pendenciasDaPonte, portaoDaEtapa } from './ponte-fase-interna';
+import { DOCUMENTO_DA_ETAPA, documentoProntoParaAPonte, etapaDaPonte, PECAS_JUNTAS_DA_ETAPA,
+  PECAS_JUNTAS_DA_LICITACAO, pendenciaDaMinutaDoContrato, pendenciasDaPonte, portaoDaEtapa } from './ponte-fase-interna';
 import { clausulasArt92Faltantes } from '../../fase-interna/conformidade/regras';
 import { pendenciasDoPortaoDoProcesso } from '../../fase-interna/conformidade/portoes';
 
@@ -56,6 +57,9 @@ export class PonteFaseInternaService {
       documentoPronto = await pronta(tipoDoc);
       if (opcoes?.semEtapaDeRiscos) {
         for (const junta of PECAS_JUNTAS_DA_ETAPA[tipo] ?? []) if (!(await pronta(junta.tipo))) pecasJuntasPendentes.push(junta.rotulo);
+      }
+      if (!direta) {
+        for (const junta of PECAS_JUNTAS_DA_LICITACAO[tipo] ?? []) if (!(await pronta(junta.tipo))) pecasJuntasPendentes.push(junta.rotulo);
       }
     }
     const conteudoFaltando: string[] = [];

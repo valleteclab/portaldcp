@@ -1,3 +1,4 @@
+import { SQL_PORTARIA_JUNTADA_NO_PROCESSO, numeroDaPortariaJuntada } from './telas/minutas-regras';
 import {
   Injectable,
   BadRequestException,
@@ -35,6 +36,7 @@ import {
   MODALIDADES_CONTRATACAO_DIRETA,
   TITULO_DOCUMENTO,
   linhasDoChecklist,
+  LINHAS_FACULTATIVAS_RITO_COMPLETO,
 } from './documentos-obrigatorios';
 import { conteudoEditavel, mesmoTextoDaSecao, registroDeEmissao, statusDaPeca } from './peca-regras';
 import {
@@ -188,7 +190,7 @@ export class FaseInternaService {
    * `etapa` (só rito completo): restringe o checklist aos obrigatórios daquela
    * etapa interna — é o que o ato de conclusão da etapa cobra.
    */
-  async getInstrucao(licitacaoId: string, etapa?: FaseLicitacao): Promise<{
+  async getInstrucao(licitacaoId: string, etapa?: FaseLicitacao, opcoes: { comFacultativasDaLicitacao?: boolean } = {}): Promise<{
     modalidade: string;
     contratacao_direta: boolean;
     fase: FaseLicitacao;
@@ -249,6 +251,11 @@ export class FaseInternaService {
       controle_interno_ativo: !!operacional?.controle_interno_ativo,
       etapa,
     });
+    // Roteiro do parecer da licitação: também as peças que o art. 53 analisa e que não travam etapa
+    // (relatório, minutas, riscos). Só para a leitura do parecer — o gate e as etapas não mudam.
+    if (opcoes.comFacultativasDaLicitacao && !contratacaoDireta && !etapa) {
+      for (const l of LINHAS_FACULTATIVAS_RITO_COMPLETO) if (!checklist.some((c) => c.tipo === l.tipo)) checklist.push({ ...l, pode_nao_se_aplicar: false });
+    }
 
     const docs = await this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, versao_atual: true },
@@ -299,6 +306,15 @@ export class FaseInternaService {
       };
     });
 
+    // Licitação: a designação do pregoeiro (DP) feita como PORTARIA — juntada por uma etapa do
+    // fluxo do processo ou a portaria do órgão no exercício — vale como a peça (pregão 2026/00070:
+    // a portaria estava nos autos e a instrução seguia "pendente", travando a publicação).
+    const dp = itens.find((i) => i.tipo === TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO);
+    if (!contratacaoDireta && dp && !dp.documento_id && dp.status !== 'OK') {
+      const portaria = await this.portariaDeDesignacao(licitacao).catch(() => null);
+      if (portaria) Object.assign(dp, { status: 'OK' as const, justificativa: portaria });
+    }
+
     // Obrigatórios não admitem "não se aplica" — precisam estar OK.
     const pendentes = itens.filter((i) => i.obrigatorio && i.status !== 'OK');
 
@@ -314,6 +330,19 @@ export class FaseInternaService {
           `${p.titulo} (${p.fundamento})${p.status === 'EM_APROVACAO' ? ' — em aprovação' : p.status === 'EM_ASSINATURA' ? ' — aguardando assinaturas' : ''}`,
       ),
     };
+  }
+
+  /** Portaria que designa o agente/pregoeiro: a juntada no processo ou a do órgão no exercício (texto para a instrução). */
+  private async portariaDeDesignacao(licitacao: Licitacao): Promise<string | null> {
+    const [juntada] = await this.licitacaoRepository.query(SQL_PORTARIA_JUNTADA_NO_PROCESSO, [licitacao.id]);
+    if (juntada) return `${numeroDaPortariaJuntada(juntada) ?? juntada.titulo} — juntada no processo`;
+    if (!licitacao.orgao_id) return null;
+    const exercicio = Number((licitacao as any).ano) || new Date((licitacao as any).created_at ?? Date.now()).getFullYear();
+    const [doOrgao] = await this.licitacaoRepository.query(
+      `SELECT numero FROM documentos_orgao WHERE orgao_id::text = $1 AND tipo::text = 'PORTARIA_DESIGNACAO' AND ativo = true AND exercicio = $2 ORDER BY versao DESC LIMIT 1`,
+      [licitacao.orgao_id, exercicio],
+    );
+    return doOrgao ? `${doOrgao.numero} — portaria do órgão no exercício` : null;
   }
 
   /**

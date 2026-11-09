@@ -14,7 +14,7 @@ import { OrcamentoService } from '../orcamento/orcamento.service';
 import { MINUTA_AVISO_PREAMBULO, RAG_CONCLUSAO_PADRAO, RAG_ENQUADRAMENTO_PADRAO } from '../modelos-padrao';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
 import { resumoIaDaPeca } from '../ia-rascunho/rascunho-ia-regras';
-import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, completarClausulasDoContrato, decidirRegeracao, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, SECOES_DA_LICITACAO, secoesParaLicitacao, SQL_PORTARIA_JUNTADA_NO_PROCESSO, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, completarClausulasDoContrato, completarJustificativaDaLicitacao, decidirRegeracao, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, SECOES_DA_LICITACAO, secoesParaLicitacao, SQL_PORTARIA_JUNTADA_NO_PROCESSO, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
 
@@ -118,7 +118,7 @@ export class MinutasTelaService {
   ): Promise<DocumentoFaseInterna> {
     const tipo = String(tipoParam || '').toUpperCase() as TipoDocumentoFaseInterna;
     const lic = await this.licitacao(licitacaoId);
-    const modelo = await this.modelos.resolverModelo(lic.orgao_id, tipo);
+    const modelo = await this.modelos.resolverModelo(lic.orgao_id, tipo, lic.modalidade);
     if (!modelo) throw new BadRequestException(`Não há modelo para ${TITULO_DOCUMENTO[tipo] ?? tipo}.`);
     const contexto = await this.modelos.montarContextoVariaveis(licitacaoId);
     let doModelo: Record<string, string> = {};
@@ -130,6 +130,16 @@ export class MinutasTelaService {
       for (const id of secoesParaLicitacao(tipo, modelo.secoes || [], textosDaDispensa)) {
         doModelo[id] = this.modelos.substituirVariaveis(SECOES_DA_LICITACAO[tipo][id], contexto);
       }
+    }
+    if (tipo === TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO && ehLicitacaoCompetitiva(lic.modalidade)) {
+      // Justificativa da licitação (art. 18, IX): o que o ETP e o TR já dizem entra em cada seção
+      const pecasBase: any[] = await this.ds.query(
+        `SELECT tipo::text AS tipo, dados_estruturados FROM documentos_fase_interna
+          WHERE licitacao_id::text = $1 AND tipo::text IN ('ETP','TR') AND versao_atual = true ORDER BY versao DESC NULLS LAST`,
+        [licitacaoId],
+      );
+      const daPeca = (t: string) => secoesDaPeca(pecasBase.find((x) => x.tipo === t)?.dados_estruturados);
+      doModelo = completarJustificativaDaLicitacao(doModelo, { ETP: daPeca('ETP'), TR: daPeca('TR') });
     }
     if (tipo === TipoDocumentoFaseInterna.MINUTA_CONTRATO) {
       // Cláusulas do art. 92 sem texto no modelo: texto padrão + o que o TR já define
@@ -277,7 +287,7 @@ export class MinutasTelaService {
       if (decisao.acao === 'REGERAR') {
         // Mesmos dados → mesmo texto: não gera versão/PDF à toa
         const contexto = await this.modelos.montarContextoVariaveis(licitacaoId);
-        const modelo = await this.modelos.resolverModelo(lic.orgao_id, tipo as TipoDocumentoFaseInterna);
+        const modelo = await this.modelos.resolverModelo(lic.orgao_id, tipo as TipoDocumentoFaseInterna, lic.modalidade);
         const novo: Record<string, string> = {};
         for (const s of modelo?.secoes || []) novo[s.id] = s.texto_padrao ? this.modelos.substituirVariaveis(s.texto_padrao, contexto) : '';
         if (hashSecoes(novo) === doc.dados_estruturados?._gerado?.hash) continue;
@@ -364,6 +374,21 @@ export class MinutasTelaService {
       },
       pecas,
     };
+  }
+
+  /**
+   * Justificativa da contratação da LICITAÇÃO (art. 18, IX), peça da etapa do
+   * TR (decisão do dono, 09/11/2026). Na contratação direta a JC é outra peça
+   * (aviso/justificativa do art. 72) e não sai por aqui.
+   */
+  async gerarJustificativaDaLicitacao(licitacaoId: string, autor: Autor) {
+    const lic = await this.licitacao(licitacaoId);
+    if (!ehFaseInterna(lic.fase)) throw new ConflictException('A fase interna foi encerrada — a justificativa não muda mais.');
+    if (!ehLicitacaoCompetitiva(lic.modalidade)) throw new BadRequestException('Na contratação direta a justificativa é a do art. 72 (relatório do agente / aviso).');
+    const atual = await this.docAtual(licitacaoId, TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO);
+    if (atual && atual.origem !== OrigemDocumento.INTERNO) throw new ConflictException('A justificativa foi anexada (feita fora). Para gerar pelo modelo, substitua a peça anexada.');
+    const doc = await this.gerarPorModelo(licitacaoId, TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO, autor);
+    return { documento_id: doc.id, versao: doc.versao, status: doc.status };
   }
 
   /** Gera uma minuta (RAG, ME, MC) ou todas ("TODAS") pelo modelo. */

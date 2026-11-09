@@ -264,3 +264,27 @@ export function numeroDaPortariaJuntada(p: { titulo?: string | null; numero_docu
   if (p.numero_documento) return `Portaria nº ${p.numero_documento}`;
   return titulo.split(/\s+[—–-]\s+/)[0] || null;
 }
+
+/**
+ * Justificativa da contratação na licitação: seção com o texto padrão ganha,
+ * logo abaixo, o que o ETP e o TR já dizem sobre o assunto (mesmo padrão das
+ * cláusulas do contrato). Só mexe nas seções que o modelo tem.
+ */
+export const COMPLEMENTOS_JC_LICITACAO: Record<string, { de: 'ETP' | 'TR'; secao: string; rotulo: string }> = {
+  motivacao: { de: 'ETP', secao: 'necessidade', rotulo: 'Conforme o estudo técnico preliminar' },
+  habilitacao: { de: 'TR', secao: 'selecao_habilitacao', rotulo: 'Conforme o termo de referência' },
+  parcelamento: { de: 'ETP', secao: 'parcelamento', rotulo: 'Conforme o estudo técnico preliminar' },
+};
+
+export function completarJustificativaDaLicitacao(
+  secoes: Record<string, string>,
+  pecas: { ETP: Record<string, string> | null; TR: Record<string, string> | null },
+): Record<string, string> {
+  const r = { ...secoes };
+  for (const [id, c] of Object.entries(COMPLEMENTOS_JC_LICITACAO)) {
+    const trecho = pecas[c.de]?.[c.secao];
+    if (!(id in r) || !temTexto(trecho)) continue;
+    r[id] = `${r[id] ?? ''}\n<p>${c.rotulo}:</p>\n${trecho}`;
+  }
+  return r;
+}

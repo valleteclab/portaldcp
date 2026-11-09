@@ -173,7 +173,7 @@ export class ParecerTelaService {
   async obter(licitacaoId: string, faseParam: unknown, ator: Ator) {
     const fase = this.fase(faseParam);
     const lic = await this.minutas.licitacao(licitacaoId);
-    const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    const instrucao = await this.faseInterna.getInstrucao(licitacaoId, undefined, { comFacultativasDaLicitacao: true });
     const autos = await this.autos(
       licitacaoId,
       instrucao.itens.map((i) => i.tipo),
@@ -365,7 +365,7 @@ export class ParecerTelaService {
     const lista = await this.diligenciaRepo.find({ where: { licitacao_id: licitacaoId, tipo_alvo: tipo }, order: { created_at: 'ASC' } });
     if (!lista.length) return { tipo, diligencias: [] };
     const atual = await this.minutas.docAtual(licitacaoId, tipo);
-    const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    const instrucao = await this.faseInterna.getInstrucao(licitacaoId, undefined, { comFacultativasDaLicitacao: true });
     const linha = instrucao.itens.find((i) => i.tipo === tipo);
     const pronta = !!atual && (linha ? ['OK', 'NAO_SE_APLICA'].includes(linha.status) : pecaContaComoPronta(atual as any));
     const saida: any[] = [];
@@ -434,7 +434,7 @@ export class ParecerTelaService {
     const d = await this.diligencia(licitacaoId, id);
     await this.exigirQuemSana(licitacaoId, lic.orgao_id, d, ator);
     const atual = await this.minutas.docAtual(licitacaoId, d.tipo_alvo);
-    const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
+    const instrucao = await this.faseInterna.getInstrucao(licitacaoId, undefined, { comFacultativasDaLicitacao: true });
     const linha = instrucao.itens.find((i) => i.tipo === d.tipo_alvo);
     const pronta = !!atual && (linha ? ['OK', 'NAO_SE_APLICA'].includes(linha.status) : pecaContaComoPronta(atual as any));
     const resposta = String(body?.resposta ?? '').trim().slice(0, 4000);

@@ -67,6 +67,15 @@ export const PECAS_JUNTAS_DA_ETAPA: Record<string, Array<{ tipo: string; rotulo:
   ETP: [{ tipo: 'AR', rotulo: 'a análise de riscos (na tela do ETP: faça, anexe ou marque "não se aplica")' }],
 };
 
+/**
+ * Peças que a LICITAÇÃO (pregão, concorrência…) exige junto com o documento
+ * da etapa, sempre: a justificativa da contratação (art. 18, IX) é peça da
+ * etapa do TR (decisão do dono, 09/11/2026).
+ */
+export const PECAS_JUNTAS_DA_LICITACAO: Record<string, Array<{ tipo: string; rotulo: string }>> = {
+  TR: [{ tipo: 'JC', rotulo: 'a justificativa da contratação (na tela do TR: gere pelo modelo ou anexe — art. 18, IX)' }],
+};
+
 export interface EstadoNaFaseInterna {
   /** Documento da etapa: versão atual pronta (ou marcada "não se aplica" na tela da fase interna). */
   documentoPronto: boolean;
