@@ -1,6 +1,6 @@
 'use client'
 
-import { lerValorMonetario } from '@/lib/moeda'
+import { lerValorMonetario, moedaDeNumero } from '@/lib/moeda'
 import { InputMoeda } from '@/components/ui/input-moeda'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, FileUp, RefreshCw, Send, XCircle } from 'lucide-react'
@@ -56,8 +56,11 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
     const iniciais: Record<string, string> = {}
     for (const i of c.limites.itens) {
       const anterior = c.valoresItens?.find((v) => v.itemId === i.itemId)?.valorUnitario
-      const teto = i.valorMaximoTotal != null ? Math.floor((i.valorMaximoTotal / (i.quantidade || 1)) * 10000) / 10000 : ''
-      iniciais[i.itemId] = String(anterior ?? teto)
+      // Já no formato da máscara (R$ 1.146,58), com centavos: o número cru ("1146.5827") virava
+      // outro valor ao editar um dígito (ensaio do pregão 002/2026, 09/11/2026)
+      const teto = i.valorMaximoTotal != null ? Math.floor((i.valorMaximoTotal / (i.quantidade || 1)) * 100) / 100 : null
+      const inicial = anterior != null ? Math.floor(Number(anterior) * 100) / 100 : teto
+      iniciais[i.itemId] = moedaDeNumero(inicial)
     }
     return iniciais
   })
