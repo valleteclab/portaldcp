@@ -38,9 +38,16 @@ const DocumentoSeccionado = dynamic(() => import("@/components/editor/DocumentoS
 })
 
 type TipoMinuta = "RAG" | "ME" | "MC"
-const ABAS: Array<{ tipo: TipoMinuta; titulo: string; ajuda: string }> = [
+type Aba = { tipo: TipoMinuta; titulo: string; ajuda: string }
+const ABAS_CONTRATACAO_DIRETA: Aba[] = [
   { tipo: "RAG", titulo: "Relatório do agente", ajuda: "Enquadramento, justificativa do preço e razão da escolha (art. 72, VI e VII)" },
   { tipo: "ME", titulo: "Minuta do aviso", ajuda: "Aviso de contratação direta com os anexos (art. 75, §3º)" },
+  { tipo: "MC", titulo: "Minuta do contrato", ajuda: "Cláusulas necessárias do art. 92" },
+]
+// Pregão, concorrência…: a minuta é do EDITAL (art. 25), não do aviso
+const ABAS_LICITACAO: Aba[] = [
+  { tipo: "RAG", titulo: "Relatório do agente", ajuda: "Modalidade, justificativa do preço e forma de escolha do fornecedor" },
+  { tipo: "ME", titulo: "Minuta do edital", ajuda: "Edital da licitação com os anexos (art. 25)" },
   { tipo: "MC", titulo: "Minuta do contrato", ajuda: "Cláusulas necessárias do art. 92" },
 ]
 
@@ -174,6 +181,8 @@ export default function MinutasPage() {
     )
   }
   const dp = d.dados_do_processo
+  const direta = d.contratacao_direta
+  const ABAS = direta ? ABAS_CONTRATACAO_DIRETA : ABAS_LICITACAO
   const atual = d.pecas[aba]
   const somenteLeitura = !d.licitacao.fase_interna || !!atual.peca?.nao_se_aplica || !!atual.peca?.anexada || !perm.pode
 
@@ -183,10 +192,10 @@ export default function MinutasPage() {
       licitacaoId={id}
       tela="minutas"
       titulo="Relatório do agente e minutas"
-      subtitulo={<span>Art. 72 da Lei 14.133/2021 · as peças leem os dados do processo {d.licitacao.numero_processo}</span>}
+      subtitulo={<span>{direta ? "Art. 72" : "Arts. 25 e 53"} da Lei 14.133/2021 · as peças leem os dados do processo {d.licitacao.numero_processo}</span>}
       atualizacao={atualizacao}
       acoes={
-        <Button onClick={() => gerar("TODAS")} disabled={ocupado || !d.licitacao.fase_interna || !perm.pode} title="Gera o relatório do agente, a minuta do aviso e a minuta do contrato pelo modelo">
+        <Button onClick={() => gerar("TODAS")} disabled={ocupado || !d.licitacao.fase_interna || !perm.pode} title={`Gera o relatório do agente, a minuta do ${direta ? "aviso" : "edital"} e a minuta do contrato pelo modelo`}>
           {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />} Gerar as três pelo modelo
         </Button>
       }
@@ -194,8 +203,8 @@ export default function MinutasPage() {
       {dialogo}
       <section aria-label="Dados do processo" className="rounded-lg border bg-white p-4 grid gap-3 md:grid-cols-3 text-sm">
         <div>
-          <h2 className="text-xs font-semibold uppercase text-gray-600">Processo e dispensa</h2>
-          <p className="text-gray-900">PA {d.licitacao.numero_processo}{d.licitacao.numero_dispensa ? ` · nº ${d.licitacao.numero_dispensa}` : " · número da dispensa na divulgação"}</p>
+          <h2 className="text-xs font-semibold uppercase text-gray-600">{direta ? "Processo e dispensa" : "Processo e licitação"}</h2>
+          <p className="text-gray-900">PA {d.licitacao.numero_processo}{d.licitacao.numero_dispensa ? ` · nº ${d.licitacao.numero_dispensa}` : ` · número ${direta ? "da dispensa" : "do edital"} na divulgação`}</p>
           <p className="text-gray-900">{dp.fundamento_legal.texto ?? "—"}</p>
           <Link className="text-xs text-blue-800 hover:underline" href={`/orgao/processos/${id}/editar`}>Mudar o fundamento (Editar processo)</Link>
         </div>
