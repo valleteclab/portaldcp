@@ -126,6 +126,10 @@ export class RascunhoIaService {
   async aoSincronizar(r: ResultadoSincronizacao): Promise<void> {
     // Migração de boot (notificar = false): nada se move sozinho — nem a IA
     if (!this.ativo() || !r.notificar) return;
+    // Processo conduzido pelo fluxo novo: o rascunho ao chegar pela sincronização nunca rodou para ele
+    // (a sincronização voltava antes, desde a ponte de 07/10/2026) — continua assim; a chegada pela
+    // tramitação (aoMovimentar) e o "Gerar com IA" manual seguem valendo
+    if (r.conduzido_pelo_fluxo) return;
     if (!ehFaseInterna(r.lic.fase) || !SITUACOES_VIVAS.includes(r.lic.situacao ?? 'ATIVA')) return;
     const pedidos = rascunhosAoChegar(r.lic.id, r.passos);
     if (!pedidos.length) return;
