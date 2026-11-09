@@ -14,7 +14,7 @@ import { OrcamentoService } from '../orcamento/orcamento.service';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { PassoFaseInterna, PapelFaseInterna } from '../tarefas/etapas-fase-interna';
 import { Autor, MinutasTelaService } from './minutas-tela.service';
-import { avisoDosSignatarios, portaoBArt72, resumoDaAutorizacao, situacaoDaAutorizacao, situacaoDasAssinaturas, SignatarioSituacao } from './autorizacao-regras';
+import { avisoDosSignatarios, portaoBDaAutorizacao, resumoDaAutorizacao, situacaoDaAutorizacao, situacaoDasAssinaturas, SignatarioSituacao } from './autorizacao-regras';
 import { pendenciasDoPortaoDoProcesso } from '../conformidade/portoes';
 import { responsavelDaEtapaAtualDoFluxo } from '../../workflow/ponte/ponte-fase-interna';
 
@@ -378,6 +378,6 @@ export class AutorizacaoTelaService {
   async portaoB(licitacaoId: string) {
     const instrucao = await this.faseInterna.getInstrucao(licitacaoId);
     const lic = await this.minutas.licitacao(licitacaoId);
-    return portaoBArt72(instrucao.itens, lic.modalidade);
+    return portaoBDaAutorizacao(instrucao.itens, lic.modalidade);
   }
 }

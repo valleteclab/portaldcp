@@ -14,7 +14,8 @@
 
 // Portão B (art. 72): a implementação é a do motor de conformidade
 // (Entrega 4: `conformidade/art72.ts`), reexportada aqui.
-import { portaoBArt72, LinhaInstrucaoPortao } from '../conformidade/art72';
+import { portaoBArt72, LinhaInstrucaoPortao, LinhaPortaoB } from '../conformidade/art72';
+import { ehLicitacaoCompetitiva } from './minutas-regras';
 export { INCISOS_ART72, portaoBArt72 } from '../conformidade/art72';
 export type { LinhaInstrucaoPortao, LinhaPortaoB, MomentoInciso } from '../conformidade/art72';
 
@@ -77,7 +78,7 @@ export function resumoDaAutorizacao(e: {
   itens: LinhaInstrucaoPortao[];
   folhas: number | null;
 }) {
-  const portao = portaoBArt72(e.itens, e.modalidade ?? null);
+  const portao = portaoBDaAutorizacao(e.itens, e.modalidade ?? null);
   const conferidas = portao.linhas.filter((l) => l.exigido && l.situacao === 'OK').flatMap((l) => l.pecas.filter((p) => p.status === 'OK').map((p) => p.tipo));
   return {
     titulo: `Autorizar a abertura do PA ${e.numero_processo}`,
@@ -89,12 +90,32 @@ export function resumoDaAutorizacao(e: {
     dotacao_texto: e.reserva?.texto ?? null,
     requisitante: e.requisitante,
     documentos: portao.ok
-      ? `${conferidas.join(', ') || 'Peças do art. 72'} — completos`
+      ? `${conferidas.join(', ') || (portao.rito === 'ART18' ? 'Peças do art. 18' : 'Peças do art. 72')} — completos`
       : `Faltam: ${portao.pendentes.map((p) => p.split(' — ')[0]).join('; ')}`,
     documentos_ok: portao.ok,
     folhas: e.folhas,
     portao_b: portao,
   };
+}
+
+/**
+ * Peças exigidas para AUTORIZAR. Contratação direta: o art. 72 (portão B).
+ * Licitação (pregão, concorrência…): a instrução do art. 18 — as obrigatórias
+ * da fase interna antes da autorização (pregão 2026/00070: a tela citava o
+ * art. 72, que é da contratação direta). A própria autorização é desta etapa.
+ */
+export function portaoBDaAutorizacao(itens: LinhaInstrucaoPortao[], modalidade?: string | null): ReturnType<typeof portaoBArt72> & { rito: 'ART72' | 'ART18' } {
+  if (!ehLicitacaoCompetitiva(modalidade)) return { ...portaoBArt72(itens, modalidade), rito: 'ART72' };
+  const linhas: LinhaPortaoB[] = itens
+    .filter((i) => i.obrigatorio !== false)
+    .map((i) => {
+      const estaEtapa = i.tipo === 'AA';
+      const pecas = [{ tipo: i.tipo, titulo: i.titulo, status: i.status, documento_id: i.documento_id ?? null }];
+      const situacao: LinhaPortaoB['situacao'] = i.status === 'OK' ? 'OK' : i.status === 'PENDENTE' ? 'PENDENTE' : 'EM_ANDAMENTO';
+      return { inciso: i.tipo, referencia: (i as any).fundamento ?? 'Art. 18', texto: i.titulo, momento: estaEtapa ? 'ESTA_ETAPA' : 'ANTES', exigido: !estaEtapa, situacao, pecas };
+    });
+  const pendentes = linhas.filter((l) => l.exigido && l.situacao !== 'OK').map((l) => `${l.texto} — ${l.referencia}`);
+  return { linhas, ok: pendentes.length === 0, pendentes, rito: 'ART18' };
 }
 
 /**
