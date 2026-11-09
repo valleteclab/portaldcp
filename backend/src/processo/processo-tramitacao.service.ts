@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { ModuleRef } from '@nestjs/core';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { ModeloDocumento } from '../fase-interna/entities/modelo-documento.entity';
 import { TipoDocumentoFaseInterna } from '../fase-interna/entities/documento-fase-interna.entity';
@@ -85,6 +86,7 @@ export class ProcessoTramitacaoService implements OnModuleInit {
     @InjectRepository(ModeloDocumento) private readonly modelosRepo: Repository<ModeloDocumento>,
     private readonly workflow: WorkflowService,
     private readonly registro: RegistroNos,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   // ==========================================================================
@@ -488,7 +490,44 @@ export class ProcessoTramitacaoService implements OnModuleInit {
         }),
       );
     });
+    await this.juntarNosAutosDaLicitacao(p, peca);
     return { peca, ...(await this.fluxo(p)) };
+  }
+
+  /**
+   * Processo de licitação (pregão, concorrência…): a peça juntada por uma etapa
+   * do fluxo (portaria, despacho, documento) vai também para o livro de autos
+   * da licitação — senão some da impressão dos autos, que é montada por lá.
+   * Nunca impede a juntada: falha fica no log.
+   */
+  private async juntarNosAutosDaLicitacao(p: Processo, peca: ProcessoPeca): Promise<void> {
+    if (p.tipo !== TipoProcesso.CONTRATACAO || p.referencia_tipo !== 'LICITACAO' || !p.referencia_id || !peca.arquivo_url) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('../fase-interna/juntada-autos.service');
+      const juntada = this.moduleRef.get(mod.JuntadaAutosService, { strict: false });
+      const caminho = mod.caminhoFisicoDeReferencia(peca.arquivo_url);
+      if (!juntada || !caminho) return;
+      await juntada.juntarPendentes(p.referencia_id, [
+        {
+          dados: {
+            natureza: 'DOCUMENTO',
+            vaga: `processo-peca:${peca.id}`,
+            chave: peca.tipo_peca || 'PECA_PROCESSO',
+            titulo: peca.titulo,
+            origem: peca.origem === 'ARQUIVO' ? 'ANEXADA' : 'GERADA',
+            conteudo: `processo-peca:${peca.id}:${peca.arquivo_url}`,
+            data_documento: peca.created_at ?? new Date(),
+            signatarios: peca.criado_por_nome ? [peca.criado_por_nome] : [],
+            juntado_por_nome: peca.criado_por_nome,
+          },
+          momento: peca.created_at ?? new Date(),
+          fonte: { tipo: 'COPIAR', caminho },
+        },
+      ]);
+    } catch (e: any) {
+      this.logger.warn(`[autos] peça "${peca.titulo}" do processo ${p.numero} não foi para os autos da licitação: ${e?.message ?? e}`);
+    }
   }
 
   /**

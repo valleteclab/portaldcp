@@ -11,9 +11,10 @@ import { GeradorDocumentoService } from '../gerador-documento.service';
 import { ModeloDocumentoService } from '../modelo-documento.service';
 import { TITULO_DOCUMENTO } from '../documentos-obrigatorios';
 import { OrcamentoService } from '../orcamento/orcamento.service';
+import { MINUTA_AVISO_PREAMBULO, RAG_CONCLUSAO_PADRAO, RAG_ENQUADRAMENTO_PADRAO } from '../modelos-padrao';
 import { avisarPecaAlterada } from '../tarefas/aviso-tarefas';
 import { resumoIaDaPeca } from '../ia-rascunho/rascunho-ia-regras';
-import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, completarClausulasDoContrato, decidirRegeracao, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
+import { TIPOS_REGERAVEIS, camposQueAfetamAPeca, completarClausulasDoContrato, decidirRegeracao, ehLicitacaoCompetitiva, numeroDaPortariaJuntada, SECOES_DA_LICITACAO, secoesParaLicitacao, SQL_PORTARIA_JUNTADA_NO_PROCESSO, desatualizacaoRelevante, hashSecoes, motivoSigiloInvalido, pecaEditadaAMao, referenciasDivergentes, secoesDaPeca } from './minutas-regras';
 
 export type Autor = { id: string | null; nome: string | null };
 
@@ -122,6 +123,14 @@ export class MinutasTelaService {
     const contexto = await this.modelos.montarContextoVariaveis(licitacaoId);
     let doModelo: Record<string, string> = {};
     for (const s of modelo.secoes || []) doModelo[s.id] = s.texto_padrao ? this.modelos.substituirVariaveis(s.texto_padrao, contexto) : '';
+    if (ehLicitacaoCompetitiva(lic.modalidade)) {
+      // Pregão/concorrência: o modelo padrão fala de dispensa (aviso, art. 72) —
+      // as seções com esse texto, ou vazias, ganham o texto da licitação.
+      const textosDaDispensa = [MINUTA_AVISO_PREAMBULO, '<p>{{licitacao.forma_disputa}}</p>', RAG_ENQUADRAMENTO_PADRAO, RAG_CONCLUSAO_PADRAO];
+      for (const id of secoesParaLicitacao(tipo, modelo.secoes || [], textosDaDispensa)) {
+        doModelo[id] = this.modelos.substituirVariaveis(SECOES_DA_LICITACAO[tipo][id], contexto);
+      }
+    }
     if (tipo === TipoDocumentoFaseInterna.MINUTA_CONTRATO) {
       // Cláusulas do art. 92 sem texto no modelo: texto padrão + o que o TR já define
       const [tr] = await this.ds.query(
@@ -321,6 +330,7 @@ export class MinutasTelaService {
       `SELECT id::text AS id, numero, exercicio FROM documentos_orgao WHERE orgao_id::text = $1 AND tipo::text = 'PORTARIA_DESIGNACAO' AND ativo = true AND exercicio = $2 ORDER BY versao DESC LIMIT 1`,
       [lic.orgao_id, lic.exercicio],
     );
+    const [juntada] = !dp?.numero_peca && !portaria ? await this.ds.query(SQL_PORTARIA_JUNTADA_NO_PROCESSO, [licitacaoId]).catch(() => []) : [];
     const [agente] = lic.pregoeiro_id ? await this.ds.query(`SELECT nome FROM usuarios WHERE id::text = $1`, [lic.pregoeiro_id]) : [];
     const itens = await this.ds.query(
       `SELECT COALESCE(SUM(COALESCE(valor_total_estimado, quantidade * COALESCE(valor_unitario_estimado, 0))), 0)::float AS total
@@ -348,7 +358,9 @@ export class MinutasTelaService {
           ? { origem: 'PROCESSO', numero: dp.numero_peca, documento_id: dp.id }
           : portaria
             ? { origem: 'ORGAO', numero: portaria.numero, portaria_id: portaria.id }
-            : null,
+            : juntada
+              ? { origem: 'PROCESSO', numero: numeroDaPortariaJuntada(juntada), processo_peca_id: juntada.id }
+              : null,
       },
       pecas,
     };

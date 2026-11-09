@@ -17,6 +17,7 @@ import {
   TipoDocumentoFaseInterna,
 } from './entities/documento-fase-interna.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { SQL_PORTARIA_JUNTADA_NO_PROCESSO, numeroDaPortariaJuntada } from './telas/minutas-regras';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { FaseInternaService } from './fase-interna.service';
 import {
@@ -359,7 +360,9 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
           [licitacao.orgao_id, exercicio],
         ).catch(() => [])
       : [];
-    const numeroPortaria = dp?.numero_peca || portaria?.numero || null;
+    // ...ou a portaria juntada por uma etapa do fluxo do processo (pregão: "Portarias do agente e dos fiscais")
+    const [juntada] = !dp && !portaria ? await q(SQL_PORTARIA_JUNTADA_NO_PROCESSO, [licitacao.id]).catch(() => []) : [];
+    const numeroPortaria = dp?.numero_peca || portaria?.numero || numeroDaPortariaJuntada(juntada) || null;
     const designacao = numeroPortaria ? `designado pela ${numeroPortaria}` : 'designado por portaria do órgão';
     // Limite do inciso do fundamento (art. 75, I/II) no exercício — o do INCISO CERTO (PA 139/2025)
     const inciso = incisoLimiteDoFundamento(fundamentoEfetivo(licitacao));

@@ -186,3 +186,81 @@ export function completarClausulasDoContrato(
   }
   return r;
 }
+
+// ============================================================================
+// LICITAÇÃO (pregão, concorrência…): o modelo padrão do relatório e das
+// minutas nasceu para a contratação direta (art. 72 / aviso do art. 75, §3º).
+// Na licitação, as seções que ficaram com o texto da dispensa ou vazias ganham
+// o texto da licitação. Seção que o órgão reescreveu no modelo não é tocada.
+// ============================================================================
+
+const MODALIDADES_DIRETAS = new Set(['DISPENSA_ELETRONICA', 'INEXIGIBILIDADE', 'CREDENCIAMENTO']);
+
+/** Pregão, concorrência, concurso, leilão, diálogo competitivo. */
+export const ehLicitacaoCompetitiva = (modalidade: unknown) => {
+  const m = String(modalidade ?? '').toUpperCase();
+  return !!m && !MODALIDADES_DIRETAS.has(m) && !m.startsWith('DISPENSA');
+};
+
+export const SECOES_DA_LICITACAO: Record<string, Record<string, string>> = {
+  ME: {
+    preambulo:
+      '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público que realizará licitação na modalidade {{licitacao.modalidade}}, na forma eletrônica, nº {{licitacao.numero_dispensa}}, referente ao Processo Administrativo nº {{licitacao.numero_processo}}, com critério de julgamento {{licitacao.criterio_julgamento}} e modo de disputa {{licitacao.modo_disputa}}, nos termos da Lei nº 14.133/2021, cujo objeto é {{licitacao.objeto}}. Valor estimado: {{licitacao.valor_publico}}.</p>',
+    participacao:
+      '<p>Poderão participar os interessados cujo ramo de atividade seja compatível com o objeto, previamente credenciados no sistema eletrônico, que atendam às condições deste edital e seus anexos.</p><p>Não poderão participar as pessoas físicas ou jurídicas impedidas nos termos do art. 14 da Lei nº 14.133/2021, as suspensas ou impedidas de licitar e contratar com a Administração e as declaradas inidôneas (art. 156, III e IV). Será assegurado o tratamento diferenciado às microempresas e empresas de pequeno porte previsto na Lei Complementar nº 123/2006 (art. 4º da Lei nº 14.133/2021).</p>',
+    habilitacao:
+      '<p>Encerrada a fase de lances e aceita a proposta, será exigida do licitante mais bem classificado a documentação de habilitação (art. 63, II): habilitação jurídica (art. 66), regularidade fiscal, social e trabalhista (art. 68), qualificação econômico-financeira (art. 69) e qualificação técnica (art. 67), na medida do exigido no termo de referência, além das declarações do art. 63 da Lei nº 14.133/2021.</p><p>Os documentos serão enviados pelo sistema eletrônico, no prazo fixado pelo agente de contratação, admitida a diligência para sanar falhas que não alterem a substância dos documentos (art. 64).</p>',
+    julgamento:
+      '<p>O julgamento será pelo critério {{licitacao.criterio_julgamento}} (art. 33 da Lei nº 14.133/2021), no modo de disputa {{licitacao.modo_disputa}} (art. 56). Encerrados os lances, o agente de contratação poderá negociar condições mais vantajosas com o primeiro colocado (art. 61) e verificará a conformidade da proposta com o termo de referência e sua exequibilidade (art. 59).</p>',
+    recursos:
+      '<p>Qualquer licitante poderá manifestar, imediatamente após o julgamento ou a habilitação, a intenção de recorrer, sob pena de preclusão, e apresentar as razões no prazo de 3 (três) dias úteis; os demais licitantes poderão apresentar contrarrazões em igual prazo, contado do fim do prazo do recorrente (art. 165 da Lei nº 14.133/2021).</p><p>O recurso será dirigido ao agente de contratação, que poderá reconsiderar a decisão em 3 (três) dias úteis ou encaminhá-lo à autoridade superior, que decidirá em até 10 (dez) dias úteis.</p>',
+    contratacao:
+      '<p>Homologado o resultado, o adjudicatário será convocado para assinar o termo de contrato no prazo de até 5 (cinco) dias úteis, prorrogável uma vez por igual período, sob pena de decair do direito à contratação (art. 90 da Lei nº 14.133/2021). As condições de execução, pagamento e sanções constam da minuta do contrato e do termo de referência, anexos deste edital.</p>',
+  },
+  RAG: {
+    enquadramento:
+      '<p>A contratação será realizada por licitação na modalidade {{licitacao.modalidade}} (art. 28 da Lei nº 14.133/2021), na forma eletrônica (art. 17, §2º), com critério de julgamento {{licitacao.criterio_julgamento}} e modo de disputa {{licitacao.modo_disputa}}.</p>',
+    escolha:
+      '<p>O fornecedor será escolhido na disputa pública: vence a proposta mais vantajosa pelo critério de julgamento do edital, depois de aceita e com o licitante habilitado (arts. 11, 33 e 59 da Lei nº 14.133/2021).</p>',
+    conclusao:
+      '<p>Instruído o processo, encaminho os autos para análise jurídica (art. 53 da Lei nº 14.133/2021), acompanhados da minuta do edital e da minuta do contrato.</p><p>{{local_data}}.</p><p>{{agente.assinatura}}</p>',
+  },
+};
+
+/**
+ * Seções do modelo que, na licitação, trocam para o texto da licitação: as
+ * vazias e as que ainda estão com o texto padrão da contratação direta
+ * (`textosDaDispensa` = os texto_padrao do sistema). Devolve só os ids a trocar.
+ */
+export function secoesParaLicitacao(
+  tipo: string,
+  modelo: Array<{ id: string; texto_padrao?: string | null }>,
+  textosDaDispensa: string[],
+): string[] {
+  const textos = SECOES_DA_LICITACAO[tipo];
+  if (!textos) return [];
+  const dispensa = new Set(textosDaDispensa);
+  return modelo.filter((s) => s.id in textos && (!temTexto(s.texto_padrao) || dispensa.has(String(s.texto_padrao)))).map((s) => s.id);
+}
+
+/**
+ * Portaria juntada por uma etapa do fluxo do processo (ex.: "Portarias do
+ * agente e dos fiscais" no pregão) — fica em `processo_pecas`, não na peça DP.
+ * Parâmetro: id da licitação.
+ */
+export const SQL_PORTARIA_JUNTADA_NO_PROCESSO = `
+  SELECT pp.id::text AS id, pp.titulo, pp.numero_documento, pp.numero_peca
+    FROM processo_pecas pp JOIN processos pr ON pr.id = pp.processo_id
+   WHERE pr.referencia_tipo::text = 'LICITACAO' AND pr.referencia_id::text = $1
+     AND (pp.tipo_peca = 'DP' OR pp.titulo ILIKE 'portaria%')
+   ORDER BY pp.numero_peca DESC LIMIT 1`;
+
+/** "Portaria nº 012/2026 — designa o pregoeiro…" → "Portaria nº 012/2026" (sem número: o título). */
+export function numeroDaPortariaJuntada(p: { titulo?: string | null; numero_documento?: string | null } | null | undefined): string | null {
+  if (!p) return null;
+  const titulo = String(p.titulo ?? '').trim();
+  const m = /^portaria\s+n[º°o.]*\s*[\w./-]+/i.exec(titulo);
+  if (m) return m[0];
+  if (p.numero_documento) return `Portaria nº ${p.numero_documento}`;
+  return titulo.split(/\s+[—–-]\s+/)[0] || null;
+}

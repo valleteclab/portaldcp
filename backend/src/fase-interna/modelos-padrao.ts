@@ -64,6 +64,12 @@ export const AUTORIZACAO_TEXTO_E1 =
 export const MINUTA_AVISO_PREAMBULO =
   '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público o procedimento referente ao Processo Administrativo nº {{licitacao.numero_processo}} ({{licitacao.modalidade}} nº {{licitacao.numero_dispensa}}), com fundamento na {{licitacao.fundamento_legal}}, cujo objeto é {{licitacao.objeto}}. Valor estimado: {{licitacao.valor_publico}}.</p>';
 
+/** Textos do relatório do agente pensados para a contratação direta (art. 72) — na licitação, `adaptarPecaParaLicitacao` troca. */
+export const RAG_ENQUADRAMENTO_PADRAO =
+  '<p>A contratação enquadra-se na {{licitacao.fundamento_legal}}. Limite aplicável no exercício: {{licitacao.limite_dispensa}}.</p>';
+export const RAG_CONCLUSAO_PADRAO =
+  '<p>Instruído o processo, encaminho os autos para análise jurídica (art. 53 c/c art. 72, III), acompanhados da minuta do aviso e da minuta do contrato.</p><p>{{local_data}}.</p><p>{{agente.assinatura}}</p>';
+
 /** Texto ANTIGO do preâmbulo da minuta (só "licitação") — o seed troca pelo novo. */
 export const MINUTA_AVISO_PREAMBULO_ANTIGO =
   '<p>{{orgao.nome}}, inscrito no CNPJ sob nº {{orgao.cnpj}}, torna público que realizará licitação na modalidade {{licitacao.modalidade}}, referente ao Processo Administrativo nº {{licitacao.numero_processo}}, cujo objeto é {{licitacao.objeto}}.</p>';
@@ -242,7 +248,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
         obrigatorio: true,
         fundamento_legal: 'Art. 72, VIII · Art. 75',
         texto_padrao:
-          '<p>A contratação enquadra-se na {{licitacao.fundamento_legal}}. Limite aplicável no exercício: {{licitacao.limite_dispensa}}.</p>',
+          RAG_ENQUADRAMENTO_PADRAO,
       },
       {
         id: 'preco',
@@ -272,7 +278,7 @@ export const MODELOS_PADRAO: ModeloPadraoDef[] = [
         obrigatorio: true,
         fundamento_legal: 'Art. 72',
         texto_padrao:
-          '<p>Instruído o processo, encaminho os autos para análise jurídica (art. 53 c/c art. 72, III), acompanhados da minuta do aviso e da minuta do contrato.</p><p>{{local_data}}.</p><p>{{agente.assinatura}}</p>',
+          RAG_CONCLUSAO_PADRAO,
       },
     ],
   },
