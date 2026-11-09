@@ -25,7 +25,8 @@ import {
  *  - acompanha os prazos das partes (razões e contrarrazões são enviadas
  *    pelos próprios licitantes na sala deles — o órgão só lê e baixa);
  *  - reconsidera ou mantém (fundamentado) e encaminha à autoridade superior;
- *  - autoridade superior (conta do órgão ou usuário administrador) decide.
+ *  - decisão da autoridade superior: o agente a registra (autoridade do cadastro + decisão assinada)
+ *    ou a própria autoridade decide pela conta dela.
  * Prazos vencidos do agente/autoridade aparecem sinalizados (não há decisão automática).
  */
 export function RecursosPanel({ sessaoId }: { sessaoId: string }) {
@@ -60,7 +61,7 @@ export function RecursosPanel({ sessaoId }: { sessaoId: string }) {
     setBusy(key);
     setErro(null);
     try {
-      const res = await authFetch(url, { method: "POST", body: JSON.stringify(body ?? {}) });
+      const res = await authFetch(url, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) });
       if (!res.ok) {
         const e = await res.json().catch(() => null);
         const msg = Array.isArray(e?.message) ? e.message.join("; ") : e?.message;
@@ -166,6 +167,7 @@ export function RecursosPanel({ sessaoId }: { sessaoId: string }) {
                 setFundamento={(v) => setFundamento((s) => ({ ...s, [r.id]: v }))}
                 autoridade={autoridade[r.id] ?? { nome: "", cargo: "" }}
                 setAutoridade={(v) => setAutoridade((s) => ({ ...s, [r.id]: v }))}
+                autoridades={painel?.autoridades ?? []}
                 chamar={chamar}
               />
             ))}
@@ -192,6 +194,7 @@ function CartaoRecurso({
   setFundamento,
   autoridade,
   setAutoridade,
+  autoridades,
   chamar,
 }: {
   r: Recurso;
@@ -202,9 +205,13 @@ function CartaoRecurso({
   setFundamento: (v: string) => void;
   autoridade: { nome: string; cargo: string };
   setAutoridade: (v: { nome: string; cargo: string }) => void;
+  autoridades: Array<{ id: string; nome: string; cargo: string; padrao?: boolean }>;
   chamar: (key: string, url: string, body: unknown) => Promise<boolean>;
 }) {
   const [recusando, setRecusando] = useState(false);
+  // Registro pelo agente: autoridade do cadastro do órgão ("" = a autoridade decide pela própria conta)
+  const [autoridadeId, setAutoridadeId] = useState<string>(() => (autoridades.find((a) => a.padrao) ?? autoridades[0])?.id ?? "");
+  const [arquivoDecisao, setArquivoDecisao] = useState<File | null>(null);
   const base = `${API_URL}/api/recursos/${r.id}`;
   const fundamentoOk = fundamento.trim().length >= 20;
 
@@ -326,30 +333,45 @@ function CartaoRecurso({
         </div>
       )}
 
-      {/* Decisão da autoridade superior (art. 165 §2º) */}
+      {/* Decisão da autoridade superior (art. 165 §2º): a autoridade decide; o agente registra (ou ela mesma, pela conta dela) */}
       {r.podeDecidirAutoridade && (
         <div className="space-y-1 rounded border border-indigo-200 bg-indigo-50 p-2">
           <div className="text-xs font-semibold text-indigo-800">
             Decisão da autoridade superior (até {dataHoraBr(r.prazoDecisaoAutoridade)})
           </div>
           <div className="text-[11px] text-indigo-700">
-            Ato da autoridade superior: conta do órgão (informe nome e cargo), administrador do órgão ou usuário com o papel de
-            Autoridade — nunca quem manteve a decisão.
+            A decisão é da autoridade superior. O agente de contratação a registra aqui, escolhendo a autoridade e anexando a decisão
+            assinada; ou a própria autoridade decide pela conta dela.
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input
-              className="h-8 bg-white text-xs"
-              placeholder="Nome da autoridade"
-              value={autoridade.nome}
-              onChange={(e) => setAutoridade({ ...autoridade, nome: e.target.value })}
-            />
-            <Input
-              className="h-8 bg-white text-xs"
-              placeholder="Cargo"
-              value={autoridade.cargo}
-              onChange={(e) => setAutoridade({ ...autoridade, cargo: e.target.value })}
-            />
-          </div>
+          <select
+            className="h-8 w-full rounded border bg-white px-2 text-xs"
+            value={autoridadeId}
+            onChange={(e) => setAutoridadeId(e.target.value)}
+          >
+            {autoridades.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.nome} — {a.cargo}
+                {a.padrao ? " · padrão" : ""}
+              </option>
+            ))}
+            <option value="">Sou a autoridade superior e decido pela minha conta (informar nome e cargo)</option>
+          </select>
+          {!autoridadeId && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input
+                className="h-8 bg-white text-xs"
+                placeholder="Nome da autoridade"
+                value={autoridade.nome}
+                onChange={(e) => setAutoridade({ ...autoridade, nome: e.target.value })}
+              />
+              <Input
+                className="h-8 bg-white text-xs"
+                placeholder="Cargo"
+                value={autoridade.cargo}
+                onChange={(e) => setAutoridade({ ...autoridade, cargo: e.target.value })}
+              />
+            </div>
+          )}
           <Textarea
             rows={3}
             className="bg-white text-xs"
@@ -357,6 +379,15 @@ function CartaoRecurso({
             value={fundamento}
             onChange={(e) => setFundamento(e.target.value)}
           />
+          <label className="block text-[11px] text-indigo-800">
+            Decisão assinada pela autoridade (PDF, JPG ou PNG, até 10 MB — opcional)
+            <Input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              className="mt-1 h-8 bg-white text-xs"
+              onChange={(e) => setArquivoDecisao(e.target.files?.[0] ?? null)}
+            />
+          </label>
           <div className="flex gap-2">
             {[true, false].map((provido) => (
               <Button
@@ -364,15 +395,19 @@ function CartaoRecurso({
                 size="sm"
                 variant={provido ? "default" : "outline"}
                 className={`h-7 text-xs ${provido ? "bg-[#168821] hover:bg-[#0f6a19]" : "border-red-200 text-red-600"}`}
-                disabled={busy === `aut-${r.id}` || !fundamentoOk || !autoridade.cargo.trim()}
-                onClick={() =>
-                  chamar(`aut-${r.id}`, `${base}/decisao-autoridade`, {
-                    provido,
-                    fundamentacao: fundamento,
-                    nome: autoridade.nome || undefined,
-                    cargo: autoridade.cargo,
-                  })
-                }
+                disabled={busy === `aut-${r.id}` || !fundamentoOk || (!autoridadeId && !autoridade.cargo.trim())}
+                onClick={() => {
+                  const fd = new FormData();
+                  fd.append("provido", String(provido));
+                  fd.append("fundamentacao", fundamento);
+                  if (autoridadeId) fd.append("autoridadeId", autoridadeId);
+                  else {
+                    if (autoridade.nome) fd.append("nome", autoridade.nome);
+                    fd.append("cargo", autoridade.cargo);
+                  }
+                  if (arquivoDecisao) fd.append("arquivo", arquivoDecisao);
+                  chamar(`aut-${r.id}`, `${base}/decisao-autoridade`, fd);
+                }}
               >
                 {provido ? "Dar provimento" : "Negar provimento"}
               </Button>

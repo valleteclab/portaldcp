@@ -64,6 +64,9 @@ export interface Recurso {
   decisao: string | null;
   decididoPor: string | null;
   decididoPorCargo: string | null;
+  /** Agente de contratação que registrou a decisão da autoridade (quando registrada por ele). */
+  decisaoRegistradaPor?: string | null;
+  decisaoArquivo?: { nome: string; sha256: string | null } | null;
   instanciaDecisao: string | null;
   dataDecisao: string | null;
   efeitos: {
@@ -108,6 +111,8 @@ export interface PainelRecursos {
   pendentes: number;
   recursos: Recurso[];
   podeAbrirJanela?: boolean;
+  /** Cadastro de autoridades do órgão (para o agente registrar a decisão da autoridade superior). */
+  autoridades?: Array<{ id: string; nome: string; cargo: string; padrao?: boolean }>;
   motivoNaoAbreJanela?: string | null;
   podeManifestarIntencao?: boolean;
   atosRecorriveis?: Array<{ ato: string; rotulo: string; unidadeId: string | null; fornecedorAlvoId: string | null }>;
@@ -266,6 +271,12 @@ export function DetalheRecurso({ r }: { r: Recurso }) {
             {r.decididoPorCargo ? `, ${r.decididoPorCargo}` : ""} ({dataHoraBr(r.dataDecisao)})
           </div>
           <div className="whitespace-pre-wrap">{r.decisao}</div>
+          {r.decisaoRegistradaPor && <div className="mt-1 text-[11px] text-slate-500">Decisão registrada por {r.decisaoRegistradaPor}.</div>}
+          {r.decisaoArquivo && (
+            <div className="mt-1">
+              <LinkArquivo url={`${API_URL}/api/recursos/${r.id}/decisao/arquivo`} arquivo={{ nome: r.decisaoArquivo.nome } as ArquivoMeta} />
+            </div>
+          )}
         </div>
       )}
       {r.decisao && r.instanciaDecisao === "LEGADO" && (

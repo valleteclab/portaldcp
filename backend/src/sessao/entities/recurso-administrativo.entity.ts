@@ -259,6 +259,34 @@ export class RecursoAdministrativo {
   @Column({ type: 'varchar', nullable: true })
   decidido_por_id: string | null;
 
+  /**
+   * Decisão da autoridade superior REGISTRADA pelo agente de contratação: na
+   * fase externa quem opera o sistema é o agente; a autoridade decide (e
+   * assina) e o agente registra — como a adjudicação e a homologação (decisão
+   * do dono, 09/11/2026). `decidido_por*` = a autoridade; aqui, quem registrou.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  decisao_registrada_por_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  decisao_registrada_por_nome: string | null;
+
+  /** Decisão assinada pela autoridade (opcional; PDF/JPG/PNG até 10 MB). */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  decisao_arquivo_nome: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  decisao_arquivo_mime: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  decisao_arquivo_tamanho: number | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  decisao_arquivo_sha256: string | null;
+
+  @Column({ type: 'bytea', nullable: true, select: false })
+  decisao_arquivo_conteudo: Buffer | null;
+
   /** Efeito do provimento (art. 165 §3º). */
   @Column({ type: 'jsonb', nullable: true })
   efeitos: EfeitosRecurso | null;
