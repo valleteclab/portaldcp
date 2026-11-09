@@ -139,7 +139,7 @@ type Acao =
   | { tipo: 'recusar'; aceitacao: Aceitacao }
   | { tipo: 'aceitar'; aceitacao: Aceitacao }
 
-export function AceitacaoPanel({ sessaoId, onMudou }: { sessaoId: string; onMudou?: () => void }) {
+export function AceitacaoPanel({ sessaoId, onMudou, unidadeId }: { sessaoId: string; onMudou?: () => void; /** Só esta unidade (detalhe do lote na sala por fases). */ unidadeId?: string }) {
   const [painel, setPainel] = useState<Painel | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -270,7 +270,7 @@ export function AceitacaoPanel({ sessaoId, onMudou }: { sessaoId: string; onMudo
             Carregando...
           </div>
         ) : (
-          (painel?.unidades || []).map((u) => {
+          (painel?.unidades || []).filter((u) => !unidadeId || u.id === unidadeId).map((u) => {
             const a = u.aceitacaoAtual
             const naVez = u.ranking.find((e) => !e.excluido)
             return (

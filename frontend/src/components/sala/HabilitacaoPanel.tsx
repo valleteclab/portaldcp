@@ -76,7 +76,16 @@ type Acao =
   | { tipo: 'habilitar'; hab: Habilitacao; confirmacaoInversao?: boolean }
   | { tipo: 'inabilitar'; hab: Habilitacao }
 
-export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }: { licitacaoId: string; somentePreviaInversao?: boolean }) {
+export function HabilitacaoPanel({
+  licitacaoId,
+  somentePreviaInversao = false,
+  unidade,
+}: {
+  licitacaoId: string
+  somentePreviaInversao?: boolean
+  /** Só os licitantes desta unidade (detalhe do lote na sala por fases). */
+  unidade?: { tipo: 'ITEM' | 'LOTE'; numero: number }
+}) {
   const [painel, setPainel] = useState<Painel | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -164,8 +173,10 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
 
   const posFaseInversao = painel.inversaoFases && (painel.fase === 'JULGAMENTO' || painel.fase === 'HABILITACAO')
   const aceitos = new Set(painel.ranking.filter((r) => r.unidades.some((u) => u.situacao === 'ACEITO')).map((r) => r.fornecedorId))
-  const convocaveis = painel.ranking.filter((r) => r.podeConvocar)
-  const ordenadas = [...painel.habilitacoes].sort((a, b) => {
+  const naUnidade = (r: LicitanteRanking) => !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero)
+  const daUnidade = new Set(painel.ranking.filter(naUnidade).map((r) => r.fornecedorId))
+  const convocaveis = painel.ranking.filter((r) => r.podeConvocar && naUnidade(r))
+  const ordenadas = [...painel.habilitacoes].filter((h) => !unidade || daUnidade.has(h.fornecedorId)).sort((a, b) => {
     const peso = (h: Habilitacao) => (['AGUARDANDO_ENVIO', 'ENVIADA', 'EM_DILIGENCIA'].includes(h.status) ? 0 : 1)
     return peso(a) - peso(b)
   })
