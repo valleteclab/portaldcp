@@ -1,5 +1,6 @@
 "use client"
 
+import { rotuloFase } from '@/lib/licitacao-rotulos'
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -374,7 +375,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Fase da Licitação</p>
-            <p className="text-lg font-medium">{proposta.licitacao?.fase?.replace(/_/g, ' ')}</p>
+            <p className="text-lg font-medium">{rotuloFase(proposta.licitacao?.fase)}</p>
           </CardContent>
         </Card>
       </div>

@@ -1,5 +1,6 @@
 // IMPORTANTE: Carregar dotenv ANTES de qualquer outro import
 // para garantir que as variáveis de ambiente estejam disponíveis
+import './fuso';
 import { orgaosComPrazosDeTeste } from './common/prazos/prazos-de-teste';
 import * as dotenv from 'dotenv';
 import * as dns from 'dns';

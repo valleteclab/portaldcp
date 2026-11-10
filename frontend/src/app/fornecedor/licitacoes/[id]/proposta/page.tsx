@@ -778,7 +778,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                   </span>
                 )}
                 Você poderá alterar sua proposta até a abertura da sessão.
-                Após a abertura da sessão, alterações só serão permitidas se solicitadas pelo pregoeiro 
+                Após a abertura da sessão, alterações só serão permitidas se solicitadas pelo pregoeiro ou agente de contratação 
                 (ex: adequação de preços após fase de lances).
               </AlertDescription>
             </Alert>

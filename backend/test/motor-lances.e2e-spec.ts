@@ -193,6 +193,8 @@ describe('E2 — motor de lances único', () => {
       for (const t of tipos) expect(['PREGOEIRO', 'FORNECEDOR', 'SISTEMA']).toContain(t);
       expect(r.body.some((m: any) => /Lance de R\$/.test(m.conteudo))).toBe(false);
       expect(r.body.some((m: any) => m.conteudo === 'Dúvida do licitante' && m.tipo === 'FORNECEDOR')).toBe(true);
+      // Durante os lances, o histórico do órgão também vem com o código (antes devolvia o nome real)
+      expect(JSON.stringify(r.body)).not.toContain(F1.razao_social);
       const tabela = await ctx.dataSource.query(`SELECT to_regclass('chat_mensagens') AS t`);
       if (tabela[0].t) {
         const n = await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM chat_mensagens WHERE conteudo = 'Dúvida do licitante'`).catch(() => [{ n: 0 }]);

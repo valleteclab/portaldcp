@@ -2,18 +2,18 @@ import { DisputaV3Contexto, DisputaV3Etapa, DisputaV3ItemBoard, DisputaV3Status 
 
 export const ETAPAS_V3: Array<{ codigo: DisputaV3Etapa; label: string }> = [
   { codigo: 'ABERTURA', label: 'Abertura' },
-  { codigo: 'ANALISE_PROPOSTAS', label: 'Analise' },
+  { codigo: 'ANALISE_PROPOSTAS', label: 'Análise' },
   { codigo: 'DISPUTA', label: 'Lances' },
   // LC 123/2006, Arts. 44-45 - desempate ME/EPP logo apos os lances, antes da aceitacao
   { codigo: 'BENEFICIO_MPE', label: 'Benef. ME/EPP' },
   // IN SEGES 73/2022, Art. 29 - proposta adequada ao ultimo lance, aceite/recusa
-  { codigo: 'ACEITACAO', label: 'Aceitacao' },
-  { codigo: 'NEGOCIACAO', label: 'Negociacao' },
-  { codigo: 'HABILITACAO', label: 'Habilitacao' },
+  { codigo: 'ACEITACAO', label: 'Aceitação' },
+  { codigo: 'NEGOCIACAO', label: 'Negociação' },
+  { codigo: 'HABILITACAO', label: 'Habilitação' },
   { codigo: 'RECURSOS', label: 'Recursos' },
-  { codigo: 'ADJUDICACAO', label: 'Adjudicacao' },
+  { codigo: 'ADJUDICACAO', label: 'Adjudicação' },
   // Lei 14.133/2021, Art. 71 - homologacao obrigatoria antes do encerramento
-  { codigo: 'HOMOLOGACAO', label: 'Homologacao' },
+  { codigo: 'HOMOLOGACAO', label: 'Homologação' },
   { codigo: 'ENCERRAMENTO', label: 'Encerramento' },
 ]
 
@@ -46,7 +46,7 @@ export function getStatusBadgeClass(status: DisputaV3Status) {
 export function getStatusLabel(status: DisputaV3Status) {
   switch (status) {
     case 'EM_SESSAO':
-      return 'Em sessao'
+      return 'Em sessão'
     case 'SUSPENSA':
       return 'Suspensa'
     case 'ENCERRADA':

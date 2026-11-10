@@ -506,7 +506,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
               </div>
               {['PUBLICADO', 'ACOLHIMENTO_PROPOSTAS'].includes(licitacao.fase) && diasRestantes() > 0 && diasRestantes() <= 7 && (
                 <Badge className="bg-orange-100 text-orange-800">
-                  ⏰ {diasRestantes()} dias para abertura
+                  ⏰ {diasRestantes()} {diasRestantes() === 1 ? 'dia' : 'dias'} para abertura
                 </Badge>
               )}
             </div>
@@ -529,7 +529,7 @@ export default function DetalheLicitacaoFornecedorPage({ params }: { params: Pro
                     </Badge>
                     {diasRestantes() > 0 && diasRestantes() <= 5 && (
                       <p className="text-orange-600 text-sm mt-2 font-medium">
-                        ⚠️ Restam {diasRestantes()} dias
+                        ⚠️ {diasRestantes() === 1 ? 'Resta 1 dia' : `Restam ${diasRestantes()} dias`}
                       </p>
                     )}
                   </div>
