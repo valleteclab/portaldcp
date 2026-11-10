@@ -234,6 +234,28 @@ export const editalAnexado: Precondicao = async (ctx) => {
 };
 
 /**
+ * Quem conduz o certame precisa estar designado ANTES da divulgação (Lei
+ * 14.133/2021, art. 8º: a licitação é conduzida por agente de contratação — no
+ * pregão, o pregoeiro, §5º). Sem isso o processo ia a público com "agente não
+ * designado" e a sala abria sem responsável identificado (dono, 10/11/2026).
+ * Vale para pregão, concorrência e dispensa eletrônica; `pregoeiro_nome` é o
+ * campo legado de texto, aceito para os processos antigos.
+ */
+const MODALIDADES_COM_AGENTE: string[] = [
+  ModalidadeLicitacao.PREGAO_ELETRONICO,
+  ModalidadeLicitacao.CONCORRENCIA,
+  ModalidadeLicitacao.DISPENSA_ELETRONICA,
+];
+export const agenteDesignado: Precondicao = async (ctx) => {
+  const lic = ctx.licitacao as any;
+  if (lic.selecao_externa) return null;
+  if (!MODALIDADES_COM_AGENTE.includes(lic.modalidade)) return null;
+  if (lic.pregoeiro_id || String(lic.pregoeiro_nome ?? '').trim()) return null;
+  const quem = lic.modalidade === ModalidadeLicitacao.PREGAO_ELETRONICO ? 'o pregoeiro' : 'o agente de contratação';
+  return `Designe ${quem} do processo antes de publicar (Lei 14.133/2021, art. 8º) — em Editar › Configurações.`;
+};
+
+/**
  * ME/EPP — LC 123/2006 art. 48 I (plano E3): exclusividade acima do limite
  * legal (`MPE_EXCLUSIVO_ITEM`, R$ 80.000; no lote, o valor total do lote)
  * BLOQUEIA a publicação; item até o limite sem exclusividade exige a
@@ -794,7 +816,7 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, etapasDoFluxoConcluidas, haItensComValorEstimado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48, portaoCConformidade],
+  precondicoes: [instrucaoCompleta, etapasDoFluxoConcluidas, haItensComValorEstimado, agenteDesignado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48, portaoCConformidade],
   efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
   // o edital anexado vira o documento divulgado (E7a); na dispensa, o aviso
   // de contratação direta é (re)gerado com o cronograma publicado e guardado
