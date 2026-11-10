@@ -614,6 +614,12 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       const [p3] = await q(`SELECT status::text AS status, motivo_desclassificacao FROM propostas WHERE id = $1`, [propostas[F3.id]]);
       expect(p3.status).toBe('DESCLASSIFICADA');
       expect(p3.motivo_desclassificacao).toMatch(/art\. 17 §1º/);
+      // O inabilitado sabe o motivo (dono, 10/11/2026); quem segue na disputa não recebe nada
+      const fora = (await http().get(`/api/propostas/licitacao/${lic.id}/minha-situacao`).set(bearer(F3.token)).expect(200)).body.foraDaDisputa;
+      expect(fora).toMatchObject({ tipo: 'INABILITADO', motivo: 'Não apresentou os documentos de habilitação exigidos no edital' });
+      expect(fora.em).toBeTruthy();
+      expect((await http().get(`/api/propostas/licitacao/${lic.id}/minha-situacao`).set(bearer(F1.token)).expect(200)).body.foraDaDisputa).toBeNull();
+      expect((await http().get(`/api/propostas/licitacao/${lic.id}/minha-situacao`).set(bearer(orgao.token))).status).toBe(403);
     });
 
     test('só os habilitados disputam: F3 (inabilitado) sem lance; vencedor confirmado habilitado após a aceitação', async () => {

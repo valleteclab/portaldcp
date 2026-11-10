@@ -312,7 +312,15 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       if (!dono) return negar('Sessão não encontrada.', 'SESSAO_INEXISTENTE');
 
       const relacao = await this.acesso.relacaoComLicitacao(ator, dono.licitacaoId);
-      if (!relacao) return negar('Você não participa desta licitação.', 'SEM_RELACAO');
+      if (!relacao) {
+        // Proposta desclassificada / licitante inabilitado: diz o porquê (a tela mostra o motivo e o caminho do recurso)
+        const fora = ehFornecedor(ator) ? await this.acesso.situacaoForaDaDisputa(ator.fornecedorId, dono.licitacaoId) : null;
+        if (fora) {
+          const oQue = fora.tipo === 'INABILITADO' ? 'Você foi inabilitado nesta licitação' : 'Sua proposta foi desclassificada nesta licitação';
+          return negar(`${oQue} e não participa dos lances.${fora.motivo ? ` Motivo: ${fora.motivo}` : ''}`, fora.tipo);
+        }
+        return negar('Você não participa desta licitação.', 'SEM_RELACAO');
+      }
 
       let tipo: 'PREGOEIRO' | 'FORNECEDOR';
       let usuarioId: string;

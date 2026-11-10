@@ -551,7 +551,9 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
       await levarAteFase(ctx, lic, FaseLicitacao.APROVACAO_INTERNA);
       const sem = await publicar(orgao, lic.id);
       expect(sem.status).toBe(400);
-      expect((sem.body.pendencias ?? []).join(' ')).toMatch(/sem participação exclusiva de ME\/EPP.*Item 1.*art\. 49/);
+      expect((sem.body.pendencias ?? []).join(" ")).toMatch(/Item 1.*sem participação exclusiva de ME\/EPP.*art\. 49/);
+      // A mensagem aponta a tela, não o nome interno do campo
+      expect((sem.body.pendencias ?? []).join(" ")).not.toMatch(/justificativa_nao_exclusividade_mpe/);
       expect((await publicar(orgao, lic.id, { justificativa_nao_exclusividade_mpe: 'curta' })).status).toBe(400);
       const texto = 'Art. 49, II: não há 3 fornecedores ME/EPP competitivos sediados na região.';
       const ok = await publicar(orgao, lic.id, { justificativa_nao_exclusividade_mpe: texto });
