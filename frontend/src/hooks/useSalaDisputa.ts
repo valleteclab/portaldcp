@@ -352,10 +352,10 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     socketRef.current.emit('retomar_sessao', { sessaoId })
   }, [sessaoId])
 
-  const reiniciarSessao = useCallback((justificativa: string) => {
+  const reiniciarSessao = useCallback((justificativa: string, confirmaVicio = false) => {
     if (!socketRef.current || !justificativa.trim()) return
     setActionError(null)
-    socketRef.current.emit('reiniciar_sessao', { sessaoId, justificativa: justificativa.trim() })
+    socketRef.current.emit('reiniciar_sessao', { sessaoId, justificativa: justificativa.trim(), confirmaVicio })
   }, [sessaoId])
 
   const enviarMensagem = useCallback((conteudo: string) => {

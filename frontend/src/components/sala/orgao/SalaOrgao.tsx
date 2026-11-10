@@ -20,7 +20,7 @@ import { DesempatePanel } from '../DesempatePanel'
 import { RecursosPanel } from '../RecursosPanel'
 import { HabilitacaoPanel } from '../HabilitacaoPanel'
 import { FilaAutomaticaBarra } from './FilaAutomaticaBarra'
-import { DialogoJustificativa, DialogoSuspender } from './DialogosSalaOrgao'
+import { DialogoJustificativa, DialogoReiniciar, DialogoSuspender } from './DialogosSalaOrgao'
 
 /**
  * SALA ÚNICA DO PREGOEIRO (plano E8 item 4): motor único (socket /disputa +
@@ -337,15 +337,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
         onFechar={() => setDialogo(null)}
         onConfirmar={(j) => (itemFoco ? reiniciarDemais(itemFoco.id, j) : false)}
       />
-      <DialogoJustificativa
-        aberto={dialogo === 'reiniciar'}
-        titulo="Reiniciar sessão"
-        texto="Use este ato apenas quando for necessário recomeçar a sessão. Os lances não são apagados: ficam no retrato congelado e cancelados logicamente."
-        rotuloConfirmar="Reiniciar sessão"
-        destrutivo
-        onFechar={() => setDialogo(null)}
-        onConfirmar={(j) => reiniciarSessao(j)}
-      />
+      <DialogoReiniciar aberto={dialogo === 'reiniciar'} sessaoId={sessaoId} onFechar={() => setDialogo(null)} onConfirmar={reiniciarSessao} />
       <DialogoJustificativa
         aberto={cancelarLance !== null}
         titulo="Cancelar lance (decisão do pregoeiro)"

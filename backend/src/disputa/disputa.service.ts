@@ -13,7 +13,7 @@ import { Repository, In, DataSource, EntityManager } from 'typeorm';
 import { createHash } from 'crypto';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from '../sessao/entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from '../sessao/entities/evento-sessao.entity';
-import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { FaseLicitacao, Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
 import { Lance } from './entities/lance.entity';
 import { AtaSessaoSnapshot } from './entities/ata-sessao-snapshot.entity';
@@ -45,6 +45,7 @@ import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes
 import { exigirLicitacaoAtiva, licitacaoEstaAtiva } from '../sessao/licitacao-ativa';
 import { pedirEncerramentoDisputa } from '../sessao/transicoes-sessao';
 import { registrarLicitantesDaUnidade, reiniciarJulgamentoDaLicitacao } from '../julgamento/licitantes-unidade.sql';
+import { motivoReinicioRecusado, situacaoReinicio, SituacaoReinicio } from './regras-reinicio';
 import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
 import { pendenciaJulgamentoTecnico } from '../julgamento/julgamento-tecnico.sql';
 
@@ -1288,7 +1289,8 @@ export class DisputaService {
     sessaoId: string,
     justificativa: string,
     ator?: AtorTransicao,
-  ): Promise<{ itensReiniciados: number; lancesCancelados: number; snapshotId: string; hash: string }> {
+    opts: { confirmaVicio?: boolean } = {},
+  ): Promise<{ itensReiniciados: number; lancesCancelados: number; snapshotId: string; hash: string; anulacao: boolean }> {
     const motivo = typeof justificativa === 'string' ? justificativa.trim() : '';
     await this.sessaoParaAto(sessaoId);
     if (!motivo) throw new BadRequestException('Justificativa do reinício é obrigatória');
@@ -1296,7 +1298,15 @@ export class DisputaService {
     return this.dataSource.transaction(async (m) => {
       const sessao = await m.findOne(SessaoDisputa, { where: { id: sessaoId }, lock: { mode: 'pessimistic_write' } });
       if (!sessao) throw new NotFoundException('Sessão não encontrada');
-      await exigirLicitacaoAtiva(m, sessao.licitacao_id, { bloquear: true });
+      const lic = await exigirLicitacaoAtiva(m, sessao.licitacao_id, { bloquear: true });
+      // Travas do reinício (regras-reinicio): bloqueado da fase recursal em diante; depois
+      // do fim dos lances, só como anulação da etapa por vício, confirmada e fundamentada
+      const situacao = await this.situacaoReinicioDe(m, sessao.licitacao_id, lic.fase);
+      const recusa = motivoReinicioRecusado(situacao, { justificativa: motivo, confirmaVicio: opts.confirmaVicio });
+      if (recusa) {
+        throw situacao.modo === 'BLOQUEADO' ? new ConflictException(recusa) : new BadRequestException(recusa);
+      }
+      const anulacao = situacao.modo === 'REFORCADO';
 
       const conteudo = await this.montarRetratoSessao(m, sessao);
       const hash = hashCanonico(conteudo);
@@ -1349,6 +1359,16 @@ export class DisputaService {
       await this.lotes.reiniciarLotes(m, sessao.licitacao_id);
       // Julgamento (E3) recomeça: convocações de aceitação canceladas, situações descartadas
       await reiniciarJulgamentoDaLicitacao(m, sessao.licitacao_id, motivo);
+      // Reinício depois de iniciada a habilitação: a licitação volta ao julgamento — sem isso
+      // os lances reabriam com a fase em HABILITACAO e a aceitação (que exige JULGAMENTO) travava
+      if (lic.fase === FaseLicitacao.HABILITACAO) {
+        await this.transicoes.executar(sessao.licitacao_id, AtoLicitacao.RETORNAR_JULGAMENTO, {
+          ator: ator ?? { tipo: 'SISTEMA', id: 'disputa' },
+          manager: m,
+          motivo: `Etapa de lances anulada por vício e reiniciada: ${motivo}`,
+          registro: { origem: 'disputa', sessao_id: sessaoId, snapshot_id: snapshot.id },
+        });
+      }
       const lancesCancelados = cancelados.affected || 0;
       const itensReiniciados = itens.affected || 0;
       await m.save(
@@ -1356,15 +1376,39 @@ export class DisputaService {
           sessao_id: sessaoId,
           tipo: TipoEvento.SESSAO_RETOMADA,
           descricao:
-            `Sessão reiniciada pelo pregoeiro. Justificativa: ${motivo}. ${lancesCancelados} lances cancelados (sem exclusão), ` +
+            (anulacao
+              ? `ANULAÇÃO DA ETAPA DE LANCES POR VÍCIO (Súmula 473 do STF; Lei 14.133/2021, art. 71, III) — ato do pregoeiro, ` +
+                `praticado depois do encerramento dos lances. Vício declarado: ${motivo}. A etapa de lances recomeça; a aceitação ` +
+                `das propostas e as convocações em curso ficam sem efeito. `
+              : `Sessão reiniciada pelo pregoeiro. Justificativa: ${motivo}. `) +
+            `${lancesCancelados} lances cancelados (sem exclusão), ` +
             `${itensReiniciados} itens reiniciados. Retrato congelado ${snapshot.id} (SHA-256 ${hash}).`,
-          dados_adicionais: { snapshot_id: snapshot.id, hash, lancesCancelados, itensReiniciados },
+          dados_adicionais: { snapshot_id: snapshot.id, hash, lancesCancelados, itensReiniciados, anulacao_por_vicio: anulacao, fase_no_ato: lic.fase },
           usuario_nome: 'PREGOEIRO',
           is_sistema: false,
         }),
       );
-      return { itensReiniciados, lancesCancelados, snapshotId: snapshot.id, hash };
+      return { itensReiniciados, lancesCancelados, snapshotId: snapshot.id, hash, anulacao };
     });
+  }
+
+  /** Como o "Reiniciar" se apresenta agora (simples, reforçado ou bloqueado) — a sala consulta antes de abrir o diálogo. */
+  async consultarReinicio(sessaoId: string): Promise<SituacaoReinicio> {
+    const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId }, select: { id: true, licitacao_id: true } });
+    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+    const [lic] = await this.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [sessao.licitacao_id]);
+    return this.situacaoReinicioDe(this.dataSource.manager, sessao.licitacao_id, lic?.fase);
+  }
+
+  private async situacaoReinicioDe(m: EntityManager, licitacaoId: string, fase: string | null | undefined): Promise<SituacaoReinicio> {
+    // Prazo FINAL de intenção de recurso já aberto (correndo ou encerrado) = fase recursal iniciada.
+    // A janela da habilitação prévia (inversão de fases) vem antes dos lances e não conta.
+    const [j] = await m.query(
+      `SELECT 1 FROM janelas_intencao_recurso
+        WHERE licitacao_id = $1 AND superada_em IS NULL AND COALESCE(momento, 'FINAL') = 'FINAL' LIMIT 1`,
+      [licitacaoId],
+    );
+    return situacaoReinicio({ fase, janelaFinalDeRecursoAberta: !!j });
   }
 
   /** Conteúdo do retrato congelado: tudo o que a ata da etapa de lances precisa. */

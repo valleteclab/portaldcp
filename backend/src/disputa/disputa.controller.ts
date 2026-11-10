@@ -257,12 +257,22 @@ export class DisputaController {
   @Post('sessao/:sessaoId/reiniciar')
   async reiniciarSessao(
     @Param('sessaoId') sessaoId: string,
-    @Body() body: { justificativa: string },
+    @Body() body: { justificativa: string; confirmaVicio?: boolean },
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
-    const resultado = await this.disputaService.reiniciarSessao(sessaoId, body?.justificativa, atorTransicaoDe(ator));
+    const resultado = await this.disputaService.reiniciarSessao(sessaoId, body?.justificativa, atorTransicaoDe(ator), {
+      confirmaVicio: body?.confirmaVicio === true,
+    });
     return { success: true, ...resultado };
+  }
+
+  /** Como o reinício se apresenta agora: simples, reforçado (anulação por vício) ou bloqueado. */
+  @SomenteOrgao()
+  @Get('sessao/:sessaoId/reinicio')
+  async consultarReinicio(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    return this.disputaService.consultarReinicio(sessaoId);
   }
 
   /** Mensagem do pregoeiro na sala (o remetente é sempre o pregoeiro). */
