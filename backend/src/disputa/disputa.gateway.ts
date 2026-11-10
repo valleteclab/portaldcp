@@ -557,7 +557,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   @SubscribeMessage('reiniciar_sessao')
   async handleReiniciarSessao(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { sessaoId: string; justificativa: string },
+    @MessageBody() data: { sessaoId: string; justificativa: string; confirmaVicio?: boolean },
   ) {
     const info = this.pregoeiroDaSessao(client, data?.sessaoId, 'reiniciar a sessão');
     if (!info) return;
@@ -567,6 +567,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         data.sessaoId,
         data.justificativa,
         atorTransicaoDe(atorDoSocket(client)),
+        { confirmaVicio: data.confirmaVicio === true },
       );
 
       const sessao = await this.disputaService.getSessao(data.sessaoId);
