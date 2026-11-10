@@ -62,6 +62,7 @@ export function SalaFornecedor({
     cancelarLanceDireto,
     solicitarCancelamentoLance,
     negociacaoVersao,
+    boardVersao,
   } = useSalaDisputa({ area: 'fornecedor', sessaoIdParam: sessaoId })
 
   const contexto = board?.contexto
@@ -76,7 +77,7 @@ export function SalaFornecedor({
       item={itemDoLote}
       contexto={contexto}
       sessaoId={sessaoId}
-      atualizacao={board}
+      atualizacao={boardVersao}
       meusLances={meusLances}
       enviandoLance={sendingBid}
       enviandoCancelamento={sendingCancel}
@@ -155,7 +156,7 @@ export function SalaFornecedor({
               itensAoVivo={itens}
               selecionadoId={itemFoco?.id ?? null}
               onSelecionar={setSelectedItemId}
-              atualizacao={board}
+              atualizacao={boardVersao}
               onLotes={aoCarregarLotes}
             />
 
