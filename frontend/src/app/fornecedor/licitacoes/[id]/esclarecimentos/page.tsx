@@ -192,6 +192,7 @@ export default function EsclarecimentosPage() {
       </div>
 
       {/* Informações */}
+      {!(licitacao?.modalidade === 'DISPENSA_ELETRONICA') && (
       <Card className="border-blue-200 bg-blue-50">
         <CardContent className="pt-4">
           <div className="flex items-start gap-3">
@@ -200,15 +201,24 @@ export default function EsclarecimentosPage() {
               <p className="font-medium text-blue-900">Sobre Pedidos de Esclarecimento</p>
               <p className="text-sm text-blue-700 mt-1">
                 Utilize este canal para solicitar esclarecimentos sobre o edital, especificações técnicas, 
-                condições de participação ou qualquer dúvida relacionada à licitação. O pregoeiro responderá 
+                condições de participação ou qualquer dúvida relacionada à licitação. O pregoeiro ou agente de contratação responderá 
                 sua solicitação e a resposta ficará disponível para todos os interessados.
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Formulário */}
+      {licitacao?.modalidade === 'DISPENSA_ELETRONICA' ? (
+        <Card className="bg-slate-50">
+          <CardContent className="py-8 text-center text-muted-foreground">
+            Na dispensa eletrônica não há pedido de esclarecimento formal (IN SEGES 67/2021): envie sua dúvida pelas mensagens da{' '}
+            <a className="underline" href={`/fornecedor/licitacoes/${licitacao.id}/sala`}>sala da sessão</a>. O agente de contratação responde por lá.
+          </CardContent>
+        </Card>
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -320,6 +330,7 @@ export default function EsclarecimentosPage() {
           </Button>
         </CardContent>
       </Card>
+      )}
 
       {/* Meus Esclarecimentos */}
       {meusEsclarecimentos.length > 0 && (
@@ -370,7 +381,7 @@ export default function EsclarecimentosPage() {
                 {esc.resposta && (
                   <div className="bg-green-50 p-3 rounded-lg border border-green-200">
                     <p className="text-sm font-medium text-green-700 mb-1">
-                      Resposta do Pregoeiro ({esc.data_resposta ? new Date(esc.data_resposta).toLocaleDateString('pt-BR') : ''}):
+                      Resposta do órgão ({esc.data_resposta ? new Date(esc.data_resposta).toLocaleDateString('pt-BR') : ''}):
                     </p>
                     <p className="text-green-800 whitespace-pre-wrap">{esc.resposta}</p>
                   </div>

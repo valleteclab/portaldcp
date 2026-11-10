@@ -230,6 +230,7 @@ export default function ImpugnarPage() {
       </div>
 
       {/* Informações */}
+      {!(licitacao?.modalidade === 'DISPENSA_ELETRONICA') && (
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="pt-6">
           <div className="flex items-start gap-3">
@@ -249,6 +250,7 @@ export default function ImpugnarPage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Formulário de Nova Impugnação */}
       {podeImpugnar() ? (

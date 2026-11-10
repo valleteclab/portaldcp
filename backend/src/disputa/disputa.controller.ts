@@ -166,6 +166,9 @@ export class DisputaController {
     const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
     const mensagens = await this.disputaService.getMensagens(sessaoId, Math.min(Number(limite) || 50, 200));
     const reveladas = await this.sigilo.identidadesReveladas(sessaoId);
+    // O órgão também só vê o código durante os lances (IN 73 art. 20): a mensagem ao vivo já
+    // chegava anônima, mas o histórico devolvia o nome real ao recarregar a sala
+    if (visao.tipo === 'ORGAO' && !reveladas) return this.sigilo.anonimizar(mensagens, licitacaoId, { sessaoId });
     return this.sigilo.aplicarVisao(mensagens, licitacaoId, visao, { sessaoId, identidades: !reveladas });
   }
 

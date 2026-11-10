@@ -58,7 +58,11 @@ export class FilaDisputaService {
     // ficava tentando a cada segundo e abria os itens sozinha quando a pendência sumia (pregão 2026/00073).
     const { aguardando, total } = await this.unidades(s);
     if (aguardando.length > 0 && aguardando.length === total) {
-      await this.transicoes.verificar(s.licitacao_id, AtoLicitacao.INICIAR_DISPUTA, { ator });
+      // Só enquanto a licitação ainda está na análise das propostas: "Concluir análise" já a leva a
+      // EM_DISPUTA, e aí a conferência recusava a fila com "precisa estar na fase de análise de
+      // propostas" — a fila não ligava em pregão nenhum sem inversão (ensaio 2026/00075, 10/11/2026)
+      const [lic] = await this.ds.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [s.licitacao_id]);
+      if (lic?.fase === 'ANALISE_PROPOSTAS') await this.transicoes.verificar(s.licitacao_id, AtoLicitacao.INICIAR_DISPUTA, { ator });
     }
     const repo = this.ds.getRepository(SessaoDisputa);
     await repo.update(sessaoId, { fila_ativa: true, fila_max_simultaneos: max, fila_aviso_minutos: aviso, fila_proxima_unidade_id: null, fila_proxima_abertura_em: null });

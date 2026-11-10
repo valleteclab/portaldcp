@@ -2376,12 +2376,15 @@ export class ContratosService implements OnModuleInit {
       : [];
 
     // 1. Termo de contrato em PDF (página final com posições de assinatura)
+    // Quem assina pelo órgão é a autoridade competente: é o nome dela que vai impresso sob
+    // "CONTRATANTE" (antes saía o de quem clicou em gerar o termo)
+    const autoridade = await this.autoridadeQueAssinaOContrato(contrato.orgao_id, contrato.licitacao_id);
     const { buffer, ultimaPagina } = gerarTermoContratoPdf({
       contrato,
       orgao: (contrato as any).orgao,
       licitacao,
       itens,
-      responsavel_orgao: { nome: usuario?.nome },
+      responsavel_orgao: { nome: autoridade ? `${autoridade.nome}${autoridade.cargo ? ` — ${autoridade.cargo}` : ''}` : usuario?.nome },
     });
     const dir = path.join(this.uploadPath, contratoId);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -2392,7 +2395,6 @@ export class ContratosService implements OnModuleInit {
     // 2. Signatários: AUTORIDADE COMPETENTE do órgão (homologação 08/11/2026: assinava
     //    quem clicou — o agente de contratação) + representante do fornecedor
     //    (dados do cadastro) + extras informados (ex.: testemunhas)
-    const autoridade = await this.autoridadeQueAssinaOContrato(contrato.orgao_id, contrato.licitacao_id);
     const signatarios = [
       {
         nome: autoridade ? `${autoridade.nome}${autoridade.cargo ? ` — ${autoridade.cargo}` : ''}` : usuario?.nome || 'Responsável do órgão',
