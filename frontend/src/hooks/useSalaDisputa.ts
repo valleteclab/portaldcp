@@ -288,7 +288,20 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       await refreshBoard(sessaoId)
     })
     // Modos de disputa (E2.4): troca de fase do item, contagem de lances fechados, retomada agendada
-    for (const evento of ['fase_item_alterada', 'lance_fechado_recebido', 'retomada_agendada']) {
+    // A troca de etapa do aberto-fechado vale NA HORA em que o aviso chega: o quadro completo
+    // pode demorar segundos (no ensaio do 2026/00075 a tela seguiu oferecendo "Enviar lance"
+    // por mais de 10 s depois de aberta a etapa do lance final fechado)
+    socket.on('fase_item_alterada', async (p: { itemId?: string; fase?: string }) => {
+      if (p?.itemId && p.fase) {
+        setBoard((atual) => {
+          if (!atual) return atual
+          const trocar = (itens: DisputaV3ItemBoard[]) => itens.map((i) => (i.id === p.itemId ? { ...i, faseModo: p.fase } : i))
+          return { ...atual, colunas: { ...atual.colunas, emDisputa: trocar(atual.colunas.emDisputa) } }
+        })
+      }
+      await refreshBoard(sessaoId)
+    })
+    for (const evento of ['lance_fechado_recebido', 'retomada_agendada']) {
       socket.on(evento, async () => {
         await refreshBoard(sessaoId)
       })
