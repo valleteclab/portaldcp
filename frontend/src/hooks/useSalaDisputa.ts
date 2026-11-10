@@ -37,6 +37,11 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
   const [sendingCancel, setSendingCancel] = useState(false)
   // Negociação (E3): muda a cada evento privado/resultado da negociação — os painéis recarregam
   const [negociacaoVersao, setNegociacaoVersao] = useState(0)
+  // Muda só quando o quadro é recarregado (lance, troca de etapa, início/fim de item) — é o gatilho
+  // das consultas da sala. O próprio `board` muda a cada segundo com o relógio: usado como gatilho,
+  // cada sala aberta repetia três consultas a cada 3 s durante toda a disputa (bloqueio por excesso
+  // de requisições no ensaio do pregão 2026/00077)
+  const [boardVersao, setBoardVersao] = useState(0)
 
   const socketRef = useRef<Socket | null>(null)
   const actorRef = useRef<{ id: string; nome: string; tipo: 'PREGOEIRO' | 'FORNECEDOR' } | null>(null)
@@ -115,6 +120,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       if (minhaBusca < boardAplicadoRef.current) return
       boardAplicadoRef.current = minhaBusca
       setBoard(data)
+      setBoardVersao((v) => v + 1)
       setSelectedItemId((current) => {
         if (current && [
           ...data.colunas.emDisputa,
@@ -237,7 +243,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     if (area !== 'fornecedor' || !sessaoId || !selectedItemId) return
     const id = setInterval(() => {
       void carregarMeusLances(sessaoId, selectedItemId)
-    }, 3000)
+    }, 10_000) // rede de segurança: lance e confirmação já recarregam a lista na hora
     return () => clearInterval(id)
   }, [area, sessaoId, selectedItemId, carregarMeusLances])
 
@@ -552,5 +558,6 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     solicitarCancelamentoLance,
     pregoeiroCancelarLance,
     negociacaoVersao,
+    boardVersao,
   }
 }

@@ -57,8 +57,8 @@ export function DetalheLoteOrgao({
   const lances = item ? (
     <>
       <ItemEmFocoOrgao item={item} contexto={contexto} onEncerrar={onEncerrar} onReiniciarDemais={onReiniciarDemais} />
-      {/* Colocação de todos e últimos lances (o `item` muda a cada atualização do quadro) */}
-      <LancesAoVivo sessaoId={sessaoId} unidadeId={lote.id} atualizacao={item} />
+      {/* Colocação de todos e últimos lances: recarrega quando muda o que importa, não a cada tique do relógio */}
+      <LancesAoVivo sessaoId={sessaoId} unidadeId={lote.id} atualizacao={`${item.status}|${item.faseModo}|${item.totalLances}|${item.melhorLance?.valor}`} />
     </>
   ) : null
 

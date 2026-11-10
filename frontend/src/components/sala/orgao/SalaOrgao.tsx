@@ -51,6 +51,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
     enviarMensagem,
     pregoeiroCancelarLance,
     negociacaoVersao,
+    boardVersao,
   } = useSalaDisputa({ area: 'orgao', sessaoIdParam: sessaoId })
 
   const [dialogo, setDialogo] = useState<null | 'suspender' | 'reiniciar' | 'reiniciarDemais'>(null)
@@ -210,10 +211,10 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               itensAoVivo={[...emDisputa, ...aguardando, ...encerrados]}
               selecionadoId={itemFoco?.id ?? null}
               onSelecionar={setSelectedItemId}
-              atualizacao={board}
+              atualizacao={boardVersao}
               onLotes={aoCarregarLotes}
             />
-            <FilaAutomaticaBarra sessaoId={sessaoId} atualizacao={board} />
+            <FilaAutomaticaBarra sessaoId={sessaoId} atualizacao={boardVersao} />
 
             {board?.solicitacoesCancelamento && board.solicitacoesCancelamento.length > 0 && (
               <Card className="border-amber-200 bg-amber-50/50">

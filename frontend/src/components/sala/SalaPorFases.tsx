@@ -90,6 +90,8 @@ export function SalaPorFases({
 }) {
   const [visao] = useConsultaAoVivo<VisaoLotes>(`${API_URL}/api/julgamento/sessao/${sessaoId}/lotes`, atualizacao, {
     aoReceber: (j) => onLotes?.(j.lotes),
+    // Aceitação, habilitação e recursos não têm aviso próprio na sala: a visão por fases confere a cada 8 s
+    intervaloMs: 8_000,
   })
   const [aba, setAba] = useState<FaseLote | 'TODOS'>('TODOS')
   const [classificacaoDe, setClassificacaoDe] = useState<LoteVisao | null>(null)
