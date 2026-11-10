@@ -129,6 +129,7 @@ export default function SalaFornecedorPage({ params }: { params: Promise<{ id: s
       <SalaFornecedor
         sessaoId={sessaoId}
         licitacaoId={licitacaoId}
+        resumo={{ numero: licitacao?.numero_processo, objeto: licitacao?.objeto }}
         acoesCabecalho={voltar}
         rodape={
           <>
