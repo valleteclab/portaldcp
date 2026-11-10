@@ -47,6 +47,16 @@ describe('Fila automática de itens/lotes', () => {
       },
     );
 
+  test('liga com a licitação já em disputa (a tela "Concluir análise" avança a fase antes da fila)', async () => {
+    const p = await pregao();
+    await http().put(`/api/licitacoes/${p.lic.id}/avancar-fase`).set(bearer(orgao.token)).send({});
+    const [l] = await ctx.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [p.lic.id]);
+    expect(l.fase).toBe('EM_DISPUTA');
+    const r = await http().post(`/api/disputa/sessao/${p.sessaoId}/fila`).set(bearer(orgao.token)).send({ maxSimultaneos: 1, avisoMinutos: 0 });
+    expect(r.status).toBe(201);
+    expect(await status(p.lic.id)).toEqual(['1:EM_DISPUTA', '2:AGUARDANDO', '3:AGUARDANDO']);
+  });
+
   test('configuração inválida → 400; sem aviso: abre até o máximo e a próxima quando uma encerra; conclui', async () => {
     const p = await pregao();
     expect((await http().post(`/api/disputa/sessao/${p.sessaoId}/fila`).set(bearer(orgao.token)).send({ maxSimultaneos: 0 })).status).toBe(400);
