@@ -15,6 +15,7 @@ import { NegociacaoFornecedorPanel } from '../NegociacaoFornecedorPanel'
 import { RecursosFornecedorPanel } from '../RecursosFornecedorPanel'
 import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
 import { ChatLateral } from '../ChatLateral'
+import { ComprovantesFornecedor } from '@/components/fornecedor/ComprovantesFornecedor'
 import { PainelLancesFornecedor } from './PainelLancesFornecedor'
 
 /**
@@ -151,6 +152,15 @@ export function SalaFornecedor({
             <DesempateMeEppFornecedorPanel sessaoId={sessaoId} />
             <DisputaFinalPanel sessaoId={sessaoId} />
             {contexto?.licitacaoId && <HabilitacaoFornecedorPanel licitacaoId={contexto.licitacaoId} />}
+            {/* Comprovantes dos anexos enviados pela sala (habilitação) e da proposta */}
+            {contexto?.licitacaoId && (
+              <details className="rounded-xl border border-slate-200 bg-white">
+                <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Meus comprovantes (proposta e anexos)</summary>
+                <div className="border-t p-3">
+                  <ComprovantesFornecedor licitacaoId={contexto.licitacaoId} />
+                </div>
+              </details>
+            )}
             <RecursosFornecedorPanel sessaoId={sessaoId} />
 
             {/* Detalhe do lote aberto na tabela (dono, 09/11/2026): só o que ele tem a fazer ali */}

@@ -1,3 +1,4 @@
+import { ComprovantesService } from '../comprovantes/comprovantes.service';
 import {
   Body,
   Controller,
@@ -43,6 +44,7 @@ export class HabilitacaoController {
     private readonly habilitacao: HabilitacaoService,
     private readonly acesso: AcessoLicitacaoService,
     @InjectDataSource() private readonly ds: DataSource,
+    private readonly comprovantes: ComprovantesService,
   ) {}
 
   private exigirIds(...ids: string[]) {
@@ -202,18 +204,42 @@ export class HabilitacaoController {
   ) {
     this.exigirIds(exigenciaId);
     const fid = await this.fornecedorDaLicitacao(ator, licitacaoId);
-    return this.habilitacao.enviarDocumento(licitacaoId, exigenciaId, fid, {
+    const r = await this.habilitacao.enviarDocumento(licitacaoId, exigenciaId, fid, {
       arquivo: arquivo ?? null,
       validade: body?.validade ?? null,
       observacao: body?.observacao ?? null,
     });
+    // Comprovante do anexo (dono, 10/11/2026): o que foi enviado e o que ficou gravado
+    const [ex] = await this.ds.query(`SELECT descricao FROM exigencias_habilitacao WHERE id::text = $1`, [exigenciaId]);
+    await this.comprovantes.emitir({
+      licitacaoId,
+      fornecedorId: fid,
+      tipo: 'DOCUMENTO_ANEXADO',
+      descricao: `Anexado "${arquivo?.originalname ?? 'documento'}" — ${ex?.descricao ?? 'exigência do edital'}`,
+    });
+    return r;
   }
 
   @SomenteFornecedor()
   @Delete('documentos/:documentoId')
   async removerDocumento(@Param('documentoId') documentoId: string, @AtorAtual() ator: Ator) {
     this.exigirIds(documentoId);
-    return this.habilitacao.removerDocumento(documentoId, this.acesso.fornecedorDoToken(ator));
+    const fid = this.acesso.fornecedorDoToken(ator);
+    const [doc] = await this.ds.query(
+      `SELECT d.licitacao_id::text AS licitacao_id, d.fornecedor_id::text AS fornecedor_id, d.arquivo_nome, e.descricao
+         FROM documentos_habilitacao d JOIN exigencias_habilitacao e ON e.id = d.exigencia_id WHERE d.id::text = $1`,
+      [documentoId],
+    );
+    const r = await this.habilitacao.removerDocumento(documentoId, fid);
+    if (doc && doc.fornecedor_id === fid) {
+      await this.comprovantes.emitir({
+        licitacaoId: doc.licitacao_id,
+        fornecedorId: fid,
+        tipo: 'DOCUMENTO_REMOVIDO',
+        descricao: `Removido "${doc.arquivo_nome ?? 'documento'}" — ${doc.descricao ?? 'exigência do edital'}`,
+      });
+    }
+    return r;
   }
 
   /** Entrega da documentação (encerra o envio — depois, só complementação em diligência). */
@@ -221,7 +247,9 @@ export class HabilitacaoController {
   @Post('licitacao/:licitacaoId/entregar')
   async entregar(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
     const fid = await this.fornecedorDaLicitacao(ator, licitacaoId);
-    return this.habilitacao.concluirEnvio(licitacaoId, fid);
+    const r = await this.habilitacao.concluirEnvio(licitacaoId, fid);
+    await this.comprovantes.emitir({ licitacaoId, fornecedorId: fid, tipo: 'DOCUMENTACAO_ENTREGUE' });
+    return r;
   }
 
   @SomenteFornecedor()

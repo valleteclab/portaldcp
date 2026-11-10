@@ -11,7 +11,9 @@ import {
   Package, 
   Send,
   AlertCircle,
-  Info
+  Info,
+  Download,
+  Upload
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,6 +32,9 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { lerPlanilhaDaProposta } from '@/lib/planilha-proposta'
+import { baixarArquivo } from '@/components/sala/recursos-comum'
+import { ComprovantesFornecedor } from '@/components/fornecedor/ComprovantesFornecedor'
 
 interface LoteLicitacao {
   id: string
@@ -225,6 +230,34 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   const reais = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   const colunasTabela = licitacao?.sigilo_orcamento !== 'SIGILOSO' ? 7 : 6
 
+  // Importação da planilha-modelo (dono, 10/11/2026): preenche o formulário; o fornecedor confere e envia
+  const [importacao, setImportacao] = useState<{ preenchidos: number; avisos: string[] } | null>(null)
+  const baixarModelo = () =>
+    baixarArquivo(`${API_URL}/api/propostas/licitacao/${resolvedParams.id}/planilha-modelo`, `proposta-modelo-${licitacao?.numero_processo?.replace(/[^0-9A-Za-z]+/g, '-') ?? 'licitacao'}.xlsx`).catch(() =>
+      setError('Não foi possível baixar a planilha-modelo.'),
+    )
+  const importarPlanilha = async (arquivo: File | undefined) => {
+    if (!arquivo) return
+    const { linhas, avisos } = await lerPlanilhaDaProposta(arquivo)
+    const porNumero = new Map(linhas.map((l) => [l.numero, l]))
+    const avisosTela = [...avisos]
+    let preenchidos = 0
+    for (const l of linhas) if (!itensPropostos.some((i) => i.numero === l.numero)) avisosTela.push(`Item ${l.numero}: não existe nesta licitação — ignorado.`)
+    // Calculado fora do setState (o atualizador pode rodar mais de uma vez)
+    const novos = itensPropostos.map((item) => {
+      const l = porNumero.get(item.numero)
+      if (!l) return item
+      if (bloqueado(item.id)) {
+        if (l.valorUnitario) avisosTela.push(`Item ${item.numero}: exclusivo de ME/EPP — fora da sua proposta, valor ignorado.`)
+        return item
+      }
+      if (l.valorUnitario) preenchidos++
+      return { ...item, valorProposto: l.valorUnitario ?? item.valorProposto, marca: l.marca || item.marca, modelo: l.modelo || item.modelo }
+    })
+    setItensPropostos(novos)
+    setImportacao({ preenchidos, avisos: avisosTela })
+  }
+
   const calcularTotalProposta = () => {
     return itensPermitidos.reduce((total, item) => {
       return total + (item.quantidade * (item.valorProposto || 0))
@@ -401,6 +434,9 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         </div>
       </div>
 
+      {/* Comprovantes já emitidos nesta licitação (ex.: de uma proposta excluída) */}
+      <ComprovantesFornecedor licitacaoId={resolvedParams.id} ocultarSeVazio />
+
       {currentStep === 1 && (
         <Card>
           <CardHeader>
@@ -524,6 +560,43 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
             <CardDescription>Informe os valores e especificações para cada item</CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+              <span className="text-slate-700">Prefere preencher numa planilha?</span>
+              <Button type="button" size="sm" variant="outline" onClick={baixarModelo}>
+                <Download className="mr-1 h-4 w-4" /> Baixar planilha-modelo
+              </Button>
+              <Button type="button" size="sm" variant="outline" asChild>
+                <label className="cursor-pointer">
+                  <Upload className="mr-1 h-4 w-4" /> Importar planilha preenchida
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      void importarPlanilha(e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              </Button>
+            </div>
+            {importacao && (
+              <Alert className={`mb-4 ${importacao.avisos.length ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50'}`}>
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>
+                  Planilha importada: {importacao.preenchidos} {importacao.preenchidos === 1 ? 'item preenchido' : 'itens preenchidos'}. Confira os valores abaixo antes de enviar.
+                </AlertTitle>
+                {importacao.avisos.length > 0 && (
+                  <AlertDescription>
+                    <ul className="list-disc pl-5">
+                      {importacao.avisos.map((a) => (
+                        <li key={a}>{a}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                )}
+              </Alert>
+            )}
             {porLote && lancePorLote && (
               <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
                 Licitação por lote, com lance pelo valor global do lote: informe o preço unitário de cada item; a disputa será pelo total do lote.
