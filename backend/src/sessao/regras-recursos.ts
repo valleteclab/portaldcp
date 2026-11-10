@@ -96,6 +96,23 @@ export function estadoJanela(j: JanelaLike, agora = new Date()): EstadoJanela {
   return agora.getTime() < new Date(j.fecha_em).getTime() ? 'ABERTA' : 'ENCERRADA';
 }
 
+/** Momentos da janela de intenção (ver JanelaIntencaoRecurso.momento). */
+export const MOMENTO_JANELA = { FINAL: 'FINAL', HABILITACAO_PREVIA: 'HABILITACAO_PREVIA' } as const;
+
+/**
+ * INVERSÃO DE FASES — intenção manifestada na janela da habilitação prévia: fica
+ * registrada, e a admissibilidade (que abre o prazo das razões) só é decidida
+ * depois do julgamento, com a janela FINAL encerrada — as razões de todos contam
+ * do mesmo momento, a ata de julgamento (IN SEGES 73/2022, art. 40 §1º). null = pode apreciar.
+ */
+export function motivoIntencaoPreviaEmEspera(momentoDaJanela: string | null | undefined, haJanelaFinalEncerrada: boolean): string | null {
+  if (momentoDaJanela !== MOMENTO_JANELA.HABILITACAO_PREVIA || haJanelaFinalEncerrada) return null;
+  return (
+    'Intenção manifestada na habilitação prévia (inversão de fases): fica registrada e é apreciada depois do julgamento das propostas, ' +
+    'com o prazo final de intenção encerrado — as razões contam da ata de julgamento (IN SEGES 73/2022, art. 40 §1º).'
+  );
+}
+
 /** Intenção fora da janela → preclusão (409). null = pode manifestar. */
 export function motivoNaoRegistraIntencao(j: JanelaLike | null | undefined, agora = new Date()): string | null {
   if (!j) {

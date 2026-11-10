@@ -29,7 +29,14 @@ import {
  *    ou a própria autoridade decide pela conta dela.
  * Prazos vencidos do agente/autoridade aparecem sinalizados (não há decisão automática).
  */
-export function RecursosPanel({ sessaoId }: { sessaoId: string }) {
+export function RecursosPanel({
+  sessaoId,
+  somentePreviaInversao = false,
+}: {
+  sessaoId: string;
+  /** Sala antes dos lances: só aparece na inversão de fases (janela de intenção da habilitação prévia). */
+  somentePreviaInversao?: boolean;
+}) {
   const [painel, setPainel] = useState<PainelRecursos | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -77,9 +84,13 @@ export function RecursosPanel({ sessaoId }: { sessaoId: string }) {
     }
   };
 
-  const janela = painel?.janela ?? null;
+  const previa = !!painel?.previaInversao;
+  // Depois dos lances, a janela da habilitação prévia já cumpriu o papel: o que se mostra é a janela final
+  const janelaBruta = painel?.janela ?? null;
+  const janela = janelaBruta && janelaBruta.momento === "HABILITACAO_PREVIA" && !previa ? null : janelaBruta;
   const contagem = useContagem(janela?.estado === "ABERTA" ? janela.fechaEm : null);
   const recursos = painel?.recursos ?? [];
+  if (somentePreviaInversao && !previa) return null;
 
   return (
     <Card>
@@ -113,6 +124,13 @@ export function RecursosPanel({ sessaoId }: { sessaoId: string }) {
                   ) : janela?.estado === "ENCERRADA" ? (
                     <div className="text-sm text-amber-900">
                       Janela encerrada em {dataHoraBr(janela.fechaEm)} ({janela.minutos} min) — intenções posteriores precluem.
+                      {previa && " Os lances já podem começar; as intenções ficam registradas e as razões vêm depois do julgamento."}
+                    </div>
+                  ) : previa ? (
+                    <div className="text-sm text-amber-900">
+                      Inversão de fases: julgada a habilitação de todos, abra o prazo de intenção de recurso (mínimo{" "}
+                      {painel?.prazos.minutosIntencao ?? 10} min). Os lances só começam depois que ele encerrar; as razões são apresentadas
+                      depois do julgamento (IN SEGES 73/2022, art. 8º §1º II e art. 40).
                     </div>
                   ) : (
                     <div className="text-sm text-amber-900">
@@ -222,6 +240,8 @@ function CartaoRecurso({
         <BadgeStatusRecurso status={r.status} />
       </div>
       <DetalheRecurso r={r} />
+
+      {r.emEsperaDoJulgamento && <div className="border-t pt-2 text-xs text-amber-800">{r.emEsperaDoJulgamento}</div>}
 
       {r.aguardaFimDaJanela && (
         <div className="border-t pt-2 text-xs text-slate-500">

@@ -17,6 +17,7 @@ import { ChatLateral } from '../ChatLateral'
 import { DetalheLoteOrgao } from './DetalheLoteOrgao'
 import { BeneficioMeEppPanel } from '../BeneficioMeEppPanel'
 import { DesempatePanel } from '../DesempatePanel'
+import { RecursosPanel } from '../RecursosPanel'
 import { HabilitacaoPanel } from '../HabilitacaoPanel'
 import { FilaAutomaticaBarra } from './FilaAutomaticaBarra'
 import { DialogoJustificativa, DialogoSuspender } from './DialogosSalaOrgao'
@@ -283,7 +284,11 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               <>
                 {/* Inversão de fases (art. 17 §1º): habilitação de todos antes da disputa */}
                 {contexto?.licitacaoId && ['ABERTURA', 'ANALISE_PROPOSTAS'].includes(contexto?.etapa?.codigo || '') && (
-                  <HabilitacaoPanel licitacaoId={contexto.licitacaoId} somentePreviaInversao />
+                  <>
+                    <HabilitacaoPanel licitacaoId={contexto.licitacaoId} somentePreviaInversao />
+                    {/* Inversão: prazo de intenção de recurso da habilitação, antes dos lances (IN 73 art. 8º §1º II) */}
+                    <RecursosPanel sessaoId={sessaoId} somentePreviaInversao />
+                  </>
                 )}
                 {/* Benefício ME/EPP e desempate: aparecem sozinhos quando há algo a decidir */}
                 <BeneficioMeEppPanel sessaoId={sessaoId} />
