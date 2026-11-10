@@ -62,6 +62,22 @@ export default function SalaFornecedorPage({ params }: { params: Promise<{ id: s
     }
   }, [licitacaoId])
 
+  // Quem entra antes da hora fica na tela de espera: ela confere sozinha se a sessão abriu.
+  // Antes só entrava na sala quem recarregasse a página (ensaio do pregão 2026/00077).
+  useEffect(() => {
+    if (sessaoId !== null) return
+    const t = setInterval(async () => {
+      try {
+        const r = await authFetch(`${API_URL}/api/sessao/licitacao/${licitacaoId}`, { cache: 'no-store' })
+        const sessao = r.ok ? await r.json().catch(() => null) : null
+        if (sessao?.id) setSessaoId(sessao.id)
+      } catch {
+        /* tenta de novo no próximo ciclo */
+      }
+    }, 15_000)
+    return () => clearInterval(t)
+  }, [sessaoId, licitacaoId])
+
   const voltar = (
     <Link href={`/fornecedor/licitacoes/${licitacaoId}`}>
       <Button variant="outline">
