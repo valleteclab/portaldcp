@@ -421,7 +421,7 @@ export class DisputaService {
   // ELEGIBILIDADE
   // ============================================================================
 
-  /** Fornecedor com proposta CLASSIFICADA/RECEBIDA na licitação pode entrar na sala. */
+  /** Fornecedor com proposta enviada e não desclassificada/cancelada pode entrar na sala. */
   async verificarElegibilidadeFornecedor(sessaoId: string, fornecedorId: string): Promise<{
     elegivel: boolean;
     motivo?: string;
@@ -430,8 +430,12 @@ export class DisputaService {
     const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId } });
     if (!sessao) return { elegivel: false, motivo: 'Sessão não encontrada', propostasClassificadas: 0 };
 
+    // ENVIADA/EM_ANALISE também entram: logo depois da abertura a pregoeira ainda não classificou
+    // ninguém. Antes, quem entrava nesse intervalo recebia "não possui proposta classificada", era
+    // desconectado e ficava preso nessa tela mesmo depois de classificado (ensaio do 2026/00078).
+    // Entrar na sala não é dar lance: o lance tem a própria conferência (modelo-lance).
     const propostasClassificadas = await this.propostaRepo.count({
-      where: { licitacao_id: sessao.licitacao_id, fornecedor_id: fornecedorId, status: In(['CLASSIFICADA', 'RECEBIDA']) },
+      where: { licitacao_id: sessao.licitacao_id, fornecedor_id: fornecedorId, status: In(['CLASSIFICADA', 'RECEBIDA', 'ENVIADA', 'EM_ANALISE']) },
     });
     if (propostasClassificadas === 0) {
       return {
