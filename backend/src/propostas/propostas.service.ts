@@ -68,6 +68,11 @@ export class PropostasService {
    * acolhimento (ou da abertura da sessão), o conteúdo das propostas não pode
    * ser exposto — as rotas públicas por licitação/item retornam dados mascarados.
    */
+  /** EntityManager para leituras auxiliares (planilha-modelo). */
+  manager() {
+    return this.propostaRepository.manager;
+  }
+
   async emSigiloDePropostas(licitacaoId: string): Promise<boolean> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },

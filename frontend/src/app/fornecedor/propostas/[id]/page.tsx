@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { ComprovantesFornecedor } from '@/components/fornecedor/ComprovantesFornecedor'
 import { PropostaTecnicaPanel } from '@/components/julgamento/PropostaTecnicaPanel'
 import { HabilitacaoFornecedorPanel } from '@/components/sala/HabilitacaoFornecedorPanel'
 import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao'
@@ -439,6 +440,9 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
           resumoComLinkSala={`/fornecedor/licitacoes/${proposta.licitacao.id}/sessao`}
         />
       )}
+
+      {/* Comprovantes de cada envio, alteração e anexo (o `proposta` muda a cada gravação desta tela) */}
+      {proposta.licitacao?.id && <ComprovantesFornecedor licitacaoId={proposta.licitacao.id} atualizacao={proposta} />}
 
       {/* Itens da Proposta */}
       <Card>

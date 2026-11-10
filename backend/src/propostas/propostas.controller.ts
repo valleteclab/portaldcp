@@ -10,6 +10,8 @@ import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-propo
 import { Proposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
 import { Public } from '../auth/public.decorator';
+import { ComprovantesService } from '../comprovantes/comprovantes.service';
+import { planilhaModeloDaProposta } from './planilha-modelo';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
 import { AtorAtual, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor } from '../auth/acesso/ator';
@@ -30,6 +32,7 @@ export class PropostasController {
   constructor(
     private readonly propostasService: PropostasService,
     private readonly acesso: AcessoLicitacaoService,
+    private readonly comprovantes: ComprovantesService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -79,6 +82,20 @@ export class PropostasController {
   ): Promise<Proposta> {
     const fornecedorId = this.acesso.fornecedorDoToken(ator, createDto.fornecedor_id);
     return await this.propostasService.create(createDto, fornecedorId);
+  }
+
+  /**
+   * Planilha-modelo da proposta (dono, 10/11/2026 — como a BLL): o fornecedor
+   * baixa, preenche o valor unitário, a marca e o modelo, e importa na tela da
+   * proposta. Só para licitação divulgada; valor de referência fora se o orçamento for sigiloso.
+   */
+  @Public()
+  @Get('licitacao/:licitacaoId/planilha-modelo')
+  async planilhaModelo(@Param('licitacaoId') licitacaoId: string, @Res() res: Response) {
+    const { nome, conteudo } = await planilhaModeloDaProposta(this.propostasService.manager(), licitacaoId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+    res.send(conteudo);
   }
 
   @Public()
@@ -134,8 +151,11 @@ export class PropostasController {
   @Put(':id/enviar')
   @SomenteFornecedor()
   async enviar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
-    await this.fornecedorDono(ator, id);
-    return await this.propostasService.enviar(id);
+    const dono = await this.fornecedorDono(ator, id);
+    const proposta = await this.propostasService.enviar(id);
+    // Comprovante do que ficou gravado (dono, 10/11/2026): garantia para o fornecedor
+    await this.comprovantes.emitir({ licitacaoId: dono.licitacao_id, fornecedorId: dono.fornecedor_id, tipo: 'PROPOSTA_ENVIADA' });
+    return proposta;
   }
 
   @Put(':id/classificar')
@@ -255,8 +275,11 @@ export class PropostasController {
     @Body() dados: { valor_total_proposta?: number },
     @AtorAtual() ator: Ator,
   ): Promise<Proposta> {
-    await this.fornecedorDono(ator, id);
-    return await this.propostasService.update(id, dados);
+    const dono = await this.fornecedorDono(ator, id);
+    const proposta = await this.propostasService.update(id, dados);
+    // A tela grava os itens e fecha com esta chamada: um comprovante por "Salvar"
+    await this.comprovantes.emitir({ licitacaoId: dono.licitacao_id, fornecedorId: dono.fornecedor_id, tipo: 'PROPOSTA_ALTERADA' });
+    return proposta;
   }
 
   @Put('item/:itemId')
@@ -278,7 +301,14 @@ export class PropostasController {
   @Delete(':id')
   @SomenteFornecedor()
   async remove(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<{ ok: true }> {
-    await this.propostasService.remove(id, this.acesso.fornecedorDoToken(ator));
+    const fornecedorId = this.acesso.fornecedorDoToken(ator);
+    // Retrato tirado ANTES de apagar: o comprovante mostra o que foi excluído
+    const dono = await this.propostasService.donoDaProposta(id).catch(() => null);
+    const retrato = dono && dono.fornecedor_id === fornecedorId ? await this.comprovantes.retrato(dono.licitacao_id, fornecedorId).catch(() => null) : null;
+    await this.propostasService.remove(id, fornecedorId);
+    if (dono && retrato) {
+      await this.comprovantes.emitir({ licitacaoId: dono.licitacao_id, fornecedorId, tipo: 'PROPOSTA_EXCLUIDA', retratoPronto: retrato });
+    }
     return { ok: true };
   }
 }
