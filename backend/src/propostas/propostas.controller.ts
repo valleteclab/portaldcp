@@ -85,6 +85,16 @@ export class PropostasController {
   }
 
   /**
+   * Situação do próprio fornecedor na licitação quando está fora da disputa
+   * (desclassificado ou inabilitado): motivo e data. `null` = não é o caso.
+   */
+  @SomenteFornecedor()
+  @Get('licitacao/:licitacaoId/minha-situacao')
+  async minhaSituacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    return { foraDaDisputa: await this.acesso.situacaoForaDaDisputa(this.acesso.fornecedorDoToken(ator), licitacaoId) };
+  }
+
+  /**
    * Planilha-modelo da proposta (dono, 10/11/2026 — como a BLL): o fornecedor
    * baixa, preenche o valor unitário, a marca e o modelo, e importa na tela da
    * proposta. Só para licitação divulgada; valor de referência fora se o orçamento for sigiloso.

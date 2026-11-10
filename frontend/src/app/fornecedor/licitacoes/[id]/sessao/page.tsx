@@ -128,6 +128,7 @@ export default function SalaFornecedorPage({ params }: { params: Promise<{ id: s
     return (
       <SalaFornecedor
         sessaoId={sessaoId}
+        licitacaoId={licitacaoId}
         acoesCabecalho={voltar}
         rodape={
           <>

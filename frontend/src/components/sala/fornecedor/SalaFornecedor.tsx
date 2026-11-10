@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useState, type ReactNode } from 'react'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { useSalaDisputa } from '@/hooks/useSalaDisputa'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -16,6 +16,7 @@ import { RecursosFornecedorPanel } from '../RecursosFornecedorPanel'
 import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
 import { ChatLateral } from '../ChatLateral'
 import { ComprovantesFornecedor } from '@/components/fornecedor/ComprovantesFornecedor'
+import { ForaDaDisputa } from './ForaDaDisputa'
 import { PainelLancesFornecedor } from './PainelLancesFornecedor'
 
 /**
@@ -29,10 +30,13 @@ import { PainelLancesFornecedor } from './PainelLancesFornecedor'
  */
 export function SalaFornecedor({
   sessaoId,
+  licitacaoId,
   acoesCabecalho,
   rodape,
 }: {
   sessaoId: string
+  /** Licitação da sala: permite explicar a quem está fora da disputa (desclassificado/inabilitado) o motivo. */
+  licitacaoId?: string
   acoesCabecalho?: ReactNode
   /** Conteúdo abaixo da sala (resultado, painéis da modalidade). */
   rodape?: ReactNode
@@ -123,12 +127,7 @@ export function SalaFornecedor({
             </CardContent>
           </Card>
         ) : error ? (
-          <Card className="border-red-200">
-            <CardContent className="py-12 text-center">
-              <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-red-500" />
-              <p className="font-medium text-red-700">{error}</p>
-            </CardContent>
-          </Card>
+          <ForaDaDisputa licitacaoId={licitacaoId} sessaoId={sessaoId} erroPadrao={error} />
         ) : (
           <div className="space-y-6">
             {actionError && (
