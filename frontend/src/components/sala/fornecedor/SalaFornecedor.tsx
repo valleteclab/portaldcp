@@ -31,12 +31,15 @@ import { PainelLancesFornecedor } from './PainelLancesFornecedor'
 export function SalaFornecedor({
   sessaoId,
   licitacaoId,
+  resumo,
   acoesCabecalho,
   rodape,
 }: {
   sessaoId: string
   /** Licitação da sala: permite explicar a quem está fora da disputa (desclassificado/inabilitado) o motivo. */
   licitacaoId?: string
+  /** Número e objeto da licitação, para o cabeçalho de quem não carrega a sala (fora da disputa). */
+  resumo?: { numero?: string | null; objeto?: string | null }
   acoesCabecalho?: ReactNode
   /** Conteúdo abaixo da sala (resultado, painéis da modalidade). */
   rodape?: ReactNode
@@ -83,38 +86,47 @@ export function SalaFornecedor({
     />
   )
 
+  // A sala não carregou (licitante fora da disputa ou erro): o cabeçalho mostra só o que se sabe
+  const semSala = !loading && !!error && !contexto
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="border-b bg-white">
         <div className="mx-auto max-w-7xl space-y-4 px-4 py-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className={getStatusBadgeClass(contexto?.status || 'AGENDADA')}>{getStatusLabel(contexto?.status || 'AGENDADA')}</Badge>
-                <Badge variant="outline">Modo {rotuloModo(contexto?.modo)}</Badge>
-                <Badge variant="outline" className={wsConectado ? 'border-emerald-300 text-emerald-700' : 'border-red-300 text-red-700'}>
-                  {wsConectado ? 'Tempo real conectado' : 'Tempo real desconectado'}
-                </Badge>
-              </div>
+              {/* Fora da disputa (sala não carrega): sem situação, modo e conexão — eram "Agendada" e "desconectado" enganosos */}
+              {!semSala && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={getStatusBadgeClass(contexto?.status || 'AGENDADA')}>{getStatusLabel(contexto?.status || 'AGENDADA')}</Badge>
+                  <Badge variant="outline">Modo {rotuloModo(contexto?.modo)}</Badge>
+                  <Badge variant="outline" className={wsConectado ? 'border-emerald-300 text-emerald-700' : 'border-red-300 text-red-700'}>
+                    {wsConectado ? 'Tempo real conectado' : 'Tempo real desconectado'}
+                  </Badge>
+                </div>
+              )}
               <div>
                 <h1 className="text-2xl font-semibold text-slate-900">Sala da sessão</h1>
                 <p className="text-sm text-slate-600">
-                  {contexto?.licitacao?.numero || contexto?.licitacao?.processo || 'Sessão'} — {contexto?.licitacao?.objeto || 'carregando a licitação...'}
+                  {contexto?.licitacao?.numero || contexto?.licitacao?.processo || resumo?.numero || 'Sessão'} —{' '}
+                  {contexto?.licitacao?.objeto || resumo?.objeto || (semSala ? '' : 'carregando a licitação...')}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ChatLateral
-                mensagens={mensagens}
-                onEnviar={enviarMensagem}
-                enviando={sendingMessage}
-                habilitado={!!contexto?.operacao.chatHabilitado}
-                placeholder="Enviar mensagem ao pregoeiro..."
-              />
+              {!semSala && (
+                <ChatLateral
+                  mensagens={mensagens}
+                  onEnviar={enviarMensagem}
+                  enviando={sendingMessage}
+                  habilitado={!!contexto?.operacao.chatHabilitado}
+                  placeholder="Enviar mensagem ao pregoeiro..."
+                />
+              )}
               {acoesCabecalho}
             </div>
           </div>
-          <SalaStepper contexto={contexto} />
+          {!semSala && <SalaStepper contexto={contexto} />}
         </div>
       </div>
 
