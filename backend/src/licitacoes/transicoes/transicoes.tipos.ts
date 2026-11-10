@@ -229,6 +229,8 @@ export interface EstadoRecursal {
   janelaAberta: boolean;
   /** Há janela de intenção ENCERRADA e não superada (o direito de recorrer foi dado sobre o resultado atual). */
   janelaEncerrada: boolean;
+  /** Inversão de fases: janela de intenção da habilitação prévia (antes dos lances). Ausente em mocks = sem checagem. */
+  janelaPrevia?: 'AUSENTE' | 'ABERTA' | 'ENCERRADA';
   /** Rótulos dos recursos/intenções sem decisão final. */
   pendentes: string[];
   intencoesAdmitidas: number;

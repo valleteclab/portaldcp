@@ -51,6 +51,7 @@ import {
   painelHabilitacao,
 } from './support/habilitacao';
 import { vencedoresPorUnidade } from './support/resultado';
+import { abrirJanelaIntencao, encerrarJanelaNoRelogio, manifestarIntencao, painelRecursos } from './support/recursos';
 import { CriterioJulgamento, FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao } from '../src/sessao/entities/sessao-disputa.entity';
 import { VencimentoDocumentosService } from '../src/habilitacao/vencimento-documentos.service';
@@ -530,6 +531,7 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
     let lic: any;
     let sessaoId: string;
     let propostas: Record<string, string>;
+    let recursoPrevio: string;
 
     beforeAll(async () => {
       orgao = await criarOrgao(ctx, { nome: `Prefeitura Inversão E4 ${modalidade}` });
@@ -622,6 +624,44 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect((await http().get(`/api/propostas/licitacao/${lic.id}/minha-situacao`).set(bearer(orgao.token))).status).toBe(403);
     });
 
+    test('intenção de recurso da habilitação ANTES dos lances (IN 73 art. 8º §1º II): janela prévia, intenção em espera', async () => {
+      const iniciar = () => http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
+      // Habilitação julgada, mas sem o prazo de intenção: os lances não começam
+      const semJanela = await iniciar();
+      expect(semJanela.status).toBe(400);
+      expect(JSON.stringify(semJanela.body)).toMatch(/prazo de intenção de recurso da habilitação/);
+      // O inabilitado tem a própria inabilitação como ato recorrível, mesmo antes dos lances
+      const p3 = (await painelRecursos(ctx, sessaoId, F3.token).expect(200)).body;
+      expect(p3.atosRecorriveis.map((a: any) => a.ato)).toContain('INABILITACAO');
+      expect(p3.podeManifestarIntencao).toBe(false);
+      // A pregoeira abre a janela prévia: a sala continua na análise
+      const painelOrgao = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
+      expect(painelOrgao).toMatchObject({ previaInversao: true, podeAbrirJanela: true });
+      const j = await abrirJanelaIntencao(ctx, sessaoId, orgao.token);
+      expect(j.status).toBe(201);
+      expect(j.body.momento).toBe('HABILITACAO_PREVIA');
+      expect((await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body.etapa).not.toBe(EtapaSessao.INTENCAO_RECURSO);
+      // Com a janela aberta: F3 manifesta; os lances seguem bloqueados; segunda janela não abre
+      const intencao = await manifestarIntencao(ctx, sessaoId, F3.token, { motivacao: 'Os documentos exigidos foram apresentados no prazo', atoRecorrido: 'INABILITACAO' });
+      expect(intencao.status).toBe(201);
+      recursoPrevio = intencao.body.id;
+      const comJanelaAberta = await iniciar();
+      expect(comJanelaAberta.status).toBe(400);
+      expect(JSON.stringify(comJanelaAberta.body)).toMatch(/em curso/);
+      expect((await abrirJanelaIntencao(ctx, sessaoId, orgao.token)).status).toBe(409);
+      // Janela encerrada: a intenção fica EM ESPERA (não se admite antes do julgamento) e não há nova janela prévia
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      const admitirCedo = await http().post(`/api/recursos/${recursoPrevio}/admitir`).set(bearer(orgao.token));
+      expect(admitirCedo.status).toBe(409);
+      expect(admitirCedo.body.message).toMatch(/depois do julgamento/);
+      const depois = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
+      expect(depois.podeAbrirJanela).toBe(false);
+      expect(depois.recursos[0]).toMatchObject({ podeAdmitir: false });
+      expect(depois.recursos[0].emEsperaDoJulgamento).toMatch(/depois do julgamento/);
+      // Quem não se manifestou na janela prévia perdeu o prazo
+      expect((await manifestarIntencao(ctx, sessaoId, F1.token, { motivacao: 'Intenção fora do prazo da habilitação', atoRecorrido: 'OUTRO' })).status).toBe(409);
+    });
+
     test('só os habilitados disputam: F3 (inabilitado) sem lance; vencedor confirmado habilitado após a aceitação', async () => {
       const it = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
       expect(it.status).toBe(201);
@@ -646,6 +686,19 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(adj?.pendencias.join(' ') ?? '').not.toMatch(/Habilitação pendente/);
       const s = (await http().get(`/api/disputa/sessao/${sessaoId}`).expect(200)).body;
       expect(s.etapa).toBe(EtapaSessao.INTENCAO_RECURSO);
+
+      // Fim: a intenção da habilitação prévia segue pendente e NÃO impede a janela final;
+      // a adjudicação fica bloqueada; encerrada a janela final, a intenção pode ser admitida
+      expect((await atos(lic.id, orgao.token)).find((a) => a.ato === 'ADJUDICAR')?.pendencias.join(' ')).toMatch(/intenção de recurso|Efeito suspensivo/);
+      const final = await abrirJanelaIntencao(ctx, sessaoId, orgao.token);
+      expect(final.status).toBe(201);
+      expect(final.body.momento).toBe('FINAL');
+      expect((await http().post(`/api/recursos/${recursoPrevio}/admitir`).set(bearer(orgao.token))).status).toBe(409);
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      const admitida = await http().post(`/api/recursos/${recursoPrevio}/admitir`).set(bearer(orgao.token));
+      expect(admitida.status).toBe(201);
+      const rec = (await painelRecursos(ctx, sessaoId, F3.token).expect(200)).body.recursos.find((r: any) => r.id === recursoPrevio);
+      expect(rec).toMatchObject({ status: 'AGUARDANDO_RAZOES', podeApresentarRazoes: true });
     });
   });
 });

@@ -52,6 +52,15 @@ export class JanelaIntencaoRecurso {
   @Column({ type: 'text', nullable: true })
   superada_motivo: string | null;
 
+  /**
+   * FINAL (padrão): depois do julgamento e da habilitação. HABILITACAO_PREVIA: na
+   * inversão de fases, logo depois da habilitação de todos e ANTES dos lances
+   * (IN SEGES 73/2022, art. 8º §1º II) — a intenção fica registrada e as razões
+   * só correm da ata de julgamento (art. 40 §1º).
+   */
+  @Column({ type: 'varchar', length: 24, default: 'FINAL' })
+  momento: string;
+
   /** SALA | MIGRACAO_E5 */
   @Column({ type: 'varchar', length: 20, default: 'SALA' })
   origem: string;

@@ -90,6 +90,8 @@ export interface Recurso {
   aguardaFimDaJanela?: string | null;
   podeReconsiderar?: boolean;
   podeDecidirAutoridade?: boolean;
+  /** Inversão de fases: intenção da habilitação prévia, em espera até o julgamento (texto explicativo). */
+  emEsperaDoJulgamento?: string | null;
 }
 
 export interface Janela {
@@ -99,6 +101,8 @@ export interface Janela {
   minutos: number;
   estado: "ABERTA" | "ENCERRADA" | "SUPERADA";
   segundosRestantes: number;
+  /** FINAL (padrão) ou HABILITACAO_PREVIA (inversão de fases, antes dos lances). */
+  momento?: string;
 }
 
 export interface PainelRecursos {
@@ -111,6 +115,8 @@ export interface PainelRecursos {
   pendentes: number;
   recursos: Recurso[];
   podeAbrirJanela?: boolean;
+  /** Inversão de fases, antes dos lances: a janela que se abre agora é a da habilitação prévia. */
+  previaInversao?: boolean;
   /** Cadastro de autoridades do órgão (para o agente registrar a decisão da autoridade superior). */
   autoridades?: Array<{ id: string; nome: string; cargo: string; padrao?: boolean }>;
   motivoNaoAbreJanela?: string | null;
