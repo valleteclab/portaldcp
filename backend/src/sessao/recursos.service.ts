@@ -510,7 +510,11 @@ export class RecursosService {
     );
     const unidades = await this.ranking.unidades(licitacaoId, m);
     const rot = (id: string) => this.rotuloUnidade(unidades.find((u) => u.id === id));
-    const nomes = await this.nomes(m, rows.map((r) => r.fornecedor_id));
+    // Habilitação julgada ANTES dos lances (inversão de fases): ainda não há linha por unidade —
+    // o ato recorrível vem da própria habilitação do licitante
+    const habs: any[] = await m.query(`SELECT fornecedor_id::text AS fornecedor_id, status::text AS status FROM habilitacoes_licitante WHERE licitacao_id = $1`, [licitacaoId]);
+    // Nomes também dos habilitados na habilitação prévia (antes saía o id no rótulo — pregão 2026/00074)
+    const nomes = await this.nomes(m, [...rows.map((r) => r.fornecedor_id), ...habs.map((h) => h.fornecedor_id)]);
     const atos: Array<{ ato: string; rotulo: string; unidadeId: string | null; fornecedorAlvoId: string | null }> = [];
     const meus = rows.filter((r) => r.fornecedor_id === fornecedorId);
     if (meus.some((r) => r.situacao === SituacaoLicitante.INABILITADO)) {
@@ -522,9 +526,6 @@ export class RecursosService {
     for (const r of meus.filter((x) => x.situacao === SituacaoLicitante.DESCLASSIFICADO)) {
       atos.push({ ato: AtoRecorrido.DESCLASSIFICACAO, rotulo: `Desclassificação da minha proposta — ${rot(r.unidade_id)}`, unidadeId: r.unidade_id, fornecedorAlvoId: null });
     }
-    // Habilitação julgada ANTES dos lances (inversão de fases): ainda não há linha por unidade —
-    // o ato recorrível vem da própria habilitação do licitante
-    const habs: any[] = await m.query(`SELECT fornecedor_id::text AS fornecedor_id, status::text AS status FROM habilitacoes_licitante WHERE licitacao_id = $1`, [licitacaoId]);
     if (!atos.some((a) => a.ato === AtoRecorrido.INABILITACAO) && habs.some((h) => h.fornecedor_id === fornecedorId && h.status === 'INABILITADO')) {
       atos.push({ ato: AtoRecorrido.INABILITACAO, rotulo: 'Minha inabilitação', unidadeId: null, fornecedorAlvoId: null });
     }

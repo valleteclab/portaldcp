@@ -633,6 +633,10 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       // O inabilitado tem a própria inabilitação como ato recorrível, mesmo antes dos lances
       const p3 = (await painelRecursos(ctx, sessaoId, F3.token).expect(200)).body;
       expect(p3.atosRecorriveis.map((a: any) => a.ato)).toContain('INABILITACAO');
+      // Os habilitados aparecem pelo nome, não pelo id
+      const deTerceiros = p3.atosRecorriveis.filter((a: any) => a.ato === 'HABILITACAO_TERCEIRO').map((a: any) => a.rotulo);
+      expect(deTerceiros).toHaveLength(2);
+      for (const rotulo of deTerceiros) expect(rotulo).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
       expect(p3.podeManifestarIntencao).toBe(false);
       // A pregoeira abre a janela prévia: a sala continua na análise
       const painelOrgao = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
