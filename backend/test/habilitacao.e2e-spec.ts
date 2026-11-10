@@ -563,6 +563,8 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect((await enviarDocumentoHabilitacao(ctx, lic.id, exFed.id, intruso.token)).status).toBe(403);
       const p1 = await enviarDocumentosFaltantes(ctx, lic.id, F1.token);
       expect(p1.minha).toMatchObject({ origem: 'INVERSAO', status: 'AGUARDANDO_ENVIO' });
+      // O envio continua aberto depois do 1º documento (o painel da proposta não pode fechar no meio)
+      expect(p1.envioInversaoAberto).toBe(true);
       const p2 = await enviarDocumentosFaltantes(ctx, lic.id, F2.token);
       expect(p2.minha.exigencias.find((e: any) => e.id === exFed.id)).toMatchObject({ cobertaPeloCadastro: true });
       expect(p2.minha.exigencias.find((e: any) => e.id === exFed.id).documentos[0].origem).toBe('CADASTRO');
@@ -585,6 +587,13 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       const it = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: lic.itens.map((i: any) => i.id) });
       expect(it.status).toBe(400);
       expect(JSON.stringify(it.body)).toMatch(/Inversão de fases/);
+      // A fila automática também é recusada — e NÃO fica ligada pela metade (com ou sem aviso prévio)
+      for (const avisoMinutos of [0, 1]) {
+        const fila = await http().post(`/api/disputa/sessao/${sessaoId}/fila`).set(bearer(orgao.token)).send({ maxSimultaneos: 1, avisoMinutos });
+        expect(fila.status).toBe(400);
+        expect(JSON.stringify(fila.body)).toMatch(/Inversão de fases/);
+        expect((await http().get(`/api/disputa/sessao/${sessaoId}/fila`).set(bearer(orgao.token)).expect(200)).body.ativa).toBe(false);
+      }
     });
 
     test('comissão julga todos: F1 e F2 habilitados, F3 inabilitado (proposta desclassificada)', async () => {

@@ -293,8 +293,11 @@ export function HabilitacaoPanel({
 
         {ordenadas.map((h) => {
           const st = ROTULO_STATUS_HAB[h.status] ?? { label: h.status, cls: 'bg-slate-100' }
-          const expandida = aberta === h.id || (aberta === null && ['ENVIADA', 'EM_DILIGENCIA', 'AGUARDANDO_ENVIO'].includes(h.status))
           const confirmarInversao = posFaseInversao && h.status === 'HABILITADO' && aceitos.has(h.fornecedorId)
+          // Abre sozinha quando há algo a fazer — inclusive a confirmação do vencedor na inversão de fases:
+          // o botão fica aqui dentro, e com o licitante já habilitado (recolhido) a pregoeira não o achava
+          // (pregão 2026/00073, 09/11/2026)
+          const expandida = aberta === h.id || (aberta === null && (['ENVIADA', 'EM_DILIGENCIA', 'AGUARDANDO_ENVIO'].includes(h.status) || confirmarInversao))
           const exigenciasSemAtender = h.exigencias.filter((e) => e.situacao !== 'ATENDIDA').map((e) => e.id)
           return (
             <div key={h.id} className="rounded-xl border border-slate-200">
@@ -311,6 +314,11 @@ export function HabilitacaoPanel({
                   {h.decisaoMotivo && (
                     <div className="mt-1 text-xs text-slate-600">
                       {h.status === 'HABILITADO' ? 'Observação' : 'Motivo'}: {h.decisaoMotivo}
+                    </div>
+                  )}
+                  {confirmarInversao && (
+                    <div className="mt-1 text-xs font-semibold text-amber-800">
+                      Inversão de fases: falta confirmar a habilitação deste vencedor (botão abaixo).
                     </div>
                   )}
                   {/* Os documentos continuam acessíveis depois da decisão: o cartão recolhe, mas o caminho fica à vista */}

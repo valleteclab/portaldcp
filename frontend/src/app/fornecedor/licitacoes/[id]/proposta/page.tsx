@@ -1,7 +1,7 @@
 "use client"
 
 import { ROTULO_CRITERIO, ROTULO_MODO_DISPUTA } from "@/lib/licitacao-rotulos"
-import { useState, useEffect, use } from "react"
+import { useState, useEffect, use, Fragment } from "react"
 import { useRouter } from "next/navigation"
 import { 
   ArrowLeft, 
@@ -31,8 +31,17 @@ import {
 
 import { API_URL, authFetch } from '@/lib/api'
 
+interface LoteLicitacao {
+  id: string
+  numero: number
+  descricao: string
+  valor_total_estimado?: string | number | null
+  tipo_beneficio_mpe?: string | null
+}
+
 interface ItemLicitacao {
   id: string
+  lote_id?: string | null
   numero_item: number
   descricao_resumida: string
   quantidade: number
@@ -106,8 +115,13 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
     itens: Array<{ itemId: string; numero: number; somenteMpe: boolean; ehCota: boolean }>
   } | null>(null)
 
+  // Licitação por lote: os itens aparecem agrupados sob o lote, com o benefício ME/EPP no cabeçalho
+  const [lotes, setLotes] = useState<LoteLicitacao[]>([])
+
   const [itensPropostos, setItensPropostos] = useState<Array<{
     id: string
+    numero: number
+    loteId: string | null
     descricao: string
     quantidade: number
     unidade: string
@@ -150,8 +164,10 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         const resItens = await authFetch(`${API_URL}/api/itens/licitacao/${resolvedParams.id}`)
         if (resItens.ok) {
           const dataItens = await resItens.json()
-          setItensPropostos(dataItens.map((item: ItemLicitacao) => ({
+          setItensPropostos(dataItens.map((item: ItemLicitacao, i: number) => ({
             id: item.id,
+            numero: item.numero_item ?? i + 1,
+            loteId: item.lote_id ?? null,
             descricao: item.descricao_resumida,
             quantidade: item.quantidade,
             unidade: item.unidade_medida,
@@ -160,6 +176,13 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
             marca: '',
             modelo: ''
           })))
+        }
+
+        // Lotes (leitura pública da licitação divulgada)
+        const resLotes = await authFetch(`${API_URL}/api/lotes/licitacao/${resolvedParams.id}`)
+        if (resLotes.ok) {
+          const dataLotes = await resLotes.json()
+          if (Array.isArray(dataLotes)) setLotes([...dataLotes].sort((a, b) => Number(a.numero) - Number(b.numero)))
         }
       } catch (err) {
         console.error('Erro ao buscar dados:', err)
@@ -180,11 +203,27 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   const podeExclusivos = !!participacao?.porteMpe && declaracoes.mpe
   const bloqueado = (id: string) => exclusivos.has(id) && !podeExclusivos
   const itensPermitidos = itensPropostos.filter((i) => !bloqueado(i.id))
+  const oQue = lotes.length > 0 && itensPropostos.some((i) => i.loteId) ? 'lotes' : 'itens'
   const avisoExclusivo = exclusivos.size === 0 || podeExclusivos
     ? null
     : participacao?.porteMpe
-      ? 'Há itens EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48). Para cotá-los, marque a "Declaração ME/EPP" na etapa 1.'
-      : `Há itens EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48, I e III). Seu cadastro indica porte ${participacao?.porte ?? 'não informado'}: esses itens ficam fora da sua proposta.`
+      ? `Há ${oQue} EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48). Para cotá-los, marque a "Declaração ME/EPP" na etapa 1.`
+      : `Há ${oQue} EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48, I e III). Seu cadastro indica porte ${participacao?.porte ?? 'não informado'}: esses ${oQue} ficam fora da sua proposta.`
+
+  // Grupos da tabela: um por lote (na ordem dos lotes) e, se houver, os itens sem lote
+  type ItemProposto = (typeof itensPropostos)[number]
+  const porLote = lotes.length > 0 && itensPropostos.some((i) => i.loteId)
+  const grupos: Array<{ lote: LoteLicitacao | null; itens: ItemProposto[] }> = porLote
+    ? [
+        ...lotes.map((lote) => ({ lote, itens: itensPropostos.filter((i) => i.loteId === lote.id) })).filter((g) => g.itens.length > 0),
+        ...(itensPropostos.some((i) => !i.loteId || !lotes.some((l) => l.id === i.loteId))
+          ? [{ lote: null, itens: itensPropostos.filter((i) => !i.loteId || !lotes.some((l) => l.id === i.loteId)) }]
+          : []),
+      ]
+    : [{ lote: null, itens: itensPropostos }]
+  const lancePorLote = (licitacao as { base_lance?: string } | null)?.base_lance === 'TOTAL_LOTE'
+  const reais = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const colunasTabela = licitacao?.sigilo_orcamento !== 'SIGILOSO' ? 7 : 6
 
   const calcularTotalProposta = () => {
     return itensPermitidos.reduce((total, item) => {
@@ -485,6 +524,11 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
             <CardDescription>Informe os valores e especificações para cada item</CardDescription>
           </CardHeader>
           <CardContent>
+            {porLote && lancePorLote && (
+              <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                Licitação por lote, com lance pelo valor global do lote: informe o preço unitário de cada item; a disputa será pelo total do lote.
+              </p>
+            )}
             {avisoExclusivo && (
               <Alert className="mb-4 border-amber-300 bg-amber-50">
                 <AlertCircle className="h-4 w-4" />
@@ -510,48 +554,97 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {itensPropostos.map((item, index) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium align-top">{index + 1}</TableCell>
-                    <TableCell className="max-w-md align-top">
-                      <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
-                      {exclusivos.has(item.id) && (
-                        <Badge variant="outline" className="mt-1 border-amber-400 text-amber-800">
-                          {exclusivos.get(item.id)?.ehCota ? 'Cota reservada ME/EPP' : 'Exclusivo ME/EPP'}
-                          {bloqueado(item.id) ? ' — fora da sua proposta' : ''}
-                        </Badge>
+                {grupos.map((g) => {
+                  const beneficio = g.itens.map((i) => exclusivos.get(i.id)).find(Boolean)
+                  const foraDaProposta = g.itens.length > 0 && g.itens.every((i) => bloqueado(i.id))
+                  const cotados = g.itens.filter((i) => !bloqueado(i.id) && (i.valorProposto || 0) > 0).length
+                  const totalLote = g.itens.reduce((t, i) => t + (bloqueado(i.id) ? 0 : i.quantidade * (i.valorProposto || 0)), 0)
+                  const estimadoLote = g.itens.reduce((t, i) => t + Number(i.quantidade) * Number(i.valorEstimado || 0), 0)
+                  return (
+                    <Fragment key={g.lote?.id ?? 'sem-lote'}>
+                      {g.lote && (
+                        <TableRow className="bg-slate-100 hover:bg-slate-100">
+                          <TableCell colSpan={colunasTabela} className="py-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-slate-900">
+                                  Lote {g.lote.numero} — {g.lote.descricao}
+                                </span>
+                                {beneficio ? (
+                                  <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800">
+                                    {beneficio.ehCota ? 'Cota reservada ME/EPP' : 'Exclusivo ME/EPP'}
+                                    {foraDaProposta ? ' — fora da sua proposta' : ''}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-slate-600">Ampla participação</Badge>
+                                )}
+                              </div>
+                              <div className="text-sm text-slate-600">
+                                {licitacao?.sigilo_orcamento !== 'SIGILOSO' && <span>Estimado do lote: {reais(estimadoLote)}</span>}
+                                {!foraDaProposta && (
+                                  <span className="ml-3 font-semibold text-blue-700">Sua proposta: {reais(totalLote)}</span>
+                                )}
+                              </div>
+                            </div>
+                            {lancePorLote && !foraDaProposta && cotados > 0 && cotados < g.itens.length && (
+                              <p className="mt-1 text-xs text-amber-800">
+                                O lance é pelo valor global do lote: cote os {g.itens.length} itens para disputá-lo (faltam {g.itens.length - cotados}).
+                              </p>
+                            )}
+                          </TableCell>
+                        </TableRow>
                       )}
-                    </TableCell>
-                    <TableCell className="text-center align-top">{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidade}</TableCell>
-                    {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
-                      <TableCell className="text-right text-muted-foreground">
-                        R$ {Number(item.valorEstimado).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </TableCell>
-                    )}
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        className="w-32 text-right"
-                        placeholder="0,00"
-                        value={item.valorProposto || ""}
-                        disabled={bloqueado(item.id)}
-                        onChange={(e) => updateItemValue(item.id, 'valorProposto', parseFloat(e.target.value) || 0)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        className="w-40"
-                        placeholder="Marca / Modelo"
-                        value={item.marca}
-                        onChange={(e) => updateItemValue(item.id, 'marca', e.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      R$ {(item.quantidade * (item.valorProposto || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      {!g.lote && porLote && (
+                        <TableRow className="bg-slate-100 hover:bg-slate-100">
+                          <TableCell colSpan={colunasTabela} className="py-2 font-semibold text-slate-900">Itens fora de lote</TableCell>
+                        </TableRow>
+                      )}
+                      {g.itens.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium align-top">{item.numero}</TableCell>
+                        <TableCell className="max-w-md align-top">
+                          <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
+                          {/* Por lote, o benefício aparece uma vez, no cabeçalho do lote */}
+                          {!g.lote && exclusivos.has(item.id) && (
+                            <Badge variant="outline" className="mt-1 border-amber-400 text-amber-800">
+                              {exclusivos.get(item.id)?.ehCota ? 'Cota reservada ME/EPP' : 'Exclusivo ME/EPP'}
+                              {bloqueado(item.id) ? ' — fora da sua proposta' : ''}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center align-top">{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidade}</TableCell>
+                        {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
+                          <TableCell className="text-right text-muted-foreground">
+                            R$ {Number(item.valorEstimado).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            className="w-32 text-right"
+                            placeholder="0,00"
+                            value={item.valorProposto || ""}
+                            disabled={bloqueado(item.id)}
+                            onChange={(e) => updateItemValue(item.id, 'valorProposto', parseFloat(e.target.value) || 0)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            className="w-40"
+                            placeholder="Marca / Modelo"
+                            value={item.marca}
+                            onChange={(e) => updateItemValue(item.id, 'marca', e.target.value)}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          R$ {(item.quantidade * (item.valorProposto || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </TableCell>
+                      </TableRow>
+                      ))}
+                    </Fragment>
+                  )
+                })}
               </TableBody>
             </Table>
 
