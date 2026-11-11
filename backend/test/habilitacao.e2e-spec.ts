@@ -454,6 +454,58 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
 
   // --------------------------------------------------------------------------
   describe('C. inabilitação → próximo pelos lances; prazo vencido = entregue; vencedor final habilitado', () => {
+    // Achado do ensaio de cenários (pregão 2026/00083, 11/11/2026): por item, a
+    // inabilitação de um licitante devolve a LICITAÇÃO ao julgamento e travava a
+    // decisão de quem já estava com a documentação em análise em outro item.
+    test('por item: com um licitante inabilitado (licitação em JULGAMENTO), o outro convocado ainda é habilitado', async () => {
+      const orgao = await criarOrgao(ctx, { nome: 'Prefeitura Itens em Fases Diferentes' });
+      const F1 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+      const F2 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+      const p = await prepararPregaoEmDisputa(
+        ctx,
+        orgao,
+        [
+          { fornecedor: F1, valores: [90, 99] },
+          { fornecedor: F2, valores: [95, 90] },
+        ],
+        {
+          itens: [
+            { descricao: 'Mesa', quantidade: 5, valor_unitario_estimado: 100 },
+            { descricao: 'Cadeira', quantidade: 5, valor_unitario_estimado: 100 },
+          ],
+        },
+      );
+      const licId = p.lic.id;
+      const [itemA, itemB] = p.lic.itens.map((i: any) => i.id);
+      await encerrar(orgao, p.sessaoId, itemA);
+      await encerrar(orgao, p.sessaoId, itemB);
+      await aceitarPropostaDaUnidade(ctx, p.sessaoId, itemA, orgao.token, F1.token);
+      await aceitarPropostaDaUnidade(ctx, p.sessaoId, itemB, orgao.token, F2.token);
+
+      // Os dois convocados; F2 entrega e tem tudo analisado, mas ainda não foi decidido
+      const c1 = await convocarHabilitacao(ctx, licId, F1.id, orgao.token);
+      const c2 = await convocarHabilitacao(ctx, licId, F2.id, orgao.token);
+      expect([c1.status, c2.status]).toEqual([201, 201]);
+      await enviarDocumentosFaltantes(ctx, licId, F2.token);
+      expect((await entregarHabilitacao(ctx, licId, F2.token)).status).toBe(201);
+      await atenderTodos(ctx, licId, c2.body.id, orgao.token);
+
+      // F1 inabilitado: o item A volta à aceitação (F2 é o próximo) e a licitação, ao julgamento
+      expect((await entregarHabilitacao(ctx, licId, F1.token)).status).toBe(201);
+      const r1 = await decidirHabilitacao(ctx, c1.body.id, orgao.token, 'inabilitar', { motivo: 'Não apresentou os documentos de habilitação' });
+      expect(r1.status).toBe(201);
+      expect((await buscarLicitacao(ctx, { id: licId, orgao } as any)).fase).toBe(FaseLicitacao.JULGAMENTO);
+
+      // F2, já em análise pelo item B, é habilitado mesmo assim; a etapa da sessão segue na aceitação
+      const r2 = await decidirHabilitacao(ctx, c2.body.id, orgao.token, 'habilitar');
+      expect(r2.status).toBe(201);
+      expect(r2.body.status).toBe('HABILITADO');
+      const [luB] = await q(`SELECT situacao FROM licitantes_unidade WHERE unidade_id = $1 AND fornecedor_id = $2`, [itemB, F2.id]);
+      expect(luB.situacao).toBe('HABILITADO');
+      const s = (await http().get(`/api/disputa/sessao/${p.sessaoId}`).expect(200)).body;
+      expect(s.etapa).toBe(EtapaSessao.ACEITACAO_PROPOSTA);
+    });
+
     test('F1 inabilitado: RETORNAR_JULGAMENTO, F2 convocado para a aceitação e depois habilitado', async () => {
       const orgao = await criarOrgao(ctx, { nome: 'Prefeitura Inabilitação E4' });
       const F1 = await criarFornecedor(ctx, { porte: 'DEMAIS' });

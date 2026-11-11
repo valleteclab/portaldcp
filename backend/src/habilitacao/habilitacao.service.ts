@@ -121,6 +121,9 @@ type Papel = 'ORGAO' | 'FORNECEDOR';
  *     proposta; a habilitação de todos é julgada antes da disputa
  *     (pré-condição do INICIAR_DISPUTA); inabilitado → proposta desclassificada.
  */
+/** Fases da licitação em que a habilitação de um licitante convocado pode ser decidida (sem inversão). */
+const FASES_DECISAO_HABILITACAO: string[] = [FaseLicitacao.HABILITACAO, FaseLicitacao.JULGAMENTO];
+
 @Injectable()
 export class HabilitacaoService {
   private readonly logger = new Logger(HabilitacaoService.name);
@@ -962,7 +965,10 @@ export class HabilitacaoService {
       throw new ConflictException('Inversão de fases: a habilitação de todos os licitantes é julgada depois do recebimento das propostas e antes da disputa (fase de análise das propostas).');
     }
     if (!previaInversao) {
-      if (lic0.fase !== FaseLicitacao.HABILITACAO) throw new ConflictException(`A habilitação é decidida na fase de habilitação; a licitação está em ${lic0.fase}.`);
+      // Por item/lote, as unidades andam em fases diferentes: a inabilitação de um
+      // licitante devolve a LICITAÇÃO ao julgamento (o próximo é chamado), mas quem
+      // já estava convocado para a habilitação continua podendo ser julgado.
+      if (!FASES_DECISAO_HABILITACAO.includes(lic0.fase)) throw new ConflictException(`A habilitação é decidida na fase de habilitação; a licitação está em ${lic0.fase}.`);
       const unidades = await this.ranking.unidadesDoLicitante(h0.licitacao_id, h0.fornecedor_id, [SituacaoLicitante.ACEITO, SituacaoLicitante.HABILITADO]);
       if (!unidades.length) throw new BadRequestException('O licitante não tem proposta aceita nesta licitação — não há o que habilitar.');
     }
@@ -1000,7 +1006,9 @@ export class HabilitacaoService {
     });
     if (!previaInversao) {
       await this.aceitacao.aoHabilitar(h0.licitacao_id, h0.fornecedor_id, ator);
-      await this.ajustarEtapaAposDecisao(h0.licitacao_id);
+      // Com outra unidade de volta à aceitação (licitação em JULGAMENTO), a etapa
+      // da sessão segue sendo a da aceitação — não é esta decisão que a muda.
+      if (lic0.fase === FaseLicitacao.HABILITACAO) await this.ajustarEtapaAposDecisao(h0.licitacao_id);
     }
     this.notificar(h0.licitacao_id, h0.fornecedor_id, 'Resultado da habilitação', 'Você foi HABILITADO(A) nesta licitação.');
     return this.visaoDoAto(habilitacaoId, 'ORGAO');
@@ -1022,7 +1030,7 @@ export class HabilitacaoService {
     if (previaInversao && lic0.fase !== FaseLicitacao.ANALISE_PROPOSTAS) {
       throw new ConflictException('Inversão de fases: a habilitação é julgada antes da disputa; depois dela, só por recurso (art. 165).');
     }
-    if (!previaInversao && lic0.fase !== FaseLicitacao.HABILITACAO) {
+    if (!previaInversao && !FASES_DECISAO_HABILITACAO.includes(lic0.fase)) {
       throw new ConflictException(`A habilitação é decidida na fase de habilitação; a licitação está em ${lic0.fase}.`);
     }
     let sessaoId: string | null = null;
