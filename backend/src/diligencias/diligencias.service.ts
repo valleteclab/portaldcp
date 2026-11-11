@@ -262,6 +262,8 @@ export class DiligenciasService {
           arquivo_sha256: createHash('sha256').update(arquivo!.buffer).digest('hex'),
           arquivo_conteudo: arquivo!.buffer,
           descricao: (descricao ?? '').trim().slice(0, 300) || null,
+          // hora da aplicação (Brasília): o padrão do banco grava em UTC e a tela mostrava 3 h a mais
+          created_at: new Date(),
         }),
       );
       await this.evento(
