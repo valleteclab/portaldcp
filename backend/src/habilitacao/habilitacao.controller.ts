@@ -182,9 +182,10 @@ export class HabilitacaoController {
 
   @SomenteOrgao()
   @Post(':habilitacaoId/inabilitar')
-  async inabilitar(@Param('habilitacaoId') id: string, @Body() body: { motivo?: string }, @AtorAtual() ator: Ator) {
+  async inabilitar(@Param('habilitacaoId') id: string, @Body() body: { motivo?: string; unidadesIds?: string[] }, @AtorAtual() ator: Ator) {
     await this.orgaoDaHabilitacao(ator, id);
-    return this.habilitacao.inabilitar(id, body?.motivo, atorTransicaoDe(ator));
+    const unidades = Array.isArray(body?.unidadesIds) ? body.unidadesIds.filter((u) => typeof u === 'string') : undefined;
+    return this.habilitacao.inabilitar(id, body?.motivo, atorTransicaoDe(ator), undefined, unidades);
   }
 
   // --------------------------------------------------------------------------

@@ -52,7 +52,7 @@ interface LicitanteRanking {
   habilitacaoId: string | null
   statusHabilitacao: string | null
   podeConvocar: boolean
-  unidades: Array<{ tipo: string; numero: number; situacao: string }>
+  unidades: Array<{ tipo: string; unidadeId: string; numero: number; situacao: string }>
 }
 interface Painel {
   licitacaoId: string
@@ -91,6 +91,8 @@ export function HabilitacaoPanel({
   const [acao, setAcao] = useState<Acao | null>(null)
   const [texto, setTexto] = useState('')
   const [horas, setHoras] = useState('')
+  // Inabilitação por item/lote: onde o licitante sai (os documentos valem para todos)
+  const [unidadesInab, setUnidadesInab] = useState<Set<string>>(() => new Set())
   const [salvando, setSalvando] = useState(false)
   // "Atende" sem travar o painel (gravação do pregão 2026/00072, 09/11/2026): cada clique levava ~10 s
   // (gravar + recarregar o painel inteiro) com TODOS os botões travados — 28 documentos, ~5 minutos.
@@ -192,7 +194,11 @@ export function HabilitacaoPanel({
       case 'habilitar':
         return ato(`/api/habilitacao/${acao.hab.id}/habilitar`, { observacao: texto || undefined }, 'Não foi possível habilitar')
       case 'inabilitar':
-        return ato(`/api/habilitacao/${acao.hab.id}/inabilitar`, { motivo: texto }, 'Não foi possível inabilitar')
+        return ato(
+          `/api/habilitacao/${acao.hab.id}/inabilitar`,
+          { motivo: texto, ...(inabilitacaoParcial ? { unidadesIds: [...unidadesInab] } : {}) },
+          'Não foi possível inabilitar',
+        )
     }
   }
 
@@ -235,6 +241,15 @@ export function HabilitacaoPanel({
     return peso(a) - peso(b)
   })
 
+  // Unidades em que o licitante do diálogo tem proposta aceita ainda não decidida
+  const aceitasDe = (fornecedorId: string) =>
+    (painel.ranking.find((r) => r.fornecedorId === fornecedorId)?.unidades ?? [])
+      .filter((u) => u.situacao === 'ACEITO')
+      .sort((x, y) => Number(x.numero) - Number(y.numero))
+  const aceitasDoAlvo = acao?.tipo === 'inabilitar' ? aceitasDe(acao.hab.fornecedorId) : []
+  const inabilitacaoParcial = aceitasDoAlvo.length > 1 && unidadesInab.size > 0 && unidadesInab.size < aceitasDoAlvo.length
+  const rotuloUnidade = (u: { tipo: string; numero: number }) => `${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}`
+
   const tituloAcao: Record<Acao['tipo'], string> = {
     convocar: 'Convocar para a habilitação',
     prorrogar: 'Prorrogar o prazo de envio',
@@ -247,7 +262,8 @@ export function HabilitacaoPanel({
   const podeConfirmar = (() => {
     if (!acao) return false
     if (acao.tipo === 'prorrogar') return texto.trim().length > 0
-    if (acao.tipo === 'naoAtende' || acao.tipo === 'inabilitar') return texto.trim().length >= 10
+    if (acao.tipo === 'inabilitar') return texto.trim().length >= 10 && (aceitasDoAlvo.length <= 1 || unidadesInab.size > 0)
+    if (acao.tipo === 'naoAtende') return texto.trim().length >= 10
     if (acao.tipo === 'diligencia') return texto.trim().length >= 10 && Number(horas) >= 2 && acao.exigenciaIds.length > 0
     if (acao.tipo === 'convocar') return !horas || Number(horas) >= painel.prazoMinimoHoras
     return true
@@ -321,6 +337,11 @@ export function HabilitacaoPanel({
                       {h.prorrogadaEm && <span className="ml-1 text-slate-500">— prorrogado</span>}
                     </div>
                   )}
+                  {(h.inabilitacoesUnidade ?? []).map((i) => (
+                    <div key={i.unidadeId} className="mt-1 text-xs text-red-700">
+                      Inabilitado só em {i.rotulo}: {i.motivo}
+                    </div>
+                  ))}
                   {h.decisaoMotivo && (
                     <div className="mt-1 text-xs text-slate-600">
                       {h.status === 'HABILITADO' ? 'Observação' : 'Motivo'}: {h.decisaoMotivo}
@@ -453,7 +474,7 @@ export function HabilitacaoPanel({
                       </Button>
                     )}
                     {h.podeInabilitar && (
-                      <Button size="sm" variant="destructive" onClick={() => { setTexto(''); setAcao({ tipo: 'inabilitar', hab: h }) }}>
+                      <Button size="sm" variant="destructive" onClick={() => { setTexto(''); setUnidadesInab(new Set(aceitasDe(h.fornecedorId).map((u) => u.unidadeId))); setAcao({ tipo: 'inabilitar', hab: h }) }}>
                         <XCircle className="mr-1 h-4 w-4" /> Inabilitar
                       </Button>
                     )}
@@ -482,7 +503,10 @@ export function HabilitacaoPanel({
                 (acao.confirmacaoInversao
                   ? 'Habilitação julgada antes da disputa (art. 17 §1º): confirmar para o vencedor com proposta aceita.'
                   : 'Todas as exigências obrigatórias foram atendidas. O licitante fica HABILITADO nas unidades com proposta aceita.')}
-              {acao?.tipo === 'inabilitar' && 'O licitante sai do ranking; o próximo classificado pelos lances é convocado para a aceitação da proposta.'}
+              {acao?.tipo === 'inabilitar' &&
+                (inabilitacaoParcial
+                  ? 'O licitante sai do ranking só nos itens marcados; nos demais ele segue e pode ser habilitado. O próximo classificado é convocado onde ele saiu.'
+                  : 'O licitante sai do ranking; o próximo classificado pelos lances é convocado para a aceitação da proposta.')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -505,6 +529,30 @@ export function HabilitacaoPanel({
                       }
                     />
                     <span>{e.descricao}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {acao?.tipo === 'inabilitar' && aceitasDoAlvo.length > 1 && (
+              <div className="space-y-1 rounded border p-2">
+                <div className="text-xs font-semibold text-slate-600">
+                  Inabilitar em (os documentos são os mesmos para todos; desmarque onde o licitante deve continuar):
+                </div>
+                {aceitasDoAlvo.map((u) => (
+                  <label key={u.unidadeId} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={unidadesInab.has(u.unidadeId)}
+                      onChange={(e) =>
+                        setUnidadesInab((p) => {
+                          const n = new Set(p)
+                          if (e.target.checked) n.add(u.unidadeId)
+                          else n.delete(u.unidadeId)
+                          return n
+                        })
+                      }
+                    />
+                    <span>{rotuloUnidade(u)}</span>
                   </label>
                 ))}
               </div>
