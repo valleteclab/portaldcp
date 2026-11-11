@@ -382,11 +382,23 @@ export class JanelaDispensaService {
     const agora = new Date();
     const emSigilo = !!e.corteSigilo && agora < e.corteSigilo;
     const itens: any[] = await this.dataSource.query(
-      `SELECT id, numero_item, descricao_resumida, descricao_detalhada, quantidade
+      `SELECT id, numero_item, descricao_resumida, descricao_detalhada, quantidade, status::text AS status,
+              valor_unitario_homologado, fornecedor_vencedor_id::text AS fornecedor_vencedor_id
          FROM itens_licitacao WHERE licitacao_id = $1 ORDER BY numero_item ASC`,
       [licitacaoId],
     );
     const menores = new Map((await this.agregadoPorItem(licitacaoId)).map((r) => [String(r.item_licitacao_id), r]));
+    // Saída por item (proposta desclassificada ou inabilitação só naquele item): o próprio fornecedor vê onde saiu e por quê
+    const minhasExclusoes = new Map<string, { tipo: string; motivo: string }>();
+    if (fornecedorId) {
+      const ex: any[] = await this.dataSource
+        .query(`SELECT item_licitacao_id::text AS item_id, tipo, motivo FROM exclusoes_item_dispensa WHERE licitacao_id::text = $1::text AND fornecedor_id::text = $2 ORDER BY created_at`, [
+          licitacaoId,
+          fornecedorId,
+        ])
+        .catch(() => []);
+      for (const x of ex) minhasExclusoes.set(x.item_id, { tipo: x.tipo, motivo: x.motivo });
+    }
     const meus = new Map<string, number>();
     if (fornecedorId) {
       const rows = await this.dataSource.query(
@@ -418,7 +430,16 @@ export class JanelaDispensaService {
           numero_item: i.numero_item,
           descricao: i.descricao_resumida || i.descricao_detalhada,
           quantidade: i.quantidade,
-          menor_valor: !emSigilo && g?.menor != null ? Number(g.menor) : null,
+          // Julgado: vale o valor adjudicado (lance desclassificado no item não é mais o menor; negociação reduz)
+          menor_valor:
+            ['ADJUDICADO', 'HOMOLOGADO'].includes(i.status) && i.valor_unitario_homologado != null
+              ? Number(i.valor_unitario_homologado)
+              : !emSigilo && g?.menor != null
+                ? Number(g.menor)
+                : null,
+          julgado: ['ADJUDICADO', 'HOMOLOGADO'].includes(i.status),
+          sou_vencedor: !!fornecedorId && i.fornecedor_vencedor_id === String(fornecedorId),
+          minha_exclusao: minhasExclusoes.get(String(i.id)) ?? null,
           total_lances: emSigilo ? 0 : Number(g?.n_lances || 0),
           meu_valor: meus.get(String(i.id)),
         };

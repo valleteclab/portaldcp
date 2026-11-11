@@ -31,6 +31,9 @@ interface ItemPainel {
   descricao?: string
   quantidade?: number
   menor_valor: number | null
+  julgado?: boolean
+  sou_vencedor?: boolean
+  minha_exclusao?: { tipo: string; motivo: string } | null
   total_lances: number
   meu_valor?: number
 }
@@ -256,7 +259,7 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
         </CardHeader>
         <CardContent className="space-y-3">
           {painel.itens.map((it) => {
-            const souMenor = it.meu_valor != null && it.menor_valor != null && it.meu_valor <= it.menor_valor
+            const souMenor = !it.minha_exclusao && (it.julgado ? !!it.sou_vencedor : it.meu_valor != null && it.menor_valor != null && it.meu_valor <= it.menor_valor)
             return (
               <div key={it.item_licitacao_id} className="rounded-md border p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -298,6 +301,15 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
                       {enviando === it.item_licitacao_id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Dar lance'}
                     </Button>
                   </div>
+                )}
+                {it.minha_exclusao && (
+                  <p className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
+                    {it.minha_exclusao.tipo === 'PROPOSTA' ? 'Sua proposta foi desclassificada neste item' : 'Você foi inabilitado(a) neste item'} (você
+                    segue nos demais). Motivo: {it.minha_exclusao.motivo}
+                  </p>
+                )}
+                {it.julgado && it.sou_vencedor && !it.minha_exclusao && (
+                  <p className="mt-2 text-xs font-semibold text-green-700">Você é o vencedor deste item pelo valor de {fmtMoeda(it.menor_valor)}.</p>
                 )}
                 {erros[it.item_licitacao_id] && <p className="mt-2 text-xs text-red-700">{erros[it.item_licitacao_id]}</p>}
                 {painel.aberta && it.meu_valor == null && (
