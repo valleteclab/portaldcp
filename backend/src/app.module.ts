@@ -38,6 +38,7 @@ import { DisputaModule } from './disputa/disputa.module';
 import { JulgamentoModule } from './julgamento/julgamento.module';
 import { HabilitacaoModule } from './habilitacao/habilitacao.module';
 import { ComprovantesModule } from './comprovantes/comprovantes.module';
+import { DiligenciasModule } from './diligencias/diligencias.module';
 import { ResultadoModule } from './resultado/resultado.module';
 import { AdminModule } from './admin/admin.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
@@ -156,6 +157,7 @@ import { GuiaModule } from './guia/guia.module';
     JulgamentoModule,
     HabilitacaoModule,
     ComprovantesModule,
+    DiligenciasModule,
     ResultadoModule,
     AdminModule,
     AlmoxarifadoModule,
