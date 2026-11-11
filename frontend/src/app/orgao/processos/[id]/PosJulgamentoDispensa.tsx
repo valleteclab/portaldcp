@@ -10,6 +10,7 @@
  *    item; ele aceita ou recusa na sala. Aceita, vira o valor adjudicado.
  * Fonte: /api/licitacoes/:id/dispensa/pos-julgamento | habilitacao | negociacao.
  */
+import { DiligenciasOrgao } from "@/components/sala/Diligencias"
 import { useCallback, useEffect, useState } from "react"
 import { CheckCircle2, Loader2, ShieldCheck, XCircle } from "lucide-react"
 import { toast } from "sonner"
@@ -176,6 +177,8 @@ export function PosJulgamentoDispensa({ licitacaoId, onAtualizado }: { licitacao
         )
       })}
       {!p.todos_habilitados && <p className="text-xs text-amber-800">A homologação libera quando todos os vencedores estiverem habilitados.</p>}
+      {/* Documento ou esclarecimento que falte: pedido formal ao fornecedor, com prazo e registro */}
+      <DiligenciasOrgao licitacaoId={licitacaoId} fase="DISPENSA" fornecedorSugeridoId={p.vencedores[0]?.fornecedor_id ?? null} />
     </section>
   )
 }

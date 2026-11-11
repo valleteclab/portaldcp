@@ -302,15 +302,27 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(s.etapa).toBe(EtapaSessao.ANALISE_HABILITACAO);
     });
 
-    test('entregue: sem substituição nem documento novo (art. 64)', async () => {
+    test('o que manda é o prazo: entregue com prazo correndo ainda corrige; vencido, sem substituição (art. 64)', async () => {
+      // entregou antes da hora e percebeu o erro: envia outro e retira o que não quer
       const novo = await enviarDocumentoHabilitacao(ctx, licId, exFgts.id, F1.token);
-      expect(novo.status).toBe(409);
-      expect(novo.body.message).toMatch(/art\. 64/);
-      const minha = (await painelHabilitacao(ctx, licId, F1.token)).minha;
+      expect(novo.status).toBe(201);
+      let minha = (await painelHabilitacao(ctx, licId, F1.token)).minha;
+      const docs = minha.exigencias.find((e: any) => e.id === exFgts.id).documentos;
+      expect(docs.length).toBe(2);
+      const extra = docs.find((d: any) => d.podeRemover);
+      expect(extra).toBeTruthy();
+      expect((await http().delete(`/api/habilitacao/documentos/${extra.id}`).set(bearer(F1.token))).status).toBe(200);
+      expect((await entregarHabilitacao(ctx, licId, F1.token)).status).toBe(409); // a entrega em si é uma só
+
+      // fim do prazo da convocação: aí não entra nem sai mais nada
+      await ctx.dataSource.query(`UPDATE habilitacoes_licitante SET prazo_ate = now() - interval '1 minute' WHERE id = $1`, [hab.id]);
+      const tarde = await enviarDocumentoHabilitacao(ctx, licId, exFgts.id, F1.token);
+      expect(tarde.status).toBe(409);
+      expect(tarde.body.message).toMatch(/prazo de envio terminou.*art\. 64/);
+      minha = (await painelHabilitacao(ctx, licId, F1.token)).minha;
       const doc = minha.exigencias.find((e: any) => e.id === exFgts.id).documentos[0];
       expect(doc.podeRemover).toBe(false);
       expect((await http().delete(`/api/habilitacao/documentos/${doc.id}`).set(bearer(F1.token))).status).toBe(409);
-      expect((await entregarHabilitacao(ctx, licId, F1.token)).status).toBe(409);
     });
 
     test('arquivo: órgão dono e o próprio licitante; outro licitante, órgão B e público não', async () => {
@@ -400,8 +412,21 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(resp.status).toBe(201);
       expect(resp.body.status).toBe('ENVIADA');
       expect(resp.body.diligencias[0]).toMatchObject({ status: 'RESPONDIDA', resposta: 'CRF da matriz anexado' });
-      // diligência encerrada: nada mais entra
+      // respondeu, mas o prazo da diligência ainda corre: enviou errado, complementa, retira e atualiza a resposta
+      const mais = await enviarDocumentoHabilitacao(ctx, licId, exFgts.id, F1.token, { validade: diaMais(30), nome: 'crf-errado.pdf' });
+      expect(mais.status).toBe(201);
+      const errado = mais.body.exigencias.find((e: any) => e.id === exFgts.id).documentos.find((x: any) => x.arquivo?.nome === 'crf-errado.pdf');
+      expect(errado.podeRemover).toBe(true);
+      expect((await http().delete(`/api/habilitacao/documentos/${errado.id}`).set(bearer(F1.token))).status).toBe(200);
+      const resp2 = await http().post(`/api/habilitacao/diligencias/${diligenciaId}/responder`).set(bearer(F1.token)).send({ resposta: 'CRF da matriz anexado (versão correta)' });
+      expect(resp2.status).toBe(201);
+      expect(resp2.body.diligencias[0].resposta).toBe('CRF da matriz anexado (versão correta)');
+      // fora do indicado continua recusado
+      expect((await enviarDocumentoHabilitacao(ctx, licId, exContrato.id, F1.token)).status).toBe(409);
+      // fim do prazo da diligência: nada mais entra
+      await q(`UPDATE diligencias_habilitacao SET prazo_ate = now() - interval '1 minute' WHERE id = $1`, [diligenciaId]);
       expect((await enviarDocumentoHabilitacao(ctx, licId, exFgts.id, F1.token)).status).toBe(409);
+      expect((await http().post(`/api/habilitacao/diligencias/${diligenciaId}/responder`).set(bearer(F1.token)).send({ resposta: 'tarde' })).status).toBe(409);
     });
 
     test('complemento ATENDE → HABILITAR: licitante HABILITADO na unidade; sessão na intenção de recurso; adjudicação liberada da habilitação', async () => {

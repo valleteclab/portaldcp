@@ -16,6 +16,7 @@ import { API_URL, authFetch, getAuthToken, hasValidSession } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ContrapropostaDispensa } from './ContrapropostaDispensa'
+import { DiligenciasFornecedor } from '../Diligencias'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { lerValorMonetario } from './PainelLancesFornecedor'
@@ -299,6 +300,8 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
       </Card>
 
       <ContrapropostaDispensa licitacaoId={licitacaoId} atualizacao={mensagens.length} />
+      {/* Diligência do agente de contratação (art. 64): pedido de documento ou esclarecimento, com prazo */}
+      <DiligenciasFornecedor licitacaoId={licitacaoId} atualizacao={mensagens.length} />
 
       {/* Chat da sessão — registrado nos autos; autoria anônima durante os lances */}
       <Card>

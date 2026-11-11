@@ -11,6 +11,7 @@ import { DesempateMeEppFornecedorPanel } from '../DesempateMeEppFornecedorPanel'
 import { PropostaAdequadaPanel } from '../PropostaAdequadaPanel'
 import { DisputaFinalPanel } from '../DisputaFinalPanel'
 import { HabilitacaoFornecedorPanel } from '../HabilitacaoFornecedorPanel'
+import { DiligenciasFornecedor } from '../Diligencias'
 import { NegociacaoFornecedorPanel } from '../NegociacaoFornecedorPanel'
 import { RecursosFornecedorPanel } from '../RecursosFornecedorPanel'
 import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
@@ -63,6 +64,7 @@ export function SalaFornecedor({
     solicitarCancelamentoLance,
     negociacaoVersao,
     boardVersao,
+    diligenciaVersao,
   } = useSalaDisputa({ area: 'fornecedor', sessaoIdParam: sessaoId })
 
   const contexto = board?.contexto
@@ -163,6 +165,7 @@ export function SalaFornecedor({
             {/* O que vale para o licitante como um todo (não para um lote): só aparece quando há algo a fazer */}
             <DesempateMeEppFornecedorPanel sessaoId={sessaoId} />
             <DisputaFinalPanel sessaoId={sessaoId} />
+            {contexto?.licitacaoId && <DiligenciasFornecedor licitacaoId={contexto.licitacaoId} atualizacao={diligenciaVersao} />}
             {contexto?.licitacaoId && <HabilitacaoFornecedorPanel licitacaoId={contexto.licitacaoId} />}
             {/* Comprovantes dos anexos enviados pela sala (habilitação) e da proposta */}
             {contexto?.licitacaoId && (
