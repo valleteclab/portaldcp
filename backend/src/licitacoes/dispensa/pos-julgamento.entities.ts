@@ -83,3 +83,38 @@ export class NegociacaoDispensa {
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 }
+
+/**
+ * SAÍDA DE UM FORNECEDOR DE UM ITEM da dispensa (pedido do dono, 11/11/2026):
+ * a proposta é por item — preço inexequível, marca errada ou falta de
+ * qualificação para UM item não pode tirar o fornecedor dos outros. Quem está
+ * aqui não entra na classificação daquele item; o próximo é chamado só ali.
+ */
+@Entity('exclusoes_item_dispensa')
+@Index(['licitacao_id', 'item_licitacao_id'])
+export class ExclusaoItemDispensa {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'uuid' })
+  licitacao_id: string;
+
+  @Column({ type: 'uuid' })
+  item_licitacao_id: string;
+
+  @Column({ type: 'uuid' })
+  fornecedor_id: string;
+
+  /** PROPOSTA (desclassificada no item) | HABILITACAO (inabilitado só no item) */
+  @Column({ type: 'varchar', length: 20 })
+  tipo: string;
+
+  @Column({ type: 'text' })
+  motivo: string;
+
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  registrado_por_nome: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz' })
+  created_at: Date;
+}

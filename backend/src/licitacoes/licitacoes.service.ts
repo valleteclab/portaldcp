@@ -45,7 +45,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra-pncp';
 import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
 import { fundamentoEfetivo, fundamentoPadrao, motivoFundamentoInvalido } from './fundamento-legal';
-import { classificacaoPorItem, valoresFinaisDispensa } from './classificacao-dispensa';
+import { classificacaoPorItem, semExcluidosDoItem, SQL_EXCLUSOES_ITEM_DISPENSA, valoresFinaisDispensa } from './classificacao-dispensa';
 import { dispensaSemLances, modoDisputaDaDispensa, vencedoresSemLances } from './modo-disputa-dispensa';
 import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
@@ -1158,7 +1158,8 @@ export class LicitacoesService {
     );
     // Sem etapa de lances (Entrega 5): só as propostas; empate → a registrada primeiro (ordem da consulta)
     const lances = dispensaSemLances(licitacao) ? [] : await this.janelaDispensa.lancesDaJanela(id);
-    const porItem = classificacaoPorItem(valoresFinaisDispensa(linhas, lances as any));
+    const exclusoes = await this.dataSource.query(SQL_EXCLUSOES_ITEM_DISPENSA, [id]);
+    const porItem = classificacaoPorItem(valoresFinaisDispensa(semExcluidosDoItem(linhas as any[], exclusoes) as any, lances as any));
     const itens = await this.itemRepository.find({ where: { licitacao_id: id }, order: { numero_item: 'ASC' } });
     return {
       em_sigilo: false,
@@ -1629,14 +1630,15 @@ export class LicitacoesService {
     await this.transicoes.verificar(id, AtoLicitacao.JULGAR_DISPENSA, { ator });
 
     // Propostas válidas (por item), ordenadas por menor valor unitário
-    const linhas: Array<{
+    type LinhaJulgamento = {
       item_licitacao_id: string;
       valor_unitario: string;
       proposta_id: string;
       fornecedor_id: string;
       razao_social: string;
       registrada_em: Date | null;
-    }> = await this.dataSource.query(
+    };
+    const linhasBrutas: LinhaJulgamento[] = await this.dataSource.query(
       `SELECT pi.item_licitacao_id, pi.valor_unitario, p.id AS proposta_id,
               p.fornecedor_id, f.razao_social, COALESCE(p.data_envio, p.created_at) AS registrada_em
        FROM proposta_itens pi
@@ -1647,6 +1649,8 @@ export class LicitacoesService {
        ORDER BY pi.item_licitacao_id, pi.valor_unitario ASC, p.data_envio ASC NULLS LAST`,
       [id],
     );
+    // Fornecedor fora de UM item (proposta desclassificada ou inabilitação só nele) segue nos demais
+    const linhas = semExcluidosDoItem(linhasBrutas, await this.dataSource.query(SQL_EXCLUSOES_ITEM_DISPENSA, [id]));
     if (linhas.length === 0) {
       throw new BadRequestException(
         'Nenhuma proposta válida recebida para julgamento — declare a dispensa deserta (ato "Declarar deserta").',

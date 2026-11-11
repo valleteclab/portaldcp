@@ -33,14 +33,14 @@ import { DfdModule } from '../demandas/dfd/dfd.module';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
 import { ProcessoModule } from '../processo/processo.module';
 import { LimpezaMotorAntigoBootService } from './limpeza-motor-antigo-boot.service';
-import { HabilitacaoDispensa, NegociacaoDispensa } from './dispensa/pos-julgamento.entities';
+import { ExclusaoItemDispensa, HabilitacaoDispensa, NegociacaoDispensa } from './dispensa/pos-julgamento.entities';
 import { DispensaPosJulgamentoService } from './dispensa/pos-julgamento.service';
 import { DispensaPosJulgamentoController } from './dispensa/pos-julgamento.controller';
 
 @Module({
   imports: [
     // DispensaLance/DispensaMensagem: @deprecated — só para o synchronize manter as tabelas legadas (migração E2; ninguém escreve)
-    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao, HabilitacaoDispensa, NegociacaoDispensa]),
+    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao, ExclusaoItemDispensa, HabilitacaoDispensa, NegociacaoDispensa]),
     forwardRef(() => ContratosModule),
     PncpModule,
     FaseInternaModule,

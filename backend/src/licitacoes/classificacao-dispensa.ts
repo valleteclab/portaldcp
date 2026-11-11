@@ -75,3 +75,20 @@ export function classificacaoPorItem(
   }
   return saida;
 }
+
+
+/**
+ * Tira das linhas de proposta o par (item, fornecedor) excluído naquele item
+ * (proposta desclassificada no item ou inabilitação só no item): o fornecedor
+ * segue concorrendo nos demais itens.
+ */
+export function semExcluidosDoItem<T extends { item_licitacao_id: string; fornecedor_id: string }>(
+  linhas: T[],
+  exclusoes: Array<{ item_licitacao_id: string; fornecedor_id: string }>,
+): T[] {
+  if (!exclusoes.length) return linhas;
+  const fora = new Set(exclusoes.map((e) => `${e.item_licitacao_id}|${e.fornecedor_id}`));
+  return linhas.filter((l) => !fora.has(`${l.item_licitacao_id}|${l.fornecedor_id}`));
+}
+
+export const SQL_EXCLUSOES_ITEM_DISPENSA = `SELECT item_licitacao_id::text AS item_licitacao_id, fornecedor_id::text AS fornecedor_id FROM exclusoes_item_dispensa WHERE licitacao_id::text = $1`;
