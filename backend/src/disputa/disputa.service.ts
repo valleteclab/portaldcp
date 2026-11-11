@@ -48,6 +48,7 @@ import { registrarLicitantesDaUnidade, reiniciarJulgamentoDaLicitacao } from '..
 import { motivoReinicioRecusado, situacaoReinicio, SituacaoReinicio } from './regras-reinicio';
 import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
 import { pendenciaJulgamentoTecnico } from '../julgamento/julgamento-tecnico.sql';
+import { fornecedoresForaDoRankingSql } from '../julgamento/regras-julgamento';
 
 /**
  * ============================================================================
@@ -993,7 +994,10 @@ export class DisputaService {
         const meus = ativos
           .filter((l) => l.fornecedor_id === cmd.fornecedorId)
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        const melhor = ativos[0];
+        // Desempate ME/EPP: cobre a melhor oferta de quem ainda está no ranking
+        const fora = origem === OrigemLance.DESEMPATE_MPE ? await fornecedoresForaDoRankingSql(m, item.id) : null;
+        const noRanking = fora?.size ? ativos.filter((l) => !fora.has(String(l.fornecedor_id))) : ativos;
+        const melhor = noRanking[0];
         const agora = new Date();
 
         validarLance({
@@ -1012,7 +1016,7 @@ export class DisputaService {
               }
             : null,
           melhor: melhor ? { valor: parseFloat(melhor.valor), fornecedorId: melhor.fornecedor_id } : null,
-          valoresDeOutros: ativos.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
+          valoresDeOutros: noRanking.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
           diferencaMinima: params.diferencaMinima,
           intervaloProprioSegundos: params.intervaloProprioSegundos,
           agora,

@@ -53,7 +53,7 @@ export function DivulgarAvisoDialog({
             <label htmlFor="fim-propostas" className="text-sm font-medium">Receber propostas até</label>
             <Input id="fim-propostas" type="datetime-local" value={fimPropostas} onChange={(e) => setFimPropostas(e.target.value)} className="mt-1" />
             <p className="text-xs text-gray-600 mt-1">
-              Mínimo de 3 dias úteis (art. 75, §3º), descontados os feriados do órgão — já sugerido no campo. Horário de Brasília.
+              Mínimo de 3 dias úteis (art. 75, §3º), descontados os feriados do órgão{fimPropostas ? ' — já sugerido no campo' : ' — informe a data e a hora'}. Horário de Brasília.
             </p>
           </div>
           <PainelPrazos prazos={prazos} carregando={calculando} />

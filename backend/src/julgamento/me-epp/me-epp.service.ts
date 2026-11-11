@@ -282,7 +282,17 @@ export class MeEppService implements OnModuleInit {
     const u = ctx.unidade;
     const d = await m.findOne(DesempateMpe, { where: { unidade_id: u.id } });
     const pendente = `${rotulo(u)}: desempate ME/EPP em curso (LC 123/2006, art. 45) — a aceitação aguarda a resposta da ME/EPP convocada ou o fim do prazo.`;
-    if (d) return d.status === StatusDesempateMpe.EM_CURSO ? pendente : null;
+    if (d?.status === StatusDesempateMpe.EM_CURSO) return pendente;
+    if (d) {
+      // Já apurado e concluído: se o primeiro colocado saiu (proposta recusada,
+      // inabilitação) e a melhor oferta restante não é de ME/EPP, as ME/EPP do
+      // intervalo AINDA NÃO CONVOCADAS têm a preferência (LC 123/2006, art. 45, II)
+      if (!u.encerrada) return null;
+      const r = await this.analisar(m, u);
+      if (!r.aplica || !(await this.haCandidataNova(m, d.id, r))) return null;
+      this.agendarReapuracao(ctx.sessaoId, u.id);
+      return `${rotulo(u)}: com a saída do primeiro colocado, há ME/EPP no intervalo do empate ficto em relação à nova melhor oferta (LC 123/2006, arts. 44 e 45) — ela está sendo convocada; a aceitação aguarda o desempate.`;
+    }
     if (!u.encerrada) return null;
     const r = await this.analisar(m, u);
     if (!r.aplica) {
@@ -294,6 +304,86 @@ export class MeEppService implements OnModuleInit {
       this.aposEncerrarUnidade(ctx.sessaoId, u.id).catch((e) => this.logger.error(`Desempate ME/EPP de ${u.id}: ${e?.message ?? e}`));
     }, 50);
     return `${rotulo(u)}: há empate ficto com ME/EPP (LC 123/2006, art. 44) — a ME/EPP está sendo convocada; a aceitação aguarda o desempate.`;
+  }
+
+  /** Alguma ME/EPP do intervalo ainda não foi convocada neste desempate? */
+  private async haCandidataNova(m: EntityManager, desempateId: string, r: ResultadoAnalise): Promise<boolean> {
+    if (!r.aplica) return false;
+    const feitas = await m.find(ConvocacaoDesempateMpe, { where: { desempate_id: desempateId } });
+    const chamados = new Set(feitas.map((c) => c.fornecedor_id));
+    return r.candidatos.some((c) => !chamados.has(c.fornecedorId));
+  }
+
+  /**
+   * A reapuração roda FORA da transação do ato que tirou o primeiro colocado
+   * (ela precisa ver esse ato gravado): tenta algumas vezes até enxergá-lo.
+   */
+  private agendarReapuracao(sessaoId: string, unidadeId: string): void {
+    const esperas = [300, 1200, 3000, 6000];
+    const tentar = (i: number) =>
+      setTimeout(() => {
+        this.reapurarAposSaidaDoPrimeiro(sessaoId, unidadeId)
+          .then((feito) => {
+            if (!feito && i + 1 < esperas.length) tentar(i + 1);
+          })
+          .catch((e) => this.logger.error(`Reapuração do desempate ME/EPP de ${unidadeId}: ${e?.message ?? e}`));
+      }, esperas[i]);
+    tentar(0);
+  }
+
+  /**
+   * REAPURAÇÃO (LC 123/2006, art. 45, II): o primeiro colocado saiu depois do
+   * desempate concluído e a nova melhor oferta não é de ME/EPP — as ME/EPP do
+   * intervalo ainda não convocadas são chamadas, sobre a nova melhor oferta.
+   * O registro do desempate da unidade é reaberto (histórico de convocações
+   * preservado). Devolve `true` quando reabriu ou já estava em curso.
+   */
+  async reapurarAposSaidaDoPrimeiro(sessaoId: string | null, unidadeId: string): Promise<boolean> {
+    const avisos: Aviso[] = [];
+    const feito = await this.dataSource.transaction(async (m) => {
+      await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`mpe:${unidadeId}`]);
+      const d = await m.findOne(DesempateMpe, { where: { unidade_id: unidadeId } });
+      if (!d) return false;
+      if (d.status === StatusDesempateMpe.EM_CURSO) return true;
+      const u = await this.ranking.unidade(unidadeId, m);
+      if (!u || !u.encerrada) return false;
+      const r = await this.analisar(m, u);
+      if (!r.aplica || !(await this.haCandidataNova(m, d.id, r))) return false;
+      const sessao = sessaoId ?? d.sessao_id ?? (await this.sessaoDaLicitacao(m, u.licitacaoId));
+      const prazo = await this.prazoMinutos(m, u.licitacaoId);
+      d.status = StatusDesempateMpe.EM_CURSO;
+      d.motivo = null;
+      d.sessao_id = sessao;
+      d.percentual = r.percentual;
+      d.melhor_fornecedor_id = r.melhor.fornecedorId;
+      d.melhor_valor = r.melhor.valor;
+      d.limite_valor = r.limite;
+      d.candidatos = r.candidatos;
+      d.sorteio = r.sorteio as any;
+      d.prazo_minutos = prazo;
+      d.vencedor_fornecedor_id = null;
+      d.valor_vencedor = null;
+      d.concluido_em = null;
+      await m.save(d);
+      await this.evento(m, {
+        sessaoId: sessao,
+        tipo: TipoEvento.EMPATE_FICTO_DETECTADO,
+        u,
+        descricao:
+          `${rotulo(u)}: EMPATE FICTO REAPURADO (LC 123/2006, arts. 44 e 45, II) — com a saída do primeiro colocado, a melhor oferta passou a ser ` +
+          `${brl(r.melhor.valor)}, de empresa que não é ME/EPP, e há ME/EPP com oferta até ${r.percentual}% acima (limite ${brl(r.limite)}). ` +
+          `As ME/EPP ainda não convocadas serão chamadas, na ordem de classificação, a apresentar oferta inferior em ${prazo} minuto(s).`,
+        valor: r.melhor.valor,
+        dados: { desempate_id: d.id, reapuracao: true, percentual: r.percentual, limite: r.limite, candidatos: r.candidatos.length },
+      });
+      if (sessao) {
+        await m.query(`UPDATE sessoes_disputa SET etapa = $2 WHERE id = $1 AND etapa::text = $3`, [sessao, EtapaSessao.BENEFICIO_MPE, EtapaSessao.ACEITACAO_PROPOSTA]);
+      }
+      await this.convocarProxima(m, d, u, avisos);
+      return true;
+    });
+    this.difundir(avisos);
+    return feito;
   }
 
   // ==========================================================================

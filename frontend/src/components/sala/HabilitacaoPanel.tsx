@@ -509,6 +509,13 @@ export function HabilitacaoPanel({
                 ))}
               </div>
             )}
+            {acao?.tipo === 'inabilitar' && acao.hab.podeHabilitar && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Atenção: todas as exigências obrigatórias deste licitante estão marcadas como <strong>Atende</strong>. Se algum documento não
+                serve, marque <strong>Não atende</strong> nele (com o motivo) antes de inabilitar — é essa análise que sustenta a decisão em
+                caso de recurso. Se o motivo é outro, descreva-o abaixo.
+              </div>
+            )}
             {acao && acao.tipo !== 'convocar' && (
               <Textarea
                 value={texto}

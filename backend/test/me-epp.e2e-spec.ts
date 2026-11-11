@@ -37,7 +37,7 @@ import {
 } from './support';
 import { desligarLimiteDeRequisicoes, pararTodosOsCrons } from './support/pregao';
 import { prepararPregaoEmDisputa } from './support/isolamento';
-import { convocarAceitacao } from './support/julgamento';
+import { convocarAceitacao, decidirAceitacao, enviarPropostaAdequada, painelAceitacao } from './support/julgamento';
 import { FaseLicitacao, ModalidadeLicitacao, ModoDisputa } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao } from '../src/sessao/entities/sessao-disputa.entity';
 import { TipoParticipacao } from '../src/itens/entities/item-licitacao.entity';
@@ -224,6 +224,65 @@ describe('E3 — benefício ME/EPP (LC 123/2006)', () => {
   });
 
   // --------------------------------------------------------------------------
+  // Achado do ensaio de cenários (pregão 2026/00083, 11/11/2026): recusada a
+  // proposta do 1º colocado (EPP), a melhor oferta passou a ser de média
+  // empresa com EPP a menos de 5% — e o desempate não era reaberto.
+  describe('A2. saída do primeiro colocado reabre o empate ficto (art. 45, II)', () => {
+    test('1º (EPP) recusado → melhor oferta de não-ME com ME no intervalo: a ME é convocada e, cobrindo, vira a 1ª', async () => {
+      const orgao = await criarOrgao(ctx, { nome: 'Prefeitura ME/EPP Reapuração' });
+      const M0 = await criarFornecedor(ctx, { porte: 'EPP' });
+      const G = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+      const M1 = await criarFornecedor(ctx, { porte: 'ME' });
+      const p = await prepararPregaoEmDisputa(
+        ctx,
+        orgao,
+        [
+          { fornecedor: M0, valores: [880] },
+          { fornecedor: G, valores: [900] },
+          { fornecedor: M1, valores: [930] },
+        ],
+        { itens: [{ descricao: 'Item reapuração', quantidade: 1, valor_unitario_estimado: 1000 }] },
+      );
+      const sessaoId = p.sessaoId;
+      const item = p.lic.itens[0].id;
+      await encerrar(orgao, sessaoId, item);
+      const unidade = async () => (await meEpp(sessaoId, orgao.token)).unidades.find((u: any) => u.id === item);
+      // melhor oferta já é de ME/EPP: sem desempate
+      expect((await unidade()).desempate.status).toBe('NAO_APLICAVEL');
+
+      const c = await convocarAceitacao(ctx, sessaoId, item, orgao.token);
+      expect(c.status).toBe(201);
+      expect(c.body.fornecedorId).toBe(M0.id);
+      expect((await enviarPropostaAdequada(ctx, sessaoId, c.body.id, M0.token, [{ itemId: item, valorUnitario: 880 }])).status).toBe(201);
+      const r = await decidirAceitacao(ctx, sessaoId, c.body.id, orgao.token, 'recusar', { motivo: 'Produto ofertado não atende ao termo de referência' });
+      expect(r.status).toBe(201);
+      // o próximo (G, não-ME) NÃO é convocado para a aceitação: antes, a preferência da ME
+      expect(r.body.proximaConvocacao ?? null).toBeNull();
+
+      let u: any = null;
+      for (let i = 0; i < 40; i++) {
+        u = await unidade();
+        if (u.desempate.status === 'EM_CURSO') break;
+        await new Promise((ok) => setTimeout(ok, 250));
+      }
+      expect(u.desempate).toMatchObject({ status: 'EM_CURSO', limite: 945 });
+      expect(u.desempate.melhor).toMatchObject({ fornecedorId: G.id, valor: 900 });
+      expect(u.convocacaoAtual).toMatchObject({ fornecedorId: M1.id, status: 'AGUARDANDO', valorACobrir: 900 });
+      expect(await etapa(sessaoId)).toBe(EtapaSessao.BENEFICIO_MPE);
+      expect((await convocarAceitacao(ctx, sessaoId, item, orgao.token)).status).toBe(409);
+
+      const conv = (await meEpp(sessaoId, M1.token)).convocacoes.find((x: any) => x.unidadeId === item);
+      const ex = await exercer(sessaoId, conv.id, M1.token, 899);
+      expect([ex.status, ex.body.message]).toEqual([201, undefined]);
+      expect((await unidade()).desempate.status).toBe('EXERCIDO');
+      const c2 = await convocarAceitacao(ctx, sessaoId, item, orgao.token);
+      expect(c2.status).toBe(201);
+      expect(c2.body.fornecedorId).toBe(M1.id);
+      const pa = await painelAceitacao(ctx, sessaoId, orgao.token);
+      expect(pa.unidades.find((x: any) => x.id === item).ranking.find((e: any) => e.fornecedorId === M0.id)).toMatchObject({ situacao: 'RECUSADO', excluido: true });
+    });
+  });
+
   describe('B. exclusivo ME/EPP (art. 48 I)', () => {
     test('licitação exclusiva: proposta de não-ME/EPP recusada; ME/EPP aceita', async () => {
       const orgao = await criarOrgao(ctx, { nome: 'Prefeitura Exclusiva E3' });
