@@ -61,6 +61,8 @@ export class DiligenciasService {
       abertaEm: d.aberta_em,
       prazoAte: d.prazo_ate,
       status: statusEfetivo(d),
+      // o licitante ainda pode anexar, trocar e atualizar a resposta (prazo correndo e não encerrada)
+      podeResponder: !motivoNaoResponde(d),
       resposta: d.resposta,
       respondidaEm: d.respondida_em,
       resultado: d.resultado,
@@ -280,9 +282,20 @@ export class DiligenciasService {
       if (!a) throw new NotFoundException('Anexo não encontrado');
       if (a.autor !== autor) throw new ConflictException('Só quem enviou o anexo pode removê-lo.');
       const d = await this.travar(m, a.diligencia_id);
-      if (d.status !== StatusDiligenciaGeral.ABERTA) throw new ConflictException('A diligência já foi respondida ou encerrada: o anexo não pode mais ser removido.');
+      if (autor === 'FORNECEDOR') {
+        const recusa = motivoNaoResponde(d);
+        if (recusa) throw new ConflictException(recusa);
+      } else if (d.status === StatusDiligenciaGeral.ENCERRADA) {
+        throw new ConflictException('Esta diligência já foi encerrada.');
+      }
       await m.delete(DiligenciaAnexo, { id: anexoId });
-      await this.evento(m, d, TipoEvento.DOCUMENTO_HABILITACAO_ENVIADO, `Anexo removido da diligência antes da resposta: ${a.arquivo_nome}.`, a.autor_nome);
+      await this.evento(
+        m,
+        d,
+        TipoEvento.DOCUMENTO_HABILITACAO_ENVIADO,
+        `Anexo removido da diligência${d.unidade_rotulo ? ` (${d.unidade_rotulo})` : ''} dentro do prazo — ${autor === 'ORGAO' ? 'pelo órgão' : 'pelo licitante'}: ${a.arquivo_nome} (SHA-256 ${a.arquivo_sha256.slice(0, 12)}…).`,
+        a.autor_nome,
+      );
       this.avisarSala(d);
       return { removido: true };
     });
@@ -296,13 +309,14 @@ export class DiligenciasService {
       const texto = (resposta ?? '').trim().slice(0, 4000);
       const anexos = await this.anexosDe(m, d.id);
       if (!texto && !anexos.some((a) => a.autor === 'FORNECEDOR')) throw new BadRequestException('Escreva a resposta ou anexe ao menos um documento antes de responder.');
+      const atualizacao = d.status === StatusDiligenciaGeral.RESPONDIDA;
       d.status = StatusDiligenciaGeral.RESPONDIDA;
       d.resposta = texto || null;
       d.respondida_em = new Date();
       await m.save(d);
       const nome = await this.nomeFornecedor(m, d.fornecedor_id);
       const n = anexos.filter((a) => a.autor === 'FORNECEDOR').length;
-      await this.evento(m, d, TipoEvento.MENSAGEM_SISTEMA, `${nome} respondeu a diligência${d.unidade_rotulo ? ` (${d.unidade_rotulo})` : ''}: ${n} anexo(s).${texto ? ` Resposta: ${texto}` : ''}`, nome);
+      await this.evento(m, d, TipoEvento.MENSAGEM_SISTEMA, `${nome} ${atualizacao ? 'atualizou a resposta da' : 'respondeu a'} diligência${d.unidade_rotulo ? ` (${d.unidade_rotulo})` : ''}: ${n} anexo(s).${texto ? ` Resposta: ${texto}` : ''}`, nome);
       this.avisarSala(d);
       return this.apresentar(d, anexos, nome);
     });

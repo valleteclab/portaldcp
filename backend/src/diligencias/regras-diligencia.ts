@@ -10,7 +10,12 @@
  *
  * Estados: ABERTA → RESPONDIDA (licitante respondeu) → ENCERRADA (o agente
  * conclui: ATENDIDA ou NAO_ATENDIDA, com motivo). ABERTA com prazo vencido é
- * lida como EXPIRADA: o licitante não envia mais; o agente prorroga ou encerra.
+ * lida como EXPIRADA.
+ *
+ * O PRAZO é do licitante até o fim (dono, 11/11/2026): responder não trava. Até
+ * o prazo acabar — ou o agente encerrar — ele pode anexar mais documentos,
+ * remover ou trocar o que enviou errado e atualizar a resposta. Cada envio e
+ * cada remoção ficam na ata, com o resumo (SHA-256) do arquivo.
  */
 import { FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { indiceFase } from '../licitacoes/transicoes/fases';
@@ -66,16 +71,14 @@ export function motivoNaoAbre(e: { fase: string | null | undefined; modalidade: 
 
 /** O licitante ainda pode anexar e responder? */
 export function motivoNaoResponde(d: EstadoDiligencia, agora: Date = new Date()): string | null {
-  const s = statusEfetivo(d, agora);
-  if (s === 'EXPIRADA') return 'O prazo desta diligência terminou. Peça a prorrogação ao pregoeiro pelo chat da sala.';
-  if (s === StatusDiligenciaGeral.RESPONDIDA) return 'Você já respondeu esta diligência.';
-  if (s === StatusDiligenciaGeral.ENCERRADA) return 'Esta diligência já foi encerrada.';
+  if (d.status === StatusDiligenciaGeral.ENCERRADA) return 'Esta diligência já foi encerrada.';
+  // Respondida ou não: o que vale é o prazo
+  if (new Date(d.prazo_ate).getTime() < agora.getTime()) return 'O prazo desta diligência terminou. Peça a prorrogação ao pregoeiro pelo chat da sala.';
   return null;
 }
 
 export function motivoNaoProrroga(d: EstadoDiligencia, horas: number, motivo: string, minimoHoras = 1): string | null {
   if (d.status === StatusDiligenciaGeral.ENCERRADA) return 'Esta diligência já foi encerrada.';
-  if (d.status === StatusDiligenciaGeral.RESPONDIDA) return 'O licitante já respondeu: analise a resposta ou abra nova diligência.';
   const h = Number(horas);
   if (!Number.isFinite(h) || h < minimoHoras) return `Informe por quantas horas prorrogar (mín. ${minimoHoras}).`;
   if (h > PRAZO_MAXIMO_DILIGENCIA_GERAL_HORAS) return 'A prorrogação máxima é de 30 dias.';

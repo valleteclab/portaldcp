@@ -40,7 +40,9 @@ describe('diligência geral — regras', () => {
     expect(statusEfetivo(vencida)).toBe('EXPIRADA');
     expect(motivoNaoResponde(vencida)).toMatch(/prazo desta diligência terminou/);
     expect(motivoNaoResponde({ status: 'ABERTA', prazo_ate: daqui(1) })).toBeNull();
-    expect(motivoNaoResponde({ status: 'RESPONDIDA', prazo_ate: daqui(1) })).toMatch(/já respondeu/);
+    // responder não trava: dentro do prazo ele ainda corrige e complementa
+    expect(motivoNaoResponde({ status: 'RESPONDIDA', prazo_ate: daqui(1) })).toBeNull();
+    expect(motivoNaoResponde({ status: 'RESPONDIDA', prazo_ate: daqui(-1) })).toMatch(/prazo desta diligência terminou/);
     expect(motivoNaoResponde({ status: 'ENCERRADA', prazo_ate: daqui(1) })).toMatch(/encerrada/);
   });
 
@@ -49,7 +51,8 @@ describe('diligência geral — regras', () => {
     expect(motivoNaoProrroga(aberta, 2, 'curto')).toMatch(/Justifique/);
     expect(motivoNaoProrroga(aberta, 0, 'Pedido do licitante pelo chat')).toMatch(/quantas horas/);
     expect(motivoNaoProrroga(aberta, 2, 'Pedido do licitante pelo chat')).toBeNull();
-    expect(motivoNaoProrroga({ ...aberta, status: 'RESPONDIDA' }, 2, 'Pedido do licitante')).toMatch(/já respondeu/);
+    expect(motivoNaoProrroga({ ...aberta, status: 'RESPONDIDA' }, 2, 'Pedido do licitante')).toBeNull();
+    expect(motivoNaoProrroga({ ...aberta, status: 'ENCERRADA' }, 2, 'Pedido do licitante')).toMatch(/encerrada/);
     const agora = new Date('2026-11-11T12:00:00Z');
     expect(prazoProrrogado('2026-11-11T14:00:00Z', 2, agora).toISOString()).toBe('2026-11-11T16:00:00.000Z');
     expect(prazoProrrogado('2026-11-11T10:00:00Z', 2, agora).toISOString()).toBe('2026-11-11T14:00:00.000Z');

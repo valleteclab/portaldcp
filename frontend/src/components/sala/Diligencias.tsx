@@ -40,6 +40,8 @@ export interface Diligencia {
   abertaEm: string
   prazoAte: string
   status: 'ABERTA' | 'RESPONDIDA' | 'ENCERRADA' | 'EXPIRADA'
+  /** O licitante ainda pode anexar, trocar e atualizar a resposta (prazo correndo e não encerrada). */
+  podeResponder?: boolean
   resposta: string | null
   respondidaEm: string | null
   resultado: 'ATENDIDA' | 'NAO_ATENDIDA' | null
@@ -67,7 +69,7 @@ function selo(d: Diligencia) {
       <Badge className="border-0 bg-red-100 text-red-800">Não atendida</Badge>
     )
   }
-  if (d.status === 'RESPONDIDA') return <Badge className="border-0 bg-sky-100 text-sky-800">Respondida — aguardando análise</Badge>
+  if (d.status === 'RESPONDIDA') return <Badge className="border-0 bg-sky-100 text-sky-800">Respondida</Badge>
   if (d.status === 'EXPIRADA') return <Badge className="border-0 bg-amber-100 text-amber-800">Prazo vencido</Badge>
   return <Badge className="border-0 bg-violet-100 text-violet-800">Aguardando o licitante</Badge>
 }
@@ -255,10 +257,11 @@ export function DiligenciasOrgao({
             <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">
               <b>Pedido:</b> {d.pedido}
             </p>
-            {d.status !== 'ENCERRADA' && d.status !== 'RESPONDIDA' && (
+            {d.status !== 'ENCERRADA' && (
               <p className="mt-1 text-xs text-slate-600">
                 Prazo: <Restante ate={d.prazoAte} />
                 {d.prorrogacoes.length > 0 ? ` · prorrogado ${d.prorrogacoes.length}x` : ''}
+                {d.status === 'RESPONDIDA' && d.podeResponder ? ' · o licitante ainda pode complementar ou trocar documentos até o fim do prazo' : ''}
               </p>
             )}
             {d.resposta && (
@@ -267,7 +270,7 @@ export function DiligenciasOrgao({
               </p>
             )}
             <div className="mt-2">
-              <ListaAnexos anexos={d.anexos} podeRemover={(a) => a.autor === 'ORGAO' && d.status === 'ABERTA'} onRemovido={() => void carregar()} />
+              <ListaAnexos anexos={d.anexos} podeRemover={(a) => a.autor === 'ORGAO' && d.status !== 'ENCERRADA'} onRemovido={() => void carregar()} />
             </div>
             {d.status === 'ENCERRADA' ? (
               <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
@@ -276,21 +279,19 @@ export function DiligenciasOrgao({
             ) : (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Anexar diligenciaId={d.id} rotulo="Juntar arquivo" onEnviado={() => void carregar()} onErro={setErro} />
-                {d.status !== 'RESPONDIDA' && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setErro(null)
-                      setHoras('2')
-                      setMotivo('')
-                      setDialogo({ tipo: 'prorrogar', d })
-                    }}
-                  >
-                    Prorrogar prazo
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setErro(null)
+                    setHoras('2')
+                    setMotivo('')
+                    setDialogo({ tipo: 'prorrogar', d })
+                  }}
+                >
+                  Prorrogar prazo
+                </Button>
                 <Button
                   type="button"
                   size="sm"
@@ -405,6 +406,11 @@ export function DiligenciasOrgao({
               rows={4}
               placeholder="Conclusão da análise (vai para a ata). Se não atendida, diga o item do edital e o ponto que não foi atendido."
             />
+            {dialogo?.tipo === 'encerrar' && dialogo.d.podeResponder && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                O prazo do licitante ainda está correndo. Ao encerrar agora, ele não poderá mais enviar nem trocar documentos.
+              </p>
+            )}
             <p className="text-xs text-slate-500">
               Encerrar a diligência não aceita nem recusa a proposta: depois da conclusão, use Aceitar, Recusar, Habilitar ou Inabilitar, conforme o caso.
             </p>
@@ -443,7 +449,7 @@ export function DiligenciasFornecedor({ licitacaoId, atualizacao }: { licitacaoI
     setEnviando(true)
     setErro(null)
     try {
-      const res = await authFetch(`${API_URL}/api/diligencias/${d.id}/responder`, { method: 'POST', body: JSON.stringify({ resposta: (respostas[d.id] ?? '').trim() }) })
+      const res = await authFetch(`${API_URL}/api/diligencias/${d.id}/responder`, { method: 'POST', body: JSON.stringify({ resposta: (respostas[d.id] ?? d.resposta ?? '').trim() }) })
       if (!res.ok) throw new Error(await erroDe(res, 'Não foi possível responder a diligência'))
       carregar()
     } catch (e) {
@@ -456,7 +462,8 @@ export function DiligenciasFornecedor({ licitacaoId, atualizacao }: { licitacaoI
   return (
     <section aria-label="Diligências" className="space-y-3">
       {dados.diligencias.map((d) => {
-        const aberta = d.status === 'ABERTA'
+        const aberta = d.podeResponder ?? d.status === 'ABERTA'
+        const jaRespondeu = d.status === 'RESPONDIDA'
         const meus = d.anexos.filter((a) => a.autor === 'FORNECEDOR')
         return (
           <div key={d.id} className={`rounded-xl border p-4 ${aberta ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white'}`}>
@@ -468,9 +475,14 @@ export function DiligenciasFornecedor({ licitacaoId, atualizacao }: { licitacaoI
               {selo(d)}
             </div>
             <p className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{d.pedido}</p>
-            {(aberta || d.status === 'EXPIRADA') && (
+            {d.status !== 'ENCERRADA' && (
               <p className="mt-1 text-sm font-medium text-violet-900">
                 Prazo: <Restante ate={d.prazoAte} />
+              </p>
+            )}
+            {aberta && jaRespondeu && (
+              <p className="mt-1 text-sm text-slate-700">
+                Resposta enviada em {d.respondidaEm ? dataHora(d.respondidaEm) : ''}. Até o fim do prazo você ainda pode anexar outros documentos, remover ou trocar um arquivo e atualizar a resposta.
               </p>
             )}
             <div className="mt-2">
@@ -479,22 +491,24 @@ export function DiligenciasFornecedor({ licitacaoId, atualizacao }: { licitacaoI
             {aberta && (
               <div className="mt-3 space-y-2">
                 <Textarea
-                  value={respostas[d.id] ?? ''}
+                  value={respostas[d.id] ?? d.resposta ?? ''}
                   onChange={(e) => setRespostas((r) => ({ ...r, [d.id]: e.target.value }))}
                   rows={3}
                   placeholder="Sua resposta ao pregoeiro (opcional se você anexar documentos)..."
                 />
                 <div className="flex flex-wrap items-center gap-2">
                   <Anexar diligenciaId={d.id} rotulo="Anexar documento" onEnviado={() => void carregar()} onErro={setErro} />
-                  <Button type="button" disabled={enviando || (!(respostas[d.id] ?? '').trim() && meus.length === 0)} onClick={() => void responder(d)}>
-                    Responder diligência
+                  <Button type="button" disabled={enviando || (!(respostas[d.id] ?? d.resposta ?? '').trim() && meus.length === 0)} onClick={() => void responder(d)}>
+                    {jaRespondeu ? 'Atualizar resposta' : 'Enviar resposta'}
                   </Button>
-                  <span className="text-xs text-slate-600">Anexe todos os documentos antes de responder: depois da resposta não é possível enviar mais.</span>
+                  <span className="text-xs text-slate-600">
+                    Enviou errado? Dentro do prazo você pode remover o arquivo (lixeira) e anexar o correto. O envio só se encerra no fim do prazo ou quando o pregoeiro concluir a diligência.
+                  </span>
                 </div>
               </div>
             )}
             {d.status === 'EXPIRADA' && <p className="mt-2 text-sm text-amber-800">O prazo terminou. Se precisar de mais tempo, peça a prorrogação ao pregoeiro pelo chat da sala.</p>}
-            {d.resposta && (
+            {d.resposta && !aberta && (
               <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
                 <b>Sua resposta</b> ({d.respondidaEm ? dataHora(d.respondidaEm) : ''}): {d.resposta}
               </p>

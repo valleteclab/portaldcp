@@ -76,25 +76,33 @@ describe('Diligência geral ao licitante (e2e)', () => {
     expect(ev.descricao).toMatch(/Diligência aberta para .* \(Item 1\)/);
   });
 
-  test('licitante anexa, remove, responde; depois não envia mais', async () => {
+  test('licitante anexa, remove e responde; dentro do prazo ainda corrige e complementa', async () => {
     expect((await http().post(`/api/diligencias/${dil}/responder`).set(bearer(A.token)).send({ resposta: '' })).status).toBe(400);
     const exe = await http().post(`/api/diligencias/${dil}/anexos`).set(bearer(A.token)).attach('arquivo', PDF, 'programa.exe');
     expect(exe.status).toBe(400);
+    const errado = await http().post(`/api/diligencias/${dil}/anexos`).set(bearer(A.token)).attach('arquivo', PDF, 'planilha-errada.pdf');
+    expect(errado.status).toBe(201);
+
+    const r = await http().post(`/api/diligencias/${dil}/responder`).set(bearer(A.token)).send({ resposta: 'Segue a planilha.' });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ status: 'RESPONDIDA', podeResponder: true });
+
+    // Enviou errado: depois de responder, ainda dentro do prazo, troca o arquivo e atualiza a resposta
+    expect((await http().delete(`/api/diligencias/anexos/${errado.body.id}`).set(bearer(A.token))).status).toBe(200);
     const a1 = await http().post(`/api/diligencias/${dil}/anexos`).set(bearer(A.token)).attach('arquivo', PDF, 'planilha-custos.pdf').field('descricao', 'Planilha de custos');
     expect(a1.status).toBe(201);
-    const a2 = await http().post(`/api/diligencias/${dil}/anexos`).set(bearer(A.token)).attach('arquivo', PDF, 'errado.pdf');
-    expect((await http().delete(`/api/diligencias/anexos/${a2.body.id}`).set(bearer(A.token))).status).toBe(200);
+    const r2 = await http().post(`/api/diligencias/${dil}/responder`).set(bearer(A.token)).send({ resposta: 'Segue a planilha com a composição dos custos (versão corrigida).' });
+    expect(r2.status).toBe(201);
+    expect(r2.body.anexos.map((a: any) => a.nome)).toEqual(['planilha-custos.pdf']);
+    // a troca fica na ata: envio e remoção, com o resumo do arquivo
+    const evs = await ctx.dataSource.query(`SELECT descricao FROM eventos_sessao WHERE sessao_id = $1 AND dados_adicionais->>'diligencia_id' = $2`, [p.sessaoId, dil]);
+    expect(evs.some((e: any) => /Anexo removido .* dentro do prazo — pelo licitante: planilha-errada\.pdf \(SHA-256/.test(e.descricao))).toBe(true);
+    expect(evs.some((e: any) => /atualizou a resposta da diligência/.test(e.descricao))).toBe(true);
+
     // outro licitante não baixa o anexo; o dono e o órgão baixam
     expect((await http().get(`/api/diligencias/anexos/${a1.body.id}/arquivo`).set(bearer(B.token))).status).toBe(404);
     expect((await http().get(`/api/diligencias/anexos/${a1.body.id}/arquivo`).set(bearer(A.token))).status).toBe(200);
     expect((await http().get(`/api/diligencias/anexos/${a1.body.id}/arquivo`).set(bearer(orgao.token))).status).toBe(200);
-
-    const r = await http().post(`/api/diligencias/${dil}/responder`).set(bearer(A.token)).send({ resposta: 'Segue a planilha com a composição dos custos.' });
-    expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ status: 'RESPONDIDA' });
-    expect(r.body.anexos).toHaveLength(1);
-    expect((await http().post(`/api/diligencias/${dil}/anexos`).set(bearer(A.token)).attach('arquivo', PDF, 'tarde.pdf')).status).toBe(409);
-    expect((await http().delete(`/api/diligencias/anexos/${a1.body.id}`).set(bearer(A.token))).status).toBe(409);
   });
 
   test('órgão junta o parecer e encerra como atendida, com a conclusão na ata', async () => {
@@ -105,8 +113,11 @@ describe('Diligência geral ao licitante (e2e)', () => {
     expect((await http().post(`/api/diligencias/${dil}/encerrar`).set(bearer(A.token)).send({ resultado: 'ATENDIDA', motivo: 'Planilha confere' })).status).toBe(403);
     const r = await http().post(`/api/diligencias/${dil}/encerrar`).set(bearer(orgao.token)).send({ resultado: 'ATENDIDA', motivo: 'A planilha demonstra a exequibilidade do preço.' });
     expect(r.status).toBe(201);
-    expect(r.body).toMatchObject({ status: 'ENCERRADA', resultado: 'ATENDIDA' });
+    expect(r.body).toMatchObject({ status: 'ENCERRADA', resultado: 'ATENDIDA', podeResponder: false });
     expect(r.body.anexos).toHaveLength(2);
+    // encerrada pelo pregoeiro: aí sim trava, mesmo com prazo sobrando
+    expect((await http().post(`/api/diligencias/${dil}/anexos`).set(bearer(A.token)).attach('arquivo', PDF, 'tarde.pdf')).status).toBe(409);
+    expect((await http().post(`/api/diligencias/${dil}/responder`).set(bearer(A.token)).send({ resposta: 'mais um ponto' })).status).toBe(409);
     const evs = await ctx.dataSource.query(`SELECT descricao FROM eventos_sessao WHERE sessao_id = $1 AND dados_adicionais->>'diligencia_id' = $2 ORDER BY created_at`, [p.sessaoId, dil]);
     expect(evs.some((e: any) => /respondeu a diligência/.test(e.descricao))).toBe(true);
     expect(evs.some((e: any) => /encerrada: ATENDIDA/.test(e.descricao))).toBe(true);
@@ -119,6 +130,7 @@ describe('Diligência geral ao licitante (e2e)', () => {
     await ctx.dataSource.query(`UPDATE diligencias_licitante SET prazo_ate = now() - interval '1 minute' WHERE id = $1`, [id]);
     expect((await listar(B.token)).body.diligencias[0].status).toBe('EXPIRADA');
     expect((await http().post(`/api/diligencias/${id}/responder`).set(bearer(B.token)).send({ resposta: 'atrasado' })).status).toBe(409);
+    expect((await http().post(`/api/diligencias/${id}/anexos`).set(bearer(B.token)).attach('arquivo', PDF, 'atrasado.pdf')).status).toBe(409);
     expect((await http().post(`/api/diligencias/${id}/prorrogar`).set(bearer(orgao.token)).send({ horas: 2, motivo: 'x' })).status).toBe(400);
     const pr = await http().post(`/api/diligencias/${id}/prorrogar`).set(bearer(orgao.token)).send({ horas: 2, motivo: 'Pedido do licitante pelo chat da sala.' });
     expect(pr.status).toBe(201);
