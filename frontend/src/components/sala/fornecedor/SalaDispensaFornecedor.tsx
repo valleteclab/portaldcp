@@ -19,7 +19,11 @@ import { ContrapropostaDispensa } from './ContrapropostaDispensa'
 import { DiligenciasFornecedor } from '../Diligencias'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { lerValorMonetario } from './PainelLancesFornecedor'
+
+/** Abaixo de 50% do próprio valor atual o lance só segue depois de confirmado (lance não se cancela). */
+const LIMITE_REDUCAO_SEM_CONFIRMAR = 0.5
 
 interface ItemPainel {
   item_licitacao_id: string
@@ -59,6 +63,8 @@ function fmtRestante(ms: number) {
 export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string }) {
   const [painel, setPainel] = useState<Painel | null>(null)
   const [valores, setValores] = useState<Record<string, string>>({})
+  // Lance com queda grande (erro de digitação típico: R$ 1,60 no lugar de R$ 160,00) pede confirmação
+  const [confirmar, setConfirmar] = useState<{ item: ItemPainel; valor: number; reducao: number } | null>(null)
   const [erros, setErros] = useState<Record<string, string>>({})
   const [enviando, setEnviando] = useState<string | null>(null)
   const [agora, setAgora] = useState(Date.now())
@@ -174,7 +180,7 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
     }
   }
 
-  const enviarLance = async (item: ItemPainel) => {
+  const enviarLance = async (item: ItemPainel, confirmado = false) => {
     const id = item.item_licitacao_id
     const erro = (m: string) => setErros((p) => ({ ...p, [id]: m }))
     if (!logado.current) return erro('Entre como fornecedor para dar lances.')
@@ -183,6 +189,11 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
     if (item.meu_valor != null && valor >= item.meu_valor) {
       return erro(`O lance deve ser MENOR que o seu valor atual (${fmtMoeda(item.meu_valor)}).`)
     }
+    if (!confirmado && item.meu_valor != null && valor < item.meu_valor * LIMITE_REDUCAO_SEM_CONFIRMAR) {
+      setConfirmar({ item, valor, reducao: Math.round((1 - valor / item.meu_valor) * 100) })
+      return
+    }
+    setConfirmar(null)
     setErros((p) => ({ ...p, [id]: '' }))
     setEnviando(id)
     try {
@@ -347,6 +358,34 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
           {erroMsg && <p className="mt-2 text-xs text-red-700">{erroMsg}</p>}
         </CardContent>
       </Card>
+
+      <Dialog open={confirmar !== null} onOpenChange={(o) => !o && setConfirmar(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar lance com redução grande</DialogTitle>
+          </DialogHeader>
+          {confirmar && (
+            <div className="space-y-2 text-sm text-slate-700">
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                O lance de <strong>{fmtMoeda(confirmar.valor)}</strong> por unidade é {confirmar.reducao}% menor que o seu valor atual (
+                {fmtMoeda(confirmar.item.meu_valor ?? null)}) no item {confirmar.item.numero_item}.
+              </p>
+              <p>
+                O lance é pelo valor UNITÁRIO e não pode ser cancelado depois de enviado. Preço muito abaixo do estimado pode levar à
+                desclassificação por inexequibilidade (Lei 14.133/2021, art. 59). Confira antes de enviar.
+              </p>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setConfirmar(null)}>
+              Corrigir o valor
+            </Button>
+            <Button type="button" disabled={enviando !== null} onClick={() => confirmar && enviarLance(confirmar.item, true)}>
+              Enviar mesmo assim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
