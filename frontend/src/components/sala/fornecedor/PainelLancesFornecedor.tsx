@@ -190,7 +190,9 @@ export function PainelLancesFornecedor({
                 <CardHeader>
                   <CardTitle className="text-base">{etapaFechada ? 'Lance final fechado' : 'Novo lance'}</CardTitle>
                   <CardDescription>
-                    {etapaFechada
+                    {etapaFechada && item.possoDarLance === false && item.meuLanceFechado == null
+                      ? 'Você não foi convocado para o lance final: participam só a melhor oferta e as que estão até 10% dela (no mínimo três). Seu último lance continua valendo na classificação.'
+                      : etapaFechada
                       ? 'Um único lance, menor que o seu último valor, sigiloso até o fim do prazo. Para manter o último lance da etapa aberta, não envie.'
                       : item.valorPrimeiraColocacao != null
                         ? `Reinício para as demais colocações: o lance não pode alcançar ${formatarMoeda(item.valorPrimeiraColocacao)} (1ª colocação).`
