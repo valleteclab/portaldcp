@@ -52,6 +52,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
     pregoeiroCancelarLance,
     negociacaoVersao,
     boardVersao,
+    diligenciaVersao,
   } = useSalaDisputa({ area: 'orgao', sessaoIdParam: sessaoId })
 
   const [dialogo, setDialogo] = useState<null | 'suspender' | 'reiniciar' | 'reiniciarDemais'>(null)
@@ -315,6 +316,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
                         lote={loteSel}
                         item={itemDoLote}
                         negociacaoVersao={negociacaoVersao}
+                  diligenciaVersao={diligenciaVersao}
                         onEncerrar={encerrarItem}
                         onReiniciarDemais={() => setDialogo('reiniciarDemais')}
                       />

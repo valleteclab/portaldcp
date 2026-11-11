@@ -42,6 +42,8 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
   // cada sala aberta repetia três consultas a cada 3 s durante toda a disputa (bloqueio por excesso
   // de requisições no ensaio do pregão 2026/00077)
   const [boardVersao, setBoardVersao] = useState(0)
+  // Aviso `diligencia_atualizada`: os painéis de diligência recarregam na hora
+  const [diligenciaVersao, setDiligenciaVersao] = useState(0)
 
   const socketRef = useRef<Socket | null>(null)
   const actorRef = useRef<{ id: string; nome: string; tipo: 'PREGOEIRO' | 'FORNECEDOR' } | null>(null)
@@ -307,6 +309,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       }
       await refreshBoard(sessaoId)
     })
+    socket.on('diligencia_atualizada', () => setDiligenciaVersao((v) => v + 1))
     for (const evento of ['lance_fechado_recebido', 'retomada_agendada']) {
       socket.on(evento, async () => {
         await refreshBoard(sessaoId)
@@ -559,5 +562,6 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     pregoeiroCancelarLance,
     negociacaoVersao,
     boardVersao,
+    diligenciaVersao,
   }
 }

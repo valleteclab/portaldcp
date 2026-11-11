@@ -11,6 +11,7 @@ import { ResultadoPanel } from '@/components/resultado/ResultadoPanel'
 import { AceitacaoPanel } from '../AceitacaoPanel'
 import { BeneficioMeEppPanel } from '../BeneficioMeEppPanel'
 import { DesempatePanel } from '../DesempatePanel'
+import { DiligenciasOrgao } from '../Diligencias'
 import { HabilitacaoPanel } from '../HabilitacaoPanel'
 import { NegociacaoPanel } from '../NegociacaoPanel'
 import { RecursosPanel } from '../RecursosPanel'
@@ -37,6 +38,7 @@ export function DetalheLoteOrgao({
   lote,
   item,
   negociacaoVersao,
+  diligenciaVersao,
   onEncerrar,
   onReiniciarDemais,
 }: {
@@ -46,6 +48,7 @@ export function DetalheLoteOrgao({
   /** Unidade no quadro em tempo real (lances, relógio). */
   item: DisputaV3ItemBoard | null
   negociacaoVersao: number
+  diligenciaVersao?: number
   onEncerrar: (itemId: string) => void
   onReiniciarDemais: () => void
 }) {
@@ -81,11 +84,17 @@ export function DetalheLoteOrgao({
         <>
           <AceitacaoPanel sessaoId={sessaoId} unidadeId={lote.id} />
           <NegociacaoPanel sessaoId={sessaoId} versao={negociacaoVersao} unidadeId={lote.id} />
+          {licitacaoId && <DiligenciasOrgao licitacaoId={licitacaoId} unidadeId={lote.id} fase="ACEITACAO" atualizacao={diligenciaVersao} />}
         </>
       )
       break
     case 'HABILITACAO':
-      principal = licitacaoId ? <HabilitacaoPanel licitacaoId={licitacaoId} unidade={unidade} /> : null
+      principal = licitacaoId ? (
+        <>
+          <HabilitacaoPanel licitacaoId={licitacaoId} unidade={unidade} />
+          <DiligenciasOrgao licitacaoId={licitacaoId} unidadeId={lote.id} fase="HABILITACAO" atualizacao={diligenciaVersao} />
+        </>
+      ) : null
       break
     case 'RECURSOS':
       principal = <RecursosPanel sessaoId={sessaoId} />
