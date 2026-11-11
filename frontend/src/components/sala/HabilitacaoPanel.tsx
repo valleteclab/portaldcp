@@ -27,7 +27,6 @@ import {
   mensagemDeErro,
   porCategoria,
 } from '@/components/habilitacao/comum'
-import { formatarMoeda } from './utils'
 
 /**
  * PAINEL DE HABILITAÇÃO DO AGENTE (plano E4 — Lei 14.133/2021 arts. 62–70;
@@ -214,14 +213,23 @@ export function HabilitacaoPanel({
 
   const posFaseInversao = painel.inversaoFases && (painel.fase === 'JULGAMENTO' || painel.fase === 'HABILITACAO')
   const aceitos = new Set(painel.ranking.filter((r) => r.unidades.some((u) => u.situacao === 'ACEITO')).map((r) => r.fornecedorId))
-  const naUnidade = (r: LicitanteRanking) => !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero)
   // Na vista de um lote, só quem chegou à habilitação NESTE lote (aceito, habilitado, inabilitado ou
   // vencedor): no pregão 2026/00072, o lote 1 mostrava também a Alfa, que só deu lance nele
   const SITUACOES_HABILITACAO = ['ACEITO', 'HABILITADO', 'INABILITADO', 'VENCEDOR']
   const chegouNaUnidade = (r: LicitanteRanking) =>
     !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero && SITUACOES_HABILITACAO.includes(u.situacao))
   const daUnidade = new Set(painel.ranking.filter(chegouNaUnidade).map((r) => r.fornecedorId))
-  const convocaveis = painel.ranking.filter((r) => r.podeConvocar && naUnidade(r))
+  // Convocável NESTA unidade = proposta aceita nela (pregão 2026/00083: o item 1 listava, como
+  // "1º colocado", quem tinha proposta aceita em OUTRO item — bastava ter dado lance neste)
+  const aceitoNaUnidade = (r: LicitanteRanking) =>
+    !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero && u.situacao === 'ACEITO')
+  const convocaveis = painel.ranking.filter((r) => r.podeConvocar && aceitoNaUnidade(r))
+  const unidadesAceitas = (r: LicitanteRanking) =>
+    r.unidades
+      .filter((u) => u.situacao === 'ACEITO')
+      .sort((x, y) => Number(x.numero) - Number(y.numero))
+      .map((u) => `${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}`)
+      .join(', ')
   const ordenadas = [...painel.habilitacoes].filter((h) => !unidade || daUnidade.has(h.fornecedorId)).sort((a, b) => {
     const peso = (h: Habilitacao) => (['AGUARDANDO_ENVIO', 'ENVIADA', 'EM_DILIGENCIA'].includes(h.status) ? 0 : 1)
     return peso(a) - peso(b)
@@ -273,9 +281,11 @@ export function HabilitacaoPanel({
             {convocaveis.map((r) => (
               <div key={r.fornecedorId} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3">
                 <div>
-                  <div className="text-xs text-slate-500">{r.posicao}º colocado</div>
                   <div className="font-medium text-slate-900">{r.razaoSocial}</div>
-                  <div className="text-sm text-slate-600">{r.cpfCnpj} · {formatarMoeda(r.valorTotal)}</div>
+                  <div className="text-sm text-slate-600">{r.cpfCnpj}</div>
+                  <div className="text-xs text-slate-500">
+                    Proposta aceita em: {unidadesAceitas(r) || '—'} · a habilitação vale para todos
+                  </div>
                 </div>
                 <Button size="sm" onClick={() => { setAcao({ tipo: 'convocar', licitante: r }); setHoras(String(painel.prazoMinimoHoras)) }}>
                   Convocar
