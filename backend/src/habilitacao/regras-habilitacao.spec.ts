@@ -118,29 +118,43 @@ describe('Habilitação — regras puras (plano E4)', () => {
       expect(motivoNaoConcluiEnvio(conv, agora)).toBeNull();
     });
 
-    test('entregue (ato ou fim do prazo): novo documento e substituição recusados', () => {
+    test('o que manda é o prazo: entregue com prazo correndo ainda envia e corrige; vencido, não', () => {
+      // clicou em "Entregar" antes da hora: enviou errado, ainda pode corrigir
       const entregue = { ...conv, status: StatusHabilitacao.ENVIADA };
-      const r = regraDeEnvio(entregue, 'e1', [], agora);
-      expect('erro' in r && r.erro).toMatch(/art\. 64/);
-      expect(motivoNaoRemove(entregue, { origem: 'ENVIO', analise: 'PENDENTE' }, agora)).toMatch(/substituição/);
-      // prazo vencido sem o ato de entrega = entregue
-      const vencido = { ...conv, prazo_ate: antes(1) };
-      expect(statusEfetivo(vencido, [], agora)).toBe(StatusHabilitacao.ENVIADA);
-      expect('erro' in regraDeEnvio(vencido, 'e1', [], agora)).toBe(true);
-      expect(motivoNaoConcluiEnvio(vencido, agora)).toMatch(/prazo terminou/);
-      // documento do cadastro nunca é "retirado" pelo licitante
+      expect(regraDeEnvio(entregue, 'e1', [], agora)).toEqual({ origem: OrigemDocumento.ENVIO, diligenciaId: null });
+      expect(motivoNaoRemove(entregue, { origem: 'ENVIO', analise: 'PENDENTE' }, agora)).toBeNull();
+      // o que o agente já analisou não se retira
+      expect(motivoNaoRemove(entregue, { origem: 'ENVIO', analise: 'ATENDE' }, agora)).toMatch(/já analisado/);
+      // prazo vencido (com ou sem o ato de entrega): acabou
+      for (const st of [StatusHabilitacao.AGUARDANDO_ENVIO, StatusHabilitacao.ENVIADA]) {
+        const vencido = { ...conv, status: st, prazo_ate: antes(1) };
+        expect(statusEfetivo(vencido, [], agora)).toBe(StatusHabilitacao.ENVIADA);
+        const r = regraDeEnvio(vencido, 'e1', [], agora);
+        expect('erro' in r && r.erro).toMatch(/prazo de envio terminou/);
+        expect(motivoNaoRemove(vencido, { origem: 'ENVIO', analise: 'PENDENTE' }, agora)).toMatch(/prazo de envio terminou/);
+      }
+      expect(motivoNaoConcluiEnvio({ ...conv, prazo_ate: antes(1) }, agora)).toMatch(/prazo terminou/);
+      // documento do cadastro nunca é "retirado" pelo licitante; decidida, nada
       expect(motivoNaoRemove(conv, { origem: 'CADASTRO', analise: 'PENDENTE' }, agora)).not.toBeNull();
+      expect(motivoNaoRemove({ ...conv, status: StatusHabilitacao.HABILITADO }, { origem: 'ENVIO', analise: 'PENDENTE' }, agora)).toMatch(/decidida/);
     });
 
-    test('diligência vigente: só COMPLEMENTO das exigências indicadas; vencida → volta à análise', () => {
-      const emDil = { ...conv, status: StatusHabilitacao.EM_DILIGENCIA };
+    test('diligência: COMPLEMENTO das exigências indicadas até o fim do prazo dela, mesmo já respondida', () => {
+      const emDil = { ...conv, status: StatusHabilitacao.EM_DILIGENCIA, prazo_ate: antes(5) }; // prazo da convocação já vencido
       const d = { id: 'dil', status: StatusDiligencia.ABERTA, prazo_ate: depois(3), exigencia_ids: ['e1'] };
       expect(regraDeEnvio(emDil, 'e1', [d], agora)).toEqual({ origem: OrigemDocumento.COMPLEMENTO, diligenciaId: 'dil' });
       const fora = regraDeEnvio(emDil, 'e2', [d], agora);
       expect('erro' in fora && fora.erro).toMatch(/não inclui esta exigência/);
+      // respondeu, mas o prazo ainda corre: complementa e corrige
+      const respondida = { ...d, status: StatusDiligencia.RESPONDIDA };
+      const analise = { ...emDil, status: StatusHabilitacao.ENVIADA };
+      expect(regraDeEnvio(analise, 'e1', [respondida], agora)).toEqual({ origem: OrigemDocumento.COMPLEMENTO, diligenciaId: 'dil' });
+      expect(motivoNaoRemove(analise, { origem: 'COMPLEMENTO', analise: 'PENDENTE', diligencia_id: 'dil' }, agora, [respondida])).toBeNull();
+      // prazo da diligência vencido: nada
       const expirada = { ...d, prazo_ate: antes(1) };
       expect(statusEfetivo(emDil, [expirada], agora)).toBe(StatusHabilitacao.ENVIADA);
       expect('erro' in regraDeEnvio(emDil, 'e1', [expirada], agora)).toBe(true);
+      expect(motivoNaoRemove(analise, { origem: 'COMPLEMENTO', analise: 'PENDENTE', diligencia_id: 'dil' }, agora, [{ ...respondida, prazo_ate: antes(1) }])).toMatch(/prazo da diligência terminou/);
       // decidida: nada
       expect('erro' in regraDeEnvio({ ...conv, status: StatusHabilitacao.HABILITADO }, 'e1', [d], agora)).toBe(true);
     });

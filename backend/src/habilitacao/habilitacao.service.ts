@@ -55,6 +55,7 @@ import {
   StatusDiligencia,
   StatusHabilitacao,
   dataIso,
+  diligenciaRecebe,
   diligenciaVigente,
   hojeBrasilia,
   motivoDocumentoCadastroInvalido,
@@ -463,7 +464,7 @@ export class HabilitacaoService {
   // LEITURAS
   // ==========================================================================
 
-  private visaoDocumento(d: DocumentoHabilitacao, papel: Papel, h: HabilitacaoLicitante, agora: Date) {
+  private visaoDocumento(d: DocumentoHabilitacao, papel: Papel, h: HabilitacaoLicitante, agora: Date, estadoDils: EstadoDiligencia[] = []) {
     return {
       id: d.id,
       exigenciaId: d.exigencia_id,
@@ -487,7 +488,7 @@ export class HabilitacaoService {
       analise: d.analise,
       analiseMotivo: d.analise_motivo,
       analisadoEm: d.analisado_em,
-      podeRemover: papel === 'FORNECEDOR' && !motivoNaoRemove(h, d, agora),
+      podeRemover: papel === 'FORNECEDOR' && !motivoNaoRemove(h, d, agora, estadoDils),
     };
   }
 
@@ -504,7 +505,10 @@ export class HabilitacaoService {
     const status = statusEfetivo(h, estadoDils, agora);
     const pendencias = pendenciasParaHabilitar(exigencias, docs, estadoDils, agora);
     const cobertura = new Map((h.pre_checagem ?? []).map((c) => [c.exigenciaId, c]));
-    const vigente = dils.find((d) => diligenciaVigente({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids }, agora));
+    // Para o licitante, a diligência segue "aberta" enquanto o prazo corre, mesmo já respondida
+    const vigente = dils.find((d) =>
+      (papel === 'FORNECEDOR' ? diligenciaRecebe : diligenciaVigente)({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids }, agora),
+    );
     return {
       id: h.id,
       licitacaoId: h.licitacao_id,
@@ -538,7 +542,7 @@ export class HabilitacaoService {
           situacao: situacaoDaExigencia(doE),
           cobertaPeloCadastro: !!c?.coberta,
           motivoCadastro: c && !c.coberta ? c.motivo : null,
-          documentos: doE.map((d) => this.visaoDocumento(d, papel, h, agora)),
+          documentos: doE.map((d) => this.visaoDocumento(d, papel, h, agora, estadoDils)),
           podeEnviar: !!envio && !('erro' in envio),
           envioComo: envio && !('erro' in envio) ? envio.origem : null,
         };
@@ -1211,7 +1215,7 @@ export class HabilitacaoService {
       await this.prepararAto(m, doc.licitacao_id, fornecedorId);
       const h = await this.habilitacaoPorId(m, doc.habilitacao_id, true);
       habId = h.id;
-      const erro = motivoNaoRemove(h, doc);
+      const erro = motivoNaoRemove(h, doc, new Date(), this.estadoDils(await this.diligencias(m, h.id)));
       if (erro) throw new ConflictException(erro);
       await m.delete(DocumentoHabilitacao, { id: doc.id });
     });
@@ -1264,9 +1268,10 @@ export class HabilitacaoService {
       const h = await this.habilitacaoPorId(m, h0.id, true);
       habId = h.id;
       const d = await m.findOneOrFail(DiligenciaHabilitacao, { where: { id: diligenciaId }, lock: { mode: 'pessimistic_write' } });
-      if (!diligenciaVigente({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids })) {
-        throw new ConflictException('Esta diligência não está aberta (respondida ou com o prazo encerrado)');
+      if (!diligenciaRecebe({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids })) {
+        throw new ConflictException('O prazo desta diligência terminou');
       }
+      const atualizacao = d.status === StatusDiligencia.RESPONDIDA;
       d.status = StatusDiligencia.RESPONDIDA;
       d.respondida_em = new Date();
       d.resposta = (resposta ?? '').trim().slice(0, 2000) || null;
@@ -1275,7 +1280,7 @@ export class HabilitacaoService {
       await this.normalizar(m, h, dils);
       await this.evento(m, h.sessao_id ?? (await this.sessaoDaLicitacao(m, h.licitacao_id))?.id, {
         tipo: TipoEvento.DOCUMENTO_HABILITACAO_ENVIADO,
-        descricao: `Resposta à diligência de habilitação registrada pelo licitante${d.resposta ? `: ${d.resposta}` : '.'}`,
+        descricao: `Resposta à diligência de habilitação ${atualizacao ? 'atualizada' : 'registrada'} pelo licitante${d.resposta ? `: ${d.resposta}` : '.'}`,
         fornecedorId,
         usuario: fornecedorId,
         dados: { habilitacao_id: h.id, diligencia_id: d.id, ato: 'RESPOSTA_DILIGENCIA' },

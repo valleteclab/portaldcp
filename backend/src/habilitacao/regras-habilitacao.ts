@@ -388,6 +388,28 @@ export function diligenciaVigente(d: EstadoDiligencia, agora: Date = new Date())
   return d.status === StatusDiligencia.ABERTA && agora.getTime() <= ms(d.prazo_ate);
 }
 
+/**
+ * A diligência ainda RECEBE do licitante: aberta ou já respondida, com o prazo
+ * correndo. O prazo é dele até o fim (dono, 11/11/2026): responder não trava —
+ * ele pode complementar, trocar o que enviou errado e atualizar a resposta.
+ * (`diligenciaVigente` continua valendo para a análise do agente: respondida,
+ * a habilitação volta à análise.)
+ */
+export function diligenciaRecebe(d: EstadoDiligencia, agora: Date = new Date()): boolean {
+  return (d.status === StatusDiligencia.ABERTA || d.status === StatusDiligencia.RESPONDIDA) && agora.getTime() <= ms(d.prazo_ate);
+}
+
+/** O prazo da convocação ainda corre (há prazo e ele não venceu) e a habilitação não foi decidida. */
+export function prazoDaConvocacaoCorrendo(h: EstadoHabilitacao, agora: Date = new Date()): boolean {
+  if (STATUS_HABILITACAO_FINAIS.includes(h.status)) return false;
+  if (h.status === StatusHabilitacao.AGUARDANDO_ENVIO) return !prazoEntregaEncerrado(h, agora);
+  // Depois do ato de entrega, só a CONVOCAÇÃO tem prazo próprio gravado. Na inversão de fases o
+  // prazo é o fim do recebimento das propostas e, na inscrição em credenciamento, a vigência do
+  // edital — neles a entrega continua encerrando o envio.
+  if (h.origem !== OrigemHabilitacao.CONVOCACAO) return false;
+  return !!h.prazo_ate && !prazoEntregaEncerrado(h, agora);
+}
+
 /** Status da diligência considerando o relógio (ABERTA vencida → EXPIRADA). */
 export function statusEfetivoDiligencia(d: EstadoDiligencia, agora: Date = new Date()): string {
   if (d.status === StatusDiligencia.ABERTA && !diligenciaVigente(d, agora)) return StatusDiligencia.EXPIRADA;
@@ -416,10 +438,12 @@ export function motivoNaoProrroga(h: EstadoHabilitacao, agora: Date = new Date()
 }
 
 /**
- * ENVIO de documento (regra do art. 64 — sem substituição):
- *  - AGUARDANDO_ENVIO no prazo → ENVIO (a documentação ainda não foi entregue);
- *  - depois de entregue (ato ou prazo): só COMPLEMENTO, numa diligência
- *    vigente que inclua a exigência;
+ * ENVIO de documento — o que manda é o PRAZO (dono, 11/11/2026: "sempre seguir
+ * o tempo"):
+ *  - enquanto o prazo da convocação corre, o licitante envia, mesmo depois de
+ *    clicar em "Entregar": pode ter enviado errado e corrigir → ENVIO;
+ *  - depois do prazo: só COMPLEMENTO, numa diligência que ainda receba (aberta
+ *    ou já respondida, dentro do prazo dela) e que inclua a exigência;
  *  - decidida → nada.
  */
 export function regraDeEnvio(
@@ -429,32 +453,40 @@ export function regraDeEnvio(
   agora: Date = new Date(),
 ): { origem: OrigemDocumento; diligenciaId: string | null } | { erro: string } {
   if (STATUS_HABILITACAO_FINAIS.includes(h.status)) return { erro: 'A habilitação deste licitante já foi decidida — não se recebem documentos' };
-  if (h.status === StatusHabilitacao.AGUARDANDO_ENVIO && !prazoEntregaEncerrado(h, agora)) {
-    return { origem: OrigemDocumento.ENVIO, diligenciaId: null };
-  }
-  const d = diligencias.find((x) => diligenciaVigente(x, agora) && x.exigencia_ids.includes(exigenciaId));
+  const d = diligencias.find((x) => diligenciaRecebe(x, agora) && x.exigencia_ids.includes(exigenciaId));
   if (d) return { origem: OrigemDocumento.COMPLEMENTO, diligenciaId: d.id };
-  if (diligencias.some((x) => diligenciaVigente(x, agora))) {
+  if (prazoDaConvocacaoCorrendo(h, agora)) return { origem: OrigemDocumento.ENVIO, diligenciaId: null };
+  if (diligencias.some((x) => diligenciaRecebe(x, agora))) {
     return { erro: 'A diligência aberta não inclui esta exigência — só se complementam os documentos indicados pelo agente (art. 64)' };
   }
   return {
     erro:
-      'Documentação já entregue: não é permitida a substituição nem a apresentação de novos documentos, ' +
+      'O prazo de envio terminou: não se recebem novos documentos nem substituições, ' +
       'salvo em diligência aberta pelo agente de contratação (Lei 14.133/2021, art. 64; IN SEGES 73/2022, art. 39 §4º)',
   };
 }
 
-/** Remover documento: só o próprio envio, antes da entrega (rascunho), e ainda não analisado. */
+/**
+ * Remover documento (para corrigir um envio errado): o próprio envio enquanto o
+ * prazo da convocação corre, ou o próprio complemento enquanto a diligência
+ * dele ainda recebe — e só se o agente ainda não o analisou.
+ */
 export function motivoNaoRemove(
   h: EstadoHabilitacao,
-  doc: { origem: string; analise: string },
+  doc: { origem: string; analise: string; diligencia_id?: string | null },
   agora: Date = new Date(),
+  diligencias: EstadoDiligencia[] = [],
 ): string | null {
-  if (doc.origem !== OrigemDocumento.ENVIO) return 'Só se retira documento enviado pelo licitante antes da entrega da documentação';
-  if (h.status !== StatusHabilitacao.AGUARDANDO_ENVIO || prazoEntregaEncerrado(h, agora)) {
-    return 'Documentação já entregue: não é permitida a substituição (art. 64)';
+  if (STATUS_HABILITACAO_FINAIS.includes(h.status)) return 'A habilitação deste licitante já foi decidida';
+  if (doc.origem === OrigemDocumento.ENVIO) {
+    if (!prazoDaConvocacaoCorrendo(h, agora)) return 'O prazo de envio terminou: o documento não pode mais ser retirado nem substituído (art. 64)';
+  } else if (doc.origem === OrigemDocumento.COMPLEMENTO) {
+    const d = diligencias.find((x) => x.id === doc.diligencia_id);
+    if (!d || !diligenciaRecebe(d, agora)) return 'O prazo da diligência terminou: o complemento não pode mais ser retirado nem substituído';
+  } else {
+    return 'Só se retira documento enviado pelo próprio licitante';
   }
-  if (doc.analise !== ResultadoAnalise.PENDENTE) return 'Documento já analisado';
+  if (doc.analise !== ResultadoAnalise.PENDENTE) return 'Documento já analisado pelo agente de contratação';
   return null;
 }
 

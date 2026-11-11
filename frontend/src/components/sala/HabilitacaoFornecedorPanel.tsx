@@ -35,7 +35,8 @@ import {
  *    atende (art. 70) — o licitante envia só o que falta;
  *  - envio por exigência (PDF/JPG/PNG, até 10 MB) no prazo; antes de entregar,
  *    pode retirar o que anexou; ao ENTREGAR (ou no fim do prazo) acabou: não há
- *    substituição nem documento novo (art. 64);
+ *    substituição nem documento novo DEPOIS DO PRAZO (art. 64) — dentro do prazo o
+ *    licitante corrige o que enviou errado, mesmo já tendo clicado em entregar;
  *  - diligência aberta pelo agente: complementa só as exigências indicadas,
  *    no prazo dela, e responde;
  *  - resultado de cada documento (atende / não atende com motivo) e a decisão.
@@ -230,7 +231,7 @@ export function HabilitacaoFornecedorPanel({
           <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900">
             <div className="flex items-center gap-1 font-semibold"><AlertTriangle className="h-4 w-4" /> Diligência (art. 64) — até {dataHora(diligencia.prazoAte)} ({contagem(diligencia.prazoAte, agora)})</div>
             <div className="mt-1">{diligencia.motivo}</div>
-            <div className="mt-1 text-xs">Complemente só as exigências indicadas abaixo e depois clique em “Responder diligência”.</div>
+            <div className="mt-1 text-xs">Complemente só as exigências indicadas abaixo e clique em “Responder diligência”. Até o fim do prazo você ainda pode anexar outro documento, retirar um enviado errado e atualizar a resposta.</div>
           </div>
         )}
 
@@ -313,7 +314,7 @@ export function HabilitacaoFornecedorPanel({
           <DialogHeader>
             <DialogTitle>Entregar a documentação de habilitação</DialogTitle>
             <DialogDescription>
-              Depois de entregue, não é possível substituir nem incluir documentos — só complementar se o agente abrir diligência (Lei 14.133/2021, art. 64).
+              A entrega avisa o agente de contratação de que a documentação está pronta para análise. Enquanto o prazo da convocação estiver correndo, você ainda pode incluir um documento ou retirar um enviado errado (desde que ainda não analisado). Depois do prazo, só em diligência aberta pelo agente (Lei 14.133/2021, art. 64). Na inversão de fases, a entrega encerra o envio.
             </DialogDescription>
           </DialogHeader>
           {faltando.length > 0 && (
@@ -339,7 +340,7 @@ export function HabilitacaoFornecedorPanel({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Responder diligência</DialogTitle>
-            <DialogDescription>Conclui a complementação antes do prazo. O que foi anexado fica registrado.</DialogDescription>
+            <DialogDescription>Avisa o agente de contratação de que a complementação está pronta. Até o fim do prazo você ainda pode anexar, retirar um documento enviado errado e atualizar esta resposta.</DialogDescription>
           </DialogHeader>
           <Textarea rows={3} value={resposta} onChange={(e) => setResposta(e.target.value)} placeholder="Esclarecimento (opcional)" />
           <DialogFooter>
