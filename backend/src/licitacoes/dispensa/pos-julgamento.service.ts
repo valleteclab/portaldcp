@@ -4,7 +4,7 @@ import { DataSource } from 'typeorm';
 import type { Ator } from '../../auth/acesso/ator';
 import { atorTransicaoDe } from '../transicoes/transicoes.tipos';
 import { LicitacoesService } from '../licitacoes.service';
-import { HabilitacaoDispensa, NegociacaoDispensa } from './pos-julgamento.entities';
+import { ExclusaoItemDispensa, HabilitacaoDispensa, NegociacaoDispensa } from './pos-julgamento.entities';
 
 /** Documentos de habilitação conferidos na contratação direta (art. 72, V; arts. 62–70). */
 export const DOCUMENTOS_HABILITACAO_DISPENSA = [
@@ -86,15 +86,25 @@ export class DispensaPosJulgamentoService {
     for (const h of habs) if (porFornecedor.has(h.fornecedor_id)) porFornecedor.get(h.fornecedor_id).habilitacao = h;
     for (const n of negs) if (porFornecedor.has(n.fornecedor_id)) porFornecedor.get(n.fornecedor_id).negociacoes.push({ ...n, valor_unitario: Number(n.valor_unitario), valor_anterior: Number(n.valor_anterior) });
     const vencedores = [...porFornecedor.values()];
+    const exclusoes: any[] = await this.ds.query(
+      `SELECT e.item_licitacao_id::text AS item_id, i.numero_item AS numero, e.fornecedor_id::text AS fornecedor_id, f.razao_social, e.tipo, e.motivo,
+              e.registrado_por_nome, e.created_at
+         FROM exclusoes_item_dispensa e
+         JOIN itens_licitacao i ON i.id = e.item_licitacao_id
+         LEFT JOIN fornecedores f ON f.id = e.fornecedor_id
+        WHERE e.licitacao_id::text = $1 ORDER BY i.numero_item, e.created_at`,
+      [id],
+    );
     return {
       documentos: DOCUMENTOS_HABILITACAO_DISPENSA,
       vencedores,
+      exclusoes_por_item: exclusoes,
       todos_habilitados: vencedores.length > 0 && vencedores.every((v) => v.habilitacao?.resultado === 'HABILITADO'),
     };
   }
 
   /** Registra a habilitação do vencedor. Inabilitado: proposta desclassificada e rejulgamento (próximo da classificação). */
-  async registrarHabilitacao(id: string, ator: Ator, body: { fornecedor_id?: string; resultado?: string; motivo?: string; conferidos?: string[] }) {
+  async registrarHabilitacao(id: string, ator: Ator, body: { fornecedor_id?: string; resultado?: string; motivo?: string; conferidos?: string[]; itens_ids?: string[] }) {
     await this.exigirAntesDaHomologacao(id);
     const resultado = String(body?.resultado ?? '').toUpperCase();
     if (!['HABILITADO', 'INABILITADO'].includes(resultado)) throw new BadRequestException('Informe HABILITADO ou INABILITADO');
@@ -109,6 +119,15 @@ export class DispensaPosJulgamentoService {
     if (resultado === 'INABILITADO' && motivo.length < MIN_MOTIVO) throw new BadRequestException(`Informe o motivo da inabilitação (mínimo ${MIN_MOTIVO} caracteres)`);
     if (resultado === 'HABILITADO' && !conferidos.length) throw new BadRequestException('Marque os documentos conferidos');
     const nome = await this.nomeDoAtor(ator);
+    // Inabilitação só em PARTE dos itens que ele venceu: sai deles (próximo chamado) e segue nos demais
+    if (resultado === 'INABILITADO' && Array.isArray(body?.itens_ids) && body.itens_ids.length) {
+      const meus = await this.itensDoVencedor(id, fornecedorId);
+      const pedidos = [...new Set(body.itens_ids.map(String))];
+      if (pedidos.some((p) => !meus.some((i) => i.item_id === p))) throw new BadRequestException('Só é possível inabilitar por item onde o fornecedor é o vencedor.');
+      if (pedidos.length < meus.length) {
+        return this.excluirDeItens(id, fornecedorId, pedidos, 'HABILITACAO', motivo, nome, ator);
+      }
+    }
     await this.ds.getRepository(HabilitacaoDispensa).save({ licitacao_id: id, fornecedor_id: fornecedorId, resultado, motivo: motivo || null, conferidos, registrado_por_nome: nome });
     if (resultado === 'HABILITADO') return this.painel(id);
     // Inabilitado: a proposta sai da disputa e o próximo da classificação é chamado (rejulgamento)
@@ -121,6 +140,61 @@ export class DispensaPosJulgamentoService {
       throw new ConflictException(`Inabilitação registrada, mas o rejulgamento falhou: ${e?.message ?? e}`);
     });
     return this.painel(id);
+  }
+
+  private async itensDoVencedor(id: string, fornecedorId: string): Promise<Array<{ item_id: string; numero: number }>> {
+    return this.ds.query(
+      `SELECT id::text AS item_id, numero_item AS numero FROM itens_licitacao
+        WHERE licitacao_id::text = $1 AND fornecedor_vencedor_id::text = $2 AND status::text = 'ADJUDICADO' ORDER BY numero_item`,
+      [id, fornecedorId],
+    );
+  }
+
+  /** Tira o fornecedor SÓ dos itens indicados, avisa-o e rejulga (o próximo da classificação assume ali). */
+  private async excluirDeItens(id: string, fornecedorId: string, itensIds: string[], tipo: 'PROPOSTA' | 'HABILITACAO', motivo: string, nome: string, ator: Ator) {
+    const meus = await this.itensDoVencedor(id, fornecedorId);
+    const alvo = meus.filter((i) => itensIds.includes(i.item_id));
+    await this.ds.getRepository(ExclusaoItemDispensa).save(
+      alvo.map((i) => ({ licitacao_id: id, item_licitacao_id: i.item_id, fornecedor_id: fornecedorId, tipo, motivo, registrado_por_nome: nome })),
+    );
+    await this.ds.query(
+      `UPDATE negociacoes_dispensa SET status = 'CANCELADA' WHERE licitacao_id::text = $1 AND fornecedor_id::text = $2 AND item_licitacao_id::text = ANY($3) AND status = 'PENDENTE'`,
+      [id, fornecedorId, itensIds],
+    );
+    const rotulo = alvo.map((i) => `item ${i.numero}`).join(', ');
+    await this.licitacoes
+      .enviarMensagemDispensa(id, {
+        autor_tipo: 'ORGAO',
+        autor_nome: nome,
+        fornecedor_destino_id: fornecedorId,
+        mensagem:
+          tipo === 'PROPOSTA'
+            ? `Sua proposta foi desclassificada no ${rotulo} (você segue nos demais itens). Motivo: ${motivo}`
+            : `Você foi inabilitado(a) só no ${rotulo} (segue nos demais itens). Motivo: ${motivo}`,
+      } as any)
+      .catch(() => undefined);
+    await this.licitacoes.julgarDispensa(id, atorTransicaoDe(ator)).catch((e) => {
+      throw new ConflictException(`Saída do item registrada, mas o rejulgamento falhou: ${e?.message ?? e}`);
+    });
+    return this.painel(id);
+  }
+
+  /**
+   * Desclassifica a proposta do vencedor SÓ em um item (preço inexequível,
+   * objeto em desacordo — Lei 14.133/2021, art. 59): ele segue nos demais
+   * itens e o próximo da classificação é chamado naquele.
+   */
+  async desclassificarNoItem(id: string, ator: Ator, body: { item_id?: string; motivo?: string }) {
+    await this.exigirAntesDaHomologacao(id);
+    const motivo = String(body?.motivo ?? '').trim();
+    if (motivo.length < MIN_MOTIVO) throw new BadRequestException(`Informe o motivo da desclassificação (mínimo ${MIN_MOTIVO} caracteres)`);
+    const [it] = await this.ds.query(
+      `SELECT id::text AS id, fornecedor_vencedor_id::text AS fornecedor_id FROM itens_licitacao
+        WHERE id::text = $1 AND licitacao_id::text = $2 AND status::text = 'ADJUDICADO'`,
+      [String(body?.item_id ?? ''), id],
+    );
+    if (!it?.fornecedor_id) throw new BadRequestException('Item sem vencedor adjudicado');
+    return this.excluirDeItens(id, it.fornecedor_id, [it.id], 'PROPOSTA', motivo, await this.nomeDoAtor(ator), ator);
   }
 
   /** Contraproposta do órgão ao vencedor do item (IN 67, art. 16) — o fornecedor aceita ou recusa. */

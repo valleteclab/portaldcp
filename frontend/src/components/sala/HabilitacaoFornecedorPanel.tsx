@@ -248,7 +248,7 @@ export function HabilitacaoFornecedorPanel({
 
         {minha && ['HABILITADO', 'INABILITADO'].includes(minha.status) && (
           <div className={`rounded-lg border p-3 text-sm ${minha.status === 'HABILITADO' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
-            {minha.status === 'HABILITADO' ? 'Você foi HABILITADO(A) nesta licitação.' : `Você foi INABILITADO(A). Motivo: ${minha.decisaoMotivo ?? '-'}`}
+            {minha.status === 'HABILITADO' ? ((minha.inabilitacoesUnidade ?? []).length ? 'Nos demais itens/lotes com proposta aceita, você foi HABILITADO(A).' : 'Você foi HABILITADO(A) nesta licitação.') : `Você foi INABILITADO(A). Motivo: ${minha.decisaoMotivo ?? '-'}`}
           </div>
         )}
 

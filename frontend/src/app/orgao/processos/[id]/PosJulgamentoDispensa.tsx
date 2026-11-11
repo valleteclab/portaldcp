@@ -28,7 +28,8 @@ interface Vencedor {
   habilitacao: { resultado: string; motivo: string | null; conferidos: string[]; registrado_por_nome: string | null; created_at: string } | null
   negociacoes: Negociacao[]
 }
-interface Painel { documentos: string[]; vencedores: Vencedor[]; todos_habilitados: boolean }
+interface ExclusaoItem { item_id: string; numero: number; fornecedor_id: string; razao_social: string | null; tipo: string; motivo: string }
+interface Painel { documentos: string[]; vencedores: Vencedor[]; todos_habilitados: boolean; exclusoes_por_item?: ExclusaoItem[] }
 
 const moeda = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 const ROTULO_NEG: Record<string, string> = { PENDENTE: "aguardando o fornecedor", ACEITA: "aceita", RECUSADA: "recusada", CANCELADA: "substituída" }
@@ -43,6 +44,9 @@ export function PosJulgamentoDispensa({ licitacaoId, onAtualizado }: { licitacao
   const [marcados, setMarcados] = useState<Record<string, string[]>>({})
   const [motivo, setMotivo] = useState<Record<string, string>>({})
   const [valor, setValor] = useState<Record<string, string>>({})
+  // Saída por item: motivo da desclassificação da proposta no item e itens atingidos pela inabilitação
+  const [motivoItem, setMotivoItem] = useState<Record<string, string>>({})
+  const [foraDaInab, setForaDaInab] = useState<Record<string, string[]>>({})
   const [ocupado, setOcupado] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
@@ -82,6 +86,9 @@ export function PosJulgamentoDispensa({ licitacaoId, onAtualizado }: { licitacao
       {p.vencedores.map((v) => {
         const h = v.habilitacao
         const conf = marcados[v.fornecedor_id] ?? []
+        const poupados = (foraDaInab[v.fornecedor_id] ?? []).filter((id) => v.itens.some((i) => i.item_id === id))
+        const atingidos = v.itens.map((i) => i.item_id).filter((id) => !poupados.includes(id))
+        const parcial = atingidos.length > 0 && atingidos.length < v.itens.length
         return (
           <div key={v.fornecedor_id} className="rounded-md border border-gray-100 bg-gray-50 p-3 space-y-3">
             <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -134,14 +141,33 @@ export function PosJulgamentoDispensa({ licitacaoId, onAtualizado }: { licitacao
                       value={motivo[v.fornecedor_id] ?? ""}
                       onChange={(e) => setMotivo((m) => ({ ...m, [v.fornecedor_id]: e.target.value }))}
                     />
+                    {v.itens.length > 1 && (
+                      <div className="rounded border border-gray-200 p-2 text-sm">
+                        <p className="text-xs text-gray-600">Inabilitar em (desmarque os itens em que o fornecedor deve continuar):</p>
+                        <div className="flex gap-3 flex-wrap">
+                          {v.itens.map((i) => (
+                            <label key={i.item_id} className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={!poupados.includes(i.item_id)}
+                                onChange={(e) =>
+                                  setForaDaInab((m) => ({ ...m, [v.fornecedor_id]: e.target.checked ? poupados.filter((x) => x !== i.item_id) : [...poupados, i.item_id] }))
+                                }
+                              />
+                              Item {i.numero}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"
                       className="text-red-700"
-                      disabled={(motivo[v.fornecedor_id] ?? "").trim().length < 10 || ocupado === `inab-${v.fornecedor_id}`}
-                      onClick={() => enviar(`inab-${v.fornecedor_id}`, `/api/licitacoes/${licitacaoId}/dispensa/habilitacao`, { fornecedor_id: v.fornecedor_id, resultado: "INABILITADO", motivo: motivo[v.fornecedor_id], conferidos: conf }, "Inabilitado: o próximo da classificação foi chamado.")}
+                      disabled={(motivo[v.fornecedor_id] ?? "").trim().length < 10 || atingidos.length === 0 || ocupado === `inab-${v.fornecedor_id}`}
+                      onClick={() => enviar(`inab-${v.fornecedor_id}`, `/api/licitacoes/${licitacaoId}/dispensa/habilitacao`, { fornecedor_id: v.fornecedor_id, resultado: "INABILITADO", motivo: motivo[v.fornecedor_id], conferidos: conf, ...(parcial ? { itens_ids: atingidos } : {}) }, "Inabilitado: o próximo da classificação foi chamado.")}
                     >
-                      <XCircle className="w-4 h-4 mr-1" aria-hidden="true" />Inabilitar e chamar o próximo
+                      <XCircle className="w-4 h-4 mr-1" aria-hidden="true" />{parcial ? "Inabilitar só nos itens marcados" : "Inabilitar e chamar o próximo"}
                     </Button>
                   </div>
                 </div>
@@ -164,6 +190,23 @@ export function PosJulgamentoDispensa({ licitacaoId, onAtualizado }: { licitacao
                   >
                     Enviar contraproposta
                   </Button>
+                  <div className="flex items-end gap-2 flex-wrap basis-full">
+                    <div className="flex-1 min-w-[16rem]">
+                      <label htmlFor={`desc-${i.item_id}`} className="text-xs text-gray-600">
+                        Proposta em desacordo só neste item (ex.: preço inexequível) — motivo
+                      </label>
+                      <Input id={`desc-${i.item_id}`} className="h-9" value={motivoItem[i.item_id] ?? ""} onChange={(e) => setMotivoItem((x) => ({ ...x, [i.item_id]: e.target.value }))} />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-700"
+                      disabled={(motivoItem[i.item_id] ?? "").trim().length < 10 || ocupado === `desc-${i.item_id}`}
+                      onClick={() => enviar(`desc-${i.item_id}`, `/api/licitacoes/${licitacaoId}/dispensa/desclassificar-item`, { item_id: i.item_id, motivo: motivoItem[i.item_id] }, `Proposta desclassificada no item ${i.numero}: o próximo da classificação foi chamado nele.`)}
+                    >
+                      Desclassificar no item {i.numero}
+                    </Button>
+                  </div>
                   {ultima && (
                     <span className="text-xs text-gray-700">
                       Última: {moeda(ultima.valor_unitario)} — {ROTULO_NEG[ultima.status] ?? ultima.status}
@@ -176,6 +219,18 @@ export function PosJulgamentoDispensa({ licitacaoId, onAtualizado }: { licitacao
           </div>
         )
       })}
+      {(p.exclusoes_por_item ?? []).length > 0 && (
+        <div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
+          <p className="font-semibold">Fornecedores fora de um item (seguem nos demais)</p>
+          <ul className="list-disc pl-4">
+            {(p.exclusoes_por_item ?? []).map((e, k) => (
+              <li key={k}>
+                Item {e.numero}: {e.razao_social || "fornecedor"} — {e.tipo === "PROPOSTA" ? "proposta desclassificada" : "inabilitado"} neste item. Motivo: {e.motivo}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {!p.todos_habilitados && <p className="text-xs text-amber-800">A homologação libera quando todos os vencedores estiverem habilitados.</p>}
       {/* Documento ou esclarecimento que falte: pedido formal ao fornecedor, com prazo e registro */}
       <DiligenciasOrgao licitacaoId={licitacaoId} fase="DISPENSA" fornecedorSugeridoId={p.vencedores[0]?.fornecedor_id ?? null} />

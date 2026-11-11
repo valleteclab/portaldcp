@@ -33,6 +33,14 @@ export class DispensaPosJulgamentoController {
     return this.servico.registrarHabilitacao(id, ator, body ?? {});
   }
 
+  /** Desclassifica a proposta do vencedor só em um item (ele segue nos demais). */
+  @Post(':id/dispensa/desclassificar-item')
+  @SomenteOrgao()
+  async desclassificarItem(@Param('id') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaLicitacao(ator, id, 'escrita');
+    return this.servico.desclassificarNoItem(id, ator, body ?? {});
+  }
+
   @Post(':id/dispensa/negociacao')
   @SomenteOrgao()
   async propor(@Param('id') id: string, @Body() body: any, @AtorAtual() ator: Ator) {
