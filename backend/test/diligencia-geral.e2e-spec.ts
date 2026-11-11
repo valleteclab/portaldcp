@@ -109,6 +109,8 @@ describe('Diligência geral ao licitante (e2e)', () => {
     const parecer = await http().post(`/api/diligencias/${dil}/anexos`).set(bearer(orgao.token)).attach('arquivo', PDF, 'parecer-area-tecnica.pdf');
     expect(parecer.status).toBe(201);
     expect(parecer.body.autor).toBe('ORGAO');
+    // a hora do anexo é a da aplicação (antes vinha do relógio do banco, 3 h adiantada no Railway)
+    expect(Math.abs(new Date(parecer.body.enviadoEm).getTime() - Date.now())).toBeLessThan(60_000);
     expect((await http().post(`/api/diligencias/${dil}/encerrar`).set(bearer(orgao.token)).send({ resultado: 'ATENDIDA', motivo: 'ok' })).status).toBe(400);
     expect((await http().post(`/api/diligencias/${dil}/encerrar`).set(bearer(A.token)).send({ resultado: 'ATENDIDA', motivo: 'Planilha confere' })).status).toBe(403);
     const r = await http().post(`/api/diligencias/${dil}/encerrar`).set(bearer(orgao.token)).send({ resultado: 'ATENDIDA', motivo: 'A planilha demonstra a exequibilidade do preço.' });
