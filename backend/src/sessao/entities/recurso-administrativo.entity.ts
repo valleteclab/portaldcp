@@ -68,6 +68,8 @@ export interface EfeitosRecurso {
   /** Situações alteradas (licitante x unidade): de → para. */
   alteracoes: Array<{
     fornecedor_id: string;
+    /** Nome do licitante atingido (atos invalidados de terceiros). */
+    fornecedor_nome?: string | null;
     unidade_id: string;
     rotulo: string;
     de: string | null;

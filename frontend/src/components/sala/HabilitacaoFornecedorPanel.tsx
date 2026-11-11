@@ -235,6 +235,17 @@ export function HabilitacaoFornecedorPanel({
           </div>
         )}
 
+        {minha && (minha.inabilitacoesUnidade ?? []).length > 0 && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            {(minha.inabilitacoesUnidade ?? []).map((i) => (
+              <div key={i.unidadeId}>
+                Você foi INABILITADO(A) só em {i.rotulo} (segue nos demais). Motivo: {i.motivo}
+              </div>
+            ))}
+            <div className="mt-1 text-xs">Você pode recorrer desta decisão no prazo de intenção de recurso (Lei 14.133/2021, art. 165).</div>
+          </div>
+        )}
+
         {minha && ['HABILITADO', 'INABILITADO'].includes(minha.status) && (
           <div className={`rounded-lg border p-3 text-sm ${minha.status === 'HABILITADO' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
             {minha.status === 'HABILITADO' ? 'Você foi HABILITADO(A) nesta licitação.' : `Você foi INABILITADO(A). Motivo: ${minha.decisaoMotivo ?? '-'}`}

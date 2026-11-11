@@ -1318,7 +1318,15 @@ export class RecursosService {
         for (const inv of planejarInvalidacoes(novoRanking, r.fornecedor_id)) {
           await this.ranking.definirSituacao(m, u, inv.fornecedorId, SituacaoLicitante.CLASSIFICADO, { motivo: motivoInvalidacao, ator });
           efeitos.aceitacoes_canceladas.push(...(await this.invalidarAceitacoes(m, unidadeId, inv.fornecedorId, motivoInvalidacao)));
-          efeitos.alteracoes.push({ fornecedor_id: inv.fornecedorId, unidade_id: unidadeId, rotulo, de: inv.de, para: SituacaoLicitante.CLASSIFICADO, tipo: 'INVALIDADO' });
+          efeitos.alteracoes.push({
+            fornecedor_id: inv.fornecedorId,
+            fornecedor_nome: await this.nomeFornecedor(m, inv.fornecedorId),
+            unidade_id: unidadeId,
+            rotulo,
+            de: inv.de,
+            para: SituacaoLicitante.CLASSIFICADO,
+            tipo: 'INVALIDADO',
+          });
         }
       } else {
         const nova = situacaoDoAlvoProvido(ato)!;

@@ -879,20 +879,23 @@ export class AceitacaoService {
     motivo: string,
     ator: AtorTransicao,
     usuarioNome?: string,
+    /** Inabilitação só nestas unidades (decisão por item/lote); omitido = todas. */
+    somenteUnidades?: string[],
   ): Promise<{ reconvocadas: number; fracassadas: number; restantesComAceite: number }> {
     const sessao = await this.sessao(sessaoId);
     const licitacaoId = sessao.licitacao_id;
+    const alcance = somenteUnidades?.length ? new Set(somenteUnidades.map(String)) : null;
     const naVez = new Set(
-      await this.ranking.unidadesDoLicitante(
-        licitacaoId,
-        fornecedorId,
-        [...SITUACOES_PROPOSTA_ACEITA, SituacaoLicitante.CONVOCADO_ACEITACAO],
-      ),
+      (
+        await this.ranking.unidadesDoLicitante(licitacaoId, fornecedorId, [...SITUACOES_PROPOSTA_ACEITA, SituacaoLicitante.CONVOCADO_ACEITACAO])
+      ).filter((id) => !alcance || alcance.has(String(id))),
     );
-    const todas: any[] = await this.dataSource.query(
-      `SELECT unidade_id FROM licitantes_unidade WHERE licitacao_id = $1 AND fornecedor_id = $2 AND NOT (situacao = ANY($3))`,
-      [licitacaoId, fornecedorId, [...SITUACOES_EXCLUIDAS]],
-    );
+    const todas: any[] = (
+      await this.dataSource.query(
+        `SELECT unidade_id FROM licitantes_unidade WHERE licitacao_id = $1 AND fornecedor_id = $2 AND NOT (situacao = ANY($3))`,
+        [licitacaoId, fornecedorId, [...SITUACOES_EXCLUIDAS]],
+      )
+    ).filter((row: any) => !alcance || alcance.has(String(row.unidade_id)));
     await this.dataSource.transaction(async (m) => {
       for (const row of todas) {
         const u = await this.ranking.unidade(String(row.unidade_id), m);
@@ -900,8 +903,8 @@ export class AceitacaoService {
       }
       await m.query(
         `UPDATE aceitacoes_proposta SET status = $3, decidida_em = now(), decisao_motivo = $4, updated_at = now()
-          WHERE licitacao_id = $1 AND fornecedor_id = $2 AND status = ANY($5)`,
-        [licitacaoId, fornecedorId, StatusAceitacao.CANCELADA, `Licitante inabilitado: ${motivo}`, STATUS_ACEITACAO_ATIVOS],
+          WHERE licitacao_id = $1 AND fornecedor_id = $2 AND status = ANY($5) AND ($6::text[] IS NULL OR unidade_id::text = ANY($6))`,
+        [licitacaoId, fornecedorId, StatusAceitacao.CANCELADA, `Licitante inabilitado: ${motivo}`, STATUS_ACEITACAO_ATIVOS, alcance ? [...alcance] : null],
       );
     });
 

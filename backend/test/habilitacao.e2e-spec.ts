@@ -506,6 +506,64 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       expect(s.etapa).toBe(EtapaSessao.ACEITACAO_PROPOSTA);
     });
 
+    // Decisão por item/lote (pedido do dono, 11/11/2026): os documentos são do
+    // licitante e valem para todos os itens, mas a inabilitação pode atingir só um.
+    test('inabilitação só em um item: o licitante segue nos outros e é habilitado neles; o próximo é chamado só onde ele saiu', async () => {
+      const orgao = await criarOrgao(ctx, { nome: 'Prefeitura Habilitação por Item' });
+      const F1 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+      const F2 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+      const p = await prepararPregaoEmDisputa(
+        ctx,
+        orgao,
+        [
+          { fornecedor: F1, valores: [90, 90, 90] },
+          { fornecedor: F2, valores: [95, 95, 95] },
+        ],
+        { itens: ['Mesa', 'Cadeira', 'Armário'].map((descricao) => ({ descricao, quantidade: 5, valor_unitario_estimado: 100 })) },
+      );
+      const licId = p.lic.id;
+      const [itemA, itemB, itemC] = p.lic.itens.map((i: any) => i.id);
+      for (const it of [itemA, itemB, itemC]) await encerrar(orgao, p.sessaoId, it);
+      for (const it of [itemA, itemB, itemC]) await aceitarPropostaDaUnidade(ctx, p.sessaoId, it, orgao.token, F1.token);
+      const c = await convocarHabilitacao(ctx, licId, F1.id, orgao.token);
+      expect(c.status).toBe(201);
+      await enviarDocumentosFaltantes(ctx, licId, F1.token);
+      expect((await entregarHabilitacao(ctx, licId, F1.token)).status).toBe(201);
+      await atenderTodos(ctx, licId, c.body.id, orgao.token);
+
+      // item de outro licitante / sem proposta aceita → 400
+      const invalido = await decidirHabilitacao(ctx, c.body.id, orgao.token, 'inabilitar', {
+        motivo: 'Atestado não cobre o objeto do item',
+        unidadesIds: ['00000000-0000-4000-8000-000000000000'],
+      });
+      expect(invalido.status).toBe(400);
+
+      const r = await decidirHabilitacao(ctx, c.body.id, orgao.token, 'inabilitar', {
+        motivo: 'Atestado de capacidade técnica não cobre o objeto deste item',
+        unidadesIds: [itemB],
+      });
+      expect(r.status).toBe(201);
+      // a habilitação do licitante segue aberta para os outros itens
+      expect(r.body.status).not.toBe('INABILITADO');
+      expect(r.body.inabilitacoesUnidade).toEqual([expect.objectContaining({ unidadeId: itemB, rotulo: 'Item 2', motivo: expect.stringMatching(/Atestado/) })]);
+      const situ = async (item: string, f: string) => (await q(`SELECT situacao FROM licitantes_unidade WHERE unidade_id = $1 AND fornecedor_id = $2`, [item, f]))[0]?.situacao;
+      expect([await situ(itemA, F1.id), await situ(itemB, F1.id), await situ(itemC, F1.id)]).toEqual(['ACEITO', 'INABILITADO', 'ACEITO']);
+      // só no item B o próximo (F2) é chamado para a aceitação
+      const painel = await painelAceitacao(ctx, p.sessaoId, orgao.token);
+      const un = (id: string) => painel.unidades.find((u: any) => u.id === id);
+      expect(un(itemB).aceitacaoAtual).toMatchObject({ fornecedorId: F2.id, status: 'AGUARDANDO_ENVIO' });
+      expect(un(itemA).aceitacaoAtual?.fornecedorId ?? F1.id).toBe(F1.id);
+
+      // F1 é habilitado nos itens em que ficou
+      const h = await decidirHabilitacao(ctx, c.body.id, orgao.token, 'habilitar');
+      expect(h.status).toBe(201);
+      expect(h.body.status).toBe('HABILITADO');
+      expect([await situ(itemA, F1.id), await situ(itemB, F1.id), await situ(itemC, F1.id)]).toEqual(['HABILITADO', 'INABILITADO', 'HABILITADO']);
+      // o próprio licitante vê onde foi inabilitado e o motivo
+      const minha = (await painelHabilitacao(ctx, licId, F1.token)).minha;
+      expect(minha.inabilitacoesUnidade).toEqual([expect.objectContaining({ rotulo: 'Item 2' })]);
+    });
+
     test('F1 inabilitado: RETORNAR_JULGAMENTO, F2 convocado para a aceitação e depois habilitado', async () => {
       const orgao = await criarOrgao(ctx, { nome: 'Prefeitura Inabilitação E4' });
       const F1 = await criarFornecedor(ctx, { porte: 'DEMAIS' });

@@ -31,6 +31,7 @@ export interface Contrarrazao {
 
 export interface AlteracaoEfeito {
   fornecedor_id: string;
+  fornecedor_nome?: string | null;
   unidade_id: string;
   rotulo: string;
   de: string | null;
@@ -301,7 +302,7 @@ export function DetalheRecurso({ r }: { r: Recurso }) {
               {(r.efeitos.alteracoes ?? []).map((a, i) => (
                 <li key={i}>
                   {a.rotulo}: {a.tipo === "RESTAURADO" ? "restaurado" : a.tipo === "INVALIDADO" ? "ato invalidado" : "excluído"} —{" "}
-                  {a.fornecedor_id === r.recorrente.id ? r.recorrente.nome : a.fornecedor_id === r.alvo?.id ? r.alvo?.nome : "licitante"} (
+                  {a.fornecedor_id === r.recorrente.id ? r.recorrente.nome : a.fornecedor_id === r.alvo?.id ? r.alvo?.nome : a.fornecedor_nome || "outro licitante"} (
                   {a.de ?? "—"} → {a.para})
                 </li>
               ))}

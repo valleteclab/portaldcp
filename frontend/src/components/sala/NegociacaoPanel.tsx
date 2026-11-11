@@ -97,7 +97,8 @@ export function ConversaNegociacao({ mensagens, eu }: { mensagens: MensagemNegoc
       <div className="space-y-1.5">
         {mensagens.map((m) => {
           const minha = m.autor === eu
-          const sistema = m.autor === 'SISTEMA'
+          // Evento público da negociação (abertura, resultado) vem sem autor: é do sistema, não do licitante
+          const sistema = m.autor !== 'AGENTE' && m.autor !== 'LICITANTE'
           return (
             <div key={m.id} className={`flex ${sistema ? 'justify-center' : minha ? 'justify-end' : 'justify-start'}`}>
               <div

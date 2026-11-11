@@ -29,6 +29,7 @@ import type { ItemDisputa, LanceRegistrado, LancePainelCancelamento } from './di
 import { ModoDisputaService } from './modo-disputa.service';
 import { DirecaoLance, ordemSql } from './modos-disputa';
 import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
+import { fornecedoresForaDoRankingSql } from '../julgamento/regras-julgamento';
 
 /**
  * ============================================================================
@@ -510,7 +511,9 @@ export class DisputaLoteService {
         const meus = ativos
           .filter((l) => l.fornecedor_id === cmd.fornecedorId)
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        const melhor = ativos[0];
+        const fora = origem === OrigemLance.DESEMPATE_MPE ? await fornecedoresForaDoRankingSql(m, lote.id) : null;
+        const noRanking = fora?.size ? ativos.filter((l) => !fora.has(String(l.fornecedor_id))) : ativos;
+        const melhor = noRanking[0];
         const agora = new Date();
 
         validarLance({
@@ -521,7 +524,7 @@ export class DisputaLoteService {
           propostaNaBase: eleg.totalProposta,
           meuUltimo: meus[0] ? { valor: parseFloat(meus[0].valor), origem: meus[0].origem, criadoEm: new Date(meus[0].created_at) } : null,
           melhor: melhor ? { valor: parseFloat(melhor.valor), fornecedorId: melhor.fornecedor_id } : null,
-          valoresDeOutros: ativos.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
+          valoresDeOutros: noRanking.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
           diferencaMinima: params.diferencaMinima,
           intervaloProprioSegundos: params.intervaloProprioSegundos,
           agora,

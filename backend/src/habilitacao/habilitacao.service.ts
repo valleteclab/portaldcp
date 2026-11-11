@@ -531,6 +531,7 @@ export class HabilitacaoService {
       enviadaEm: h.enviada_em,
       decididaEm: h.decidida_em,
       decisaoMotivo: h.decisao_motivo,
+      inabilitacoesUnidade: (h.inabilitacoes_unidade ?? []).map((i) => ({ unidadeId: i.unidade_id, rotulo: i.rotulo, motivo: i.motivo, em: i.em })),
       podeConcluirEnvio: papel === 'FORNECEDOR' && !motivoNaoConcluiEnvio(h, agora),
       podeAnalisar: papel === 'ORGAO' && !motivoNaoAnalisa(status),
       podeHabilitar: papel === 'ORGAO' && !STATUS_HABILITACAO_FINAIS.includes(status) && status !== StatusHabilitacao.AGUARDANDO_ENVIO && pendencias.length === 0,
@@ -1020,7 +1021,7 @@ export class HabilitacaoService {
    * LANCES convocado para a aceitação; sem próximo, a unidade fracassa). Na
    * inversão, antes da disputa: a proposta é desclassificada (não disputa).
    */
-  async inabilitar(habilitacaoId: string, motivo: string | undefined, ator: AtorTransicao, usuarioNome?: string) {
+  async inabilitar(habilitacaoId: string, motivo: string | undefined, ator: AtorTransicao, usuarioNome?: string, unidadesIds?: string[]) {
     const texto = (motivo ?? '').trim();
     if (texto.length < MOTIVO_MINIMO) throw new BadRequestException(`Informe o motivo da inabilitação (mín. ${MOTIVO_MINIMO} caracteres)`);
     const h0 = await this.habilitacaoPorId(this.dataSource.manager, habilitacaoId);
@@ -1032,6 +1033,18 @@ export class HabilitacaoService {
     }
     if (!previaInversao && !FASES_DECISAO_HABILITACAO.includes(lic0.fase)) {
       throw new ConflictException(`A habilitação é decidida na fase de habilitação; a licitação está em ${lic0.fase}.`);
+    }
+    // DECISÃO POR UNIDADE: os documentos valem para todas, mas a inabilitação pode
+    // atingir só alguns itens/lotes; o licitante segue nos demais (e ainda pode
+    // ser habilitado neles). Atingindo todas as unidades com proposta aceita, é a
+    // inabilitação do licitante, como sempre.
+    const pedidas = [...new Set((unidadesIds ?? []).map(String).filter(Boolean))];
+    if (pedidas.length) {
+      if (previaInversao) throw new BadRequestException('Na inversão de fases a habilitação é julgada antes da disputa, para o licitante como um todo.');
+      const aceitas = (await this.ranking.unidadesDoLicitante(h0.licitacao_id, h0.fornecedor_id, [SituacaoLicitante.ACEITO])).map(String);
+      const fora = pedidas.filter((id) => !aceitas.includes(id));
+      if (fora.length) throw new BadRequestException('Só é possível inabilitar por item/lote onde o licitante tem proposta aceita ainda não decidida.');
+      if (pedidas.length < aceitas.length) return this.inabilitarEmUnidades(h0, pedidas, texto, ator, usuarioNome);
     }
     let sessaoId: string | null = null;
     await this.dataSource.transaction(async (m) => {
@@ -1099,6 +1112,59 @@ export class HabilitacaoService {
   }
 
   /** Sessão depois de uma decisão: falta habilitar alguém com proposta aceita → convocação; senão → intenção de recurso. */
+  /**
+   * Inabilitação em PARTE das unidades (item/lote): a habilitação do licitante
+   * continua aberta para as demais; nas atingidas ele sai do ranking e o
+   * próximo pelos lances é convocado (mesmo caminho da inabilitação total).
+   */
+  private async inabilitarEmUnidades(h0: HabilitacaoLicitante, unidadesIds: string[], motivo: string, ator: AtorTransicao, usuarioNome?: string) {
+    let sessaoId: string | null = null;
+    let rotulos: string[] = [];
+    await this.dataSource.transaction(async (m) => {
+      await this.prepararAto(m, h0.licitacao_id, h0.fornecedor_id);
+      const h = await this.habilitacaoPorId(m, h0.id, true);
+      const dils = await this.diligencias(m, h.id);
+      await this.normalizar(m, h, dils);
+      if (STATUS_HABILITACAO_FINAIS.includes(h.status)) throw new ConflictException('A habilitação deste licitante já foi decidida');
+      if (h.status === StatusHabilitacao.AGUARDANDO_ENVIO) {
+        throw new ConflictException('O licitante ainda está no prazo de envio — aguarde a entrega da documentação ou o fim do prazo');
+      }
+      const agora = new Date().toISOString();
+      const novas: HabilitacaoLicitante['inabilitacoes_unidade'] = [];
+      for (const id of unidadesIds) {
+        const u = await this.ranking.unidade(id, m);
+        if (!u) throw new BadRequestException('Item/lote não encontrado nesta licitação.');
+        novas.push({ unidade_id: id, rotulo: `${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}`, motivo, em: agora, por_id: ator.id ?? null });
+      }
+      rotulos = novas.map((n) => n.rotulo);
+      h.inabilitacoes_unidade = [...(h.inabilitacoes_unidade ?? []), ...novas];
+      await m.save(h);
+      const sessao = await this.sessaoDaLicitacao(m, h.licitacao_id);
+      sessaoId = sessao?.id ?? null;
+      const nome = (await this.nomes(m, [h.fornecedor_id])).get(h.fornecedor_id)?.razaoSocial ?? h.fornecedor_id;
+      await this.evento(m, sessao?.id, {
+        tipo: TipoEvento.HABILITACAO_REPROVADA,
+        descricao:
+          `Habilitação REPROVADA em ${rotulos.join(', ')}: ${nome} inabilitado(a) só nessa(s) unidade(s). Motivo: ${motivo}. ` +
+          'O licitante segue nas demais unidades; o próximo classificado será convocado para a aceitação da proposta onde ele saiu.',
+        fornecedorId: h.fornecedor_id,
+        usuario: usuarioNome ?? sessao?.pregoeiro_nome ?? null,
+        sistema: false,
+        dados: { habilitacao_id: h.id, motivo, unidades: unidadesIds, parcial: true },
+      });
+    });
+    if (!sessaoId) throw new ConflictException('Sessão pública não encontrada para a licitação');
+    const r = await this.aceitacao.aoInabilitar(sessaoId, h0.fornecedor_id, motivo, ator, usuarioNome, unidadesIds);
+    if (r.reconvocadas > 0) {
+      await this.dataSource.query(`UPDATE sessoes_disputa SET etapa = $2, fornecedor_habilitacao_id = NULL, updated_at = now() WHERE id = $1`, [
+        sessaoId,
+        EtapaSessao.ACEITACAO_PROPOSTA,
+      ]);
+    }
+    this.notificar(h0.licitacao_id, h0.fornecedor_id, 'Resultado da habilitação', `Você foi INABILITADO(A) em ${rotulos.join(', ')} (segue nos demais). Motivo: ${motivo}`);
+    return this.visaoDoAto(h0.id, 'ORGAO');
+  }
+
   private async ajustarEtapaAposDecisao(licitacaoId: string): Promise<void> {
     await this.dataSource.transaction(async (m) => {
       const sessao = await this.sessaoDaLicitacao(m, licitacaoId);
