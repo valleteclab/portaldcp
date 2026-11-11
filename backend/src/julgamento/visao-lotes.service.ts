@@ -50,14 +50,16 @@ export class VisaoLotesService {
 
   /**
    * A fase de recursos dura enquanto houver recurso pendente, a janela de intenção estiver aberta
-   * ou — sessão já na etapa de intenção — a janela ainda não tiver sido aberta pela pregoeira. Antes,
-   * neste último caso o lote aparecia "Em adjudicação" sem poder ser adjudicado (pregão 2026/00072).
+   * ou a janela final ainda não tiver sido aberta pela pregoeira. Antes, neste último caso o lote
+   * aparecia "Em adjudicação" sem poder ser adjudicado (pregão 2026/00072) — e continuava aparecendo
+   * assim enquanto outros itens ainda estavam em habilitação, porque a sessão só entra na etapa de
+   * intenção quando todos são habilitados (ensaio com 20 itens, pregão 2026/00082).
    */
   private async recursosPendentes(licitacaoId: string): Promise<boolean> {
     const [r] = await this.ds.query(
       `SELECT (SELECT COUNT(*) FROM recursos_administrativos WHERE licitacao_id::text = $1 AND status::text = ANY($2::text[]))::int AS pendentes,
               (SELECT COUNT(*) FROM sessoes_disputa s
-                WHERE s.licitacao_id::text = $1 AND s.etapa::text = 'INTENCAO_RECURSO'
+                WHERE s.licitacao_id::text = $1
                   AND NOT EXISTS (SELECT 1 FROM janelas_intencao_recurso j WHERE j.licitacao_id::text = $1 AND j.superada_em IS NULL
                                     AND COALESCE(j.momento, 'FINAL') <> 'HABILITACAO_PREVIA'))::int AS aguarda_janela`,
       [licitacaoId, [...STATUS_RECURSO_PENDENTES]],
