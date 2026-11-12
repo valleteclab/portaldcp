@@ -469,7 +469,7 @@ export function DiligenciasFornecedor({ licitacaoId, atualizacao }: { licitacaoI
           <div key={d.id} className={`rounded-xl border p-4 ${aberta ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white'}`}>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="flex items-center gap-2 font-semibold text-slate-900">
-                <ClipboardList className="h-4 w-4" /> Diligência do pregoeiro
+                <ClipboardList className="h-4 w-4" /> Diligência do órgão
               </h3>
               {d.unidadeRotulo && <Badge variant="outline">{d.unidadeRotulo}</Badge>}
               {selo(d)}

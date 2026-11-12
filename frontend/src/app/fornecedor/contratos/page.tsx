@@ -139,8 +139,9 @@ export default function ContratosFornecedorPage() {
     }
   }
 
-  const formatarMoeda = (valor: number) => {
-    return (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const formatarMoeda = (valor: number | string) => {
+    // A API devolve o valor como texto ("4950.00"): sem o Number o número saía cru na tela
+    return (Number(valor) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
 
   const formatarData = (data: string) => {
