@@ -36,6 +36,8 @@ import { LimpezaMotorAntigoBootService } from './limpeza-motor-antigo-boot.servi
 import { ExclusaoItemDispensa, HabilitacaoDispensa, NegociacaoDispensa } from './dispensa/pos-julgamento.entities';
 import { DispensaPosJulgamentoService } from './dispensa/pos-julgamento.service';
 import { DispensaPosJulgamentoController } from './dispensa/pos-julgamento.controller';
+import { AreaTrabalhoController } from './area-trabalho/area-trabalho.controller';
+import { AreaTrabalhoService } from './area-trabalho/area-trabalho.service';
 
 @Module({
   imports: [
@@ -59,8 +61,8 @@ import { DispensaPosJulgamentoController } from './dispensa/pos-julgamento.contr
     ProcessoModule,
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
-  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController, DispensaPosJulgamentoController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService, LimpezaMotorAntigoBootService, DispensaPosJulgamentoService],
+  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController, DispensaPosJulgamentoController, AreaTrabalhoController],
+  providers: [AreaTrabalhoService, LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService, LimpezaMotorAntigoBootService, DispensaPosJulgamentoService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}
