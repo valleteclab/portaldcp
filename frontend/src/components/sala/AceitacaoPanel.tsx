@@ -198,6 +198,47 @@ export function AceitacaoPanel({ sessaoId, onMudou, unidadeId }: { sessaoId: str
     }
   }
 
+  // AÇÕES EM LOTE: o mesmo ato, unidade por unidade, em sequência (cada um vai para a ata como ato próprio)
+  const [lote, setLote] = useState<{ tipo: 'convocar' | 'aceitar'; selecionadas: string[] } | null>(null)
+  const [progresso, setProgresso] = useState<string | null>(null)
+  const emLote = async (unidades: Unidade[], chamada: (u: Unidade) => { url: string; corpo: Record<string, unknown> }) => {
+    setOcupado(true)
+    setErro(null)
+    const falhas: string[] = []
+    for (const [k, u] of unidades.entries()) {
+      setProgresso(`${k + 1} de ${unidades.length}`)
+      const { url, corpo } = chamada(u)
+      try {
+        const res = await authFetch(`${API_URL}${url}`, { method: 'POST', body: JSON.stringify(corpo) })
+        if (!res.ok) {
+          const e = await res.json().catch(() => null)
+          throw new Error(Array.isArray(e?.message) ? e.message.join('; ') : e?.message || 'não concluído')
+        }
+      } catch (e) {
+        falhas.push(`${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}: ${e instanceof Error ? e.message : 'erro'}`)
+      }
+    }
+    setProgresso(null)
+    setOcupado(false)
+    setLote(null)
+    if (falhas.length) setErro(`${falhas.length} de ${unidades.length} não foram concluídas — ${falhas.slice(0, 3).join(' | ')}`)
+    await carregar()
+    onMudou?.()
+  }
+  const todas = painel?.unidades ?? []
+  const convocaveis = todas.filter((u) => u.podeConvocar && u.ranking.some((e) => !e.excluido))
+  // Aceite em lote só para proposta enviada SEM alerta de exequibilidade (essa exige justificativa própria)
+  const aceitaveis = todas.filter((u) => u.aceitacaoAtual?.status === 'ENVIADA' && !u.aceitacaoAtual.alertaExequibilidade)
+  const rotuloU = (u: Unidade) => `${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}`
+  const confirmarLote = () => {
+    if (!lote) return
+    const alvo = (lote.tipo === 'convocar' ? convocaveis : aceitaveis).filter((u) => lote.selecionadas.includes(u.id))
+    if (lote.tipo === 'convocar') {
+      return emLote(alvo, (u) => ({ url: `/api/julgamento/sessao/${sessaoId}/aceitacao/unidade/${u.id}/convocar`, corpo: { prazoHoras: painel?.prazoMinimoHoras ?? 2 } }))
+    }
+    return emLote(alvo, (u) => ({ url: `/api/julgamento/sessao/${sessaoId}/aceitacao/${u.aceitacaoAtual!.id}/aceitar`, corpo: {} }))
+  }
+
   const convocar = (u: Unidade) => {
     const horas = Number(prazos[u.id] || painel?.prazoMinimoHoras || 2)
     return executar(`/api/julgamento/sessao/${sessaoId}/aceitacao/unidade/${u.id}/convocar`, { prazoHoras: horas })
@@ -262,6 +303,24 @@ export function AceitacaoPanel({ sessaoId, onMudou, unidadeId }: { sessaoId: str
         )}
         {!!painel?.pendentes.length && (
           <div className="text-xs text-slate-500">Pendentes: {painel.pendentes.join(', ')}</div>
+        )}
+        {(convocaveis.length > 1 || aceitaveis.length > 1) && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm">
+            <span className="font-medium text-indigo-900">Ações em lote</span>
+            {convocaveis.length > 1 && (
+              <Button size="sm" variant="outline" disabled={ocupado} onClick={() => setLote({ tipo: 'convocar', selecionadas: convocaveis.map((u) => u.id) })}>
+                <Send className="mr-2 h-4 w-4" />
+                Convocar todos ({convocaveis.length})
+              </Button>
+            )}
+            {aceitaveis.length > 1 && (
+              <Button size="sm" variant="outline" disabled={ocupado} onClick={() => setLote({ tipo: 'aceitar', selecionadas: aceitaveis.map((u) => u.id) })}>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Aceitar várias ({aceitaveis.length})
+              </Button>
+            )}
+            {progresso && <span className="text-xs text-indigo-800">Processando {progresso}…</span>}
+          </div>
         )}
 
         {carregando && !painel ? (
@@ -478,6 +537,50 @@ export function AceitacaoPanel({ sessaoId, onMudou, unidadeId }: { sessaoId: str
           })
         )}
       </CardContent>
+
+      <Dialog open={!!lote} onOpenChange={(o) => { if (!o && !ocupado) setLote(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{lote?.tipo === 'convocar' ? 'Convocar todos para a proposta adequada' : 'Aceitar várias propostas'}</DialogTitle>
+            <DialogDescription>
+              {lote?.tipo === 'convocar'
+                ? `Cada licitante na vez é convocado a enviar a proposta adequada ao último lance, com o prazo mínimo de ${painel?.prazoMinimoHoras ?? 2} h. Desmarque o que quiser convocar depois.`
+                : 'Confira antes a proposta de cada unidade. Propostas com alerta de exequibilidade ficam de fora: elas exigem justificativa própria. Cada aceite é registrado como ato próprio.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded border p-2">
+            {(lote?.tipo === 'convocar' ? convocaveis : aceitaveis).map((u) => {
+              const quem = lote?.tipo === 'convocar' ? u.ranking.find((e) => !e.excluido)?.razaoSocial : u.aceitacaoAtual?.razaoSocial
+              return (
+                <label key={u.id} className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={!!lote?.selecionadas.includes(u.id)}
+                    onChange={(e) =>
+                      setLote((l) => (l ? { ...l, selecionadas: e.target.checked ? [...l.selecionadas, u.id] : l.selecionadas.filter((x) => x !== u.id) } : l))
+                    }
+                  />
+                  <span>
+                    <b>{rotuloU(u)}</b> — {u.descricao}
+                    {quem ? <span className="text-slate-500"> · {quem}</span> : null}
+                    {lote?.tipo === 'aceitar' && u.aceitacaoAtual?.valorTotalReadequado != null ? (
+                      <span className="text-slate-500"> · {formatarMoeda(u.aceitacaoAtual.valorTotalReadequado)}</span>
+                    ) : null}
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+          {progresso && <div className="text-xs text-slate-600">Processando {progresso}…</div>}
+          <DialogFooter>
+            <Button variant="outline" disabled={ocupado} onClick={() => setLote(null)}>Cancelar</Button>
+            <Button disabled={ocupado || !lote?.selecionadas.length} onClick={confirmarLote}>
+              {lote?.tipo === 'convocar' ? `Convocar ${lote?.selecionadas.length ?? 0}` : `Aceitar ${lote?.selecionadas.length ?? 0}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!acao} onOpenChange={(o) => { if (!o) { setAcao(null); setTexto('') } }}>
         <DialogContent>

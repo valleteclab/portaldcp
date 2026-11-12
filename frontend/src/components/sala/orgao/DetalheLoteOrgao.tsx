@@ -41,6 +41,7 @@ export function DetalheLoteOrgao({
   diligenciaVersao,
   onEncerrar,
   onReiniciarDemais,
+  navegacao,
 }: {
   sessaoId: string
   contexto?: DisputaV3Contexto | null
@@ -51,6 +52,8 @@ export function DetalheLoteOrgao({
   diligenciaVersao?: number
   onEncerrar: (itemId: string) => void
   onReiniciarDemais: () => void
+  /** Setas anterior/próximo entre as unidades da mesma fase. */
+  navegacao?: { posicao: number; total: number; escopo: string | null; anterior: (() => void) | null; proximo: (() => void) | null } | null
 }) {
   const licitacaoId = contexto?.licitacaoId
   const unidade = { tipo: lote.tipo, numero: lote.numero }
@@ -118,6 +121,34 @@ export function DetalheLoteOrgao({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
+          {navegacao && (
+            <div className="flex items-center gap-1" aria-label="Navegar entre as unidades">
+              <button
+                type="button"
+                title={`${rotulo} anterior`}
+                aria-label={`${rotulo} anterior`}
+                disabled={!navegacao.anterior}
+                onClick={() => navegacao.anterior?.()}
+                className="rounded-md border border-white/30 px-2 py-1 hover:bg-white/15 disabled:opacity-30"
+              >
+                ‹
+              </button>
+              <span className="whitespace-nowrap text-xs text-slate-200">
+                {navegacao.posicao} de {navegacao.total}
+                {navegacao.escopo ? ` em ${navegacao.escopo}` : ''}
+              </span>
+              <button
+                type="button"
+                title={`Próximo ${rotulo.toLowerCase()}`}
+                aria-label={`Próximo ${rotulo.toLowerCase()}`}
+                disabled={!navegacao.proximo}
+                onClick={() => navegacao.proximo?.()}
+                className="rounded-md border border-white/30 px-2 py-1 hover:bg-white/15 disabled:opacity-30"
+              >
+                ›
+              </button>
+            </div>
+          )}
           <Badge className="border-0 bg-white/15 text-white">{lote.faseRotulo}</Badge>
           {lote.primeiro && (
             <span>

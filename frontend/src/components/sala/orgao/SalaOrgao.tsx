@@ -69,6 +69,21 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
   const [lotes, setLotes] = useState<LoteVisao[]>([])
   const aoCarregarLotes = useCallback((l: LoteVisao[]) => setLotes(l), [])
   const loteSel = lotes.find((l) => l.id === (selectedItemId ?? itemFoco?.id)) ?? lotes[0] ?? null
+  // Anterior / próximo: percorre as unidades da MESMA fase (a fila de trabalho do agente); sozinha na fase, percorre todas
+  const navegacaoLote = (() => {
+    if (!loteSel) return null
+    const daFase = lotes.filter((l) => l.fase === loteSel.fase)
+    const lista = [...(daFase.length > 1 ? daFase : lotes)].sort((x, y) => x.numero - y.numero)
+    const i = lista.findIndex((l) => l.id === loteSel.id)
+    if (lista.length < 2 || i < 0) return null
+    return {
+      posicao: i + 1,
+      total: lista.length,
+      escopo: daFase.length > 1 ? loteSel.faseRotulo : null,
+      anterior: i > 0 ? () => setSelectedItemId(lista[i - 1].id) : null,
+      proximo: i < lista.length - 1 ? () => setSelectedItemId(lista[i + 1].id) : null,
+    }
+  })()
   const itemDoLote = loteSel ? [...emDisputa, ...aguardando, ...encerrados].find((i) => i.id === loteSel.id) ?? null : null
   const suspensaPorDesconexao = !!contexto?.operacao.motivoSuspensao?.startsWith('DESCONEXAO_AGENTE')
 
@@ -319,6 +334,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
                   diligenciaVersao={diligenciaVersao}
                         onEncerrar={encerrarItem}
                         onReiniciarDemais={() => setDialogo('reiniciarDemais')}
+                        navegacao={navegacaoLote}
                       />
                     ) : (
                       <div className="rounded-xl border bg-white px-4 py-6 text-sm text-slate-500">Abra um lote na tabela acima (›) para ver as ações da fase dele.</div>

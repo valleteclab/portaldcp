@@ -179,6 +179,35 @@ export function HabilitacaoPanel({
     }
   }
 
+  // Ação em lote: marca ATENDE em todos os documentos ainda sem análise do licitante (um por um, em sequência)
+  const [atendendoTodos, setAtendendoTodos] = useState<string | null>(null)
+  const pendentesDeAnalise = (h: Habilitacao) =>
+    h.exigencias.flatMap((e) => e.documentos).filter((d) => !atendeLocal.has(d.id) && d.analise !== 'ATENDE' && d.analise !== 'NAO_ATENDE')
+  const atenderTodos = async (h: Habilitacao) => {
+    const docs = pendentesDeAnalise(h)
+    if (!docs.length) return
+    setErro(null)
+    setAtendendoTodos(h.id)
+    const falhas: string[] = []
+    for (const d of docs) {
+      alterarConjunto(setAtendeLocal, d.id, true)
+      try {
+        const res = await authFetch(`${API_URL}/api/habilitacao/documentos/${d.id}/analisar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resultado: 'ATENDE' }),
+        })
+        if (!res.ok) throw new Error(await mensagemDeErro(res, 'Não foi possível registrar a análise'))
+      } catch (e) {
+        alterarConjunto(setAtendeLocal, d.id, false)
+        falhas.push(e instanceof Error ? e.message : 'erro')
+      }
+    }
+    setAtendendoTodos(null)
+    if (falhas.length) setErro(`${falhas.length} documento(s) não foram marcados: ${falhas[0]}`)
+    void carregar()
+  }
+
   const confirmar = async () => {
     if (!acao) return
     switch (acao.tipo) {
@@ -363,6 +392,15 @@ export function HabilitacaoPanel({
 
               {expandida && (
                 <div className="space-y-3 border-t p-3">
+                  {h.podeAnalisar && pendentesDeAnalise(h).length > 1 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                      <span>Conferiu os documentos e todos estão em ordem? Marque de uma vez; o que não atende pode ser alterado depois, um a um.</span>
+                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={atendendoTodos === h.id} onClick={() => atenderTodos(h)}>
+                        <CheckCircle2 className="mr-1 h-4 w-4" />
+                        {atendendoTodos === h.id ? 'Marcando…' : `Atende em todos (${pendentesDeAnalise(h).length})`}
+                      </Button>
+                    </div>
+                  )}
                   {porCategoria(h.exigencias).map((g) => (
                     <div key={g.categoria} className="space-y-2">
                       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{ROTULO_CATEGORIA[g.categoria] ?? g.categoria}</div>
