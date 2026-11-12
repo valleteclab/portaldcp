@@ -81,7 +81,7 @@ export function TermoContratoFornecedor({ contratoId, numero, onAssinado }: { co
               {s.assinaturas.map((a, i) => (
                 <li key={i} className="flex items-center gap-2">
                   {a.assinado ? <CheckCircle2 className="w-4 h-4 text-green-600" aria-hidden="true" /> : <Circle className="w-4 h-4 text-gray-400" aria-hidden="true" />}
-                  <span>{a.nome}{a.papel ? ` — ${a.papel}` : ""}</span>
+                  <span>{a.nome}{a.papel && !a.nome.toUpperCase().includes(String(a.papel).toUpperCase()) ? ` — ${a.papel}` : ""}</span>
                   <span className="text-gray-500">{a.assinado ? `assinou${a.data ? ` em ${new Date(a.data).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}` : "aguardando"}</span>
                 </li>
               ))}
