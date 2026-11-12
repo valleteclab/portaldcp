@@ -233,10 +233,13 @@ describe('E3 — julgamento: ranking único e aceitação da proposta', () => {
       expect((await convocarAceitacao(ctx, sessaoId, item1, orgao.token)).status).toBe(409);
     });
 
-    test('habilitação antes de todas as unidades aceitas → 400 (item 2 pendente)', async () => {
+    // Regra revista em 11/11/2026 (pregão por lote 2026/00087): cada item/lote anda no seu ritmo —
+    // quem já tem proposta aceita é convocado para a habilitação mesmo com outra unidade pendente;
+    // a LICITAÇÃO só passa à fase de habilitação quando todas as unidades estão aceitas.
+    test('habilitação de quem já tem proposta aceita não espera as outras unidades (item 2 pendente)', async () => {
       const r = await convocarHabilitacao(ctx, licId, F1.id, orgao.token);
-      expect(r.status).toBe(400);
-      expect(JSON.stringify(r.body)).toMatch(/Item 2/);
+      expect(r.status).toBe(201);
+      expect((await buscarLicitacao(ctx, { id: licId, orgao } as any)).fase).toBe(FaseLicitacao.JULGAMENTO);
       // licitante sem proposta aceita não é convocado para a habilitação
       const semAceite = await convocarHabilitacao(ctx, licId, F2.id, orgao.token);
       expect(semAceite.status).toBe(400);
@@ -284,7 +287,8 @@ describe('E3 — julgamento: ranking único e aceitação da proposta', () => {
       const depois = await painelAceitacao(ctx, sessaoId, orgao.token);
       expect(depois.todasResolvidas).toBe(true);
       expect(depois.etapa).toBe(EtapaSessao.CONVOCACAO_HABILITACAO);
-      expect((await convocarHabilitacao(ctx, licId, F1.id, orgao.token)).status).toBe(201);
+      // já convocado antes; com todas as unidades aceitas, a licitação passa à fase de habilitação
+      expect((await convocarHabilitacao(ctx, licId, F1.id, orgao.token)).status).toBe(409);
       const l = await buscarLicitacao(ctx, { id: licId, orgao } as any);
       expect(l.fase).toBe(FaseLicitacao.HABILITACAO);
       // fora do julgamento, a aceitação não aceita atos
