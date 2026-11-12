@@ -730,14 +730,17 @@ export class HabilitacaoService {
       if (l?.fase === FaseLicitacao.EM_DISPUTA) {
         await this.transicoes.executar(licitacaoId, AtoLicitacao.ENCERRAR_DISPUTA, { ator, manager: m, ignorarSeJaAplicado: true, registro: { origem: 'habilitacao' } });
       }
-      await this.transicoes.executar(licitacaoId, AtoLicitacao.INICIAR_HABILITACAO, { ator, manager: m, ignorarSeJaAplicado: true, registro: { origem: 'habilitacao' } });
     });
+    // Por item/lote as unidades andam em ritmos diferentes: com outra unidade ainda
+    // aguardando a aceitação, a licitação segue em JULGAMENTO e quem já teve a
+    // proposta aceita pode ser convocado (ensaio do pregão por lote 2026/00087)
+    await this.tentarIniciarHabilitacao(licitacaoId, ator);
 
     let jaHabilitado = false;
     const r = await this.dataSource.transaction(async (m) => {
       await this.prepararAto(m, licitacaoId, fornecedorId);
       const lic = await this.licitacao(m, licitacaoId);
-      if (lic.fase !== FaseLicitacao.HABILITACAO) throw new ConflictException(`A convocação para a habilitação ocorre na fase de habilitação; a licitação está em ${lic.fase}.`);
+      if (!FASES_DECISAO_HABILITACAO.includes(lic.fase)) throw new ConflictException(`A convocação para a habilitação ocorre depois da aceitação da proposta; a licitação está em ${lic.fase}.`);
       const existente = await this.habilitacaoDoLicitante(m, licitacaoId, fornecedorId);
       if (existente && STATUS_HABILITACAO_ATIVOS.includes(existente.status)) {
         throw new ConflictException('Este licitante já está convocado para a habilitação');
@@ -757,7 +760,7 @@ export class HabilitacaoService {
         prazoAte: prazoAte(new Date(), horas),
         ator,
       });
-      if (sessao) {
+      if (sessao && lic.fase === FaseLicitacao.HABILITACAO) {
         await m.query(
           `UPDATE sessoes_disputa SET etapa = $2, fornecedor_habilitacao_id = $3, updated_at = now() WHERE id = $1`,
           [sessao.id, EtapaSessao.CONVOCACAO_HABILITACAO, fornecedorId],
@@ -1010,6 +1013,7 @@ export class HabilitacaoService {
       // Com outra unidade de volta à aceitação (licitação em JULGAMENTO), a etapa
       // da sessão segue sendo a da aceitação — não é esta decisão que a muda.
       if (lic0.fase === FaseLicitacao.HABILITACAO) await this.ajustarEtapaAposDecisao(h0.licitacao_id);
+      else if (await this.tentarIniciarHabilitacao(h0.licitacao_id, ator)) await this.ajustarEtapaAposDecisao(h0.licitacao_id);
     }
     this.notificar(h0.licitacao_id, h0.fornecedor_id, 'Resultado da habilitação', 'Você foi HABILITADO(A) nesta licitação.');
     return this.visaoDoAto(habilitacaoId, 'ORGAO');
@@ -1163,6 +1167,23 @@ export class HabilitacaoService {
     }
     this.notificar(h0.licitacao_id, h0.fornecedor_id, 'Resultado da habilitação', `Você foi INABILITADO(A) em ${rotulos.join(', ')} (segue nos demais). Motivo: ${motivo}`);
     return this.visaoDoAto(h0.id, 'ORGAO');
+  }
+
+  /**
+   * Leva a licitação à fase HABILITACAO quando todas as unidades já têm proposta
+   * aceita. Com unidade ainda em aceitação, a licitação fica em JULGAMENTO (não é
+   * erro): devolve se a licitação está em HABILITACAO.
+   */
+  private async tentarIniciarHabilitacao(licitacaoId: string, ator: AtorTransicao): Promise<boolean> {
+    try {
+      await this.transicoes.executar(licitacaoId, AtoLicitacao.INICIAR_HABILITACAO, { ator, ignorarSeJaAplicado: true, registro: { origem: 'habilitacao' } });
+    } catch (e) {
+      const [l] = await this.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [licitacaoId]);
+      if (l?.fase !== FaseLicitacao.JULGAMENTO) throw e;
+      return false;
+    }
+    const [l] = await this.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [licitacaoId]);
+    return l?.fase === FaseLicitacao.HABILITACAO;
   }
 
   private async ajustarEtapaAposDecisao(licitacaoId: string): Promise<void> {
