@@ -174,7 +174,7 @@ export function AreaEtapaAtual({
         </div>
       )}
 
-      {mostrarResultado && <ResultadoPanel licitacaoId={id} onAtualizado={onAtualizado} />}
+      {mostrarResultado && <ResultadoPanel licitacaoId={id} onAtualizado={onAtualizado} atualizacao={dados} />}
 
       {/* Disputa em plataforma externa: troca de arquivos com a BLL Compras */}
       {!dispensa && checklist.possui_itens && (

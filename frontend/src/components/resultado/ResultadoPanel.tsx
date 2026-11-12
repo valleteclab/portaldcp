@@ -149,7 +149,16 @@ async function abrirPdf(url: string) {
  * segue o modo do órgão: registro direto, assinatura eletrônica da autoridade
  * ou termo externo (upload do termo assinado/publicação).
  */
-export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: string; onAtualizado?: () => void }) {
+export function ResultadoPanel({
+  licitacaoId,
+  onAtualizado,
+  atualizacao,
+}: {
+  licitacaoId: string;
+  onAtualizado?: () => void;
+  /** Muda quando a página recarrega os dados (ex.: habilitação do vencedor registrada em outro painel): o resultado é relido. */
+  atualizacao?: unknown;
+}) {
   const [painel, setPainel] = useState<PainelResultado | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -178,6 +187,11 @@ export function ResultadoPanel({ licitacaoId, onAtualizado }: { licitacaoId: str
   useEffect(() => {
     carregar();
   }, [carregar]);
+  // Sem isto o Homologar ficava desabilitado até recarregar a página (dispensa 2026/00084)
+  useEffect(() => {
+    if (atualizacao !== undefined) carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [atualizacao]);
 
   const executar = async (ato: "adjudicar" | "homologar") => {
     setExecutando(true);

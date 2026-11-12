@@ -1169,7 +1169,12 @@ export class LicitacoesService {
         descricao: (i as any).descricao_resumida || (i as any).descricao,
         status: i.status,
         fornecedor_vencedor_id: i.fornecedor_vencedor_id ?? null,
-        classificacao: porItem.get(String(i.id)) ?? [],
+        // O vencedor aparece com o valor adjudicado (negociação aceita reduz o valor do lance)
+        classificacao: (porItem.get(String(i.id)) ?? []).map((c) =>
+          i.fornecedor_vencedor_id && String(c.fornecedor_id) === String(i.fornecedor_vencedor_id) && (i as any).valor_unitario_homologado != null
+            ? { ...c, valor_unitario: Number((i as any).valor_unitario_homologado) }
+            : c,
+        ),
       })),
     };
   }

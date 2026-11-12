@@ -152,8 +152,10 @@ export class DispensaPosJulgamentoService {
 
   /** Tira o fornecedor SÓ dos itens indicados, avisa-o e rejulga (o próximo da classificação assume ali). */
   private async excluirDeItens(id: string, fornecedorId: string, itensIds: string[], tipo: 'PROPOSTA' | 'HABILITACAO', motivo: string, nome: string, ator: Ator) {
-    const meus = await this.itensDoVencedor(id, fornecedorId);
-    const alvo = meus.filter((i) => itensIds.includes(i.item_id));
+    const alvo: Array<{ item_id: string; numero: number }> = await this.ds.query(
+      `SELECT id::text AS item_id, numero_item AS numero FROM itens_licitacao WHERE licitacao_id::text = $1 AND id::text = ANY($2) ORDER BY numero_item`,
+      [id, itensIds],
+    );
     await this.ds.getRepository(ExclusaoItemDispensa).save(
       alvo.map((i) => ({ licitacao_id: id, item_licitacao_id: i.item_id, fornecedor_id: fornecedorId, tipo, motivo, registrado_por_nome: nome })),
     );
@@ -189,12 +191,19 @@ export class DispensaPosJulgamentoService {
     const motivo = String(body?.motivo ?? '').trim();
     if (motivo.length < MIN_MOTIVO) throw new BadRequestException(`Informe o motivo da desclassificação (mínimo ${MIN_MOTIVO} caracteres)`);
     const [it] = await this.ds.query(
-      `SELECT id::text AS id, fornecedor_vencedor_id::text AS fornecedor_id FROM itens_licitacao
+      `SELECT id::text AS id, fornecedor_vencedor_id::text AS fornecedor_id, lote_id::text AS lote_id FROM itens_licitacao
         WHERE id::text = $1 AND licitacao_id::text = $2 AND status::text = 'ADJUDICADO'`,
       [String(body?.item_id ?? ''), id],
     );
     if (!it?.fornecedor_id) throw new BadRequestException('Item sem vencedor adjudicado');
-    return this.excluirDeItens(id, it.fornecedor_id, [it.id], 'PROPOSTA', motivo, await this.nomeDoAtor(ator), ator);
+    // Item que pertence a um LOTE: a proposta é do lote inteiro — um item em desacordo
+    // desclassifica o fornecedor em todos os itens daquele lote (decisão do dono, 11/11/2026)
+    let itensIds = [it.id];
+    if (it.lote_id) {
+      const doLote: any[] = await this.ds.query(`SELECT id::text AS id FROM itens_licitacao WHERE licitacao_id::text = $1 AND lote_id::text = $2`, [id, it.lote_id]);
+      itensIds = doLote.map((x) => x.id);
+    }
+    return this.excluirDeItens(id, it.fornecedor_id, itensIds, 'PROPOSTA', motivo, await this.nomeDoAtor(ator), ator);
   }
 
   /** Contraproposta do órgão ao vencedor do item (IN 67, art. 16) — o fornecedor aceita ou recusa. */
