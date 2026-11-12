@@ -5,7 +5,7 @@ const em = (min: number) => new Date(AGORA.getTime() + min * 60_000);
 const base = (p: Partial<ResumoProcesso> = {}): ResumoProcesso => ({
   modalidade: 'PREGAO_ELETRONICO', fase: 'JULGAMENTO', situacao: 'ATIVA', agora: AGORA, fimPropostas: null, aberturaSessao: null,
   propostas: 4, propostasParaAnalisar: 0, sessaoAberta: true, unidadesEmDisputa: 0, unidadesAguardandoDisputa: 0,
-  desempatesEmCurso: 0, aConvocarProposta: 0, propostasAguardandoEnvio: 0, prazoPropostaAte: null, propostasParaJulgar: 0,
+  desempatesEmCurso: 0, aConvocarProposta: 0, propostasAguardandoEnvio: 0, prazoPropostaAte: null, propostasParaJulgar: 0, propostasComPrazoVencido: 0,
   aConvocarHabilitacao: 0, habilitacoesAguardandoEnvio: 0, prazoHabilitacaoAte: null, habilitacoesParaAnalisar: 0, habilitacoesEmDiligencia: 0,
   diligenciasRespondidas: 0, diligenciasAbertas: 0, janelaRecursoAbertaAte: null, houveJanelaFinal: false, intencoesParaAdmitir: 0,
   recursosParaReconsiderar: 0, recursosNaAutoridade: 0, recursosComPrazoDasPartes: 0,
@@ -35,6 +35,12 @@ describe('área de trabalho — próxima ação', () => {
     expect(proximaAcao(base({ fase: 'HABILITACAO', houveJanelaFinal: true, janelaRecursoAbertaAte: em(5) }))).toMatchObject({ vez: 'AGUARDANDO', titulo: 'Prazo de intenção de recurso aberto' });
     expect(proximaAcao(base({ fase: 'HABILITACAO', houveJanelaFinal: true, janelaRecursoAbertaAte: em(-5) }))).toMatchObject({ vez: 'VOCE', titulo: 'Adjudicar o objeto' });
     expect(proximaAcao(base({ fase: 'HABILITACAO', houveJanelaFinal: true, intencoesParaAdmitir: 1 }))).toMatchObject({ vez: 'VOCE', titulo: 'Decidir 1 intenção de recurso' });
+  });
+
+  it('prazo encerrado sem proposta: declarar deserta (pregão e dispensa); convocação vencida volta para o agente', () => {
+    expect(proximaAcao(base({ fase: 'ANALISE_PROPOSTAS', propostas: 0, sessaoAberta: false, fimPropostas: em(-10) }))).toMatchObject({ vez: 'VOCE', titulo: 'Declarar deserta', destino: 'PROCESSO' });
+    expect(proximaAcao(base({ modalidade: 'DISPENSA_ELETRONICA', fase: 'ANALISE_PROPOSTAS', propostas: 0, dispensaComLances: true, fimPropostas: em(-10) }))).toMatchObject({ titulo: 'Declarar deserta' });
+    expect(proximaAcao(base({ propostasComPrazoVencido: 2, propostasAguardandoEnvio: 1, prazoPropostaAte: em(30) }))).toMatchObject({ vez: 'VOCE', titulo: 'Decidir 2 convocações com prazo vencido' });
   });
 
   it('diligência respondida passa à frente de tudo', () => {

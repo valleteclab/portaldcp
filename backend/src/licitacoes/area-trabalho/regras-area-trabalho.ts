@@ -30,6 +30,8 @@ export interface ResumoProcesso {
   propostasAguardandoEnvio: number;
   prazoPropostaAte: Date | null;
   propostasParaJulgar: number;
+  /** Convocado que não enviou a proposta readequada no prazo: cabe ao agente recusar e chamar o próximo. */
+  propostasComPrazoVencido: number;
   /** Habilitação */
   aConvocarHabilitacao: number;
   habilitacoesAguardandoEnvio: number;
@@ -100,6 +102,10 @@ export function proximaAcao(r: ResumoProcesso): ProximaAcao {
         r.fimPropostas ?? r.aberturaSessao,
       );
     case 'ANALISE_PROPOSTAS':
+      // Prazo encerrado sem nenhuma proposta: não há o que abrir nem julgar
+      if (r.propostas === 0 && (!r.fimPropostas || r.agora >= r.fimPropostas)) {
+        return voce('Declarar deserta', 'O prazo terminou sem nenhuma proposta recebida.', 'PROCESSO');
+      }
       if (dispensa) {
         if (r.dispensaComLances && !r.dispensaLancesInicio) return voce('Abrir a etapa de lances', `${n(r.propostas, 'proposta recebida', 'propostas recebidas')} — janela de 6 a 10 horas.`, 'PROCESSO');
         if (r.dispensaLancesFim && r.agora < r.dispensaLancesFim) return aguardando('Etapa de lances em andamento', 'O julgamento libera quando a janela encerrar.', 'PROCESSO', r.dispensaLancesFim);
@@ -124,6 +130,13 @@ export function proximaAcao(r: ResumoProcesso): ProximaAcao {
     case 'HABILITACAO': {
       // 1º o que está na mão do agente
       if (r.propostasParaJulgar > 0) return voce(`Julgar ${n(r.propostasParaJulgar, 'proposta readequada', 'propostas readequadas')}`, 'Aceite ou recuse (a recusa chama o próximo colocado).', 'SALA');
+      if (r.propostasComPrazoVencido > 0) {
+        return voce(
+          `Decidir ${n(r.propostasComPrazoVencido, 'convocação com prazo vencido', 'convocações com prazo vencido')}`,
+          'O licitante não enviou a proposta readequada no prazo: recuse e chame o próximo colocado.',
+          'SALA',
+        );
+      }
       if (r.habilitacoesParaAnalisar > 0) {
         return voce(`Analisar a habilitação de ${n(r.habilitacoesParaAnalisar, 'empresa', 'empresas')}`, 'Documentos entregues: marque Atende ou Não atende e decida.', 'SALA');
       }
