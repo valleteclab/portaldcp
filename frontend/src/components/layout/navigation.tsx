@@ -40,6 +40,7 @@ import {
   Menu,
   Tv,
   Activity,
+  Briefcase,
   GitBranch,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -189,6 +190,8 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/workflows", label: "Workflows", icon: GitBranch, modulos: [ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES] },
     // Painel do gestor: fila única (licitações, aditivos, renovações, avulsos e pedidos) com caminho, posse e gargalos
     { href: "/orgao/andamento", label: "Andamento", icon: Activity, modulos: [ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES] },
+    // Área de trabalho do agente/pregoeiro: processos em fase externa com a próxima ação de cada um
+    { href: "/orgao/area-de-trabalho", label: "Área de trabalho", icon: Briefcase, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/licitacoes", label: "Licitações", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/fase-interna/processos/novo", label: "Novo processo", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     // Fase interna (Entrega 2): a entrada da área é a caixa de tarefas do usuário
