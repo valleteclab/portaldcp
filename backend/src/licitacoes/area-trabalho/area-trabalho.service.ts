@@ -48,13 +48,20 @@ export class AreaTrabalhoService {
       // Situação da ÚLTIMA convocação de cada unidade (recusada/cancelada = unidade volta a convocar)
       this.contar(
         `SELECT x.licitacao_id, x.status AS chave, COUNT(*) AS n, MIN(x.prazo_ate) AS ate FROM (
-           SELECT DISTINCT ON (unidade_id) licitacao_id::text AS licitacao_id, unidade_id, status::text AS status, prazo_ate
+           SELECT DISTINCT ON (unidade_id) licitacao_id::text AS licitacao_id, unidade_id,
+                  CASE WHEN status::text = 'AGUARDANDO_ENVIO' AND prazo_ate < now() THEN 'PRAZO_VENCIDO' ELSE status::text END AS status, prazo_ate
              FROM aceitacoes_proposta WHERE licitacao_id::text = ANY($1) ORDER BY unidade_id, convocada_em DESC
          ) x GROUP BY 1, 2`,
         ids,
       ),
       this.contar(`SELECT licitacao_id::text AS licitacao_id, status::text AS chave, COUNT(*) AS n, NULL AS ate FROM desempates_mpe WHERE licitacao_id::text = ANY($1) GROUP BY 1, 2`, ids),
-      this.contar(`SELECT licitacao_id::text AS licitacao_id, status::text AS chave, COUNT(*) AS n, MIN(prazo_ate) AS ate FROM habilitacoes_licitante WHERE licitacao_id::text = ANY($1) GROUP BY 1, 2`, ids),
+      // Prazo de envio vencido sem o ato de entrega = documentação considerada entregue (cabe ao agente analisar)
+      this.contar(
+        `SELECT licitacao_id::text AS licitacao_id, CASE WHEN status::text = 'AGUARDANDO_ENVIO' AND prazo_ate < now() THEN 'ENVIADA' ELSE status::text END AS chave,
+                COUNT(*) AS n, MIN(prazo_ate) AS ate
+           FROM habilitacoes_licitante WHERE licitacao_id::text = ANY($1) GROUP BY 1, 2`,
+        ids,
+      ),
       // Empresas com proposta aceita em alguma unidade e ainda sem habilitação aberta ou decidida
       this.contar(
         `SELECT lu.licitacao_id::text AS licitacao_id, 'A_CONVOCAR' AS chave, COUNT(DISTINCT lu.fornecedor_id) AS n, NULL AS ate
@@ -92,7 +99,7 @@ export class AreaTrabalhoService {
       const porLote = l.usa_lotes && l.base_lance === 'TOTAL_LOTE';
       const unid = porLote ? lotes : itens;
       const encerradas = de(unid, l.id, 'ENCERRADO', 'NEGOCIACAO');
-      const comConvocacaoViva = de(aceitacoes, l.id, 'AGUARDANDO_ENVIO', 'ENVIADA', 'ACEITA');
+      const comConvocacaoViva = de(aceitacoes, l.id, 'AGUARDANDO_ENVIO', 'PRAZO_VENCIDO', 'ENVIADA', 'ACEITA');
       const janelaFinalAte = ate(janelas, l.id, 'FINAL');
       const resumo: ResumoProcesso = {
         modalidade: l.modalidade,
@@ -111,6 +118,7 @@ export class AreaTrabalhoService {
         propostasAguardandoEnvio: de(aceitacoes, l.id, 'AGUARDANDO_ENVIO'),
         prazoPropostaAte: ate(aceitacoes, l.id, 'AGUARDANDO_ENVIO'),
         propostasParaJulgar: de(aceitacoes, l.id, 'ENVIADA'),
+        propostasComPrazoVencido: de(aceitacoes, l.id, 'PRAZO_VENCIDO'),
         aConvocarHabilitacao: de(aConvHab, l.id, 'A_CONVOCAR'),
         habilitacoesAguardandoEnvio: de(habs, l.id, 'AGUARDANDO_ENVIO'),
         prazoHabilitacaoAte: ate(habs, l.id, 'AGUARDANDO_ENVIO'),
