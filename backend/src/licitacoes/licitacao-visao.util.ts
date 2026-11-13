@@ -101,7 +101,16 @@ function comPrazoManifestacao(lic: Record<string, any>): Record<string, any> {
 /** Licitação para o órgão dono/admin: tudo, exceto as credenciais do órgão. */
 export function licitacaoParaOrgao<T extends Record<string, any>>(lic: T): T {
   if (!lic || typeof lic !== 'object') return lic;
-  const saida = lic.orgao ? { ...lic, orgao: orgaoSemSegredos(lic.orgao) } : lic;
+  const saida: Record<string, any> = lic.orgao ? { ...lic, orgao: orgaoSemSegredos(lic.orgao) } : { ...lic };
+  // Quem lidera cada item durante os lances não vai nem para o órgão (nenhuma
+  // tela usa; o vencedor sai em fornecedor_vencedor_* depois do julgamento).
+  if (Array.isArray(saida.itens)) {
+    saida.itens = saida.itens.map((i: any) => {
+      if (!i || typeof i !== 'object' || !('melhor_lance_fornecedor_id' in i)) return i;
+      const { melhor_lance_fornecedor_id: _m, ...resto } = i;
+      return resto;
+    });
+  }
   return comPrazoManifestacao(saida) as T;
 }
 

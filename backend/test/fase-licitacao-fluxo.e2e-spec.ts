@@ -92,7 +92,10 @@ describe('Sessão do pregão: a preparação vê as propostas enviadas', () => {
     const r = (await ctx.http().get(`/api/sessao/licitacao/${lic.id}/preparar`).set(bearer(A.token)).expect(200)).body;
     expect(r.verificacoes.quantidadePropostas).toBe(1);
     expect(r.verificacoes.propostasRecebidas).toBe(true);
-    expect(r.propostas[0].cnpj).toBeTruthy();
+    // A preparação é antes dos lances: nunca leva quem é quem (auditoria de 13/11/2026)
+    expect(r.propostas[0].cnpj).toBeUndefined();
+    expect(r.propostas[0].fornecedorNome).toBeUndefined();
+    expect(r.propostas[0].fornecedorId).toBeUndefined();
     expect(r.licitacao.numero).not.toMatch(/\/\d{4}\/\d{4}/);
     expect(r.verificacoes.prazoImpugnacaoMsg).not.toMatch(/GMT/);
   });

@@ -60,9 +60,39 @@ describe('Vazamentos entre fornecedores e entre órgãos (lote 1)', () => {
       expect(emSigilo((await lista(B.token).expect(200)).body)).toBe(true);
     });
 
-    it('o órgão dono continua lendo as propostas', async () => {
+    it('o órgão dono lê o conteúdo das propostas, mas não quem é quem enquanto durarem os lances', async () => {
+      const r = await lista(A.token).expect(200);
+      expect(r.body.length).toBe(2);
+      expect(r.body.every((p: any) => Number(p.valor_total_proposta) > 0 && /^anonimo-/.test(p.fornecedor?.id))).toBe(true);
+      const texto = JSON.stringify(r.body);
+      expect(texto).not.toContain(F1.id);
+      expect(texto).not.toContain(F2.id);
+    });
+
+    it('o órgão dono não consulta a sala "como" um licitante nem recebe o autor dos lances na ata e nos eventos', async () => {
+      expect((await http().get(`/api/disputa/sessao/${P.sessaoId}/itens/fornecedor/${F1.id}`).set(bearer(A.token))).status).toBe(403);
+      for (const rota of [`/api/sessao/${P.sessaoId}/ata`, `/api/sessao/${P.sessaoId}/eventos`, `/api/disputa/sessao/${P.sessaoId}/board`, `/api/itens/licitacao/${P.lic.id}`, `/api/licitacoes/${P.lic.id}`]) {
+        const r = await http().get(rota).set(bearer(A.token)).expect(200);
+        const texto = JSON.stringify(r.body);
+        expect(texto).not.toContain(F1.id);
+        expect(texto).not.toContain(F2.id);
+      }
+    });
+
+    it('com a anonimização desligada pelo suporte (justificativa obrigatória), o órgão passa a ver', async () => {
+      const semJust = await http().put(`/api/admin/monitoramento/sessao/${P.sessaoId}/anonimizacao`).set(bearer(ctx.tokenAdmin())).send({ ativa: false, justificativa: 'ok' });
+      expect(semJust.status).toBe(400);
+      expect((await http().put(`/api/admin/monitoramento/sessao/${P.sessaoId}/anonimizacao`).set(bearer(A.token)).send({ ativa: false, justificativa: 'Determinação judicial nº 123' })).status).toBe(403);
+      const ok = await http().put(`/api/admin/monitoramento/sessao/${P.sessaoId}/anonimizacao`).set(bearer(ctx.tokenAdmin())).send({ ativa: false, justificativa: 'Determinação judicial nº 123' });
+      expect(ok.status).toBe(200);
       const r = await lista(A.token).expect(200);
       expect(r.body.map((p: any) => p.fornecedor?.id).sort()).toEqual([F1.id, F2.id].sort());
+      const [ev] = await ctx.dataSource.query(`SELECT tipo::text AS tipo, dados_adicionais FROM eventos_sessao WHERE sessao_id = $1 AND descricao LIKE '[AUDITORIA]%' ORDER BY created_at DESC LIMIT 1`, [P.sessaoId]);
+      expect(ev.tipo).toBe('MENSAGEM_SISTEMA');
+      expect(ev.dados_adicionais.autor).toMatch(/^ADMIN /);
+      // terceiros continuam sem ver
+      expect(emSigilo((await lista(F3.token).expect(200)).body)).toBe(true);
+      await http().put(`/api/admin/monitoramento/sessao/${P.sessaoId}/anonimizacao`).set(bearer(ctx.tokenAdmin())).send({ ativa: true, justificativa: 'Fim da verificação do suporte' }).expect(200);
     });
 
     it('ranking por item: vazio para terceiros, preenchido para o órgão dono', async () => {

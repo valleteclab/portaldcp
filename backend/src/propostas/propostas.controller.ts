@@ -16,6 +16,7 @@ import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service'
 import { AtorAtual, AutenticacaoOpcional, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
+import { SigiloDisputaService } from '../disputa/sigilo-disputa.service';
 
 /**
  * PROPOSTAS — regras de acesso (E1a):
@@ -33,6 +34,7 @@ export class PropostasController {
     private readonly propostasService: PropostasService,
     private readonly acesso: AcessoLicitacaoService,
     private readonly comprovantes: ComprovantesService,
+    private readonly sigilo: SigiloDisputaService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -53,6 +55,11 @@ export class PropostasController {
   private async orgaoDono(ator: Ator, propostaId: string): Promise<DonoProposta> {
     const dono = await this.propostasService.donoDaProposta(propostaId);
     await this.acesso.assertOrgaoDaLicitacao(ator, dono.licitacao_id, 'escrita');
+    // Classificar, desclassificar ou marcar vencedora só depois do prazo de
+    // propostas (relógio do servidor): antes, o órgão nem conhece o conteúdo.
+    if (await this.propostasService.emSigiloDePropostas(dono.licitacao_id)) {
+      throw new ForbiddenException('As propostas estão sob sigilo até o fim do prazo de envio');
+    }
     return dono;
   }
 
@@ -112,7 +119,10 @@ export class PropostasController {
   @AutenticacaoOpcional()
   @Get('licitacao/:licitacaoId')
   async findByLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator | null): Promise<Proposta[]> {
-    return await this.propostasService.findByLicitacao(licitacaoId, await this.ehOrgaoDono(ator, licitacaoId));
+    const dono = await this.ehOrgaoDono(ator, licitacaoId);
+    const lista = await this.propostasService.findByLicitacao(licitacaoId, dono);
+    // Órgão dono: conteúdo depois do prazo de envio; quem é quem só depois dos lances
+    return dono ? this.sigilo.paraOrgao(lista, licitacaoId) : lista;
   }
 
   private async ehOrgaoDono(ator: Ator | null, licitacaoId: string | null | undefined): Promise<boolean> {
@@ -146,7 +156,8 @@ export class PropostasController {
   @OrgaoOuFornecedor()
   async findOne(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
     const visao = await this.visaoDeLeitura(ator, id);
-    return await this.propostasService.findOneVisao(id, visao);
+    const proposta = await this.propostasService.findOneVisao(id, visao);
+    return visao === 'FORNECEDOR' ? proposta : this.sigilo.paraOrgao(proposta, proposta.licitacao_id);
   }
 
   @Get(':id/itens')
@@ -163,7 +174,9 @@ export class PropostasController {
   @Get('ranking/item/:itemId')
   async getRankingPorItem(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
     const licitacaoId = await this.propostasService.licitacaoDoItem(itemId);
-    return await this.propostasService.getRankingPorItem(itemId, await this.ehOrgaoDono(ator, licitacaoId));
+    const dono = await this.ehOrgaoDono(ator, licitacaoId);
+    const ranking = await this.propostasService.getRankingPorItem(itemId, dono);
+    return dono ? this.sigilo.paraOrgao(ranking, licitacaoId) : ranking;
   }
 
   @Put(':id/enviar')
@@ -180,7 +193,8 @@ export class PropostasController {
   @SomenteOrgao()
   async classificar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
     await this.orgaoDono(ator, id);
-    return await this.propostasService.classificar(id);
+    const dono = await this.propostasService.donoDaProposta(id);
+    return this.sigilo.paraOrgao(await this.propostasService.classificar(id), dono.licitacao_id);
   }
 
   @Put(':id/desclassificar')
@@ -241,7 +255,8 @@ export class PropostasController {
       dados.documento_tamanho = documento.size;
     }
 
-    return await this.propostasService.desclassificar(id, dados);
+    const donoP = await this.propostasService.donoDaProposta(id);
+    return this.sigilo.paraOrgao(await this.propostasService.desclassificar(id, dados), donoP.licitacao_id);
   }
 
   /** Documento da desclassificação: fornecedor dono ou órgão dono. */
@@ -276,7 +291,8 @@ export class PropostasController {
   @SomenteOrgao()
   async marcarVencedora(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
     await this.orgaoDono(ator, id);
-    return await this.propostasService.marcarVencedora(id);
+    const dono = await this.propostasService.donoDaProposta(id);
+    return this.sigilo.paraOrgao(await this.propostasService.marcarVencedora(id), dono.licitacao_id);
   }
 
   @Put(':id/cancelar')

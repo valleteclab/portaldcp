@@ -70,7 +70,7 @@ export class ItensController {
   ): Promise<ItemLicitacao[]> {
     const { visao, lic } = await this.visaoDaLicitacao(ator, licitacaoId);
     const itens = await this.itensService.findByLicitacao(licitacaoId);
-    return visao === 'ORGAO' ? itens : itensParaPublico(itens, lic);
+    return visao === 'ORGAO' ? itens.map((i) => itemParaOrgao(i)) : itensParaPublico(itens, lic);
   }
 
   @AutenticacaoOpcional()

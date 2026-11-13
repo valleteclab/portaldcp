@@ -167,6 +167,19 @@ export class PropostasService {
         throw new BadRequestException('Não é possível enviar/alterar proposta após a abertura da sessão');
       }
     }
+    this.exigirPrazoDeEnvioAberto(licitacao, 'enviar/alterar');
+  }
+
+  /**
+   * O conteúdo das propostas deixa de ser sigiloso no fim do prazo de envio:
+   * a partir daí ninguém mais altera nem retira a sua (senão quem já viu as
+   * dos outros ainda poderia ajustar a própria).
+   */
+  private exigirPrazoDeEnvioAberto(licitacao: Licitacao | null | undefined, acao: string): void {
+    const fim = licitacao?.data_fim_acolhimento ? new Date(licitacao.data_fim_acolhimento) : null;
+    if (fim && !isNaN(fim.getTime()) && new Date() >= fim) {
+      throw new BadRequestException(`Não é possível ${acao} proposta depois do fim do prazo de envio`);
+    }
   }
 
   /**
@@ -561,6 +574,7 @@ export class PropostasService {
         throw new BadRequestException('Não é possível excluir a proposta após a abertura da sessão');
       }
     }
+    this.exigirPrazoDeEnvioAberto(licitacao, 'excluir a');
 
     await this.propostaRepository.remove(proposta);
   }
@@ -671,6 +685,18 @@ export class PropostasService {
       .innerJoin('proposta.licitacao', 'licitacao')
       .innerJoin('proposta.fornecedor', 'fornecedor')
       .where('licitacao.orgao_id = :orgaoId', { orgaoId })
+      // Só propostas cuja autoria o órgão já pode conhecer: nunca rascunho,
+      // nunca no prazo de envio e, no pregão/concorrência, só depois dos lances.
+      .andWhere(`proposta.status::text <> 'RASCUNHO'`)
+      .andWhere(`COALESCE(licitacao.data_fim_acolhimento, licitacao.data_abertura_sessao) <= NOW()`)
+      .andWhere(
+        `(licitacao.modalidade::text NOT IN ('PREGAO_ELETRONICO','CONCORRENCIA','DISPENSA_ELETRONICA')
+          OR (licitacao.modalidade::text = 'DISPENSA_ELETRONICA'
+              AND (licitacao.dispensa_com_lances IS NOT TRUE OR licitacao.dispensa_lances_fim <= NOW() OR licitacao.data_homologacao IS NOT NULL))
+          OR (licitacao.modalidade::text <> 'DISPENSA_ELETRONICA'
+              AND (licitacao.inversao_fases IS TRUE OR licitacao.fase::text NOT IN (:...fasesAteLances))))`,
+        { fasesAteLances: FASES_ANTES_DO_FIM_DOS_LANCES },
+      )
       .select([
         'fornecedor.id as id',
         'fornecedor.razao_social as razao_social',
