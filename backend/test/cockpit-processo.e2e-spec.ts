@@ -135,11 +135,18 @@ describe('Tela do processo — Etapa B (conferência de pré-publicação e menu
       expect(r.itens).toHaveLength(2);
       for (const it of r.itens) {
         expect(it.classificacao.map((c: any) => c.posicao)).toEqual([1, 2]);
-        expect(it.classificacao[0].fornecedor_id).toBe(f1.id);
+        // Dispensa com etapa de lances ainda não disputada: o órgão vê a ordem e
+        // os valores, mas não quem é quem (cada licitante com um rótulo estável)
+        expect(it.classificacao[0].fornecedor_id).toMatch(/^anonimo-/);
+        expect(it.classificacao[1].fornecedor_id).not.toBe(it.classificacao[0].fornecedor_id);
+        expect(Number(it.classificacao[0].valor_unitario)).toBeLessThan(Number(it.classificacao[1].valor_unitario));
       }
+      expect(JSON.stringify(r)).not.toContain(f1.id);
+      expect(r.itens[0].classificacao[0].fornecedor_id).toBe(r.itens[1].classificacao[0].fornecedor_id);
       const pc = (await http().get(`/api/licitacoes/${lic.id}/processo-completo`).set(bearer(A.token)).expect(200)).body;
       expect(pc.propostas_em_sigilo).toBe(false);
       expect(pc.propostas.every((p: any) => !!p.razao_social)).toBe(true);
+      expect(JSON.stringify(pc.propostas)).not.toContain(f1.id);
     });
   });
 });

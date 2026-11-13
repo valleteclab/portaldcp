@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
@@ -51,9 +52,21 @@ interface ParticipanteRow {
   cpf_cnpj: string | null;
 }
 
+/** Fases em que a etapa de lances ainda não terminou: o órgão dono também não vê quem é quem. */
+export const FASES_ATE_OS_LANCES: string[] = [
+  'PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA',
+  'AGUARDANDO_DIVULGACAO', 'PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA',
+];
+
 /** Código anônimo → id anônimo no formato já usado pela disputa ("Fornecedor B" → "anonimo-b"). */
 export function idAnonimo(codigo: string): string {
   return `anonimo-${codigo.replace('Fornecedor ', '').toLowerCase()}`;
+}
+
+/** Marca curta e estável de um licitante sem código na sessão — HMAC com segredo do servidor (não se refaz de fora). */
+function rotuloSemCodigo(licitacaoId: string, fornecedorId: string): string {
+  const segredo = process.env.JWT_SECRET || 'portaldcp';
+  return createHmac('sha256', segredo).update(`${licitacaoId}:${fornecedorId}`).digest('hex').slice(0, 4).toUpperCase();
 }
 
 /** Texto do JSON de uma string (para buscar dentro do payload serializado). */
@@ -118,8 +131,11 @@ export class SigiloDisputaService {
     for (const p of participantes) {
       const id = String(p.id);
       if (opts.exceto && id === opts.exceto) continue;
-      const codigo = codigos.get(id) || 'Fornecedor (anônimo)';
-      subs.push({ de: id, para: codigos.has(id) ? idAnonimo(codigo) : 'anonimo', dono: id });
+      // Sem código sorteado ainda (antes da disputa): rótulo estável e não
+      // derivável do id, para o leitor distinguir um licitante do outro.
+      const marca = codigos.has(id) ? '' : rotuloSemCodigo(String(licitacaoId), id);
+      const codigo = codigos.get(id) || `Licitante ${marca}`;
+      subs.push({ de: id, para: codigos.has(id) ? idAnonimo(codigo) : `anonimo-${marca.toLowerCase()}`, dono: id });
       const nomes = [p.razao_social, p.nome_fantasia].filter((n): n is string => !!n && n.trim().length >= 4);
       for (const n of nomes) subs.push({ de: n, para: codigo, dono: id });
       if (p.cpf_cnpj) {
@@ -208,6 +224,49 @@ export class SigiloDisputaService {
   }
 
   /**
+   * O ÓRGÃO DONO já pode ver quem é quem? (auditoria de 13/11/2026 — o sigilo
+   * contra o órgão era só de tela.) Regra para pregão, concorrência e dispensa:
+   *  - o suporte desligou a anonimização da sessão (superadministrador): sim;
+   *  - inversão de fases (habilitação antes dos lances): sim, depois do prazo
+   *    de propostas — o órgão analisa documentos identificados por definição;
+   *  - dispensa sem lances: depois do prazo de propostas; com lances: depois
+   *    do fim da janela (ou do julgamento, se a janela nunca abriu);
+   *  - demais: quando a licitação sai da etapa de lances (julgamento em diante).
+   * Outras modalidades (leilão, concurso, diálogo) seguem as regras próprias.
+   */
+  async orgaoVeIdentidades(licitacaoId: string | null | undefined): Promise<boolean> {
+    if (!ehUuid(licitacaoId)) return true;
+    const [l] = await this.dataSource.query(
+      `SELECT l.modalidade::text AS modalidade, l.fase::text AS fase, l.inversao_fases,
+              COALESCE(l.data_fim_acolhimento, l.data_abertura_sessao) AS corte,
+              l.dispensa_com_lances, l.dispensa_lances_fim, l.data_homologacao,
+              (SELECT s.anonimizacao_ativa FROM sessoes_disputa s WHERE s.licitacao_id = l.id ORDER BY s.created_at DESC LIMIT 1) AS anonimizacao_ativa,
+              EXISTS (SELECT 1 FROM itens_licitacao i WHERE i.licitacao_id = l.id AND i.status::text IN ('ADJUDICADO','HOMOLOGADO')) AS julgada
+         FROM licitacoes l WHERE l.id = $1`,
+      [licitacaoId],
+    );
+    if (!l) return true;
+    if (!['PREGAO_ELETRONICO', 'CONCORRENCIA', 'DISPENSA_ELETRONICA'].includes(l.modalidade)) return true;
+    if (l.anonimizacao_ativa === false) return true;
+    const agora = new Date();
+    const noPrazoDePropostas = !!l.corte && agora < new Date(l.corte);
+    if (l.modalidade === 'DISPENSA_ELETRONICA') {
+      if (noPrazoDePropostas) return false;
+      if (!l.dispensa_com_lances) return true;
+      if (l.dispensa_lances_fim) return agora >= new Date(l.dispensa_lances_fim);
+      return !!l.julgada || !!l.data_homologacao;
+    }
+    if (l.inversao_fases) return !noPrazoDePropostas;
+    return !FASES_ATE_OS_LANCES.includes(l.fase);
+  }
+
+  /** Payload para o órgão dono: identidades trocadas pelo código enquanto ele ainda não pode vê-las. */
+  async paraOrgao<T>(payload: T, licitacaoId: string | null | undefined, sessaoId?: string | null): Promise<T> {
+    if (await this.orgaoVeIdentidades(licitacaoId)) return payload;
+    return this.anonimizar(payload, licitacaoId, { sessaoId });
+  }
+
+  /**
    * Quem está lendo: 'ORGAO' (órgão dono ou admin — dados completos),
    * 'FORNECEDOR' (participante — vê a própria identidade) ou 'PUBLICO'
    * (anônimo, ou logado sem relação com a licitação).
@@ -228,8 +287,9 @@ export class SigiloDisputaService {
   async aplicador(licitacaoId: string, sessaoId?: string | null): Promise<AplicadorVisao> {
     const todas = await this.substituicoes(licitacaoId, { sessaoId });
     const sigiloso = await this.orcamentoSigiloso(licitacaoId);
+    const orgaoVe = await this.orgaoVeIdentidades(licitacaoId);
     return <T>(payload: T, visao: VisaoDisputa, opts: { identidades?: boolean } = {}): T => {
-      if (visao.tipo === 'ORGAO') return payload;
+      if (visao.tipo === 'ORGAO') return orgaoVe || opts.identidades === false ? payload : anonimizarPayload(payload, todas);
       let saida = payload;
       if (opts.identidades !== false) {
         const subs = visao.tipo === 'FORNECEDOR' ? todas.filter((s) => s.dono !== visao.fornecedorId) : todas;
@@ -250,7 +310,7 @@ export class SigiloDisputaService {
     visao: VisaoDisputa,
     opts: { sessaoId?: string | null; identidades?: boolean } = {},
   ): Promise<T> {
-    if (visao.tipo === 'ORGAO') return payload;
+    if (visao.tipo === 'ORGAO') return opts.identidades === false ? payload : this.paraOrgao(payload, licitacaoId, opts.sessaoId);
     let saida = payload;
     if (opts.identidades !== false) {
       saida = await this.anonimizar(saida, licitacaoId, {

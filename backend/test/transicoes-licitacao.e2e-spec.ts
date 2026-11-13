@@ -227,7 +227,12 @@ describe('E1 — transições da licitação (máquina de estados)', () => {
     });
 
     it('retomar volta à MESMA fase, reabre o prazo pedido e registra no histórico', async () => {
-      const novoFim = new Date(Date.now() + 10 * 24 * 3_600_000).toISOString();
+      // Retomada só mantém ou ADIA o prazo: antecipar (ou data passada) derrubaria o sigilo das propostas
+      const passado = new Date(Date.now() - 60_000).toISOString();
+      const antes = await http().put(`/api/licitacoes/${lic.id}/retomar`).set(bearer(orgao.token)).send({ data_fim_acolhimento: passado, data_abertura_sessao: passado });
+      expect(antes.status).toBe(400);
+      expect(antes.body.message).toMatch(/passado|antecipado/);
+      const novoFim = new Date(Date.now() + 90 * 24 * 3_600_000).toISOString();
       const r = await http()
         .put(`/api/licitacoes/${lic.id}/retomar`)
         .set(bearer(orgao.token))

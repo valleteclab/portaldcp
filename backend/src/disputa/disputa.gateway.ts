@@ -192,6 +192,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, resultado.vencedor.fornecedorId);
       vencedorPublico = { fornecedorId: idAnonimo(codigo), fornecedorNome: codigo, valor: resultado.vencedor.valor };
     }
+    const orgaoVe = await this.sigilo.orgaoVeIdentidades(licId);
     const aplicar = licId ? await this.sigilo.aplicador(licId, sessaoId) : null;
     const sockets = await this.server.in(`sessao:${sessaoId}`).fetchSockets();
     for (const s of sockets) {
@@ -205,14 +206,14 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         ...extra,
         itemId,
         etapaDeLancesEncerrada: resultado.etapaDeLancesEncerrada,
-        vencedor: visao.tipo === 'ORGAO' ? resultado.vencedor : vencedorPublico,
+        vencedor: visao.tipo === 'ORGAO' && orgaoVe ? resultado.vencedor : vencedorPublico,
         itens: aplicar ? aplicar(itens, visao) : itens,
       });
     }
     if (resultado.alertaReinicio) {
       const a = resultado.alertaReinicio;
       this.server.to(salaOrgao(sessaoId)).emit('alerta_diferenca_5_porcento', {
-        ...a,
+        ...(orgaoVe ? a : await this.sigilo.anonimizar(a, licId, { sessaoId })),
         mensagem:
           `Item ${a.itemNumero}: a diferença entre o 1º e o 2º colocado é de ${a.diferencaPercentual.toFixed(2)}% ` +
           `(≥ ${a.percentualMinimo}%). A Administração poderá admitir o reinício da disputa aberta para as demais ` +

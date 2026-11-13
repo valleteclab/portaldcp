@@ -171,7 +171,9 @@ export class SessaoController {
       }
     }
     // A negociação (IN 73 art. 30 §§2º–3º) entra inteira na ata: registro público depois de concluída
-    return this.sessaoService.gerarAtaSessao(id);
+    const ata = await this.sessaoService.gerarAtaSessao(id);
+    // Antes do fim dos lances o órgão lê a ata sem saber quem é quem
+    return visao.tipo === 'ORGAO' ? this.sigilo.paraOrgao(ata, licitacaoId, id) : ata;
   }
 
   // ROTAS GENÉRICAS - DEVEM FICAR POR ÚLTIMO para não conflitar com rotas específicas

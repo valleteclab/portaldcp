@@ -740,18 +740,17 @@ export class SessaoService {
       propostasRaw = [];
     }
 
-    // Anonimiza propostas (Fornecedor A, B, C...)
+    // Preparação da sessão acontece ANTES dos lances: nunca leva quem é quem
+    // (nem id, nome ou CNPJ) e, enquanto o prazo de propostas corre, nem os
+    // valores — só que a proposta existe (sigilo também contra o órgão).
+    const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+    const noPrazoDePropostas = !!corte && new Date() < new Date(corte);
     const propostas = propostasRaw.map((p: any, index: number) => ({
       id: p.id,
-      fornecedorId: p.fornecedor_id,
-      // Nome anonimizado para exibição antes da disputa
-      fornecedorAnonimo: `Fornecedor ${String.fromCharCode(65 + index)}`,
-      // Nome real (só usar após disputa)
-      fornecedorNome: p.razao_social,
-      cnpj: p.cnpj,
-      valorTotal: parseFloat(p.valor_total_proposta) || 0,
+      fornecedorAnonimo: noPrazoDePropostas ? 'Proposta sob sigilo' : `Fornecedor ${String.fromCharCode(65 + index)}`,
+      valorTotal: noPrazoDePropostas ? null : parseFloat(p.valor_total_proposta) || 0,
       status: p.status,
-      dataEnvio: p.created_at,
+      dataEnvio: noPrazoDePropostas ? null : p.created_at,
     }));
 
     // Busca itens da licitação

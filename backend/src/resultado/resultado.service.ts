@@ -984,8 +984,10 @@ export class ResultadoService implements OnModuleInit {
         const abertas = sessoes.filter((s) => s.status !== StatusSessao.ENCERRADA);
         for (const s of abertas) {
           await m.query(
-            `UPDATE sessoes_disputa SET etapa = $2, status = $3, data_hora_encerramento = now(), updated_at = now() WHERE id = $1`,
-            [s.id, EtapaSessao.ENCERRAMENTO, StatusSessao.ENCERRADA],
+            // Data pelo Node (como as demais colunas `timestamp` da sessão): `now()` do
+            // banco gravava em outro fuso e a ata mostrava o encerramento 3 h adiante
+            `UPDATE sessoes_disputa SET etapa = $2, status = $3, data_hora_encerramento = $4, updated_at = now() WHERE id = $1`,
+            [s.id, EtapaSessao.ENCERRAMENTO, StatusSessao.ENCERRADA, new Date()],
           );
         }
         const alvo = abertas[0] ?? sessoes[0];

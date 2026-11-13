@@ -1,6 +1,6 @@
 import { eventoVisivel } from '../julgamento/regras-negociacao';
 import type { VisaoEvento } from '../julgamento/regras-negociacao';
-import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException , ForbiddenException } from '@nestjs/common';
 import { DisputaService } from './disputa.service';
 import { SigiloDisputaService } from './sigilo-disputa.service';
 import { FilaDisputaService } from './fila-disputa.service';
@@ -104,7 +104,10 @@ export class DisputaController {
       const dados = await this.disputaService.getItensParaFornecedor(sessaoId, fid);
       return this.sigilo.aplicarVisao(dados, licitacaoId, { tipo: 'FORNECEDOR', fornecedorId: fid }, { sessaoId });
     }
-    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    const dono = await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    if (!(await this.sigilo.orgaoVeIdentidades(dono.licitacaoId))) {
+      throw new ForbiddenException('A visão de um licitante só fica disponível ao órgão depois do fim da etapa de lances');
+    }
     return this.disputaService.getItensParaFornecedor(sessaoId, fornecedorId);
   }
 
@@ -225,7 +228,7 @@ export class DisputaController {
     const dono = await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
     const resultado = await this.disputaService.encerrarItem(sessaoId, itemId, atorTransicaoDe(ator));
     await this.gateway.difundirItemEncerrado(sessaoId, dono.licitacaoId, itemId, resultado).catch(() => undefined);
-    return resultado;
+    return this.sigilo.paraOrgao(resultado, dono.licitacaoId, sessaoId);
   }
 
   @SomenteOrgao()

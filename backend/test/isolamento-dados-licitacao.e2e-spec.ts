@@ -890,7 +890,9 @@ describe('Isolamento de dados da licitação (autorização)', () => {
       expect(Number(dono.body.valor_total_proposta)).toBeGreaterThan(0);
       expect(JSON.stringify(dono.body)).not.toMatch(/"senha"|api_key_hash|spedy_api_key/);
       expect(itensDono.body.length).toBeGreaterThan(0);
-      expect(orgao.body).toMatchObject({ fornecedor_id: F1.id, sigilo: true, valor_total_proposta: null });
+      // Durante o sigilo o órgão sabe que a proposta existe — não de quem é nem o conteúdo
+      expect(orgao.body).toMatchObject({ sigilo: true, valor_total_proposta: null });
+      expect(JSON.stringify(orgao.body)).not.toContain(F1.id);
       expect(orgao.body.itens).toBeUndefined();
       expect(itensOrgao.status).toBe(403);
       expect(orgaoB.status).toBe(404);
