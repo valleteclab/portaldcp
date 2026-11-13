@@ -79,6 +79,16 @@ describe('Vazamentos entre fornecedores e entre órgãos (lote 1)', () => {
       }
     });
 
+    it('fornecedores do órgão: quem propôs não aparece enquanto durarem os lances; aparece no julgamento', async () => {
+      const durante = await http().get(`/api/propostas/orgao/${A.id}/fornecedores`).set(bearer(A.token)).expect(200);
+      expect(JSON.stringify(durante.body)).not.toContain(F1.id);
+      await ctx.dataSource.query(`UPDATE licitacoes SET fase = 'JULGAMENTO' WHERE id = $1`, [P.lic.id]);
+      const depois = await http().get(`/api/propostas/orgao/${A.id}/fornecedores`).set(bearer(A.token)).expect(200);
+      expect(depois.body.map((f: any) => f.id).sort()).toEqual([F1.id, F2.id].sort());
+      expect(depois.body[0].cnpj).toBeTruthy();
+      await ctx.dataSource.query(`UPDATE licitacoes SET fase = 'EM_DISPUTA' WHERE id = $1`, [P.lic.id]);
+    });
+
     it('com a anonimização desligada pelo suporte (justificativa obrigatória), o órgão passa a ver', async () => {
       const semJust = await http().put(`/api/admin/monitoramento/sessao/${P.sessaoId}/anonimizacao`).set(bearer(ctx.tokenAdmin())).send({ ativa: false, justificativa: 'ok' });
       expect(semJust.status).toBe(400);
