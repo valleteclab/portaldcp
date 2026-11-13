@@ -1,3 +1,4 @@
+import { comLimiteDeLogin } from '../common/limite-login';
 import { Controller, Post, Body, Get, UseGuards, HttpCode, HttpStatus, Req, Res, Query, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService, UserType } from './auth.service';
@@ -25,28 +26,28 @@ export class AuthController {
   @Post('login/admin')
   @HttpCode(HttpStatus.OK)
   async loginAdmin(@Body() body: { email: string; senha: string }) {
-    return this.authService.loginAdmin(body.email, body.senha);
+    return comLimiteDeLogin('admin', body?.email, () => this.authService.loginAdmin(body.email, body.senha));
   }
 
   @Public()
   @Post('login/orgao')
   @HttpCode(HttpStatus.OK)
   async loginOrgao(@Body() body: { email: string; senha: string }) {
-    return this.authService.loginOrgao(body.email, body.senha);
+    return comLimiteDeLogin('orgao', body?.email, () => this.authService.loginOrgao(body.email, body.senha));
   }
 
   @Public()
   @Post('login/fornecedor')
   @HttpCode(HttpStatus.OK)
   async loginFornecedor(@Body() body: { cpf_cnpj: string; senha: string }) {
-    return this.authService.loginFornecedor(body.cpf_cnpj, body.senha);
+    return comLimiteDeLogin('fornecedor', String(body?.cpf_cnpj ?? '').replace(/\D/g, ''), () => this.authService.loginFornecedor(body.cpf_cnpj, body.senha));
   }
 
   @Public()
   @Post('login/fornecedor/email')
   @HttpCode(HttpStatus.OK)
   async loginFornecedorPorEmail(@Body() body: { email: string; senha: string }) {
-    return this.authService.loginFornecedorPorEmail(body.email, body.senha);
+    return comLimiteDeLogin('fornecedor', body?.email, () => this.authService.loginFornecedorPorEmail(body.email, body.senha));
   }
 
   @Public()

@@ -1,3 +1,4 @@
+import { comLimiteDeLogin } from '../common/limite-login';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Req, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { FornecedoresService } from './fornecedores.service';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
@@ -364,7 +365,7 @@ export class FornecedoresController {
   async login(
     @Body() body: { email: string; senha: string }
   ): Promise<{ fornecedor: Fornecedor; token: string }> {
-    const result = await this.authService.loginFornecedorPorEmail(body.email, body.senha);
+    const result = await comLimiteDeLogin('fornecedor', body?.email, () => this.authService.loginFornecedorPorEmail(body.email, body.senha));
     return {
       fornecedor: result.fornecedor as Fornecedor,
       token: result.token,

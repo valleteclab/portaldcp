@@ -1,3 +1,4 @@
+import { conferirSenha, hashSenha } from '../common/senha.util';
 import { Injectable, ConflictException, NotFoundException, BadRequestException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -874,7 +875,7 @@ export class FornecedoresService {
 
   // === AUTENTICAÇÃO ===
   private hashSenha(senha: string): string {
-    return crypto.createHash('sha256').update(senha).digest('hex');
+    return hashSenha(senha);
   }
 
   async definirSenha(id: string, senha: string): Promise<void> {
@@ -974,10 +975,11 @@ export class FornecedoresService {
       throw new UnauthorizedException('Fornecedor não possui senha cadastrada');
     }
 
-    const senhaHash = this.hashSenha(senha);
-    if (fornecedor.senha !== senhaHash) {
+    const conferida = conferirSenha(senha, fornecedor.senha);
+    if (!conferida.ok) {
       throw new UnauthorizedException('CNPJ ou senha inválidos');
     }
+    if (conferida.novoHash) await this.fornecedorRepository.update(fornecedor.id, { senha: conferida.novoHash });
 
     // Token simples (em produção usar JWT)
     const token = Buffer.from(`${fornecedor.id}:${Date.now()}`).toString('base64');
@@ -1510,10 +1512,11 @@ export class FornecedoresService {
       throw new UnauthorizedException('Fornecedor não possui senha cadastrada');
     }
 
-    const senhaHash = this.hashSenha(senha);
-    if (fornecedor.senha !== senhaHash) {
+    const conferida = conferirSenha(senha, fornecedor.senha);
+    if (!conferida.ok) {
       throw new UnauthorizedException('Email ou senha inválidos');
     }
+    if (conferida.novoHash) await this.fornecedorRepository.update(fornecedor.id, { senha: conferida.novoHash });
 
     // Token simples (em produção usar JWT)
     const token = Buffer.from(`${fornecedor.id}:${Date.now()}`).toString('base64');
