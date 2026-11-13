@@ -417,6 +417,10 @@ export class DisputaLoteService {
       [licitacaoId],
     );
     await this.anonimizacao.atribuirCodigos(sessao.id, participantes.map((p) => String(p.fornecedor_id)));
+    // Um sorteio por lote: julgar um lote encerrado não revela quem é quem nos que seguem em disputa
+    for (const alvoLote of aIniciar) {
+      await this.anonimizacao.atribuirCodigosDaUnidade(sessao.id, alvoLote.id, participantes.map((p) => String(p.fornecedor_id)));
+    }
 
     let lotesIniciados = 0;
     let itensIniciados = 0;
@@ -721,7 +725,8 @@ export class DisputaLoteService {
         const nome = (await m.query(`SELECT razao_social FROM fornecedores WHERE id::text = $1`, [topo.fornecedor_id]))[0]?.razao_social;
         melhorLance = { ...melhorLance!, fornecedorNome: nome || 'Fornecedor' };
         if (anonimizar) {
-          const codigo = codigos.get(topo.fornecedor_id) ?? 'Licitante';
+          // Código do licitante NESTE lote (sorteio por unidade); o mapa da sessão fica como reserva
+          const codigo = await this.anonimizacao.obterCodigoNaUnidade(sessao.id, lote.id, String(topo.fornecedor_id)).catch(() => codigos.get(String(topo.fornecedor_id)) ?? 'Licitante');
           melhorLance = { valor: melhorLance.valor, fornecedorId: idAnonimo(codigo), fornecedorNome: codigo };
         }
       }

@@ -213,7 +213,7 @@ export function SalaPorFases({
       ) : (
         tabela(lotes)
       )}
-      {!visao.identidades && <p className="px-1 text-xs text-slate-500">Identidades em sigilo até o fim da etapa de lances (participantes por código).</p>}
+      {!visao.identidades && <p className="px-1 text-xs text-slate-500">Participantes por código enquanto houver disputa. O código é sorteado em cada item: o mesmo código em itens diferentes não indica a mesma empresa.</p>}
       <ClassificacaoDialog sessaoId={sessaoId} lote={classificacaoDe} onFechar={() => setClassificacaoDe(null)} />
     </section>
   )

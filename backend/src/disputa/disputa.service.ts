@@ -34,6 +34,7 @@ import {
   valorPropostaNaBase,
 } from './modelo-lance';
 import { calcularRelogio, calcularRelogioJanela, prorrogacaoDaJanela } from './relogio-disputa';
+import { itemEmFaseComAnonimizacaoObrigatoria } from './disputa-anonimizacao-helpers';
 import { idAnonimo } from './sigilo-disputa.service';
 import { ModoDisputaService, CamposModoItem } from './modo-disputa.service';
 import { melhorQue, ordemSql } from './modos-disputa';
@@ -392,8 +393,10 @@ export class DisputaService {
   }
 
   /** Código anônimo do fornecedor na sessão ("Fornecedor B"); nunca lança. */
-  async codigoAnonimoSeguro(sessaoId: string, fornecedorId: string): Promise<string> {
+  async codigoAnonimoSeguro(sessaoId: string, fornecedorId: string, unidadeId?: string | null): Promise<string> {
     try {
+      // Com unidade (item/lote): o código é o DAQUELA unidade — ver AnonimizacaoService
+      if (unidadeId) return await this.anonimizacaoService.obterCodigoNaUnidade(sessaoId, unidadeId, fornecedorId);
       return await this.anonimizacaoService.obterCodigoAnonimo(sessaoId, fornecedorId);
     } catch (e: any) {
       this.logger.warn(`Código anônimo indisponível (sessão ${sessaoId}): ${e?.message ?? e}`);
@@ -576,7 +579,9 @@ export class DisputaService {
     const emDisputa: ItemDisputa[] = [];
     const encerrados: ItemDisputa[] = [];
     for (const item of itens) {
-      const itemDisputa = await this.mapearItemParaDisputa(item, sessao, params, anonimizar, codigos, {
+      // Órgão: o item já encerrado aparece identificado (é nele que o julgamento começa)
+      const anonimizarItem = anonimizar && !(opts.visaoOrgao && !itemEmFaseComAnonimizacaoObrigatoria(item.status_disputa));
+      const itemDisputa = await this.mapearItemParaDisputa(item, sessao, params, anonimizarItem, codigos, {
         lances: porItem.get(String(item.id)) ?? [],
         totalPropostas: contagemPropostas.get(String(item.id)) ?? 0,
         minhaProposta: minhasPropostas.get(String(item.id)),
@@ -691,7 +696,7 @@ export class DisputaService {
         }
       : undefined;
     if (melhor && anonimizar && melhor.fornecedorId) {
-      const codigo = codigos.get(melhor.fornecedorId) ?? (await this.codigoAnonimoSeguro(sessao.id, melhor.fornecedorId));
+      const codigo = await this.codigoAnonimoSeguro(sessao.id, melhor.fornecedorId, item.id);
       melhor = { ...melhor, fornecedorId: idAnonimo(codigo), fornecedorNome: codigo };
     }
 
@@ -821,6 +826,10 @@ export class DisputaService {
       [sessao.licitacao_id],
     );
     await this.anonimizacaoService.atribuirCodigos(sessaoId, participantes.map((p) => String(p.fornecedor_id)));
+    // Um sorteio por item: julgar um item encerrado não revela quem é quem nos que seguem em disputa
+    for (const alvo of aIniciar) {
+      await this.anonimizacaoService.atribuirCodigosDaUnidade(sessaoId, alvo.id, participantes.map((p) => String(p.fornecedor_id)));
+    }
 
     let itensIniciados = 0;
     for (const alvo of aIniciar) {
@@ -1528,7 +1537,7 @@ export class DisputaService {
     sessaoId: string | undefined,
     opts: OpcoesVisaoDisputa,
   ): Promise<{ sessaoId?: string; anonimizar: boolean; base: BaseLance; quantidade: number }> {
-    const item = await this.itemRepo.findOne({ where: { id: itemId }, select: ['id', 'licitacao_id', 'quantidade'] });
+    const item = await this.itemRepo.findOne({ where: { id: itemId }, select: ['id', 'licitacao_id', 'quantidade', 'status_disputa'] });
     let sid = sessaoId;
     if (!sid && item) {
       const s = await this.sessaoRepo.findOne({ where: { licitacao_id: item.licitacao_id }, order: { created_at: 'DESC' }, select: ['id'] });
@@ -1536,8 +1545,10 @@ export class DisputaService {
     }
     if (!item || !sid) return { sessaoId: sid, anonimizar: true, base: BaseLance.TOTAL_ITEM, quantidade: 1 };
     const params = await this.parametros.daSessao(sid);
+    // Órgão: identidades do item assim que ELE encerra (julgamento item a item); os
+    // demais leitores, só no fim da etapa de lances da licitação inteira.
     const anonimizar = opts.visaoOrgao
-      ? await this.anonimizacaoService.isAnonimizacaoAtiva(sid)
+      ? (await this.anonimizacaoService.isAnonimizacaoAtiva(sid)) && itemEmFaseComAnonimizacaoObrigatoria(item.status_disputa)
       : !(await this.etapaDeLancesEncerrada(item.licitacao_id));
     return { sessaoId: sid, anonimizar, base: params.baseLance, quantidade: Number(item.quantidade) || 1 };
   }
@@ -1554,13 +1565,13 @@ export class DisputaService {
       (await this.sessaoRepo.findOne({ where: { licitacao_id: lote.licitacao_id }, order: { created_at: 'DESC' }, select: ['id'] }))?.id;
     if (!sid) return false;
     const anonimizar = opts.visaoOrgao
-      ? await this.anonimizacaoService.isAnonimizacaoAtiva(sid)
+      ? (await this.anonimizacaoService.isAnonimizacaoAtiva(sid)) && itemEmFaseComAnonimizacaoObrigatoria(lote.status_disputa as any)
       : !(await this.etapaDeLancesEncerrada(lote.licitacao_id));
-    return { sessaoId: sid, anonimizar, anonimo: (f: string) => this.anonimo(sid, f) };
+    return { sessaoId: sid, anonimizar, anonimo: (f: string) => this.anonimo(sid, f, id) };
   }
 
-  private async anonimo(sessaoId: string, fornecedorId: string) {
-    const codigo = await this.codigoAnonimoSeguro(sessaoId, fornecedorId);
+  private async anonimo(sessaoId: string, fornecedorId: string, unidadeId?: string | null) {
+    const codigo = await this.codigoAnonimoSeguro(sessaoId, fornecedorId, unidadeId);
     return { fornecedorId: idAnonimo(codigo), fornecedorNome: codigo };
   }
 
@@ -1594,7 +1605,7 @@ export class DisputaService {
       linhas.map(async ({ ip, valor }, index) => {
         let fornecedorNome = ip.proposta?.fornecedor?.razao_social || `Fornecedor ${index + 1}`;
         let fornecedorId = ip.proposta?.fornecedor_id || '';
-        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId));
+        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId, itemId));
         return {
           posicao: index + 1,
           fornecedorId,
@@ -1634,7 +1645,7 @@ export class DisputaService {
     return Promise.all(
       ranking.map(async (r, index) => {
         let { fornecedorId, fornecedorNome } = r;
-        if (ctx.anonimizar) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, r.fornecedorId));
+        if (ctx.anonimizar) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, r.fornecedorId, itemId));
         return { posicao: index + 1, fornecedorId, fornecedorNome, melhorValor: r.melhorValor, totalLances: r.totalLances };
       }),
     );
@@ -1655,7 +1666,7 @@ export class DisputaService {
       lances.map(async (l) => {
         let fornecedorId = l.fornecedor_id || ''; // E9: fornecedor_identificador (legado) não é mais lido
         let fornecedorNome = l.fornecedor_nome || 'Fornecedor';
-        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId));
+        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId, itemId));
         return {
           id: l.id,
           valor: parseFloat(String(l.valor)),

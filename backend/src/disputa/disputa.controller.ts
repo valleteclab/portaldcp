@@ -128,6 +128,9 @@ export class DisputaController {
     const visao = await this.sigilo.visaoDoAtor(ator, dono.licitacaoId);
     const dados = await ler(visao.tipo === 'ORGAO');
     // Identidades só depois do fim da etapa de lances da licitação inteira (E2)
+    // Órgão dono: o serviço já entrega o código DAQUELA unidade enquanto ela
+    // disputa e a identidade depois que encerra (julgamento item a item).
+    if (visao.tipo === 'ORGAO') return dados;
     const reveladas = await this.sigilo.identidadesReveladasNoItem(itemId);
     return this.sigilo.aplicarVisao(dados, dono.licitacaoId, visao, { identidades: !reveladas });
   }

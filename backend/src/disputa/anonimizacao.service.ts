@@ -101,6 +101,102 @@ export class AnonimizacaoService {
     });
   }
 
+  // ==========================================================================
+  // CÓDIGO POR UNIDADE (item ou lote) — julgamento item a item
+  // ==========================================================================
+  //
+  // O julgamento de um item pode começar assim que ELE encerra, com outros
+  // ainda em disputa (decisão do dono, 13/11/2026). Julgar identifica o
+  // licitante naquele item; se o código fosse o mesmo na sessão toda, o órgão
+  // passaria a saber quem é o "Fornecedor B" que ainda dá lance nos demais.
+  // Por isso cada unidade tem o seu sorteio: a empresa X é "Fornecedor B" no
+  // item 1 e, por exemplo, "Fornecedor D" no item 2. O código da SESSÃO segue
+  // existindo para o que não tem unidade (chat) e para a dispensa.
+
+  private tabelaDaUnidadePronta: Promise<void> | null = null;
+
+  /** Tabela criada sob demanda (uma vez por processo): não depende de migração nem do synchronize. */
+  private garantirTabelaDaUnidade(): Promise<void> {
+    if (!this.tabelaDaUnidadePronta) {
+      this.tabelaDaUnidadePronta = this.mapeamentoRepo.manager
+        .query(
+          `CREATE TABLE IF NOT EXISTS mapeamento_anonimo_unidade (
+             sessao_id uuid NOT NULL,
+             unidade_id uuid NOT NULL,
+             fornecedor_id uuid NOT NULL,
+             codigo_anonimo varchar(50) NOT NULL,
+             indice int NOT NULL,
+             created_at timestamptz NOT NULL DEFAULT now(),
+             PRIMARY KEY (sessao_id, unidade_id, fornecedor_id),
+             UNIQUE (sessao_id, unidade_id, indice)
+           )`,
+        )
+        .then(() => undefined)
+        .catch((e) => {
+          this.tabelaDaUnidadePronta = null;
+          throw e;
+        });
+    }
+    return this.tabelaDaUnidadePronta;
+  }
+
+  /** Atribui (em ordem SORTEADA) o código da unidade a quem ainda não tem; devolve o mapa completo da unidade. */
+  async atribuirCodigosDaUnidade(sessaoId: string, unidadeId: string, fornecedorIds: string[]): Promise<Map<string, string>> {
+    await this.garantirTabelaDaUnidade();
+    const ids = [...new Set(fornecedorIds.filter(Boolean).map(String))];
+    return this.mapeamentoRepo.manager.transaction(async (m) => {
+      await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`mapeamento_anonimo_unidade:${sessaoId}:${unidadeId}`]);
+      const atuais: Array<{ fornecedor_id: string; codigo_anonimo: string; indice: number }> = await m.query(
+        `SELECT fornecedor_id::text AS fornecedor_id, codigo_anonimo, indice FROM mapeamento_anonimo_unidade WHERE sessao_id = $1 AND unidade_id = $2`,
+        [sessaoId, unidadeId],
+      );
+      const mapa = new Map(atuais.map((a) => [String(a.fornecedor_id), a.codigo_anonimo]));
+      let proximo = atuais.reduce((mx, a) => Math.max(mx, Number(a.indice) || 0), 0) + 1;
+      const novos = ids.filter((id) => !mapa.has(id));
+      for (let i = novos.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1);
+        [novos[i], novos[j]] = [novos[j], novos[i]];
+      }
+      for (const id of novos) {
+        const codigo = this.gerarCodigoAnonimo(proximo);
+        await m.query(
+          `INSERT INTO mapeamento_anonimo_unidade (sessao_id, unidade_id, fornecedor_id, codigo_anonimo, indice)
+           VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sessao_id, unidade_id, fornecedor_id) DO NOTHING`,
+          [sessaoId, unidadeId, id, codigo, proximo],
+        );
+        mapa.set(id, codigo);
+        proximo++;
+      }
+      return mapa;
+    });
+  }
+
+  /** Código do fornecedor NAQUELA unidade (atribui se ainda não tem). */
+  async obterCodigoNaUnidade(sessaoId: string, unidadeId: string, fornecedorId: string): Promise<string> {
+    await this.garantirTabelaDaUnidade();
+    const [r] = await this.mapeamentoRepo.manager.query(
+      `SELECT codigo_anonimo FROM mapeamento_anonimo_unidade WHERE sessao_id = $1 AND unidade_id = $2 AND fornecedor_id = $3`,
+      [sessaoId, unidadeId, fornecedorId],
+    );
+    if (r) return r.codigo_anonimo;
+    return (await this.atribuirCodigosDaUnidade(sessaoId, unidadeId, [fornecedorId])).get(String(fornecedorId))!;
+  }
+
+  /** Todos os códigos por unidade da sessão: Map<unidadeId, Map<fornecedorId, código>>. */
+  async obterMapeamentoPorUnidade(sessaoId: string): Promise<Map<string, Map<string, string>>> {
+    await this.garantirTabelaDaUnidade();
+    const rows: Array<{ u: string; f: string; c: string }> = await this.mapeamentoRepo.manager.query(
+      `SELECT unidade_id::text AS u, fornecedor_id::text AS f, codigo_anonimo AS c FROM mapeamento_anonimo_unidade WHERE sessao_id = $1`,
+      [sessaoId],
+    );
+    const saida = new Map<string, Map<string, string>>();
+    for (const r of rows) {
+      if (!saida.has(r.u)) saida.set(r.u, new Map());
+      saida.get(r.u)!.set(r.f, r.c);
+    }
+    return saida;
+  }
+
   /**
    * Obtém mapeamento completo de uma sessão
    * Retorna Map<fornecedorId, codigoAnonimo>

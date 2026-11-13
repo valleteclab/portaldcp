@@ -216,7 +216,7 @@ describe('E2 — motor de lances único', () => {
       await http().put(`/api/disputa/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ chat_desabilitado: false }).expect(200);
     });
 
-    test('item_encerrado com outro item em disputa: fornecedor e órgão recebem o vencedor ANÔNIMO', async () => {
+    test('item_encerrado com outro item em disputa: fornecedor recebe o vencedor ANÔNIMO; órgão recebe a identidade só do item encerrado', async () => {
       const paraF1 = aguardarEvento<any>(s1, 'item_encerrado');
       const paraOrgao = aguardarEvento<any>(sp, 'item_encerrado');
       sp.emit('encerrar_item', { sessaoId, itemId: item1 });
@@ -227,9 +227,13 @@ describe('E2 — motor de lances único', () => {
       expect(f.vencedor.fornecedorId).toMatch(/^anonimo-/);
       expect(JSON.stringify(f)).not.toContain(F2.id);
       expect(JSON.stringify(f)).not.toContain(F2.razao_social);
-      // o órgão também só conhece o código enquanto houver item em disputa (auditoria de 13/11/2026)
-      expect(o.vencedor.fornecedorId).toMatch(/^anonimo-/);
-      expect(JSON.stringify(o)).not.toContain(F2.id);
+      // o órgão conhece o vencedor do item ENCERRADO (o julgamento dele já pode começar)...
+      expect(o.vencedor.fornecedorId).toBe(F2.id);
+      // ...mas não quem é quem no item que segue em disputa: lá cada licitante tem outro código
+      const emDisputa = (o.itens?.emDisputa ?? []).map((i: any) => JSON.stringify(i)).join('');
+      expect(emDisputa).not.toContain(F1.id);
+      expect(emDisputa).not.toContain(F2.id);
+      expect(emDisputa).not.toContain(F3.id);
 
       // leituras REST do item encerrado também seguem sem identidade para não-donos
       const m = await http().get(`/api/disputa/item/${item1}/melhores`).set(bearer(F3.token)).expect(200);

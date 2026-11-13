@@ -96,6 +96,105 @@ export function anonimizarPayload<T>(payload: T, subs: SubstituicaoIdentidade[])
   return JSON.parse(texto);
 }
 
+/** Substituições de identidade → código para um conjunto de participantes e um mapa de códigos. */
+function montarSubstituicoes(
+  participantes: ParticipanteRow[],
+  codigos: Map<string, string>,
+  sementeRotulo: string,
+  exceto?: string | null,
+): SubstituicaoIdentidade[] {
+  const subs: SubstituicaoIdentidade[] = [];
+  for (const p of participantes) {
+    const id = String(p.id);
+    if (exceto && id === exceto) continue;
+    // Sem código sorteado ainda (antes da disputa): rótulo estável e não
+    // derivável do id, para o leitor distinguir um licitante do outro.
+    const marca = codigos.has(id) ? '' : rotuloSemCodigo(sementeRotulo, id);
+    const codigo = codigos.get(id) || `Licitante ${marca}`;
+    subs.push({ de: id, para: codigos.has(id) ? idAnonimo(codigo) : `anonimo-${marca.toLowerCase()}`, dono: id });
+    const nomes = [p.razao_social, p.nome_fantasia].filter((n): n is string => !!n && n.trim().length >= 4);
+    for (const n of nomes) subs.push({ de: n, para: codigo, dono: id });
+    if (p.cpf_cnpj) {
+      subs.push({ de: p.cpf_cnpj, para: codigo, dono: id });
+      const digitos = p.cpf_cnpj.replace(/\D/g, '');
+      if (digitos.length >= 11 && digitos !== p.cpf_cnpj) subs.push({ de: digitos, para: codigo, dono: id });
+    }
+    // O resto do cadastro que identifica a empresa (o payload pode trazer o
+    // registro inteiro do fornecedor): representante, e-mail, telefones, site.
+    const textos = [p.email, p.representante_email, p.site, p.representante_nome].filter(
+      (v): v is string => typeof v === 'string' && v.trim().length >= 6,
+    );
+    for (const v of textos) subs.push({ de: v, para: codigo, dono: id });
+    for (const v of [p.representante_cpf, p.telefone, p.representante_telefone, p.representante_whatsapp, p.inscricao_estadual]) {
+      if (typeof v !== 'string' || !v.trim()) continue;
+      const digitos = v.replace(/\D/g, '');
+      if (digitos.length < 8) continue;
+      subs.push({ de: v, para: codigo, dono: id });
+      if (digitos !== v) subs.push({ de: digitos, para: codigo, dono: id });
+    }
+  }
+  // Mais longos primeiro (razão social que contém o nome fantasia etc.)
+  subs.sort((a, b) => b.de.length - a.de.length);
+  return subs;
+}
+
+export interface PlanoAnonimizacao {
+  /** Códigos da sessão (trechos sem unidade). */
+  sessao: SubstituicaoIdentidade[];
+  /** Códigos de cada unidade (item/lote). */
+  porUnidade: Map<string, SubstituicaoIdentidade[]>;
+  /** Ids de item/lote da licitação — para reconhecer a unidade de cada trecho. */
+  conhecidas: Set<string>;
+  /** Unidades cujas identidades NÃO são trocadas (encerradas, na visão do órgão). */
+  reveladas: Set<string>;
+}
+
+const CHAVES_DE_UNIDADE = ['item_id', 'itemId', 'unidade_id', 'unidadeId', 'lote_id', 'loteId', 'item_licitacao_id'];
+
+function trocar(texto: string, subs: SubstituicaoIdentidade[]): string {
+  let saida = texto;
+  for (const s of subs) if (s.de && saida.includes(s.de)) saida = saida.split(s.de).join(s.para);
+  return saida;
+}
+
+/** Aplica o plano ao payload inteiro, respeitando a unidade de cada trecho. */
+export function aplicarPlano<T>(payload: T, plano: PlanoAnonimizacao, filtro?: (s: SubstituicaoIdentidade) => boolean): T {
+  if (payload === null || payload === undefined) return payload;
+  const texto = JSON.stringify(payload);
+  if (texto === undefined) return payload;
+  const f = (lista: SubstituicaoIdentidade[]) => (filtro ? lista.filter(filtro) : lista);
+  const daSessao = f(plano.sessao);
+  const cache = new Map<string, SubstituicaoIdentidade[]>();
+  const daUnidade = (u: string) => {
+    if (!cache.has(u)) cache.set(u, plano.porUnidade.has(u) ? f(plano.porUnidade.get(u)!) : daSessao);
+    return cache.get(u)!;
+  };
+  if (!daSessao.length && !plano.porUnidade.size) return payload;
+  const visitar = (no: any, unidade: string | null): any => {
+    if (typeof no === 'string') {
+      if (unidade && plano.reveladas.has(unidade)) return no;
+      return trocar(no, unidade ? daUnidade(unidade) : daSessao);
+    }
+    if (Array.isArray(no)) return no.map((x) => visitar(x, unidade));
+    if (no && typeof no === 'object') {
+      let u = unidade;
+      for (const k of CHAVES_DE_UNIDADE) {
+        const v = no[k];
+        if (typeof v === 'string' && plano.conhecidas.has(v)) {
+          u = v;
+          break;
+        }
+      }
+      if (u === unidade && typeof no.id === 'string' && plano.conhecidas.has(no.id)) u = no.id;
+      const out: any = {};
+      for (const [k, v] of Object.entries(no)) out[k] = visitar(v, u);
+      return out;
+    }
+    return no;
+  };
+  return visitar(JSON.parse(texto), null);
+}
+
 @Injectable()
 export class SigiloDisputaService {
   constructor(
@@ -139,39 +238,76 @@ export class SigiloDisputaService {
       for (const r of rows) codigos.set(String(r.fornecedor_id), r.codigo_anonimo);
     }
 
-    const subs: SubstituicaoIdentidade[] = [];
-    for (const p of participantes) {
-      const id = String(p.id);
-      if (opts.exceto && id === opts.exceto) continue;
-      // Sem código sorteado ainda (antes da disputa): rótulo estável e não
-      // derivável do id, para o leitor distinguir um licitante do outro.
-      const marca = codigos.has(id) ? '' : rotuloSemCodigo(String(licitacaoId), id);
-      const codigo = codigos.get(id) || `Licitante ${marca}`;
-      subs.push({ de: id, para: codigos.has(id) ? idAnonimo(codigo) : `anonimo-${marca.toLowerCase()}`, dono: id });
-      const nomes = [p.razao_social, p.nome_fantasia].filter((n): n is string => !!n && n.trim().length >= 4);
-      for (const n of nomes) subs.push({ de: n, para: codigo, dono: id });
-      if (p.cpf_cnpj) {
-        subs.push({ de: p.cpf_cnpj, para: codigo, dono: id });
-        const digitos = p.cpf_cnpj.replace(/\D/g, '');
-        if (digitos.length >= 11 && digitos !== p.cpf_cnpj) subs.push({ de: digitos, para: codigo, dono: id });
+    return montarSubstituicoes(participantes, codigos, String(licitacaoId), opts.exceto);
+  }
+
+  /**
+   * PLANO de anonimização com código POR UNIDADE (julgamento item a item): o
+   * mesmo licitante tem um código em cada item/lote, então cada trecho do
+   * payload é trocado com os códigos da unidade a que pertence (descoberta
+   * pelas chaves item_id/itemId/unidade_id/lote_id ou pelo `id` do próprio
+   * objeto). Trecho sem unidade usa o código da sessão. Com `orgao`, as
+   * unidades já ENCERRADAS não são trocadas — é nelas que o órgão julga.
+   */
+  async plano(
+    licitacaoId: string | null | undefined,
+    opts: { sessaoId?: string | null; exceto?: string | null; orgao?: boolean } = {},
+  ): Promise<PlanoAnonimizacao> {
+    const vazio: PlanoAnonimizacao = { sessao: [], porUnidade: new Map(), conhecidas: new Set(), reveladas: new Set() };
+    if (!ehUuid(licitacaoId)) return vazio;
+    const participantes = await this.participantesDa(licitacaoId);
+    const sessaoId = await this.sessaoDa(licitacaoId, opts.sessaoId);
+    const daSessao = new Map<string, string>();
+    const porUnidadeCod = new Map<string, Map<string, string>>();
+    if (ehUuid(sessaoId)) {
+      for (const r of await this.dataSource.query(`SELECT fornecedor_id, codigo_anonimo FROM mapeamento_anonimo WHERE sessao_id = $1`, [sessaoId])) {
+        daSessao.set(String(r.fornecedor_id), r.codigo_anonimo);
       }
-      // O resto do cadastro que identifica a empresa (o payload pode trazer o
-      // registro inteiro do fornecedor): representante, e-mail, telefones, site.
-      const textos = [p.email, p.representante_email, p.site, p.representante_nome].filter(
-        (v): v is string => typeof v === 'string' && v.trim().length >= 6,
-      );
-      for (const v of textos) subs.push({ de: v, para: codigo, dono: id });
-      for (const v of [p.representante_cpf, p.telefone, p.representante_telefone, p.representante_whatsapp, p.inscricao_estadual]) {
-        if (typeof v !== 'string' || !v.trim()) continue;
-        const digitos = v.replace(/\D/g, '');
-        if (digitos.length < 8) continue;
-        subs.push({ de: v, para: codigo, dono: id });
-        if (digitos !== v) subs.push({ de: digitos, para: codigo, dono: id });
+      const linhas: Array<{ u: string; f: string; c: string }> = await this.dataSource
+        .query(`SELECT unidade_id::text AS u, fornecedor_id::text AS f, codigo_anonimo AS c FROM mapeamento_anonimo_unidade WHERE sessao_id = $1`, [sessaoId])
+        .catch(() => []);
+      for (const r of linhas) {
+        if (!porUnidadeCod.has(r.u)) porUnidadeCod.set(r.u, new Map());
+        porUnidadeCod.get(r.u)!.set(r.f, r.c);
       }
     }
-    // Mais longos primeiro (razão social que contém o nome fantasia etc.)
-    subs.sort((a, b) => b.de.length - a.de.length);
-    return subs;
+    const unidades: Array<{ id: string; status: string | null }> = await this.dataSource.query(
+      `SELECT id::text AS id, status_disputa::text AS status FROM itens_licitacao WHERE licitacao_id = $1
+       UNION ALL
+       SELECT id::text AS id, status_disputa::text AS status FROM lotes_licitacao WHERE licitacao_id = $1`,
+      [licitacaoId],
+    );
+    const plano: PlanoAnonimizacao = {
+      sessao: montarSubstituicoes(participantes, daSessao, String(licitacaoId), opts.exceto),
+      porUnidade: new Map(),
+      conhecidas: new Set(unidades.map((u) => u.id)),
+      reveladas: new Set(),
+    };
+    for (const [unidadeId, codigos] of porUnidadeCod) {
+      plano.porUnidade.set(unidadeId, montarSubstituicoes(participantes, codigos, `${licitacaoId}:${unidadeId}`, opts.exceto));
+    }
+    if (opts.orgao) {
+      for (const u of unidades) if (!itemEmFaseComAnonimizacaoObrigatoria(u.status as any)) plano.reveladas.add(u.id);
+    }
+    return plano;
+  }
+
+  private async participantesDa(licitacaoId: string): Promise<ParticipanteRow[]> {
+    return this.dataSource.query(
+      `SELECT DISTINCT f.id, f.razao_social, f.nome_fantasia, f.cpf_cnpj,
+              f.email, f.site, f.telefone, f.inscricao_estadual,
+              f.representante_nome, f.representante_cpf, f.representante_email,
+              f.representante_telefone, f.representante_whatsapp
+         FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
+        WHERE p.licitacao_id = $1`,
+      [licitacaoId],
+    );
+  }
+
+  private async sessaoDa(licitacaoId: string, informada?: string | null): Promise<string | null> {
+    if (ehUuid(informada)) return informada;
+    const s = await this.dataSource.query(`SELECT id FROM sessoes_disputa WHERE licitacao_id = $1 ORDER BY created_at DESC LIMIT 1`, [licitacaoId]);
+    return s[0]?.id ?? null;
   }
 
   /** Atalho: substituições da licitação aplicadas ao payload. */
@@ -180,8 +316,7 @@ export class SigiloDisputaService {
     licitacaoId: string | null | undefined,
     opts: { sessaoId?: string | null; exceto?: string | null } = {},
   ): Promise<T> {
-    const subs = await this.substituicoes(licitacaoId, opts);
-    return anonimizarPayload(payload, subs);
+    return aplicarPlano(payload, await this.plano(licitacaoId, opts));
   }
 
   /**
@@ -288,7 +423,8 @@ export class SigiloDisputaService {
   /** Payload para o órgão dono: identidades trocadas pelo código enquanto ele ainda não pode vê-las. */
   async paraOrgao<T>(payload: T, licitacaoId: string | null | undefined, sessaoId?: string | null): Promise<T> {
     if (await this.orgaoVeIdentidades(licitacaoId)) return payload;
-    return this.anonimizar(payload, licitacaoId, { sessaoId });
+    // Unidade já encerrada fica identificada (é onde o órgão julga); as demais, com o código delas
+    return aplicarPlano(payload, await this.plano(licitacaoId, { sessaoId, orgao: true }));
   }
 
   /**
@@ -310,15 +446,16 @@ export class SigiloDisputaService {
    * e devolve uma função síncrona — para broadcasts a muitos sockets.
    */
   async aplicador(licitacaoId: string, sessaoId?: string | null): Promise<AplicadorVisao> {
-    const todas = await this.substituicoes(licitacaoId, { sessaoId });
+    const todas = await this.plano(licitacaoId, { sessaoId });
+    const doOrgao = await this.plano(licitacaoId, { sessaoId, orgao: true });
     const sigiloso = await this.orcamentoSigiloso(licitacaoId);
     const orgaoVe = await this.orgaoVeIdentidades(licitacaoId);
     return <T>(payload: T, visao: VisaoDisputa, opts: { identidades?: boolean } = {}): T => {
-      if (visao.tipo === 'ORGAO') return orgaoVe || opts.identidades === false ? payload : anonimizarPayload(payload, todas);
+      if (visao.tipo === 'ORGAO') return orgaoVe || opts.identidades === false ? payload : aplicarPlano(payload, doOrgao);
       let saida = payload;
       if (opts.identidades !== false) {
-        const subs = visao.tipo === 'FORNECEDOR' ? todas.filter((s) => s.dono !== visao.fornecedorId) : todas;
-        saida = anonimizarPayload(saida, subs);
+        const eu = visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : null;
+        saida = aplicarPlano(saida, todas, eu ? (s) => s.dono !== eu : undefined);
       }
       return sigiloso ? semValorReferencia(saida) : saida;
     };
