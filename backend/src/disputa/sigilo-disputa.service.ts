@@ -50,6 +50,15 @@ interface ParticipanteRow {
   razao_social: string | null;
   nome_fantasia: string | null;
   cpf_cnpj: string | null;
+  email?: string | null;
+  site?: string | null;
+  telefone?: string | null;
+  inscricao_estadual?: string | null;
+  representante_nome?: string | null;
+  representante_cpf?: string | null;
+  representante_email?: string | null;
+  representante_telefone?: string | null;
+  representante_whatsapp?: string | null;
 }
 
 /** Fases em que a etapa de lances ainda não terminou: o órgão dono também não vê quem é quem. */
@@ -104,7 +113,10 @@ export class SigiloDisputaService {
   ): Promise<SubstituicaoIdentidade[]> {
     if (!ehUuid(licitacaoId)) return [];
     const participantes: ParticipanteRow[] = await this.dataSource.query(
-      `SELECT DISTINCT f.id, f.razao_social, f.nome_fantasia, f.cpf_cnpj
+      `SELECT DISTINCT f.id, f.razao_social, f.nome_fantasia, f.cpf_cnpj,
+              f.email, f.site, f.telefone, f.inscricao_estadual,
+              f.representante_nome, f.representante_cpf, f.representante_email,
+              f.representante_telefone, f.representante_whatsapp
          FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id
         WHERE p.licitacao_id = $1`,
       [licitacaoId],
@@ -142,6 +154,19 @@ export class SigiloDisputaService {
         subs.push({ de: p.cpf_cnpj, para: codigo, dono: id });
         const digitos = p.cpf_cnpj.replace(/\D/g, '');
         if (digitos.length >= 11 && digitos !== p.cpf_cnpj) subs.push({ de: digitos, para: codigo, dono: id });
+      }
+      // O resto do cadastro que identifica a empresa (o payload pode trazer o
+      // registro inteiro do fornecedor): representante, e-mail, telefones, site.
+      const textos = [p.email, p.representante_email, p.site, p.representante_nome].filter(
+        (v): v is string => typeof v === 'string' && v.trim().length >= 6,
+      );
+      for (const v of textos) subs.push({ de: v, para: codigo, dono: id });
+      for (const v of [p.representante_cpf, p.telefone, p.representante_telefone, p.representante_whatsapp, p.inscricao_estadual]) {
+        if (typeof v !== 'string' || !v.trim()) continue;
+        const digitos = v.replace(/\D/g, '');
+        if (digitos.length < 8) continue;
+        subs.push({ de: v, para: codigo, dono: id });
+        if (digitos !== v) subs.push({ de: digitos, para: codigo, dono: id });
       }
     }
     // Mais longos primeiro (razão social que contém o nome fantasia etc.)
