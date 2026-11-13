@@ -562,6 +562,16 @@ describe('E4 — habilitação real (arts. 62–70; IN 73 art. 39)', () => {
       // o próprio licitante vê onde foi inabilitado e o motivo
       const minha = (await painelHabilitacao(ctx, licId, F1.token)).minha;
       expect(minha.inabilitacoesUnidade).toEqual([expect.objectContaining({ rotulo: 'Item 2' })]);
+
+      // A ATA traz o julgamento e a habilitação em seções próprias (não só no histórico de eventos)
+      const ata = (await http().get(`/api/sessao/${p.sessaoId}/ata`).set(bearer(orgao.token)).expect(200)).body;
+      // histórico completo: as três propostas de F1 aceitas e, no item 2, a nova convocação de F2
+      expect(ata.julgamento.aceitacoes.filter((a: any) => a.status === 'ACEITA').map((a: any) => a.unidade)).toEqual(['Item 1', 'Item 2', 'Item 3']);
+      expect(ata.julgamento.aceitacoes.filter((a: any) => a.unidade === 'Item 2').map((a: any) => a.status)).toEqual(['ACEITA', 'AGUARDANDO_ENVIO']);
+      expect(ata.julgamento.aceitacoes.every((a: any) => !!a.fornecedor)).toBe(true);
+      expect(ata.julgamento.habilitacoes).toEqual([
+        expect.objectContaining({ status: 'HABILITADO', inabilitacoes_unidade: [expect.objectContaining({ rotulo: 'Item 2' })] }),
+      ]);
     });
 
     // Achado do pregão por lote 2026/00087 (11/11/2026): com uma unidade ainda aguardando a
