@@ -17,6 +17,26 @@ export class CatalogoProprioController {
     return orgaoId || orgaoIdParam;
   }
 
+  /**
+   * Escrita no catálogo: só órgão ou admin, e só no que é do próprio órgão
+   * (registro global, sem órgão, é do admin). Fornecedor nunca escreve.
+   */
+  private exigirDono(user: JwtPayload, orgaoDoRegistro: string | null | undefined): void {
+    if (user?.type === UserType.ADMIN) return;
+    const meu = user?.type === UserType.ORGAO ? user.sub : user?.orgaoId || (user as any)?.orgao_id;
+    if (user?.type === UserType.FORNECEDOR || !meu || !orgaoDoRegistro || orgaoDoRegistro !== meu) {
+      throw new ForbiddenException('Este registro do catálogo não é do seu órgão');
+    }
+  }
+
+  /** Órgão em que se cria: o do token; só o admin escolhe (ou cria global). */
+  private orgaoParaCriar(user: JwtPayload, informado?: string): string | undefined {
+    if (user?.type === UserType.ADMIN) return informado;
+    const meu = user?.type === UserType.ORGAO ? user.sub : user?.orgaoId || (user as any)?.orgao_id;
+    if (user?.type === UserType.FORNECEDOR || !meu) throw new ForbiddenException('Ação exclusiva do órgão');
+    return meu;
+  }
+
   // ==================== CLASSIFICAÇÕES ====================
 
   @Get('classificacoes')
@@ -57,7 +77,7 @@ export class CatalogoProprioController {
       orgaoId?: string;
     },
   ) {
-    const orgaoId = dados.orgaoId || this.getOrgaoIdOptional(request.user);
+    const orgaoId = this.orgaoParaCriar(request.user, dados.orgaoId);
     return this.catalogoProprioService.criarClassificacao({ ...dados, orgaoId });
   }
 
@@ -70,12 +90,15 @@ export class CatalogoProprioController {
       palavras_chave?: string[];
       ativo?: boolean;
     },
+    @Req() request: { user: JwtPayload },
   ) {
+    this.exigirDono(request.user, (await this.catalogoProprioService.findClassificacaoById(id)).orgao_id);
     return this.catalogoProprioService.atualizarClassificacao(id, dados);
   }
 
   @Delete('classificacoes/:id')
-  async excluirClassificacao(@Param('id') id: string) {
+  async excluirClassificacao(@Param('id') id: string, @Req() request: { user: JwtPayload }) {
+    this.exigirDono(request.user, (await this.catalogoProprioService.findClassificacaoById(id)).orgao_id);
     return this.catalogoProprioService.excluirClassificacao(id);
   }
 
@@ -123,7 +146,7 @@ export class CatalogoProprioController {
       orgaoId?: string;
     },
   ) {
-    const orgaoId = dados.orgaoId || this.getOrgaoIdOptional(request.user);
+    const orgaoId = this.orgaoParaCriar(request.user, dados.orgaoId);
     return this.catalogoProprioService.criarItem({ ...dados, orgaoId });
   }
 
@@ -138,12 +161,15 @@ export class CatalogoProprioController {
       classificacaoId?: string;
       ativo?: boolean;
     },
+    @Req() request: { user: JwtPayload },
   ) {
+    this.exigirDono(request.user, (await this.catalogoProprioService.findItemById(id)).orgao_id);
     return this.catalogoProprioService.atualizarItem(id, dados);
   }
 
   @Delete('itens/:id')
-  async excluirItem(@Param('id') id: string) {
+  async excluirItem(@Param('id') id: string, @Req() request: { user: JwtPayload }) {
+    this.exigirDono(request.user, (await this.catalogoProprioService.findItemById(id)).orgao_id);
     return this.catalogoProprioService.excluirItem(id);
   }
 
@@ -169,7 +195,8 @@ export class CatalogoProprioController {
   // ==================== SEED E ESTATÍSTICAS ====================
 
   @Post('seed')
-  async seed() {
+  async seed(@Req() request: { user: JwtPayload }) {
+    if (request.user?.type !== UserType.ADMIN) throw new ForbiddenException('Ação exclusiva da administração da plataforma');
     return this.catalogoProprioService.seedClassificacoesIniciais();
   }
 

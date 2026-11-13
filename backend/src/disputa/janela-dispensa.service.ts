@@ -85,6 +85,8 @@ export interface EstadoJanela {
   numeroProcesso: string | null;
   dataHomologacao: Date | null;
   corteSigilo: Date | null;
+  /** Dispensa com etapa de lances (o anonimato vai até o fim da janela). */
+  comLances: boolean;
   inicio: Date | null;
   fim: Date | null;
   prorrogacaoMinutos: number;
@@ -149,7 +151,7 @@ export class JanelaDispensaService {
     const [l] = await m.query(
       `SELECT id, modalidade::text AS modalidade, numero_processo, data_homologacao,
               COALESCE(data_fim_acolhimento, data_abertura_sessao) AS corte,
-              dispensa_lances_inicio, dispensa_lances_fim, dispensa_lances_prorrogacao_min
+              dispensa_lances_inicio, dispensa_lances_fim, dispensa_lances_prorrogacao_min, dispensa_com_lances
          FROM licitacoes WHERE id = $1${travar ? ' FOR UPDATE' : ''}`,
       [licitacaoId],
     );
@@ -160,10 +162,23 @@ export class JanelaDispensaService {
       numeroProcesso: l.numero_processo ?? null,
       dataHomologacao: l.data_homologacao ? new Date(l.data_homologacao) : null,
       corteSigilo: l.corte ? new Date(l.corte) : null,
+      comLances: l.dispensa_com_lances === true,
       inicio: l.dispensa_lances_inicio ? new Date(l.dispensa_lances_inicio) : null,
       fim: l.dispensa_lances_fim ? new Date(l.dispensa_lances_fim) : null,
       prorrogacaoMinutos: Number(l.dispensa_lances_prorrogacao_min) || 0,
     };
+  }
+
+  /**
+   * A autoria do fornecedor no chat ainda é anônima? Durante o prazo de
+   * propostas, durante a janela de lances e — na dispensa com lances — também
+   * no intervalo entre as duas (senão quem escreveu no prazo seria identificado
+   * logo antes de disputar).
+   */
+  autoriaAnonima(e: EstadoJanela, agora = new Date()): boolean {
+    if (this.janelaAberta(e, agora.getTime())) return true;
+    if (e.corteSigilo && agora < e.corteSigilo) return true;
+    return e.comLances && !e.fim;
   }
 
   /** A janela está aberta agora? (relógio único) */
@@ -592,7 +607,7 @@ export class JanelaDispensaService {
    */
   async listarMensagens(licitacaoId: string, leitor: LeitorChat = null): Promise<any[]> {
     const e = await this.estado(licitacaoId);
-    const anonimo = this.janelaAberta(e) || (!!e.corteSigilo && new Date() < e.corteSigilo);
+    const anonimo = this.autoriaAnonima(e);
     const eventos: EventoSessao[] = await this.dataSource.manager
       .createQueryBuilder(EventoSessao, 'e')
       .innerJoin(SessaoDisputa, 's', 's.id = e.sessao_id')
@@ -691,7 +706,7 @@ export class JanelaDispensaService {
     // Negociação é privada (sem acompanhamento dos demais — IN 67 art. 16):
     // não vai para a sala pública; órgão e vencedor leem pela lista.
     if (!canal) {
-      const anonimo = this.janelaAberta(e) || (!!e.corteSigilo && new Date() < e.corteSigilo);
+      const anonimo = this.autoriaAnonima(e);
       const codigo =
         dto.autor_tipo === 'FORNECEDOR' && anonimo ? await this.disputa.codigoAnonimoSeguro(sessao.id, dto.fornecedor_id!) : null;
       const publico = this.mensagemParaTela(evento, codigo, !anonimo);

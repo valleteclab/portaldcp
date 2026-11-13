@@ -1906,6 +1906,40 @@ export class LicitacoesService {
       this.janelaDispensa.dadosAta(id, orgaoDono || !!licitacao.data_homologacao),
     ]);
 
+    // Pós-julgamento: saídas por item, negociação, habilitação e diligências. A negociação e a
+    // diligência só entram para o órgão dono antes da homologação (mesma regra do chat).
+    const reservado = orgaoDono || !!licitacao.data_homologacao;
+    const [saidas, negociacoes, habilitacoes, diligencias] = await Promise.all([
+      this.dataSource.query(
+        `SELECT i.numero_item AS numero, f.razao_social, e.tipo, e.motivo, e.registrado_por_nome, e.created_at
+           FROM exclusoes_item_dispensa e JOIN itens_licitacao i ON i.id = e.item_licitacao_id LEFT JOIN fornecedores f ON f.id = e.fornecedor_id
+          WHERE e.licitacao_id = $1 ORDER BY e.created_at`,
+        [id],
+      ),
+      reservado
+        ? this.dataSource.query(
+            `SELECT i.numero_item AS numero, f.razao_social, n.valor_anterior, n.valor_unitario, n.status, n.motivo_recusa, n.created_at
+               FROM negociacoes_dispensa n JOIN itens_licitacao i ON i.id = n.item_licitacao_id LEFT JOIN fornecedores f ON f.id = n.fornecedor_id
+              WHERE n.licitacao_id = $1 ORDER BY n.created_at`,
+            [id],
+          )
+        : [],
+      this.dataSource.query(
+        `SELECT f.razao_social, h.resultado, h.motivo, h.conferidos, h.registrado_por_nome, h.created_at
+           FROM habilitacoes_dispensa h LEFT JOIN fornecedores f ON f.id = h.fornecedor_id
+          WHERE h.licitacao_id = $1 ORDER BY h.created_at`,
+        [id],
+      ),
+      reservado
+        ? this.dataSource.query(
+            `SELECT f.razao_social, d.pedido, d.aberta_em, d.resposta, d.respondida_em, d.resultado, d.resultado_motivo, d.encerrada_em
+               FROM diligencias_licitante d LEFT JOIN fornecedores f ON f.id::text = d.fornecedor_id::text
+              WHERE d.licitacao_id = $1 ORDER BY d.aberta_em`,
+            [id],
+          )
+        : [],
+    ]);
+
     return {
       orgao_nome: orgaoRow?.[0]?.nome || 'Órgão',
       licitacao,
@@ -1913,6 +1947,10 @@ export class LicitacoesService {
       propostas,
       lances: sala.lances,
       mensagens: sala.mensagens,
+      saidas,
+      negociacoes,
+      habilitacoes,
+      diligencias,
     };
   }
 

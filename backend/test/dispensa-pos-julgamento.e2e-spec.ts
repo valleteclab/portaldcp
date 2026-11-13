@@ -8,6 +8,7 @@
 import { AppE2E, OrgaoFixture, criarApp, criarFornecedor, criarLicitacao, criarOrgao, levarAteFase, FornecedorFixture } from './support';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { homologarResultado, habilitarVencedoresDispensa } from './support/resultado';
+import { LicitacoesService } from '../src/licitacoes/licitacoes.service';
 
 const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
 
@@ -177,5 +178,17 @@ describe('Dispensa eletrônica — desclassificação e inabilitação por item'
       .send({ fornecedor_id: f1.id, resultado: 'HABILITADO', conferidos: ['Habilitação jurídica'] });
     expect(h.status).toBe(201);
     expect(h.body.vencedores.find((v: any) => v.fornecedor_id === f1.id).habilitacao.resultado).toBe('HABILITADO');
+  });
+
+  test('a ata registra as saídas por item e a habilitação (não só o chat)', async () => {
+    const dados = await ctx.app.get(LicitacoesService).dadosAtaDispensa(licId, true);
+    expect((dados.saidas ?? []).map((x: any) => [Number(x.numero), x.tipo])).toEqual([
+      [2, 'PROPOSTA'],
+      [3, 'HABILITACAO'],
+    ]);
+    expect((dados.habilitacoes ?? []).map((x: any) => x.resultado)).toEqual(['HABILITADO']);
+    const pdf = await http().get(`/api/licitacoes/${licId}/dispensa/ata`).set(bearer(orgao.token));
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toMatch(/pdf/);
   });
 });

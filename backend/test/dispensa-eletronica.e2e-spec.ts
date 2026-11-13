@@ -373,14 +373,20 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(r.body.message).toMatch(/após o julgamento/);
     });
 
-    it('encerrado o acolhimento, os valores ficam visíveis e ordenados por menor preço', async () => {
+    it('encerrado o acolhimento, o órgão vê os valores ordenados por menor preço; terceiros só depois dos lances', async () => {
       await abrirSessaoAgora(ctx, lic);
 
-      const rk = await ctx.http().get(`/api/propostas/ranking/item/${item1}`).expect(200);
+      // Dispensa com etapa de lances: para quem não é o órgão dono, as
+      // propostas identificadas seguem sigilosas até o fim da janela.
+      expect((await ctx.http().get(`/api/propostas/ranking/item/${item1}`).expect(200)).body).toEqual([]);
+      const publica = await ctx.http().get(`/api/propostas/licitacao/${lic.id}`).expect(200);
+      expect(publica.body.every((p: any) => p.sigilo === true && p.fornecedor === null)).toBe(true);
+
+      const rk = await ctx.http().get(`/api/propostas/ranking/item/${item1}`).set(bearer(orgao.token)).expect(200);
       expect(rk.body.map((x: any) => Number(x.valor_unitario))).toEqual([90, 92, 95]);
       expect(rk.body.map((x: any) => x.posicao)).toEqual([1, 2, 3]);
 
-      const lista = await ctx.http().get(`/api/propostas/licitacao/${lic.id}`).expect(200);
+      const lista = await ctx.http().get(`/api/propostas/licitacao/${lic.id}`).set(bearer(orgao.token)).expect(200);
       expect(lista.body.every((p: any) => p.sigilo === undefined)).toBe(true);
       expect(lista.body.map((p: any) => Number(p.valor_total_proposta))).toEqual([1840, 1900, 1910]);
 

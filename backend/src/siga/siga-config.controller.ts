@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ProprioOrgaoGuard } from '../auth/acesso/proprio-orgao.guard';
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -36,6 +38,7 @@ const CODIGO = /^\d{1,4}$/;
 
 /** Configuração do SIGA (TCM-BA) compartilhada por Patrimônio e Frota. */
 @Controller('orgaos/:orgaoId/siga/config')
+@UseGuards(ProprioOrgaoGuard)
 @RequireModule(ModuloSistema.PATRIMONIO, ModuloSistema.FROTA)
 export class SigaConfigController {
   constructor(@InjectRepository(Orgao) private readonly orgaos: Repository<Orgao>) {}

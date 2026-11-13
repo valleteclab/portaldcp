@@ -13,7 +13,7 @@ import { Public } from '../auth/public.decorator';
 import { ComprovantesService } from '../comprovantes/comprovantes.service';
 import { planilhaModeloDaProposta } from './planilha-modelo';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
-import { AtorAtual, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
+import { AtorAtual, AutenticacaoOpcional, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 
@@ -108,10 +108,17 @@ export class PropostasController {
     res.send(conteudo);
   }
 
-  @Public()
+  /** Pública; o órgão dono (Bearer) recebe a visão dele, os demais só depois do fim dos lances. */
+  @AutenticacaoOpcional()
   @Get('licitacao/:licitacaoId')
-  async findByLicitacao(@Param('licitacaoId') licitacaoId: string): Promise<Proposta[]> {
-    return await this.propostasService.findByLicitacao(licitacaoId);
+  async findByLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator | null): Promise<Proposta[]> {
+    return await this.propostasService.findByLicitacao(licitacaoId, await this.ehOrgaoDono(ator, licitacaoId));
+  }
+
+  private async ehOrgaoDono(ator: Ator | null, licitacaoId: string | null | undefined): Promise<boolean> {
+    if (!ator || !licitacaoId) return false;
+    const relacao = await this.acesso.relacaoComLicitacao(ator, licitacaoId);
+    return relacao === 'ORGAO_DONO' || relacao === 'ADMIN';
   }
 
   /** Propostas do fornecedor autenticado. */
@@ -152,10 +159,11 @@ export class PropostasController {
     return await this.propostasService.getItens(id);
   }
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('ranking/item/:itemId')
-  async getRankingPorItem(@Param('itemId') itemId: string) {
-    return await this.propostasService.getRankingPorItem(itemId);
+  async getRankingPorItem(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
+    const licitacaoId = await this.propostasService.licitacaoDoItem(itemId);
+    return await this.propostasService.getRankingPorItem(itemId, await this.ehOrgaoDono(ator, licitacaoId));
   }
 
   @Put(':id/enviar')

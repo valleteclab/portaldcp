@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -79,8 +80,14 @@ export class AnonimizacaoService {
       );
       const mapa = new Map(atuais.map((a) => [String(a.fornecedor_id), a.codigo_anonimo]));
       let proximo = atuais.reduce((mx, a) => Math.max(mx, Number(a.indice) || 0), 0) + 1;
-      for (const id of ids) {
-        if (mapa.has(id)) continue;
+      // Ordem SORTEADA: se seguisse a ordem dos ids, quem conhece os
+      // participantes reconstruiria o mapa código → empresa.
+      const novos = ids.filter((id) => !mapa.has(id));
+      for (let i = novos.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1);
+        [novos[i], novos[j]] = [novos[j], novos[i]];
+      }
+      for (const id of novos) {
         const codigo = this.gerarCodigoAnonimo(proximo);
         await m.query(
           `INSERT INTO mapeamento_anonimo (sessao_id, fornecedor_id, codigo_anonimo, indice)

@@ -348,6 +348,7 @@ export class SessaoService {
     mensagens: any[];
     eventos: any[];
     resumo: any;
+    julgamento?: any;
   }> {
     // Buscar sessão com licitação
     const sessao = await this.sessaoRepository.findOne({
@@ -441,6 +442,8 @@ export class SessaoService {
     const totalLances = ativos.length;
     const totalParticipantes = participantesUnicos.length;
     const valorTotalAdjudicado = itens.reduce((acc, item) => {
+      // Adjudicado/homologado: vale o valor do vencedor de verdade (o melhor lance pode ter sido recusado ou inabilitado)
+      if (item.fornecedor_vencedor_nome && item.valor_total_homologado != null) return acc + Number(item.valor_total_homologado);
       const melhor = melhorDoItem(item.id);
       return acc + (melhor ? totalDoLance(melhor, item).valor_total : 0);
     }, 0);
@@ -476,8 +479,70 @@ export class SessaoService {
           data_hora: melhorLance.data_hora,
         } : null,
         economia: v ? estimadoTotal - v.valor_total : 0,
+        // Vencedor de verdade (adjudicado/homologado): o melhor lance pode ter sido recusado ou inabilitado
+        vencedor: item.fornecedor_vencedor_nome
+          ? {
+              fornecedor: item.fornecedor_vencedor_nome,
+              valor_total: item.valor_total_homologado != null ? Number(item.valor_total_homologado) : null,
+              valor_unitario: item.valor_unitario_homologado != null ? Number(item.valor_unitario_homologado) : null,
+              economia: item.valor_total_homologado != null ? estimadoTotal - Number(item.valor_total_homologado) : null,
+            }
+          : null,
+        status: item.status,
       };
     });
+
+    // JULGAMENTO, HABILITAÇÃO, RECURSOS E RESULTADO — os atos depois dos lances, em seções próprias
+    // (antes a ata só os trazia diluídos no histórico de eventos)
+    const q = (sql: string, p: any[] = []) => this.sessaoRepository.manager.query(sql, p);
+    const licId = sessao.licitacao_id;
+    const [aceitacoes, desempates, habilitacoes, diligencias, janelas, recursos, formalizacoes] = await Promise.all([
+      q(
+        `SELECT COALESCE('Lote ' || lt.numero, 'Item ' || it.numero_item) AS unidade, COALESCE(lt.numero, it.numero_item) AS numero, f.razao_social AS fornecedor,
+                a.status, a.convocada_em, a.enviada_em, a.valor_total_readequado, a.decidida_em, a.decisao_motivo, a.justificativa_exequibilidade
+           FROM aceitacoes_proposta a
+           LEFT JOIN itens_licitacao it ON it.id::text = a.unidade_id::text
+           LEFT JOIN lotes_licitacao lt ON lt.id::text = a.unidade_id::text
+           LEFT JOIN fornecedores f ON f.id::text = a.fornecedor_id::text
+          WHERE a.licitacao_id::text = $1 ORDER BY 2, a.convocada_em`,
+        [licId],
+      ),
+      q(
+        `SELECT COALESCE('Lote ' || lt.numero, 'Item ' || it.numero_item) AS unidade, COALESCE(lt.numero, it.numero_item) AS numero, d.status, d.motivo, d.melhor_valor,
+                fm.razao_social AS melhor, fv.razao_social AS vencedor, d.valor_vencedor, d.concluido_em
+           FROM desempates_mpe d
+           LEFT JOIN itens_licitacao it ON it.id::text = d.unidade_id::text
+           LEFT JOIN lotes_licitacao lt ON lt.id::text = d.unidade_id::text
+           LEFT JOIN fornecedores fm ON fm.id::text = d.melhor_fornecedor_id
+           LEFT JOIN fornecedores fv ON fv.id::text = d.vencedor_fornecedor_id
+          WHERE d.licitacao_id::text = $1 AND d.status <> 'NAO_APLICAVEL' ORDER BY 2`,
+        [licId],
+      ),
+      q(
+        `SELECT f.razao_social AS fornecedor, h.status, h.convocada_em, h.enviada_em, h.decidida_em, h.decisao_motivo, h.inabilitacoes_unidade
+           FROM habilitacoes_licitante h LEFT JOIN fornecedores f ON f.id::text = h.fornecedor_id::text
+          WHERE h.licitacao_id::text = $1 AND h.status <> 'CANCELADA' ORDER BY h.convocada_em`,
+        [licId],
+      ),
+      q(
+        `SELECT f.razao_social AS fornecedor, d.unidade_rotulo, d.pedido, d.aberta_em, d.resposta, d.respondida_em, d.resultado, d.resultado_motivo, d.encerrada_em
+           FROM diligencias_licitante d LEFT JOIN fornecedores f ON f.id::text = d.fornecedor_id::text
+          WHERE d.licitacao_id::text = $1 ORDER BY d.aberta_em`,
+        [licId],
+      ),
+      q(`SELECT aberta_em, fecha_em, minutos, momento, aberta_por_nome, superada_em FROM janelas_intencao_recurso WHERE licitacao_id::text = $1 ORDER BY aberta_em`, [licId]),
+      q(
+        `SELECT f.razao_social AS recorrente, r.status, r.ato_recorrido, r.motivacao_intencao, r.data_intencao, r.data_decisao, r.decisao, r.instancia_decisao
+           FROM recursos_administrativos r LEFT JOIN fornecedores f ON f.id::text = r.fornecedor_id::text
+          WHERE r.licitacao_id::text = $1 ORDER BY r.data_intencao`,
+        [licId],
+      ),
+      q(
+        `SELECT tipo, status, autoridade_nome, autoridade_cargo, operador_nome, valor_total, created_at
+           FROM formalizacoes_resultado WHERE licitacao_id::text = $1 ORDER BY created_at`,
+        [licId],
+      ),
+    ]);
 
     return {
       sessao: {
@@ -498,6 +563,7 @@ export class SessaoService {
         modalidade: licitacao?.modalidade,
       },
       itens: itensComResultado,
+      julgamento: { aceitacoes, desempates, habilitacoes, diligencias, janelas_recurso: janelas, recursos, formalizacoes },
       participantes: participantesUnicos.map(p => ({
         id: p.fornecedor_id,
         nome: p.razao_social || p.fornecedor_nome,

@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, MoreThan } from 'typeorm';
@@ -14,6 +14,10 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 
 // Tipo para fornecedor sem senha (segurança)
 export type FornecedorSemSenha = Omit<Fornecedor, 'senha'>;
+
+/** Cadastro criado pelo órgão (sem senha): o acesso só sai por link no e-mail registrado. */
+const MSG_CADASTRO_DO_ORGAO =
+  'Este CNPJ já tem um cadastro criado pelo órgão contratante. Por segurança, o acesso é liberado por um link enviado ao e-mail registrado nesse cadastro: use "Esqueci minha senha" com esse e-mail ou peça ao órgão que confirme o seu e-mail e reenvie o link.';
 
 @Injectable()
 export class FornecedoresService {
@@ -520,7 +524,7 @@ export class FornecedoresService {
    * Se email for passado, verifica se é o próprio cadastro do usuário
    * temSenha=false indica conta criada automaticamente pelo órgão (sem credenciais)
    */
-  async verificarCnpjExistente(cnpj: string, email?: string): Promise<{ existe: boolean; proprioCadastro: boolean; temSenha: boolean; fornecedor?: FornecedorSemSenha }> {
+  async verificarCnpjExistente(cnpj: string, email?: string, comIdentificacao = false): Promise<{ existe: boolean; proprioCadastro: boolean; temSenha: boolean; fornecedor?: { id: string; razao_social: string; cpf_cnpj: string } }> {
     const cnpjLimpo = cnpj.replace(/\D/g, '');
     const fornecedor = await this.fornecedorRepository.findOne({
       where: { cpf_cnpj: cnpjLimpo },
@@ -539,7 +543,9 @@ export class FornecedoresService {
       existe: !!fornecedor,
       proprioCadastro,
       temSenha,
-      fornecedor: fornecedor ? this.removerSenha(fornecedor) : undefined,
+      fornecedor: fornecedor && comIdentificacao
+        ? { id: fornecedor.id, razao_social: fornecedor.razao_social, cpf_cnpj: fornecedor.cpf_cnpj }
+        : undefined,
     };
   }
 
@@ -547,7 +553,7 @@ export class FornecedoresService {
    * Reivindica uma conta criada automaticamente pelo órgão.
    * Associa email e senha ao registro existente sem credenciais.
    */
-  async reivindicarConta(cnpj: string, email: string, senha: string): Promise<Fornecedor> {
+  async reivindicarConta(cnpj: string, _email: string, _senha: string): Promise<Fornecedor> {
     const cnpjLimpo = cnpj.replace(/\D/g, '');
     const fornecedor = await this.fornecedorRepository.findOne({ where: { cpf_cnpj: cnpjLimpo } });
 
@@ -557,18 +563,9 @@ export class FornecedoresService {
     if (fornecedor.senha) {
       throw new ConflictException('Esta conta já possui credenciais definidas. Use a opção de login ou recuperação de senha.');
     }
-
-    // Verifica se o email já está em uso por outro cadastro
-    const emailExistente = await this.fornecedorRepository.findOne({ where: { email } });
-    if (emailExistente && emailExistente.id !== fornecedor.id) {
-      throw new ConflictException('Este email já está em uso por outro cadastro');
-    }
-
-    fornecedor.email = email;
-    fornecedor.senha = this.hashSenha(senha);
-    fornecedor.status = StatusCadastro.PENDENTE;
-
-    return await this.fornecedorRepository.save(fornecedor);
+    // Saber o CNPJ não prova que a empresa é sua: o acesso a um cadastro
+    // criado pelo órgão só sai pelo link enviado ao e-mail que o órgão registrou.
+    throw new ForbiddenException(MSG_CADASTRO_DO_ORGAO);
   }
 
   /**
@@ -592,19 +589,8 @@ export class FornecedoresService {
       if (registroContrato.senha) {
         throw new ConflictException('Este CNPJ já possui credenciais de acesso. Faça login com as credenciais existentes.');
       }
-      // Copia dados úteis do registro criado pelo órgão (se não forem placeholders)
-      if (registroContrato.razao_social && registroContrato.razao_social !== 'A informar' && registroContrato.razao_social !== 'Cadastro Pendente') {
-        if (!meuCadastro.razao_social || meuCadastro.razao_social === 'Cadastro Pendente') {
-          meuCadastro.razao_social = registroContrato.razao_social;
-        }
-      }
-      // Transfere contratos que referenciam o registro do órgão para a conta do usuário
-      await this.fornecedorRepository.manager.query(
-        `UPDATE contratos SET "fornecedor_id" = $1 WHERE "fornecedor_id" = $2`,
-        [meuCadastro.id, registroContrato.id],
-      );
-      // Agora pode remover o registro criado pelo órgão
-      await this.fornecedorRepository.remove(registroContrato);
+      // O registro do órgão carrega contratos: não se assume só por informar o CNPJ.
+      throw new ForbiddenException(MSG_CADASTRO_DO_ORGAO);
     }
 
     // Atualiza o CNPJ do cadastro do usuário

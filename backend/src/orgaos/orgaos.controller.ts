@@ -335,6 +335,12 @@ export class OrgaosController {
       throw new ForbiddenException('Sem permissão para alterar este órgão');
     }
     if (req.user.type !== UserType.ADMIN) {
+      // Cadastro do órgão é ato do GESTOR; e-mail/senha mestres, módulos
+      // contratados e identificadores nunca vêm por aqui para quem não é admin.
+      this.exigirGestorDoOrgao(req.user, id);
+      for (const campo of ['id', 'email_login', 'senha', 'senha_hash', 'modulos_habilitados', 'codigo', 'created_at', 'updated_at']) {
+        delete (updateData as any)[campo];
+      }
       delete updateData.pncp_vinculado;
       delete updateData.pncp_codigo_unidade;
       delete updateData.pncp_cnpj_orgao;

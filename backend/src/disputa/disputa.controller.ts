@@ -1,3 +1,5 @@
+import { eventoVisivel } from '../julgamento/regras-negociacao';
+import type { VisaoEvento } from '../julgamento/regras-negociacao';
 import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DisputaService } from './disputa.service';
 import { SigiloDisputaService } from './sigilo-disputa.service';
@@ -164,7 +166,7 @@ export class DisputaController {
   ) {
     const licitacaoId = await this.licitacaoDaSessao(sessaoId);
     const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
-    const mensagens = await this.disputaService.getMensagens(sessaoId, Math.min(Number(limite) || 50, 200));
+    const mensagens = await this.disputaService.getMensagens(sessaoId, Math.min(Number(limite) || 50, 200), (e) => eventoVisivel(e, visao as VisaoEvento));
     const reveladas = await this.sigilo.identidadesReveladas(sessaoId);
     // O órgão também só vê o código durante os lances (IN 73 art. 20): a mensagem ao vivo já
     // chegava anônima, mas o histórico devolvia o nome real ao recarregar a sala

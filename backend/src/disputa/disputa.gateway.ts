@@ -1,3 +1,5 @@
+import { eventoVisivel } from '../julgamento/regras-negociacao';
+import type { VisaoEvento } from '../julgamento/regras-negociacao';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -733,14 +735,19 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const info = this.clienteDaSessao(client, data?.sessaoId);
     if (!info) return;
     try {
-      const mensagens = await this.disputaService.getMensagens(data.sessaoId);
+      const visao = this.visaoDe(info);
+      const mensagens = await this.disputaService.getMensagens(data.sessaoId, 50, (e) => eventoVisivel(e, visao as VisaoEvento));
       const reveladas = await this.sigilo.identidadesReveladas(data.sessaoId);
 
+      // Como no histórico REST: durante os lances o órgão também só vê o código (IN 73 art. 20)
       client.emit('mensagens', {
-        mensagens: await this.sigilo.aplicarVisao(mensagens, info.licitacaoId, this.visaoDe(info), {
-          sessaoId: data.sessaoId,
-          identidades: !reveladas,
-        }),
+        mensagens:
+          visao.tipo === 'ORGAO' && !reveladas
+            ? await this.sigilo.anonimizar(mensagens, info.licitacaoId, { sessaoId: data.sessaoId })
+            : await this.sigilo.aplicarVisao(mensagens, info.licitacaoId, visao, {
+                sessaoId: data.sessaoId,
+                identidades: !reveladas,
+              }),
       });
     } catch (error) {
       client.emit('erro', { mensagem: error.message });

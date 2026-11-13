@@ -66,7 +66,19 @@ interface AtaData {
       data_hora: string
     } | null
     economia: number
+    valor_total_estimado?: number
+    status?: string
+    vencedor?: { fornecedor: string; valor_total: number | null; valor_unitario: number | null; economia: number | null } | null
   }>
+  julgamento?: {
+    aceitacoes: Array<{ unidade: string; fornecedor: string | null; status: string; convocada_em: string; enviada_em: string | null; valor_total_readequado: number | string | null; decidida_em: string | null; decisao_motivo: string | null; justificativa_exequibilidade: string | null }>
+    desempates: Array<{ unidade: string; status: string; motivo: string | null; melhor: string | null; melhor_valor: number | string | null; vencedor: string | null; valor_vencedor: number | string | null }>
+    habilitacoes: Array<{ fornecedor: string | null; status: string; convocada_em: string | null; enviada_em: string | null; decidida_em: string | null; decisao_motivo: string | null; inabilitacoes_unidade: Array<{ rotulo: string; motivo: string; em: string }> | null }>
+    diligencias: Array<{ fornecedor: string | null; unidade_rotulo: string | null; pedido: string; aberta_em: string; resposta: string | null; respondida_em: string | null; resultado: string | null; resultado_motivo: string | null; encerrada_em: string | null }>
+    janelas_recurso: Array<{ aberta_em: string; fecha_em: string; minutos: number; momento: string; aberta_por_nome: string | null; superada_em: string | null }>
+    recursos: Array<{ recorrente: string | null; status: string; ato_recorrido: string | null; motivacao_intencao: string | null; data_intencao: string | null; data_decisao: string | null; decisao: string | null; instancia_decisao: string | null }>
+    formalizacoes: Array<{ tipo: string; status: string; autoridade_nome: string; autoridade_cargo: string; operador_nome: string; valor_total: number | string | null; created_at: string }>
+  }
   lances: Array<{
     id: string
     item_id: string
@@ -103,6 +115,15 @@ interface AtaData {
     percentual_economia: string
   }
 }
+
+/** Data e hora no horário de Brasília (a ata não pode depender do fuso do computador de quem abre). */
+const dataHora = (v?: string | null) =>
+  v ? new Date(v).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'
+const ROTULO_ACEITACAO: Record<string, string> = { AGUARDANDO_ENVIO: 'Aguardando a proposta', ENVIADA: 'Proposta enviada', ACEITA: 'Aceita', RECUSADA: 'Recusada', CANCELADA: 'Cancelada' }
+const ROTULO_HAB: Record<string, string> = { AGUARDANDO_ENVIO: 'Aguardando documentos', ENVIADA: 'Em análise', EM_DILIGENCIA: 'Em diligência', HABILITADO: 'Habilitado', INABILITADO: 'Inabilitado' }
+const ROTULO_RECURSO: Record<string, string> = { INTENCAO: 'Intenção registrada', AGUARDANDO_RAZOES: 'Aguardando razões', CONTRARRAZOES: 'Prazo de contrarrazões', EM_ANALISE: 'Em reconsideração', AGUARDANDO_AUTORIDADE: 'Com a autoridade superior', PROVIDO: 'Provido', IMPROVIDO: 'Não provido', NAO_CONHECIDO: 'Não conhecido' }
+const ROTULO_ATO: Record<string, string> = { INABILITACAO: 'a própria inabilitação', RECUSA_PROPOSTA: 'a recusa da própria proposta', DESCLASSIFICACAO: 'a própria desclassificação', HABILITACAO_TERCEIRO: 'a habilitação de outro licitante', ACEITACAO_TERCEIRO: 'a aceitação da proposta de outro licitante', OUTRO: 'outro ato' }
+const ROTULO_FORMALIZACAO: Record<string, string> = { ADJUDICACAO: 'Adjudicação', HOMOLOGACAO: 'Homologação', ADJUDICACAO_HOMOLOGACAO: 'Adjudicação e homologação' }
 
 export default function AtaSessaoPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
@@ -196,7 +217,7 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
           </Button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Ata da Sessão Pública</h1>
-            <p className="text-muted-foreground">{ata.licitacao.numero_edital} - {ata.licitacao.objeto?.substring(0, 60)}...</p>
+            <p className="text-muted-foreground">{ata.licitacao.numero_processo} - {ata.licitacao.objeto?.substring(0, 60)}...</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -212,7 +233,7 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
         <div className="text-center mb-8 print:mb-6">
           <h1 className="text-2xl font-bold mb-2 print:text-xl">ATA DA SESSÃO PÚBLICA</h1>
           <h2 className="text-lg font-semibold text-slate-700 print:text-base">
-            {ata.licitacao.modalidade?.replace('_', ' ')} Nº {ata.licitacao.numero_edital}
+            {ata.licitacao.modalidade?.replace(/_/g, ' ')}{ata.licitacao.numero_edital ? ` Nº ${ata.licitacao.numero_edital}` : ''}
           </h2>
           <p className="text-sm text-muted-foreground">
             Processo Administrativo nº {ata.licitacao.numero_processo}
@@ -243,11 +264,11 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
               </div>
               <div>
                 <p className="text-muted-foreground">Início</p>
-                <p className="font-medium">{ata.sessao.data_inicio ? new Date(ata.sessao.data_inicio).toLocaleString('pt-BR') : '-'}</p>
+                <p className="font-medium">{dataHora(ata.sessao.data_inicio)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Encerramento</p>
-                <p className="font-medium">{ata.sessao.data_encerramento ? new Date(ata.sessao.data_encerramento).toLocaleString('pt-BR') : 'Em andamento'}</p>
+                <p className="font-medium">{ata.sessao.data_encerramento ? dataHora(ata.sessao.data_encerramento) : 'Em andamento'}</p>
               </div>
             </div>
           </CardContent>
@@ -313,7 +334,7 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
                   <TableHead className="w-16">Item</TableHead>
                   <TableHead>Descrição</TableHead>
                   <TableHead className="w-24 text-center">Qtd</TableHead>
-                  <TableHead className="w-28 text-right">Valor Est.</TableHead>
+                  <TableHead className="w-28 text-right">Estimado (total)</TableHead>
                   <TableHead>Vencedor</TableHead>
                   <TableHead className="w-28 text-right">Valor Final</TableHead>
                   <TableHead className="w-24 text-right">Economia</TableHead>
@@ -326,24 +347,27 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
                       <Badge variant="outline">{item.numero}</Badge>
                     </TableCell>
                     <TableCell className="whitespace-normal break-words">{item.descricao}</TableCell>
-                    <TableCell className="text-center">{item.quantidade} {item.unidade}</TableCell>
-                    <TableCell className="text-right">{formatarMoeda(item.valor_estimado)}</TableCell>
+                    <TableCell className="text-center">{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidade}</TableCell>
+                    <TableCell className="text-right">{formatarMoeda(Number(item.valor_total_estimado ?? item.valor_estimado))}</TableCell>
                     <TableCell>
-                      {item.melhor_lance ? (
-                        <span className="text-green-700 font-medium">{item.melhor_lance.fornecedor}</span>
+                      {item.vencedor ? (
+                        <span className="text-green-700 font-medium">{item.vencedor.fornecedor}</span>
+                      ) : item.melhor_lance ? (
+                        <span className="text-slate-700">{item.melhor_lance.fornecedor} <span className="text-xs text-slate-500">(melhor lance; sem vencedor declarado)</span></span>
                       ) : (
                         <span className="text-gray-400">Sem lances</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {item.melhor_lance ? formatarMoeda(Number(item.melhor_lance.valor)) : '-'}
+                      {item.vencedor?.valor_total != null ? formatarMoeda(Number(item.vencedor.valor_total)) : item.melhor_lance ? formatarMoeda(Number(item.melhor_lance.valor)) : '-'}
                     </TableCell>
                     <TableCell className="text-right">
-                      {item.economia > 0 ? (
-                        <Badge className="bg-green-100 text-green-800">
-                          {((item.economia / item.valor_estimado) * 100).toFixed(1)}%
-                        </Badge>
-                      ) : '-'}
+                      {(() => {
+                        // Economia sobre o valor TOTAL estimado do item (antes dividia pelo unitário e dava 100%, 120%)
+                        const estimado = Number(item.valor_total_estimado ?? 0)
+                        const economia = item.vencedor?.economia != null ? Number(item.vencedor.economia) : Number(item.economia)
+                        return estimado > 0 && economia > 0 ? <Badge className="bg-green-100 text-green-800">{((economia / estimado) * 100).toFixed(1)}%</Badge> : '-'
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -391,8 +415,167 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
           </CardContent>
         </Card>
 
-        {/* Histórico de Eventos - apenas na versão digital */}
-        <div className="print:hidden">
+        {/* JULGAMENTO, HABILITAÇÃO, RECURSOS E RESULTADO — os atos depois dos lances */}
+        {ata.julgamento && (
+          <>
+            {ata.julgamento.desempates.length > 0 && (
+              <Card className="mb-6 print:shadow-none print:border">
+                <CardHeader><CardTitle className="text-lg">Desempate de ME/EPP (LC 123/2006, arts. 44 e 45)</CardTitle></CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Unidade</TableHead><TableHead>Melhor oferta</TableHead><TableHead>Resultado</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {ata.julgamento.desempates.map((d, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{d.unidade}</TableCell>
+                          <TableCell className="whitespace-normal">{d.melhor || '—'}{d.melhor_valor != null ? ` · ${formatarMoeda(Number(d.melhor_valor))}` : ''}</TableCell>
+                          <TableCell className="whitespace-normal">{d.vencedor ? `${d.vencedor} cobriu a oferta: ${formatarMoeda(Number(d.valor_vencedor))}` : d.motivo || d.status}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+
+            {ata.julgamento.aceitacoes.length > 0 && (
+              <Card className="mb-6 print:shadow-none print:border">
+                <CardHeader><CardTitle className="text-lg">Julgamento das propostas (IN SEGES 73/2022, art. 29)</CardTitle></CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Unidade</TableHead><TableHead>Licitante convocado</TableHead><TableHead>Convocação</TableHead><TableHead className="text-right">Proposta</TableHead><TableHead>Decisão</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {ata.julgamento.aceitacoes.map((a, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{a.unidade}</TableCell>
+                          <TableCell className="whitespace-normal">{a.fornecedor || '—'}</TableCell>
+                          <TableCell className="text-xs">{dataHora(a.convocada_em)}</TableCell>
+                          <TableCell className="text-right">{a.valor_total_readequado != null ? formatarMoeda(Number(a.valor_total_readequado)) : '—'}</TableCell>
+                          <TableCell className="whitespace-normal text-sm">
+                            <b>{ROTULO_ACEITACAO[a.status] ?? a.status}</b>
+                            {a.decidida_em ? ` em ${dataHora(a.decidida_em)}` : ''}
+                            {a.decisao_motivo ? ` — ${a.decisao_motivo}` : ''}
+                            {a.justificativa_exequibilidade ? ` — ${a.justificativa_exequibilidade}` : ''}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+
+            {ata.julgamento.habilitacoes.length > 0 && (
+              <Card className="mb-6 print:shadow-none print:border">
+                <CardHeader><CardTitle className="text-lg">Habilitação (Lei 14.133/2021, arts. 62 a 70)</CardTitle></CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Licitante</TableHead><TableHead>Convocação</TableHead><TableHead>Entrega</TableHead><TableHead>Decisão</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {ata.julgamento.habilitacoes.map((h, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="whitespace-normal">{h.fornecedor || '—'}</TableCell>
+                          <TableCell className="text-xs">{dataHora(h.convocada_em)}</TableCell>
+                          <TableCell className="text-xs">{dataHora(h.enviada_em)}</TableCell>
+                          <TableCell className="whitespace-normal text-sm">
+                            <b>{ROTULO_HAB[h.status] ?? h.status}</b>
+                            {h.decidida_em ? ` em ${dataHora(h.decidida_em)}` : ''}
+                            {h.decisao_motivo ? ` — ${h.decisao_motivo}` : ''}
+                            {(h.inabilitacoes_unidade ?? []).map((x, k) => (
+                              <div key={k} className="text-red-700">Inabilitado só em {x.rotulo} ({dataHora(x.em)}): {x.motivo}</div>
+                            ))}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+
+            {ata.julgamento.diligencias.length > 0 && (
+              <Card className="mb-6 print:shadow-none print:border">
+                <CardHeader><CardTitle className="text-lg">Diligências (Lei 14.133/2021, art. 64)</CardTitle></CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Licitante</TableHead><TableHead>Pedido</TableHead><TableHead>Resposta</TableHead><TableHead>Conclusão</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {ata.julgamento.diligencias.map((d, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="whitespace-normal">{d.fornecedor || '—'}{d.unidade_rotulo ? ` · ${d.unidade_rotulo}` : ''}</TableCell>
+                          <TableCell className="whitespace-normal text-sm">{dataHora(d.aberta_em)} — {d.pedido}</TableCell>
+                          <TableCell className="whitespace-normal text-sm">{d.resposta ? `${dataHora(d.respondida_em)} — ${d.resposta}` : 'Sem resposta'}</TableCell>
+                          <TableCell className="whitespace-normal text-sm">
+                            {d.encerrada_em ? `${dataHora(d.encerrada_em)} — ${d.resultado === 'ATENDIDA' ? 'Atendida' : d.resultado === 'NAO_ATENDIDA' ? 'Não atendida' : d.resultado || 'Encerrada'}${d.resultado_motivo ? `: ${d.resultado_motivo}` : ''}` : 'Em aberto'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+
+            {(ata.julgamento.janelas_recurso.length > 0 || ata.julgamento.recursos.length > 0) && (
+              <Card className="mb-6 print:shadow-none print:border">
+                <CardHeader><CardTitle className="text-lg">Recursos (Lei 14.133/2021, art. 165)</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  {ata.julgamento.janelas_recurso.map((j, i) => (
+                    <p key={i} className="text-sm">
+                      Prazo de intenção de recurso aberto em {dataHora(j.aberta_em)}{j.aberta_por_nome ? ` por ${j.aberta_por_nome}` : ''}, encerrado em {dataHora(j.fecha_em)} ({j.minutos} minutos).
+                    </p>
+                  ))}
+                  {ata.julgamento.recursos.length === 0 ? (
+                    <p className="text-sm font-medium">Nenhuma intenção de recurso foi manifestada.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader><TableRow><TableHead>Recorrente</TableHead><TableHead>Contra</TableHead><TableHead>Intenção</TableHead><TableHead>Situação e decisão</TableHead></TableRow></TableHeader>
+                      <TableBody>
+                        {ata.julgamento.recursos.map((r, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="whitespace-normal">{r.recorrente || '—'}</TableCell>
+                            <TableCell className="whitespace-normal text-sm">{ROTULO_ATO[r.ato_recorrido ?? ''] ?? r.ato_recorrido ?? '—'}</TableCell>
+                            <TableCell className="whitespace-normal text-sm">{dataHora(r.data_intencao)}{r.motivacao_intencao ? ` — ${r.motivacao_intencao}` : ''}</TableCell>
+                            <TableCell className="whitespace-normal text-sm">
+                              <b>{ROTULO_RECURSO[r.status] ?? r.status}</b>
+                              {r.data_decisao ? ` em ${dataHora(r.data_decisao)}` : ''}
+                              {r.decisao ? ` — ${r.decisao}` : ''}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {ata.julgamento.formalizacoes.length > 0 && (
+              <Card className="mb-6 print:shadow-none print:border">
+                <CardHeader><CardTitle className="text-lg">Adjudicação e homologação (Lei 14.133/2021, art. 71, IV)</CardTitle></CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader><TableRow><TableHead>Ato</TableHead><TableHead>Data</TableHead><TableHead>Autoridade</TableHead><TableHead>Registrado por</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {ata.julgamento.formalizacoes.map((f, i) => (
+                        <TableRow key={i}>
+                          <TableCell>{ROTULO_FORMALIZACAO[f.tipo] ?? f.tipo}</TableCell>
+                          <TableCell className="text-xs">{dataHora(f.created_at)}</TableCell>
+                          <TableCell className="whitespace-normal">{f.autoridade_nome}{f.autoridade_cargo && !f.autoridade_nome.toUpperCase().includes(f.autoridade_cargo.toUpperCase()) ? ` — ${f.autoridade_cargo}` : ''}</TableCell>
+                          <TableCell className="whitespace-normal">{f.operador_nome}</TableCell>
+                          <TableCell className="text-right">{f.valor_total != null ? formatarMoeda(Number(f.valor_total)) : '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Histórico de Eventos: é o registro cronológico da sessão e também sai impresso */}
+        <div>
           <Card className="mb-6">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -414,7 +597,7 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
                   <TableBody>
                     {ata.eventos.map((evento, idx) => (
                       <TableRow key={idx}>
-                        <TableCell className="text-xs">{new Date(evento.data_hora).toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className="text-xs">{dataHora(evento.data_hora)}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs">
                             {getTipoEventoLabel(evento.tipo)}
@@ -435,7 +618,7 @@ export default function AtaSessaoPage({ params }: { params: Promise<{ id: string
         <div className="mt-8 pt-6 border-t text-center text-sm text-muted-foreground">
           <p>Ata gerada eletronicamente pelo Sistema de Licitações</p>
           <p>Conforme Art. 17, §2º da Lei 14.133/2021</p>
-          <p className="mt-2">Data de geração: {new Date().toLocaleString('pt-BR')}</p>
+          <p className="mt-2">Data de geração: {dataHora(new Date().toISOString())} (horário de Brasília)</p>
         </div>
       </div>
     </div>

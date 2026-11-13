@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ProprioOrgaoGuard } from '../auth/acesso/proprio-orgao.guard';
 import { Controller, Get, Post, Body, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -9,6 +11,7 @@ import { TipoMovimentacao, StatusMovimentacao } from './entities/enums';
 
 /** Transferências, baixas e empréstimos (lado do órgão). */
 @Controller('orgaos/:orgaoId/patrimonio/movimentacoes')
+@UseGuards(ProprioOrgaoGuard)
 @RequireModule(ModuloSistema.PATRIMONIO)
 export class PatrimonioMovimentacaoController {
   constructor(private readonly service: PatrimonioMovimentacaoService) {}
