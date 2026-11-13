@@ -1,3 +1,4 @@
+import { conferirSenha, hashSenha } from '../common/senha.util';
 import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -45,7 +46,7 @@ export class UsuariosService {
       throw new ConflictException('Email já cadastrado');
     }
 
-    const senhaHash = createHash('sha256').update(data.senha).digest('hex');
+    const senhaHash = hashSenha(data.senha);
 
     const usuario = this.usuarioRepository.create({
       nome: data.nome,
@@ -166,12 +167,11 @@ export class UsuariosService {
   async alterarSenha(id: string, senhaAtual: string, novaSenha: string): Promise<void> {
     const usuario = await this.findById(id);
 
-    const senhaAtualHash = createHash('sha256').update(senhaAtual).digest('hex');
-    if (usuario.senha_hash !== senhaAtualHash) {
+    if (!conferirSenha(senhaAtual, usuario.senha_hash).ok) {
       throw new BadRequestException('Senha atual incorreta');
     }
 
-    usuario.senha_hash = createHash('sha256').update(novaSenha).digest('hex');
+    usuario.senha_hash = hashSenha(novaSenha);
     await this.usuarioRepository.save(usuario);
   }
 
@@ -185,10 +185,12 @@ export class UsuariosService {
       throw new BadRequestException('Usuário inativo');
     }
 
-    const senhaHash = createHash('sha256').update(senha).digest('hex');
-    if (usuario.senha_hash !== senhaHash) {
+    const conferida = conferirSenha(senha, usuario.senha_hash);
+    if (!conferida.ok) {
       throw new BadRequestException('Email ou senha inválidos');
     }
+    // Hash antigo (SHA-256 sem sal): regrava em bcrypt neste login
+    if (conferida.novoHash) usuario.senha_hash = conferida.novoHash;
 
     usuario.ultimo_acesso = new Date();
     await this.usuarioRepository.save(usuario);

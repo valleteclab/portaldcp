@@ -1,3 +1,5 @@
+import { comLimiteDeLogin } from '../common/limite-login';
+import { hashSenha } from '../common/senha.util';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UnauthorizedException, Req, Logger, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -84,7 +86,7 @@ export class OrgaosController {
       throw new UnauthorizedException('Email e senha são obrigatórios');
     }
 
-    const result = await this.authService.loginOrgao(email, senha);
+    const result = await comLimiteDeLogin('orgao', email, () => this.authService.loginOrgao(email, senha));
     
     return {
       success: true,
@@ -109,7 +111,7 @@ export class OrgaosController {
       throw new UnauthorizedException('Email já cadastrado');
     }
 
-    const senhaHash = createHash('sha256').update(senha).digest('hex');
+    const senhaHash = hashSenha(senha);
     
     const orgao = await this.orgaosService.create({
       email_login: email,

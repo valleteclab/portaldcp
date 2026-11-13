@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Logger } from '@nestjs/common';
+import { exigirTokenDoWebhook } from '../common/webhook-token';
+import { Controller, Post, Body, Logger, Req } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Public } from '../auth/public.decorator';
 import { WhatsappAgentService } from './whatsapp-agent.service';
@@ -21,7 +22,8 @@ export class WhatsappAgentController {
 
   @Public()
   @Post('webhook')
-  async receberWebhook(@Body() payload: any): Promise<{ ok: boolean }> {
+  async receberWebhook(@Body() payload: any, @Req() req: any): Promise<{ ok: boolean }> {
+    exigirTokenDoWebhook(req);
     // Ignorar mensagens de grupos
     if (payload?.isGroup) return { ok: true };
 

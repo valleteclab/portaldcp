@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Get, Query, Logger } from '@nestjs/common';
+import { exigirTokenDoWebhook } from '../common/webhook-token';
+import { Controller, Post, Body, Get, Query, Logger, Req } from '@nestjs/common';
 import { Public } from '../auth/public.decorator';
 import { WhatsappChatService } from '../whatsapp/whatsapp-chat.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -45,8 +46,10 @@ export class WebhooksController {
 
   @Public()
   @Post('zapi')
-  async receiveZapiWebhook(@Body() payload: ZApiWebhookPayload) {
-    this.logger.log(`Webhook Z-API: ${JSON.stringify(payload)}`);
+  async receiveZapiWebhook(@Body() payload: ZApiWebhookPayload, @Req() req: any) {
+    exigirTokenDoWebhook(req);
+    // Sem o corpo no log: ele traz telefone e texto das conversas
+    this.logger.log(`Webhook Z-API: instância ${payload?.instanceId ?? '?'} tipo ${(payload as any)?.type ?? payload?.status ?? '?'}`);
 
     const instanceId = payload.instanceId;
     const messageId  = payload.messageId;

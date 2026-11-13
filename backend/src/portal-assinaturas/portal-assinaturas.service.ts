@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -1044,7 +1045,7 @@ export class PortalAssinaturasService {
   private gerarCodigoValidacao(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let codigo = '';
-    for (let i = 0; i < 16; i++) codigo += chars.charAt(Math.floor(Math.random() * chars.length));
+    for (let i = 0; i < 16; i++) codigo += chars.charAt(randomInt(chars.length));
     return codigo;
   }
 
