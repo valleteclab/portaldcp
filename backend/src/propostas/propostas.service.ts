@@ -679,52 +679,31 @@ export class PropostasService {
   }
 
   async findFornecedoresByOrgao(orgaoId: string): Promise<any[]> {
-    // Busca fornecedores únicos que enviaram propostas para licitações deste órgão
-    const result = await this.propostaRepository
-      .createQueryBuilder('proposta')
-      .innerJoin('proposta.licitacao', 'licitacao')
-      .innerJoin('proposta.fornecedor', 'fornecedor')
-      .where('licitacao.orgao_id = :orgaoId', { orgaoId })
-      // Só propostas cuja autoria o órgão já pode conhecer: nunca rascunho,
-      // nunca no prazo de envio e, no pregão/concorrência, só depois dos lances.
-      .andWhere(`proposta.status::text <> 'RASCUNHO'`)
-      .andWhere(`COALESCE(licitacao.data_fim_acolhimento, licitacao.data_abertura_sessao) <= NOW()`)
-      .andWhere(
-        `(licitacao.modalidade::text NOT IN ('PREGAO_ELETRONICO','CONCORRENCIA','DISPENSA_ELETRONICA')
-          OR (licitacao.modalidade::text = 'DISPENSA_ELETRONICA'
-              AND (licitacao.dispensa_com_lances IS NOT TRUE OR licitacao.dispensa_lances_fim <= NOW() OR licitacao.data_homologacao IS NOT NULL))
-          OR (licitacao.modalidade::text <> 'DISPENSA_ELETRONICA'
-              AND (licitacao.inversao_fases IS TRUE OR licitacao.fase::text NOT IN (:...fasesAteLances))))`,
-        { fasesAteLances: FASES_ANTES_DO_FIM_DOS_LANCES },
-      )
-      .select([
-        'fornecedor.id as id',
-        'fornecedor.razao_social as razao_social',
-        'fornecedor.nome_fantasia as nome_fantasia',
-        'fornecedor.cnpj as cnpj',
-        'fornecedor.email as email',
-        'fornecedor.telefone as telefone',
-        'fornecedor.municipio as municipio',
-        'fornecedor.uf as uf',
-        'fornecedor.status as status',
-        'fornecedor.porte as porte',
-        'COUNT(DISTINCT proposta.id) as total_propostas',
-        'COUNT(DISTINCT licitacao.id) as total_licitacoes',
-        'MAX(proposta.created_at) as ultima_proposta',
-      ])
-      .groupBy('fornecedor.id')
-      .addGroupBy('fornecedor.razao_social')
-      .addGroupBy('fornecedor.nome_fantasia')
-      .addGroupBy('fornecedor.cnpj')
-      .addGroupBy('fornecedor.email')
-      .addGroupBy('fornecedor.telefone')
-      .addGroupBy('fornecedor.municipio')
-      .addGroupBy('fornecedor.uf')
-      .addGroupBy('fornecedor.status')
-      .addGroupBy('fornecedor.porte')
-      .orderBy('MAX(proposta.created_at)', 'DESC')
-      .getRawMany();
-
-    return result;
+    // Fornecedores que propuseram em licitações do órgão — só propostas cuja
+    // autoria o órgão já pode conhecer: nunca rascunho, nunca no prazo de
+    // envio e, no pregão/concorrência, só depois dos lances.
+    return this.propostaRepository.manager.query(
+      `SELECT f.id, f.razao_social, f.nome_fantasia, f.cpf_cnpj AS cnpj, f.email, f.telefone,
+              f.cidade AS municipio, f.uf, f.status, f.porte,
+              COUNT(DISTINCT p.id)::int AS total_propostas,
+              COUNT(DISTINCT l.id)::int AS total_licitacoes,
+              MAX(p.created_at) AS ultima_proposta
+         FROM propostas p
+         JOIN licitacoes l ON l.id = p.licitacao_id
+         JOIN fornecedores f ON f.id = p.fornecedor_id
+        WHERE l.orgao_id = $1
+          AND CAST(p.status AS text) <> 'RASCUNHO'
+          AND COALESCE(l.data_fim_acolhimento, l.data_abertura_sessao) <= NOW()
+          AND (
+            CAST(l.modalidade AS text) NOT IN ('PREGAO_ELETRONICO','CONCORRENCIA','DISPENSA_ELETRONICA')
+            OR (CAST(l.modalidade AS text) = 'DISPENSA_ELETRONICA'
+                AND (l.dispensa_com_lances IS NOT TRUE OR l.dispensa_lances_fim <= NOW() OR l.data_homologacao IS NOT NULL))
+            OR (CAST(l.modalidade AS text) <> 'DISPENSA_ELETRONICA'
+                AND (l.inversao_fases IS TRUE OR NOT (CAST(l.fase AS text) = ANY($2::text[]))))
+          )
+        GROUP BY f.id
+        ORDER BY MAX(p.created_at) DESC`,
+      [orgaoId, FASES_ANTES_DO_FIM_DOS_LANCES],
+    );
   }
 }

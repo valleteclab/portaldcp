@@ -5,7 +5,7 @@ import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Response } from 'express';
 import { createReadStream, existsSync, unlinkSync } from 'fs';
-import { PropostasService, DonoProposta, VisaoProposta } from './propostas.service';
+import { PropostasService, DonoProposta, VisaoProposta, fornecedorParaTerceiros } from './propostas.service';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { Proposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
@@ -122,7 +122,11 @@ export class PropostasController {
     const dono = await this.ehOrgaoDono(ator, licitacaoId);
     const lista = await this.propostasService.findByLicitacao(licitacaoId, dono);
     // Órgão dono: conteúdo depois do prazo de envio; quem é quem só depois dos lances
-    return dono ? this.sigilo.paraOrgao(lista, licitacaoId) : lista;
+    if (!dono) return lista;
+    if (await this.sigilo.orgaoVeIdentidades(licitacaoId)) return lista;
+    // Sem o cadastro do autor (endereço, contatos, representante): só o que vira código
+    const reduzida = (lista as any[]).map((p) => ({ ...p, fornecedor: fornecedorParaTerceiros(p.fornecedor) }));
+    return this.sigilo.anonimizar(reduzida as any, licitacaoId);
   }
 
   private async ehOrgaoDono(ator: Ator | null, licitacaoId: string | null | undefined): Promise<boolean> {
@@ -157,7 +161,8 @@ export class PropostasController {
   async findOne(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
     const visao = await this.visaoDeLeitura(ator, id);
     const proposta = await this.propostasService.findOneVisao(id, visao);
-    return visao === 'FORNECEDOR' ? proposta : this.sigilo.paraOrgao(proposta, proposta.licitacao_id);
+    if (visao === 'FORNECEDOR' || (await this.sigilo.orgaoVeIdentidades(proposta.licitacao_id))) return proposta;
+    return this.sigilo.anonimizar({ ...proposta, fornecedor: fornecedorParaTerceiros(proposta.fornecedor) }, proposta.licitacao_id);
   }
 
   @Get(':id/itens')

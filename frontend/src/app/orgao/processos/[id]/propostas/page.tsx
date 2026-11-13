@@ -272,6 +272,43 @@ export default function PropostasPage() {
   const desclassificadas = propostas.filter(p => p.status === 'DESCLASSIFICADA')
   const pendentes = propostas.filter(p => p.status === 'ENVIADA')
 
+  // Prazo de envio em curso: o servidor só informa que as propostas existem
+  // (sem autor, valor ou conteúdo) — nada a analisar ainda.
+  const emSigilo = propostas.length > 0 && propostas.every((p) => (p as any).sigilo === true)
+  if (emSigilo) {
+    const fim = (licitacao as any)?.data_fim_acolhimento || (licitacao as any)?.data_abertura_sessao
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Link href={`/orgao/processos/${licitacaoId}`}>
+            <Button variant="outline" size="icon">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Análise de Propostas</h1>
+            <p className="text-muted-foreground">
+              {licitacao?.numero_processo} - {licitacao?.objeto?.substring(0, 50)}...
+            </p>
+          </div>
+        </div>
+        <Card className="border-amber-300 bg-amber-50">
+          <CardHeader>
+            <CardTitle className="text-lg">
+              {propostas.length} {propostas.length === 1 ? 'proposta recebida' : 'propostas recebidas'} — sob sigilo
+            </CardTitle>
+            <CardDescription className="text-amber-900">
+              O conteúdo das propostas fica sob sigilo até o fim do prazo de envio
+              {fim ? ` (${new Date(fim).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}, horário de Brasília)` : ''}.
+              Até lá não é possível ver valores, itens nem quem enviou, e a análise ainda não começa. A identificação dos
+              licitantes só aparece depois da etapa de lances.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}

@@ -61,12 +61,26 @@ describe('Vazamentos entre fornecedores e entre órgãos (lote 1)', () => {
     });
 
     it('o órgão dono lê o conteúdo das propostas, mas não quem é quem enquanto durarem os lances', async () => {
+      await ctx.dataSource.query(
+        `UPDATE fornecedores SET representante_nome = 'Repr. Identificável ' || razao_social, telefone = '(71) 99999-0001', representante_telefone = '71999990001' WHERE id = ANY($1::uuid[])`,
+        [[F1.id, F2.id]],
+      );
       const r = await lista(A.token).expect(200);
       expect(r.body.length).toBe(2);
       expect(r.body.every((p: any) => Number(p.valor_total_proposta) > 0 && /^anonimo-/.test(p.fornecedor?.id))).toBe(true);
       const texto = JSON.stringify(r.body);
       expect(texto).not.toContain(F1.id);
       expect(texto).not.toContain(F2.id);
+      // nada do cadastro que identifique: representante, e-mail, telefone (achado do ensaio 2026/00092)
+      const [c] = await ctx.dataSource.query(`SELECT email, razao_social FROM fornecedores WHERE id = $1`, [F1.id]);
+      expect(texto).not.toContain(c.email);
+      expect(texto).not.toContain('Repr. Identificável');
+      expect(texto).not.toContain('71999990001');
+      expect(Object.keys(r.body[0].fornecedor).sort()).toEqual(['cidade', 'cpf_cnpj', 'id', 'nome_fantasia', 'porte', 'razao_social', 'uf']);
+      const porId = await http().get(`/api/propostas/${P.propostas[F1.id]}`).set(bearer(A.token)).expect(200);
+      expect(JSON.stringify(porId.body)).not.toMatch(new RegExp(`${F1.id}|Repr. Identificável|71999990001`));
+      const ata = await http().get(`/api/sessao/${P.sessaoId}/ata`).set(bearer(A.token)).expect(200);
+      expect(JSON.stringify(ata.body)).not.toMatch(/Repr. Identificável|71999990001/);
     });
 
     it('o órgão dono não consulta a sala "como" um licitante nem recebe o autor dos lances na ata e nos eventos', async () => {
@@ -77,6 +91,16 @@ describe('Vazamentos entre fornecedores e entre órgãos (lote 1)', () => {
         expect(texto).not.toContain(F1.id);
         expect(texto).not.toContain(F2.id);
       }
+    });
+
+    it('fornecedores do órgão: quem propôs não aparece enquanto durarem os lances; aparece no julgamento', async () => {
+      const durante = await http().get(`/api/propostas/orgao/${A.id}/fornecedores`).set(bearer(A.token)).expect(200);
+      expect(JSON.stringify(durante.body)).not.toContain(F1.id);
+      await ctx.dataSource.query(`UPDATE licitacoes SET fase = 'JULGAMENTO' WHERE id = $1`, [P.lic.id]);
+      const depois = await http().get(`/api/propostas/orgao/${A.id}/fornecedores`).set(bearer(A.token)).expect(200);
+      expect(depois.body.map((f: any) => f.id).sort()).toEqual([F1.id, F2.id].sort());
+      expect(depois.body[0].cnpj).toBeTruthy();
+      await ctx.dataSource.query(`UPDATE licitacoes SET fase = 'EM_DISPUTA' WHERE id = $1`, [P.lic.id]);
     });
 
     it('com a anonimização desligada pelo suporte (justificativa obrigatória), o órgão passa a ver', async () => {
