@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ProprioOrgaoGuard } from '../auth/acesso/proprio-orgao.guard';
 import {
   Controller,
   Get,
@@ -67,6 +69,7 @@ import { TipoBem, StatusBem, StatusManutencao } from './entities/enums';
 import { OrigemFotoBem } from './entities/foto-bem.entity';
 
 @Controller('orgaos/:orgaoId/patrimonio')
+@UseGuards(ProprioOrgaoGuard)
 @RequireModule(ModuloSistema.PATRIMONIO)
 export class PatrimonioController {
   constructor(

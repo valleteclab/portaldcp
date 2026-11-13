@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ProprioOrgaoGuard } from '../auth/acesso/proprio-orgao.guard';
 import { Controller, Get, Post, Put, Patch, Body, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -8,6 +10,7 @@ import { CriarInventarioDto, AtualizarSetorInventarioDto } from './dto/criar-inv
 
 /** Campanhas de inventário (lado do órgão / comissão). */
 @Controller('orgaos/:orgaoId/patrimonio/inventarios')
+@UseGuards(ProprioOrgaoGuard)
 @RequireModule(ModuloSistema.PATRIMONIO)
 export class PatrimonioInventarioController {
   constructor(private readonly service: PatrimonioInventarioService) {}

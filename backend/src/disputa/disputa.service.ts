@@ -1566,15 +1566,26 @@ export class DisputaService {
 
   /** Propostas iniciais do item (na base do lance). Sem sessão aberta: sigilo (nada). */
   async getPropostasIniciais(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<any[]> {
+    // Existir sessão não basta (ela pode nascer antes da hora — chat da
+    // dispensa, sessão criada e não iniciada): as propostas só aparecem
+    // depois do fim do prazo de envio, pelo relógio do servidor.
+    if (await this.propostasAindaSigilosas(itemId)) return [];
     const lote = await this.contextoLeituraLote(itemId, sessaoId, opts);
-    if (lote !== null) return lote ? this.lotes.propostasIniciais(itemId, lote) : [];
+    if (lote !== null) {
+      if (!lote) return [];
+      const doLote = await this.lotes.propostasIniciais(itemId, lote);
+      return opts.visaoOrgao ? doLote : doLote.map((l: any) => ({ ...l, marca: null, modelo: null }));
+    }
     const ctx = await this.contextoLeituraItem(itemId, sessaoId, opts);
     if (!ctx.sessaoId) return [];
 
-    const itensProposta = await this.propostaItemRepo.find({
+    const itensProposta = (await this.propostaItemRepo.find({
       where: { item_licitacao_id: itemId },
       relations: ['proposta', 'proposta.fornecedor'],
-    });
+    })).filter((ip) => !['RASCUNHO', 'CANCELADA'].includes(String(ip.proposta?.status)));
+    // Marca e modelo identificam o licitante (marca própria): fora do órgão,
+    // só aparecem junto com a identidade.
+    const semMarca = !opts.visaoOrgao && ctx.anonimizar;
     const linhas = itensProposta
       .map((ip) => ({ ip, valor: valorPropostaNaBase(ip, ctx.base, ctx.quantidade) }))
       .sort((a, b) => a.valor - b.valor);
@@ -1591,12 +1602,26 @@ export class DisputaService {
           valor,
           valorUnitario: Number(ip.valor_unitario),
           valorTotal: Number(ip.valor_total),
-          marca: ip.marca,
-          modelo: ip.modelo,
+          marca: semMarca ? null : ip.marca,
+          modelo: semMarca ? null : ip.modelo,
           dataEnvio: ip.proposta?.data_envio,
         };
       }),
     );
+  }
+
+  /** O prazo de envio de propostas da licitação da unidade (item ou lote) ainda corre? Desconhecida = sigilo. */
+  private async propostasAindaSigilosas(unidadeId: string): Promise<boolean> {
+    const r = await this.itemRepo.manager.query(
+      `SELECT l.data_fim_acolhimento, l.data_abertura_sessao
+         FROM licitacoes l
+        WHERE l.id = COALESCE((SELECT licitacao_id FROM itens_licitacao WHERE id = $1),
+                              (SELECT licitacao_id FROM lotes_licitacao WHERE id = $1))`,
+      [unidadeId],
+    ).catch(() => []);
+    if (!r[0]) return true;
+    const corte = r[0].data_fim_acolhimento || r[0].data_abertura_sessao;
+    return !!corte && new Date() < new Date(corte);
   }
 
   /** Ranking (melhor valor de cada fornecedor). */
@@ -1664,12 +1689,14 @@ export class DisputaService {
   // ============================================================================
 
   /** Só mensagens de chat (pregoeiro, fornecedores, sistema) — lances e atos ficam na trilha de eventos. */
-  async getMensagens(sessaoId: string, limite: number = 50): Promise<MensagemChat[]> {
-    const eventos = await this.eventoRepo.find({
+  async getMensagens(sessaoId: string, limite: number = 50, visivel?: (e: EventoSessao) => boolean): Promise<MensagemChat[]> {
+    let eventos = await this.eventoRepo.find({
       where: { sessao_id: sessaoId, tipo: In(TIPOS_CHAT) },
       order: { created_at: 'DESC' },
-      take: limite,
+      take: visivel ? Math.max(limite * 4, 200) : limite,
     });
+    // Mensagens privadas (negociação) só para quem pode lê-las
+    if (visivel) eventos = eventos.filter(visivel).slice(0, limite);
     return eventos.map((e) => ({
       id: e.id,
       tipo:

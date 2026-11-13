@@ -153,7 +153,7 @@ export class OrgaosService {
 
   async update(id: string, updateData: Partial<CreateOrgaoDto>): Promise<Orgao> {
     const orgao = await this.findOne(id);
-    const { senha, ...restData } = updateData;
+    const { senha, id: _id, ...restData } = updateData as any;
     Object.assign(orgao, restData);
 
     // Hash da senha se fornecida

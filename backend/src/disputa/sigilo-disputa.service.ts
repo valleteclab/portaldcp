@@ -277,7 +277,7 @@ export function semValorReferencia<T>(payload: T): T {
     if (v && typeof v === 'object' && !(v instanceof Date)) {
       const out: any = {};
       for (const [k, val] of Object.entries(v)) {
-        out[k] = k === 'valorReferencia' || k === 'valor_unitario_estimado' || k === 'valor_total_estimado' ? null : visitar(val);
+        out[k] = k === 'valorReferencia' || k === 'valorReferenciaUnitario' || k === 'valor_unitario_estimado' || k === 'valor_total_estimado' ? null : visitar(val);
       }
       return out;
     }
