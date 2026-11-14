@@ -19,11 +19,11 @@ export const INCISOS_ART23: IncisoArt23[] = ['I', 'II', 'III', 'IV', 'V'];
 
 export const PARAMETROS_ART23: Record<IncisoArt23, { titulo: string; texto: string }> = {
   I: {
-    titulo: 'Painel de preços / banco de preços (PNCP)',
+    titulo: 'Painel de Preços do governo federal',
     texto: 'Composição de custos unitários menores ou iguais à mediana do item no painel para consulta de preços ou no banco de preços em saúde disponíveis no PNCP.',
   },
   II: {
-    titulo: 'Contratações similares (último ano)',
+    titulo: 'Contratações similares no PNCP e em outros órgãos (último ano)',
     texto: 'Contratações similares feitas pela Administração Pública, em execução ou concluídas no período de 1 (um) ano anterior à data de pesquisa de preços.',
   },
   III: {
