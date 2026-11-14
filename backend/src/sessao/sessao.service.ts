@@ -409,6 +409,13 @@ export class SessaoService {
       ])
       .getRawMany();
 
+    // Razão social dos licitantes (alguns eventos guardam o id do fornecedor como autor)
+    const nomesDosLicitantes = new Map<string, string>(
+      (await this.eventoRepository.manager.query(
+        `SELECT DISTINCT f.id::text AS id, f.razao_social FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id WHERE p.licitacao_id = $1`,
+        [sessao.licitacao_id],
+      )).map((r: any) => [String(r.id), String(r.razao_social)]),
+    );
     // Buscar todos os eventos (inclui mensagens)
     const eventos = await this.eventoRepository.find({
       where: { sessao_id: sessaoId },
@@ -589,7 +596,8 @@ export class SessaoService {
         tipo: e.tipo,
         descricao: e.descricao,
         data_hora: e.created_at,
-        usuario: e.usuario_nome,
+        // Ato do licitante gravado com o id no lugar do nome: a ata mostra a razão social
+        usuario: (/^[0-9a-f-]{36}$/i.test(String(e.usuario_nome ?? '')) && nomesDosLicitantes.get(String(e.usuario_nome))) || e.usuario_nome,
         item_id: e.item_id,
         fornecedor_id: e.fornecedor_id,
         valor: e.valor,
