@@ -12,14 +12,17 @@
  *  - cotações diretas com validade conferida contra a publicação prevista;
  *  - as pendências ficam no passo 4 (antes de emitir), não num quadro à parte;
  *  - lateral: peça, limite da dispensa, "Veio do processo" (DFD/PCA) e ferramentas
- *    (pesquisa detalhada, PNCP de novo). "Concluir etapa" vem da moldura (EtapaShell).
+ *    avançadas. "Concluir etapa" vem da moldura (EtapaShell).
+ *  - (14/11/2026) a busca automática abre a tela, para todos os itens; cada
+ *    linha do valor de referência abre os preços do item e as referências que
+ *    a busca achou e esperam decisão. Método e documento existem uma vez só.
  * API: /api/fase-interna/:id/pesquisa (+ /parametros, /propostas, /metodo, /emitir, /valores-itens, /arquivos).
  */
-import { useCallback, useEffect, useState } from "react"
+import { Fragment, useCallback, useEffect, useState } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { toast } from "sonner"
-import { AlertTriangle, FileText, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronRight, FileText, Loader2, Plus, Search, Trash2, Upload } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
 import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
 import { Button } from "@/components/ui/button"
@@ -30,6 +33,7 @@ import { EtapaShell } from "@/components/fase-interna/etapas/EtapaShell"
 import { PERMISSAO_LIVRE, type PermissaoTrabalho } from "@/lib/fase-interna/permissao-etapa"
 import { CaminhosDaPeca } from "@/components/fase-interna/etapas/CaminhosDaPeca"
 import { PesquisaPrecosDetalhe } from "@/components/fase-interna/PesquisaPrecosDetalhe"
+import { PrecosDoItem, type CandidatoPendente, type CotacaoDoItem } from "@/components/fase-interna/PrecosDoItem"
 import type { PrevisaoPcaTela } from "@/components/fase-interna/etapas/PrevisaoPcaCard"
 import { ConsumoLimiteDispensa } from "../../ConsumoLimiteDispensa"
 import { erroDaApi, fmtDia, fmtMoeda, hojeBrasilia } from "@/lib/fase-interna/telas"
@@ -112,7 +116,33 @@ export default function PesquisaPage() {
   const [modo, setModo] = useState<"aqui" | "fora" | null>(null)
   const [verDetalhe, setVerDetalhe] = useState(false)
   const [emitindo, setEmitindo] = useState(false)
-  const [consultando, setConsultando] = useState(false)
+  // Preços de cada item (os que contam) e referências que a busca achou e esperam decisão
+  const [precos, setPrecos] = useState<Record<number, CotacaoDoItem[]>>({})
+  const [pendentes, setPendentes] = useState<CandidatoPendente[]>([])
+  const [busca, setBusca] = useState<{ atual: number; total: number; item: number } | null>(null)
+  const [decidindo, setDecidindo] = useState<string | null>(null)
+  const [removendo, setRemovendo] = useState<string | null>(null)
+
+  const carregarPrecos = useCallback(async () => {
+    try {
+      const [rp, rc] = await Promise.all([authFetch(`${API_URL}/api/fase-interna/${id}/precos`), authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos`)])
+      if (rp.ok) {
+        const j = await rp.json()
+        const mapa: Record<number, CotacaoDoItem[]> = {}
+        for (const i of j?.dados?.itens ?? []) mapa[Number(i.item_numero)] = i.cotacoes ?? []
+        setPrecos(mapa)
+      }
+      if (rc.ok) {
+        const lista = await rc.json()
+        setPendentes(Array.isArray(lista) ? lista : [])
+      }
+    } catch {
+      // os preços por item completam a tela; sem eles o resumo continua valendo
+    }
+  }, [id])
+  useEffect(() => {
+    carregarPrecos()
+  }, [carregarPrecos])
 
   const carregar = useCallback(async () => {
     try {
@@ -134,6 +164,7 @@ export default function PesquisaPage() {
     else carregar()
     setAtualizacao((n) => n + 1)
     setDetalheChave((n) => n + 1)
+    carregarPrecos()
   }
 
   const chamar = async (metodo: string, caminho: string, corpo?: unknown): Promise<PesquisaTela | null> => {
@@ -159,22 +190,73 @@ export default function PesquisaPage() {
     }
   }
 
-  const consultarPncp = async () => {
-    setConsultando(true)
+  /**
+   * Busca automática: um item por vez, para mostrar o andamento e não estourar
+   * o tempo da requisição quando o processo tem muitos itens. Preço praticado
+   * entra direto; valor estimado por outro órgão fica para a pessoa decidir.
+   */
+  const buscarPrecos = async (itemNumeros: number[]) => {
+    if (!itemNumeros.length || busca) return
+    const antes = Object.values(precos).reduce((n, c) => n + c.length, 0)
+    let falhas = 0
+    for (let k = 0; k < itemNumeros.length; k++) {
+      setBusca({ atual: k + 1, total: itemNumeros.length, item: itemNumeros[k] })
+      try {
+        const r = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item/${itemNumeros[k]}/agente/executar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA"], maxPorFonte: 8, autoAprovar: true }),
+        })
+        if (!r.ok) falhas++
+      } catch {
+        falhas++
+      }
+    }
+    setBusca(null)
     try {
-      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/executar`, {
+      const [rp, rc] = await Promise.all([authFetch(`${API_URL}/api/fase-interna/${id}/precos`), authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos`)])
+      const itensPrecos = rp.ok ? ((await rp.json())?.dados?.itens ?? []) : []
+      const depois = itensPrecos.reduce((n: number, i: { cotacoes?: unknown[] }) => n + (i.cotacoes?.length ?? 0), 0)
+      const lista = rc.ok ? await rc.json() : []
+      const aDecidir = Array.isArray(lista) ? lista.filter((c: CandidatoPendente) => itemNumeros.includes(c.item_numero)).length : 0
+      const novos = Math.max(0, depois - antes)
+      if (falhas === itemNumeros.length) toast.error("A busca não foi concluída. Tente de novo em instantes.")
+      else if (!novos && !aDecidir) toast.message("A busca não encontrou preço para este objeto. Registre a consulta nas fontes (sem retorno) e some cotações de fornecedores.")
+      else toast.success(`${novos} ${novos === 1 ? "preço incluído" : "preços incluídos"}${aDecidir ? ` · ${aDecidir} ${aDecidir === 1 ? "referência aguarda" : "referências aguardam"} sua decisão` : ""}. Confira em "Valor de referência por item".`)
+    } catch {
+      // o resumo abaixo é recarregado de qualquer forma
+    }
+    aposGravar()
+  }
+
+  const decidirPendente = async (c: CandidatoPendente, acao: "aprovar" | "rejeitar") => {
+    setDecidindo(c.id)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos/${c.id}/${acao}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fontes: ["PNCP", "PAINEL_DE_PRECOS"] }),
+        body: JSON.stringify(acao === "rejeitar" ? { motivo: "Descartada por quem fez a pesquisa" } : {}),
       })
       if (!r.ok) throw new Error(await erroDaApi(r))
-      toast.success("Consulta ao PNCP e ao Painel de Preços concluída — veja os candidatos na pesquisa detalhada e registre o resultado nas fontes I e II.")
-      setVerDetalhe(true)
+      setPendentes((prev) => prev.filter((x) => x.id !== c.id))
+      if (acao === "aprovar") aposGravar()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDecidindo(null)
+    }
+  }
+
+  const removerPreco = async (itemNumero: number, indice: number) => {
+    setRemovendo(`${itemNumero}-${indice}`)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/fonte?item=${itemNumero}&index=${indice}`, { method: "DELETE" })
+      if (!r.ok) throw new Error(await erroDaApi(r))
       aposGravar()
     } catch (e) {
-      toast.error(`Consulta não concluída: ${e instanceof Error ? e.message : String(e)}`)
+      toast.error(e instanceof Error ? e.message : String(e))
     } finally {
-      setConsultando(false)
+      setRemovendo(null)
     }
   }
 
@@ -197,6 +279,11 @@ export default function PesquisaPage() {
   const bloqueada = !d.licitacao.fase_interna || !perm.pode
   const dispensa = d.licitacao.modalidade === "DISPENSA_ELETRONICA"
   const passos = passosDaPesquisa(d)
+  // Uma linha para as fontes sem registro, em vez de cinco frases iguais
+  const ehFonteSemRegistro = (a: { titulo: string; mensagem: string }) => /^Inciso\s/i.test(a.titulo) && /registre a consulta/i.test(a.mensagem)
+  const fontesSemRegistro = d.alertas.filter(ehFonteSemRegistro).map((a) => a.titulo.replace(/^Inciso\s+/i, "").replace(/\.$/, ""))
+  const outrosAlertas = d.alertas.filter((a) => !ehFonteSemRegistro(a))
+  const listaE = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} e ${xs[xs.length - 1]}`)
 
   return (
     <EtapaShell
@@ -204,7 +291,7 @@ export default function PesquisaPage() {
       licitacaoId={id}
       tela="pesquisa"
       titulo="Pesquisa de preços"
-      subtitulo="Art. 23 da Lei 14.133/2021 · IN SEGES/ME 65/2021 · cada fonte consultada fica registrada com data e evidência, mesmo sem retorno"
+      subtitulo="Busque os preços, confira item a item, escolha o método e emita o mapa · art. 23 da Lei 14.133/2021 e IN SEGES/ME 65/2021"
       atualizacao={atualizacao}
       acoes={
         <div className="inline-flex rounded-md border bg-white p-0.5" role="tablist" aria-label="Como a pesquisa foi feita">
@@ -227,13 +314,55 @@ export default function PesquisaPage() {
         <PesquisaFeitaFora d={d} licitacaoId={id} bloqueada={bloqueada} atualizacao={atualizacao} onGravado={aposGravar} chamar={chamar} />
       ) : (
         <>
+          {d.peca?.anexada && (
+            <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900" role="status" data-testid="aviso-feita-fora">
+              <b>Esta etapa já tem a peça: o mapa feito fora, anexado.</b> É ele que está valendo para concluir a etapa. Nada nesta aba é obrigatório — use-a só se for refazer a pesquisa aqui.
+            </div>
+          )}
           <Passos passos={passos} />
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="space-y-4 min-w-0">
+              <section className="rounded-lg border border-blue-200 bg-blue-50/50 p-4" aria-labelledby="busca-titulo" data-testid="busca-automatica">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h2 id="busca-titulo" className="text-[15px] font-semibold text-gray-900">Comece por aqui: buscar preços automaticamente</h2>
+                    <p className="text-xs text-gray-700">
+                      O sistema consulta o PNCP (primeiro no seu estado), o Painel de Preços e os contratos do órgão, para {d.itens.length === 1 ? "o item" : `os ${d.itens.length} itens`}. Preço já praticado entra direto na pesquisa; valor só estimado por outro órgão fica para você decidir.
+                    </p>
+                  </div>
+                  <Button onClick={() => buscarPrecos(d.itens.map((i) => i.item_numero))} disabled={!!busca || bloqueada || d.itens.length === 0}>
+                    {busca ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Search className="mr-1 h-4 w-4" />}
+                    {busca ? `Buscando item ${busca.atual} de ${busca.total}…` : "Buscar preços de todos os itens"}
+                  </Button>
+                </div>
+                {busca && (
+                  <div className="mt-3" role="status" aria-live="polite">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-blue-100">
+                      <div className="h-full rounded-full bg-blue-700 transition-all" style={{ width: `${Math.round(((busca.atual - 1) / busca.total) * 100)}%` }} />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-700">Item {busca.item}: {d.itens.find((i) => i.item_numero === busca.item)?.descricao ?? ""}. Pode levar até um minuto por item.</p>
+                  </div>
+                )}
+              </section>
+
               <Fontes d={d} bloqueada={bloqueada} chamar={chamar} onGravado={aposGravar} licitacaoId={id} />
-              <ValorReferencia d={d} bloqueada={bloqueada} chamar={chamar} onGravado={aposGravar} dispensa={dispensa} />
               <Cotacoes d={d} bloqueada={bloqueada} chamar={chamar} onGravado={aposGravar} licitacaoId={id} />
+              <ValorReferencia
+                d={d}
+                bloqueada={bloqueada}
+                chamar={chamar}
+                onGravado={aposGravar}
+                dispensa={dispensa}
+                precos={precos}
+                pendentes={pendentes}
+                decidindo={decidindo}
+                removendo={removendo}
+                itemEmBusca={busca?.item ?? null}
+                onDecidir={decidirPendente}
+                onRemover={removerPreco}
+                onBuscar={(n) => buscarPrecos([n])}
+              />
 
               <section className="rounded-lg border bg-white p-4 space-y-3" aria-labelledby="mapa-titulo">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -252,7 +381,12 @@ export default function PesquisaPage() {
                       {d.pendencias.bloqueios.map((b) => (
                         <li key={b}>{b}</li>
                       ))}
-                      {d.alertas.map((a, i) => (
+                      {fontesSemRegistro.length > 0 && (
+                        <li>
+                          <b>{fontesSemRegistro.length === 1 ? "Fonte" : "Fontes"} {listaE(fontesSemRegistro)}.</b> Registre a consulta (com ou sem retorno) ou marque como não consultada, no passo 1.
+                        </li>
+                      )}
+                      {outrosAlertas.map((a, i) => (
                         <li key={`a${i}`}>
                           <b>{a.titulo}.</b> {a.mensagem}
                         </li>
@@ -282,8 +416,8 @@ export default function PesquisaPage() {
                 <section className="rounded-lg border bg-white" aria-label="Pesquisa detalhada por item">
                   <div className="flex items-center justify-between gap-2 p-4">
                     <div>
-                      <h2 className="text-sm font-semibold text-gray-900">Pesquisa detalhada por item</h2>
-                      <p className="text-xs text-gray-600">Agentes de pesquisa (PNCP, Painel, Fonte de Preços), CSV, cotações por fonte, estatística e outliers</p>
+                      <h2 className="text-sm font-semibold text-gray-900">Ferramentas avançadas</h2>
+                      <p className="text-xs text-gray-600">Preço incluído à mão, relatório da Fonte de Preços (CSV), dispersão e preços fora da faixa</p>
                     </div>
                     <Button size="sm" variant="ghost" onClick={() => setVerDetalhe(false)}>Fechar</Button>
                   </div>
@@ -307,11 +441,7 @@ export default function PesquisaPage() {
               <section className="rounded-lg border bg-white p-4 space-y-2">
                 <h2 className="text-sm font-semibold text-gray-900">Ferramentas</h2>
                 <button type="button" className="block text-left text-sm text-blue-800 hover:underline" onClick={() => setVerDetalhe((v) => !v)}>
-                  {verDetalhe ? "Fechar a pesquisa detalhada por item" : "Pesquisa detalhada por item (agentes, CSV, outliers)"}
-                </button>
-                <button type="button" className="inline-flex items-center gap-1 text-left text-sm text-blue-800 hover:underline disabled:opacity-60" onClick={consultarPncp} disabled={consultando || bloqueada} title="Roda os agentes de pesquisa (PNCP e Painel de Preços)">
-                  {consultando ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />}
-                  {consultando ? "Consultando o PNCP…" : "Consultar PNCP e Painel de Preços de novo"}
+                  {verDetalhe ? "Fechar as ferramentas avançadas" : "Incluir preço à mão, importar CSV e ver a dispersão"}
                 </button>
               </section>
             </aside>
@@ -482,7 +612,38 @@ function Fontes({ d, bloqueada, chamar, onGravado, licitacaoId }: { d: PesquisaT
   )
 }
 
-function ValorReferencia({ d, bloqueada, chamar, onGravado, dispensa }: { d: PesquisaTela; bloqueada: boolean; chamar: Chamar; onGravado: (j?: PesquisaTela) => void; dispensa: boolean }) {
+function ValorReferencia({
+  d,
+  bloqueada,
+  chamar,
+  onGravado,
+  dispensa,
+  precos,
+  pendentes,
+  decidindo,
+  removendo,
+  itemEmBusca,
+  onDecidir,
+  onRemover,
+  onBuscar,
+}: {
+  d: PesquisaTela
+  bloqueada: boolean
+  chamar: Chamar
+  onGravado: (j?: PesquisaTela) => void
+  dispensa: boolean
+  precos: Record<number, CotacaoDoItem[]>
+  pendentes: CandidatoPendente[]
+  decidindo: string | null
+  removendo: string | null
+  itemEmBusca: number | null
+  onDecidir: (c: CandidatoPendente, acao: "aprovar" | "rejeitar") => void
+  onRemover: (itemNumero: number, indice: number) => void
+  onBuscar: (itemNumero: number) => void
+}) {
+  // Linha aberta: os preços do item e as referências a decidir. Item com decisão pendente já abre.
+  const [abertos, setAbertos] = useState<Record<number, boolean>>({})
+  const aberto = (n: number) => abertos[n] ?? pendentes.some((c) => c.item_numero === n)
   const [justMetodo, setJustMetodo] = useState(d.justificativa_metodo)
   const [justForn, setJustForn] = useState(d.justificativa_fornecedores)
   const [justTres, setJustTres] = useState(d.justificativa_menos_de_tres)
@@ -503,7 +664,7 @@ function ValorReferencia({ d, bloqueada, chamar, onGravado, dispensa }: { d: Pes
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 id="valor-titulo" className="text-[15px] font-semibold text-gray-900">3. Valor de referência por item</h2>
-          <p className="text-xs text-gray-600">Por item: menor, mediana e média dos preços válidos (até 6 meses, sem os descartados). O método escolhido define o valor adotado.</p>
+          <p className="text-xs text-gray-600">Abra um item para ver de onde veio cada preço. O método escolhido ao lado define o valor adotado.</p>
         </div>
         <div className="inline-flex rounded-md border bg-white p-0.5 gap-0.5" role="radiogroup" aria-label="Método adotado">
           {METODOS.map((m) => {
@@ -537,12 +698,21 @@ function ValorReferencia({ d, bloqueada, chamar, onGravado, dispensa }: { d: Pes
               const i = porNumero.get(r.item_numero)
               const q = i?.quantidade ?? 0
               const total = r.valor_total_adotado ?? (r.valor_unitario_adotado != null ? r.valor_unitario_adotado * q : null)
+              const aDecidir = pendentes.filter((c) => c.item_numero === r.item_numero)
+              const estaAberto = aberto(r.item_numero)
               return (
-                <tr key={r.item_numero} className="border-t align-top">
+                <Fragment key={r.item_numero}>
+                <tr className="border-t align-top">
                   <td className="px-3 py-2">
-                    <span className="font-mono text-[11px] text-gray-500 mr-1.5">{nome2(r.item_numero)}</span>
-                    {i?.descricao ?? ""}
-                    {r.estatistica.quantidade < 3 && <span className="block text-[11px] text-amber-900">menos de 3 preços válidos</span>}
+                    <button type="button" className="flex items-start gap-1 text-left hover:text-blue-800" aria-expanded={estaAberto} onClick={() => setAbertos((p) => ({ ...p, [r.item_numero]: !estaAberto }))} data-testid={`abrir-item-${r.item_numero}`}>
+                      {estaAberto ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />}
+                      <span>
+                        <span className="font-mono text-[11px] text-gray-500 mr-1.5">{nome2(r.item_numero)}</span>
+                        {i?.descricao ?? ""}
+                      </span>
+                    </button>
+                    {r.estatistica.quantidade < 3 && <span className="block pl-5 text-[11px] text-amber-900">menos de 3 preços válidos</span>}
+                    {aDecidir.length > 0 && <span className="block pl-5 text-[11px] font-semibold text-blue-800">{aDecidir.length} {aDecidir.length === 1 ? "referência a decidir" : "referências a decidir"}</span>}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     {q.toLocaleString("pt-BR")} {i?.unidade ?? ""}
@@ -554,6 +724,25 @@ function ValorReferencia({ d, bloqueada, chamar, onGravado, dispensa }: { d: Pes
                   <td className="px-3 py-2 text-right whitespace-nowrap font-bold">{r.valor_unitario_adotado != null ? fmtMoeda(r.valor_unitario_adotado) : "—"}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap font-bold">{total != null ? fmtMoeda(total) : "—"}</td>
                 </tr>
+                {estaAberto && (
+                  <tr className="border-t bg-slate-50/70">
+                    <td colSpan={8} className="px-3 py-3 font-sans">
+                      <PrecosDoItem
+                        itemNumero={r.item_numero}
+                        cotacoes={precos[r.item_numero] ?? []}
+                        pendentes={aDecidir}
+                        decidindo={decidindo}
+                        removendo={removendo}
+                        buscando={itemEmBusca === r.item_numero}
+                        bloqueada={bloqueada || itemEmBusca !== null}
+                        onDecidir={onDecidir}
+                        onRemover={onRemover}
+                        onBuscar={onBuscar}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
             {d.resumo.itens.length === 0 && (
@@ -573,7 +762,7 @@ function ValorReferencia({ d, bloqueada, chamar, onGravado, dispensa }: { d: Pes
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
         <span className={d.resumo.tres_precos.atende ? "text-green-800 font-semibold" : "text-amber-900 font-semibold"}>{d.resumo.tres_precos.atende ? "✓ " : ""}{d.resumo.tres_precos.motivo}</span>
-        {descartadas > 0 && <span>· {descartadas} {descartadas === 1 ? "preço descartado" : "preços descartados"} por fugir da faixa (veja na pesquisa detalhada)</span>}
+        {descartadas > 0 && <span>· {descartadas} {descartadas === 1 ? "preço descartado" : "preços descartados"} por fugir da faixa (veja nas ferramentas avançadas)</span>}
         {!metodo && <span>· sem método: os totais dos três métodos ficam em {METODOS.map((m) => `${ROTULO_METODO[m].toLowerCase()} ${fmtMoeda(d.resumo.totais[m])}`).join(", ")}</span>}
         {dispensa && <span>· o consumo do limite da dispensa (art. 75) está na lateral</span>}
       </div>

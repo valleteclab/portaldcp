@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { CheckCircle2, ChevronRight, CircleDashed, Clock } from "lucide-react"
 import { API_URL, authFetch } from "@/lib/api"
@@ -56,8 +56,17 @@ export function useFluxoDaLicitacao(licitacaoId: string, atualizacao?: unknown):
  * tela própria (Aprovação, Publicação) abre a tela do processo.
  */
 export function BarraEtapasFluxo({ licitacaoId, processoId, andamento, telaAtual }: { licitacaoId: string; processoId: string; andamento: Andamento; telaAtual: string }) {
+  // A barra rola de lado: a etapa desta tela tem de estar à vista, não cortada
+  const barra = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const nav = barra.current
+    const atual = nav?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!nav || !atual) return
+    const alvo = atual.offsetLeft - (nav.clientWidth - atual.offsetWidth) / 2
+    nav.scrollLeft = Math.max(0, alvo)
+  }, [telaAtual, andamento.nos.length])
   return (
-    <nav aria-label="Etapas do fluxo deste processo" className="relative overflow-x-auto -mx-1 px-1">
+    <nav ref={barra} aria-label="Etapas do fluxo deste processo" className="relative overflow-x-auto -mx-1 px-1">
       <ol className="flex items-center gap-1 min-w-max text-xs">
         {andamento.nos.map((n, i) => {
           const tela = telaDoTipoDeEtapa(n.tipo)
