@@ -13,6 +13,8 @@ const REQUEST_TIMEOUT_MS = 15000;
 const MAX_IDADE_PRECO_DIAS = 365;
 const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
 const PNCP_API_BASE = 'https://pncp.gov.br/api/pncp/v1';
+/** Busca textual do portal do PNCP (a mesma de pncp.gov.br/app/editais?q=...). */
+const PNCP_SEARCH_URL = 'https://pncp.gov.br/api/search/';
 const DADOS_ABERTOS_COMPRAS_BASE = 'https://dadosabertos.compras.gov.br';
 const PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL = 'https://www.gov.br/compras/pt-br/sistemas/conheca-o-compras/pesquisa-de-precos';
 const PESQUISA_PRECOS_DADOS_ABERTOS_URL = 'https://suportedadoslivres.streamlit.app/';
@@ -39,6 +41,22 @@ function termoItem(item: ItemLicitacao): string {
     .filter(Boolean)
     .join(' ')
     .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Termo da busca textual no PNCP: a descrição resumida do item, sem códigos
+ * nem pontuação, limitada às primeiras palavras significativas — a busca do
+ * portal casa por palavras e frases longas demais não retornam nada.
+ */
+export function termoBuscaPncp(item: Pick<ItemLicitacao, 'descricao_resumida' | 'descricao_detalhada'>): string {
+  const base = String(item.descricao_resumida || item.descricao_detalhada || '');
+  return base
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter((palavra) => palavra.length > 1)
+    .slice(0, 6)
+    .join(' ')
     .trim();
 }
 
@@ -158,7 +176,8 @@ function registroPncpAderente(registro: any, item: ItemLicitacao): boolean {
     .split(' ')
     .filter((token) => token.length > 3)
     .slice(0, 8);
-  return tokens.length > 0 && tokens.filter((token) => texto.includes(token)).length >= Math.min(3, tokens.length);
+  const minimo = registro?._porBuscaTextual ? Math.min(2, tokens.length) : Math.min(3, tokens.length);
+  return tokens.length > 0 && tokens.filter((token) => texto.includes(token)).length >= minimo;
 }
 
 function valorUnitarioPncp(registro: any): number {
@@ -294,6 +313,7 @@ function itemPncpComContexto(itemPncp: any, contratacao: any): any {
     dataHomologacao: contratacao.dataHomologacao,
     linkSistemaOrigem: contratacao.linkSistemaOrigem,
     linkProcessoEletronico: contratacao.linkProcessoEletronico,
+    _porBuscaTextual: contratacao._porBuscaTextual,
   };
 }
 
@@ -310,15 +330,15 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
-    if (!context.scope.usarBrowserFallback) return candidatos;
 
     for (const item of context.itens) {
       const termo = termoItem(item);
       if (!termo) continue;
 
       try {
-        const registros = await this.consultarPncp(termo, Math.max(5, context.scope.maxPorFonte || 5));
-        for (const registro of registros.slice(0, Math.max(5, context.scope.maxPorFonte || 5))) {
+        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5));
+        // Até 15 contratações por item: cada uma custa uma chamada para listar os itens
+        for (const registro of registros.slice(0, Math.max(15, (context.scope.maxPorFonte || 5) * 2))) {
           const itensPncp = await this.consultarItensContratacao(registro);
           if (!itensPncp.length) {
             this.logger.debug(`PNCP sem itens detalhados para item ${item.numero_item}: ${montarUrlPncp(registro)}`);
@@ -331,7 +351,9 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
               this.logger.debug(`Item PNCP descartado por baixa aderencia ao item ${item.numero_item}: ${String(itemPncp.descricao || registro.objetoCompra || '').slice(0, 120)}`);
               continue;
             }
-            const valorUnitario = valorUnitarioPncp(registroItem);
+            // Preço praticado (homologado) vale mais que o estimado pelo outro órgão
+            const homologado = itemPncp.temResultado ? await this.consultarValorHomologado(registro, itemPncp.numeroItem) : 0;
+            const valorUnitario = homologado > 0 ? homologado : valorUnitarioPncp(registroItem);
             const quantidade = Number(itemPncp.quantidade) || Number(item.quantidade) || 1;
             if (valorUnitario <= 0) {
               this.logger.debug(`Item PNCP descartado sem valor unitario para item ${item.numero_item}: ${String(itemPncp.descricao || '').slice(0, 120)}`);
@@ -349,11 +371,11 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
               unidade: String(itemPncp.unidadeMedida || item.unidade_medida || 'UN'),
               evidencia: {
                 tipo: 'api',
-                origem: 'PNCP item da contratacao',
+                origem: homologado > 0 ? 'PNCP — valor homologado do item' : 'PNCP — valor estimado do item (contratação sem resultado)',
                 coletado_em: new Date().toISOString(),
                 titulo: itemPncp.descricao || registro.objetoCompra || termo,
               },
-              score: 92,
+              score: homologado > 0 ? 92 : 70,
             });
 
             if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
@@ -366,7 +388,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
           }
         }
       } catch (error) {
-        this.logger.debug(`Consulta direta PNCP indisponível para item ${item.numero_item}: ${(error as Error).message}`);
+        this.logger.warn(`Consulta ao PNCP falhou para o item ${item.numero_item}: ${(error as Error).message}`);
       }
     }
 
@@ -389,7 +411,64 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
     }
   }
 
+  /** Valor unitário homologado do item (endpoint de resultados); 0 se não houver. */
+  private async consultarValorHomologado(registro: any, numeroItem: unknown): Promise<number> {
+    const dados = dadosContratacaoPncp(registro);
+    if (!dados || !numeroItem) return 0;
+    try {
+      const res = await axios.get(
+        `${PNCP_API_BASE}/orgaos/${dados.cnpj}/compras/${dados.ano}/${dados.sequencial}/itens/${numeroItem}/resultados`,
+        { timeout: REQUEST_TIMEOUT_MS, headers: HTTP_HEADERS },
+      );
+      const valores = asArray(res.data)
+        .map((r: any) => Number(r?.valorUnitarioHomologado) || 0)
+        .filter((v: number) => v > 0);
+      return valores.length ? Math.min(...valores) : 0;
+    } catch (error) {
+      this.logger.debug(`PNCP resultados falhou em ${montarUrlPncp(registro)} item ${numeroItem}: ${(error as Error).message}`);
+      return 0;
+    }
+  }
+
+  /**
+   * Contratações do PNCP para o termo. A API de consulta (/contratacoes/publicacao)
+   * NÃO filtra por texto: devolvia a página mais recente de pregões do país
+   * inteiro e praticamente nada tinha relação com o item (teste de 14/11/2026:
+   * papel sulfite → banners, lonas e mesas, tudo descartado). A busca textual
+   * do portal devolve as contratações do objeto; as que já têm resultado vêm
+   * primeiro, porque trazem o preço homologado.
+   */
+  private async buscarPorTexto(termo: string, limite: number): Promise<any[]> {
+    const res = await axios.get(PNCP_SEARCH_URL, {
+      params: { q: termo, tipos_documento: 'edital', ordenacao: '-data', pagina: 1, tam_pagina: Math.min(50, Math.max(20, limite * 4)), status: 'todos' },
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: HTTP_HEADERS,
+    });
+    const itens: any[] = Array.isArray(res.data?.items) ? res.data.items : [];
+    return itens
+      .filter((r) => r?.orgao_cnpj && r?.ano && r?.numero_sequencial)
+      .sort((x, y) => Number(!!y.tem_resultado) - Number(!!x.tem_resultado))
+      .map((r) => ({
+        orgaoEntidade: { cnpj: String(r.orgao_cnpj), razaoSocial: r.orgao_nome },
+        nomeOrgao: r.orgao_nome,
+        anoCompra: String(r.ano),
+        sequencialCompra: String(r.numero_sequencial),
+        numeroControlePNCP: r.numero_controle_pncp,
+        objetoCompra: r.description || r.title,
+        dataPublicacaoPncp: r.data_publicacao_pncp,
+        linkSistemaOrigem: r.link_sistema_origem,
+        temResultado: !!r.tem_resultado,
+        _porBuscaTextual: true,
+      }));
+  }
+
   private async consultarPncp(termo: string, limite: number): Promise<any[]> {
+    try {
+      const porTexto = await this.buscarPorTexto(termo, limite);
+      if (porTexto.length) return porTexto;
+    } catch (error) {
+      this.logger.warn(`Busca textual do PNCP falhou para "${termo}": ${(error as Error).message}`);
+    }
     const consultas = [
       {
         url: `${PNCP_CONSULTA_BASE}/contratacoes/publicacao`,
