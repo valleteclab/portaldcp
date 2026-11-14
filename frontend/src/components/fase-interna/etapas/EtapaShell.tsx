@@ -172,7 +172,8 @@ export function EtapaShell({
       ) : fluxo ? (
         // Barra das etapas do fluxo + "Concluir etapa" aqui mesmo, quando a etapa em andamento é a desta tela
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-2 py-1.5">
-          <div className="min-w-0 flex-1">
+          {/* Em tela estreita a barra ocupa a linha inteira e o botão desce */}
+          <div className="min-w-0 basis-full lg:basis-0 lg:flex-1">
             <BarraEtapasFluxo licitacaoId={licitacaoId} processoId={fluxo.processoId} andamento={fluxo.andamento} telaAtual={tela} />
           </div>
           <ConcluirEtapaDoFluxo licitacaoId={licitacaoId} processoId={fluxo.processoId} andamento={fluxo.andamento} telaAtual={tela} podeTrabalhar={permissao.pode} />

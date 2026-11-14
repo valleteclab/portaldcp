@@ -25,7 +25,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -37,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
 import { CatalogoBusca } from "@/components/catalogo"
+import { AvisoCestaNoPiso, ReferenciasPendentes, soPrecosPraticados, type CandidatoPendente } from "@/components/fase-interna/PrecosDoItem"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -61,37 +61,6 @@ interface CotacaoPorFonte {
   valor_unitario: number
   observacao?: string
   documento_comprobatorio_path?: string
-}
-
-/** Referência que o agente achou e ainda espera a decisão de quem pesquisa. */
-interface CandidatoPendente {
-  id: string
-  item_numero: number
-  fonte_tipo: FontePesquisaTipo
-  descricao_fonte: string
-  url_referencia?: string
-  data_pesquisa: string
-  valor_unitario: number
-  quantidade_base?: number
-  unidade?: string
-  origem?: string
-  titulo?: string
-  flags: string[]
-  complementar: boolean
-}
-
-/** Fontes de preço já praticado em contratação pública (passaram por disputa). */
-const FONTES_DE_PRECO_PRATICADO: string[] = ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA"]
-
-/**
- * Cesta só com preço que já saiu de disputa: a referência fica no piso do
- * mercado e tende a afastar licitantes. Estimado aprovado à mão não conta.
- */
-function soPrecosPraticados(cotacoes: CotacaoPorFonte[]): boolean {
-  if (!cotacoes.length) return false
-  return cotacoes.every(
-    (c) => FONTES_DE_PRECO_PRATICADO.includes(c.fonte) && !/valor estimado/i.test(c.observacao || ""),
-  )
 }
 
 interface ItemPesquisaPrecos {
@@ -718,10 +687,12 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
 
   const minFontes = itens.every((i) => i.cotacoes.length >= 3)
   const todasStats = itens.map((i) => statsItem(i, outliersDescartados))
-  const cvOk = todasStats.every((s) => s.cv <= 25) || justCv.trim().length > 0
+  // Sem cotação não há o que conferir: item vazio não conta como cumprido
+  const temCotacao = itens.some((i) => i.cotacoes.length > 0)
+  const cvOk = temCotacao && (todasStats.every((s) => s.cv <= 25) || justCv.trim().length > 0)
   const metOk = !!metodologia
   const respOk = !!(responsavel.nome && responsavel.cargo)
-  const urlOuComprovante = itens.every((item) =>
+  const urlOuComprovante = temCotacao && itens.every((item) =>
     item.cotacoes.every((c) => c.url_referencia || c.documento_comprobatorio_path)
   )
 
@@ -770,7 +741,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
         <div>
           {!embutido && <h1 className="text-xl font-bold text-gray-900">Pesquisa de Preços</h1>}
           <p className="text-sm text-gray-500 mt-0.5">
-            {embutido ? "Cotações por item e fonte, agentes de pesquisa (PNCP, Painel de Preços, Fonte de Preços), estatísticas e metodologia por item" : "Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME nº 65/2021"}
+            {embutido ? "Para incluir preço à mão, importar o relatório da Fonte de Preços e ver a dispersão dos preços. O método e o documento são os da tela acima." : "Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME nº 65/2021"}
           </p>
         </div>
         {doAssistente && (
@@ -795,13 +766,14 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="itens">
+      <Tabs defaultValue={embutido ? "cotacoes" : "itens"}>
         <TabsList className="mb-6 bg-gray-100">
           <TabsTrigger value="itens">Itens</TabsTrigger>
           <TabsTrigger value="cotacoes">Cotações</TabsTrigger>
           <TabsTrigger value="estatisticas">Estatísticas</TabsTrigger>
-          <TabsTrigger value="responsavel">Responsável</TabsTrigger>
-          <TabsTrigger value="documento">Documento PP</TabsTrigger>
+          {/* Na tela da pesquisa, método e documento são os da própria tela (mapa e certidão) */}
+          {!embutido && <TabsTrigger value="responsavel">Responsável</TabsTrigger>}
+          {!embutido && <TabsTrigger value="documento">Documento PP</TabsTrigger>}
         </TabsList>
 
         {/* ═══════════════════════════════════════════════════════════════════
@@ -1094,114 +1066,13 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
                         </div>
                       )}
                       {referenciaNoPiso && (
-                        <div
-                          data-testid={`aviso-piso-${item.item_numero}`}
-                          className="mb-3 flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                        >
-                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          <div>
-                            <strong>Todos os preços deste item já saíram de disputa.</strong> Valor homologado ou
-                            contratado é o preço final de quem venceu: a referência fica perto do piso do mercado e
-                            pode afastar licitantes ou deixar o item deserto. Some uma cotação direta de fornecedor
-                            {pendentesDoItem.some((c) => c.complementar)
-                              ? " ou inclua uma das referências estimadas abaixo."
-                              : "."}
-                          </div>
+                        <div className="mb-3">
+                          <AvisoCestaNoPiso itemNumero={item.item_numero} temEstimada={pendentesDoItem.some((c) => c.complementar)} />
                         </div>
                       )}
                       {pendentesDoItem.length > 0 && (
-                        <div
-                          data-testid={`pendentes-${item.item_numero}`}
-                          className="mb-4 rounded-md border border-gray-200 bg-gray-50"
-                        >
-                          <div className="border-b border-gray-200 px-3 py-2">
-                            <p className="text-xs font-semibold text-gray-700">
-                              Referências encontradas — aguardando sua decisão ({pendentesDoItem.length})
-                            </p>
-                            <p className="text-[11px] text-gray-500">
-                              Ainda não contam no cálculo. Inclua as que servem para este item e descarte as demais.
-                            </p>
-                          </div>
-                          <ul className="divide-y divide-gray-200">
-                            {pendentesDoItem.map((c) => (
-                              <li key={c.id} className="flex flex-wrap items-start gap-3 px-3 py-2">
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-semibold text-gray-800">
-                                      {fmtMoeda(c.valor_unitario)}
-                                      {c.unidade ? <span className="font-normal text-gray-500"> / {c.unidade}</span> : null}
-                                    </span>
-                                    <Badge
-                                      variant="outline"
-                                      className={
-                                        c.complementar
-                                          ? "border-amber-300 bg-amber-50 text-[10px] text-amber-800"
-                                          : "border-green-300 bg-green-50 text-[10px] text-green-800"
-                                      }
-                                    >
-                                      {c.complementar ? "Estimado por outro órgão" : "Preço praticado"}
-                                    </Badge>
-                                    <span className="text-[11px] text-gray-500">{fmtData(c.data_pesquisa)}</span>
-                                    {c.quantidade_base ? (
-                                      <span className="text-[11px] text-gray-500">
-                                        qtd. lá: {Number(c.quantidade_base).toLocaleString("pt-BR")}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  <p className="mt-0.5 text-xs text-gray-700">{c.titulo || c.descricao_fonte}</p>
-                                  <p className="text-[11px] text-gray-500">
-                                    {c.descricao_fonte}
-                                    {c.url_referencia ? (
-                                      <>
-                                        {" · "}
-                                        <a
-                                          href={c.url_referencia}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-[#1351b4] hover:underline"
-                                        >
-                                          abrir no PNCP
-                                        </a>
-                                      </>
-                                    ) : null}
-                                  </p>
-                                  {c.flags
-                                    .filter((f) => !/^Referência complementar/.test(f))
-                                    .map((f) => (
-                                      <p key={f} className="text-[11px] text-gray-500">
-                                        • {f}
-                                      </p>
-                                    ))}
-                                </div>
-                                <div className="flex shrink-0 gap-2">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 border-[#c5d4eb] text-xs text-[#1351b4]"
-                                    disabled={decidindo === c.id}
-                                    onClick={() => decidirPendente(c, "aprovar")}
-                                  >
-                                    {decidindo === c.id ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <>
-                                        <Check className="mr-1 h-3.5 w-3.5" /> Incluir na pesquisa
-                                      </>
-                                    )}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 text-xs text-gray-500"
-                                    disabled={decidindo === c.id}
-                                    onClick={() => decidirPendente(c, "rejeitar")}
-                                  >
-                                    <X className="mr-1 h-3.5 w-3.5" /> Descartar
-                                  </Button>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
+                        <div className="mb-4">
+                          <ReferenciasPendentes itemNumero={item.item_numero} pendentes={pendentesDoItem} decidindo={decidindo} onDecidir={decidirPendente} />
                         </div>
                       )}
                       {/* Tabela de cotações */}
@@ -1710,6 +1581,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
               })}
 
               {/* Metodologia */}
+              {!embutido && (
               <Card className="border border-gray-100 shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-semibold">Metodologia</CardTitle>
@@ -1757,6 +1629,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
                   </Button>
                 </CardContent>
               </Card>
+              )}
             </div>
           )}
         </TabsContent>
