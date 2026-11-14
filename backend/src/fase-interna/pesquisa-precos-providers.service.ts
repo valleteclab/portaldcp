@@ -959,6 +959,13 @@ export function mapearResultadoFontePrecos(registro: any, item: ItemLicitacao): 
   );
   const fonte = textoFontePrecosFonte(registro);
   const descricao = [registro?.descricao, registro?.descricao_comp, registro?.objeto].filter(Boolean).join(' - ').replace(/\s+/g, ' ').trim();
+  // O banco casa por palavras soltas: "toner para impressora laser" trazia a
+  // própria impressora, a R$ 5 mil (teste de 14/11/2026). Se a descricao do
+  // registro não começa pelo objeto do item, a referência espera conferência.
+  const objetoConfere = itemPncpAderente(registro?.descricao || registro?.descricao_comp || descricao, item);
+  const flagsAderencia = objetoConfere || aderencia.flags.some((f) => /revisar/i.test(f))
+    ? aderencia.flags
+    : [...aderencia.flags, 'O objeto principal desta referência pode não ser o do item: revisar antes de aprovar.'];
 
   return {
     item_numero: item.numero_item,
@@ -977,10 +984,10 @@ export function mapearResultadoFontePrecos(registro: any, item: ItemLicitacao): 
       coletado_em: new Date().toISOString(),
       titulo: descricao || termoItem(item),
     },
-    score: aderencia.score,
+    score: objetoConfere ? aderencia.score : Math.min(aderencia.score, 60),
     flags: [
       'Fonte complementar Fonte de Precos: validar comprovante antes de aprovar como fonte oficial.',
-      ...aderencia.flags,
+      ...flagsAderencia,
     ],
   };
 }
@@ -1335,8 +1342,8 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             descartadosInvalidos += 1;
             continue;
           }
-          // A mesma loja com o mesmo preço em duas páginas é uma fonte só
-          const chaveLoja = `${dominioDaUrl(url || '') || String(produto.descricao_fonte || produto.fonte || '').toLowerCase()}|${valor.toFixed(2)}`;
+          // Uma loja é uma fonte só, por mais produtos e páginas que tenha
+          const chaveLoja = dominioDaUrl(url || '') || String(produto.descricao_fonte || produto.fonte || '').toLowerCase();
           if (lojasVistas.has(chaveLoja)) continue;
           lojasVistas.add(chaveLoja);
           let urlReferencia: string | undefined = url || undefined;
