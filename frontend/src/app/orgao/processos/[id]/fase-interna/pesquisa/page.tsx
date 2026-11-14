@@ -205,7 +205,7 @@ export default function PesquisaPage() {
         const r = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item/${itemNumeros[k]}/agente/executar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA"], maxPorFonte: 8, autoAprovar: true }),
+          body: JSON.stringify({ fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA", "MIDIA_ESPECIALIZADA"], maxPorFonte: 6, autoAprovar: true }),
         })
         if (!r.ok) falhas++
       } catch {
@@ -328,7 +328,7 @@ export default function PesquisaPage() {
                   <div className="min-w-0 flex-1">
                     <h2 id="busca-titulo" className="text-[15px] font-semibold text-gray-900">Comece por aqui: buscar preços automaticamente</h2>
                     <p className="text-xs text-gray-700">
-                      O sistema consulta o PNCP (primeiro no seu estado), o Painel de Preços e os contratos do órgão, para {d.itens.length === 1 ? "o item" : `os ${d.itens.length} itens`}. Preço já praticado entra direto na pesquisa; valor só estimado por outro órgão fica para você decidir.
+                      O sistema consulta o PNCP (primeiro no seu estado), o Painel de Preços, os contratos do órgão, o banco de preços e lojas e sites na internet, para {d.itens.length === 1 ? "o item" : `os ${d.itens.length} itens`}. Preço já praticado em contratação entra direto na pesquisa; preço de loja e valor só estimado ficam para você conferir e decidir.
                     </p>
                   </div>
                   <Button onClick={() => buscarPrecos(d.itens.map((i) => i.item_numero))} disabled={!!busca || bloqueada || d.itens.length === 0}>

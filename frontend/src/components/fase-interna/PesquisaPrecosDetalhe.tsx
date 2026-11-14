@@ -1067,7 +1067,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
                       )}
                       {referenciaNoPiso && (
                         <div className="mb-3">
-                          <AvisoCestaNoPiso itemNumero={item.item_numero} temEstimada={pendentesDoItem.some((c) => c.complementar)} />
+                          <AvisoCestaNoPiso itemNumero={item.item_numero} temEstimada={pendentesDoItem.some((c) => c.tipo !== "PRATICADO")} />
                         </div>
                       )}
                       {pendentesDoItem.length > 0 && (

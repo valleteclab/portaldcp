@@ -35,6 +35,8 @@ export interface CandidatoPendente {
   titulo?: string
   flags: string[]
   complementar: boolean
+  /** ESTIMADO por outro órgão, preço de MERCADO (loja ou site) ou já PRATICADO em contratação. */
+  tipo?: "ESTIMADO" | "MERCADO" | "PRATICADO"
 }
 
 const ROTULO_FONTE: Record<string, string> = {
@@ -56,8 +58,17 @@ const FONTES_DE_PRECO_PRATICADO = ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE
  */
 export function soPrecosPraticados(cotacoes: Array<{ fonte: string; observacao?: string }>): boolean {
   if (!cotacoes.length) return false
-  return cotacoes.every((c) => FONTES_DE_PRECO_PRATICADO.includes(c.fonte) && !/valor estimado/i.test(c.observacao || ""))
+  // O banco "Fonte de Preços" também traz preço de contratação pública
+  const praticado = (c: { fonte: string; observacao?: string }) => FONTES_DE_PRECO_PRATICADO.includes(c.fonte) || /Fonte de Precos/i.test(c.observacao || "")
+  return cotacoes.every((c) => praticado(c) && !/valor estimado/i.test(c.observacao || ""))
 }
+
+const tipoDe = (c: CandidatoPendente) => c.tipo ?? (c.complementar ? "ESTIMADO" : "PRATICADO")
+const SELO = {
+  ESTIMADO: { rotulo: "Estimado por outro órgão", cor: "border-amber-300 bg-amber-50 text-[10px] text-amber-800" },
+  MERCADO: { rotulo: "Preço de loja ou site", cor: "border-blue-300 bg-blue-50 text-[10px] text-blue-800" },
+  PRATICADO: { rotulo: "Preço praticado", cor: "border-green-300 bg-green-50 text-[10px] text-green-800" },
+} as const
 
 const fmtMoeda = (v: number) => Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
 const fmtData = (d: string) => {
@@ -71,7 +82,7 @@ export function AvisoCestaNoPiso({ itemNumero, temEstimada }: { itemNumero: numb
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <div>
         <strong>Todos os preços deste item já saíram de disputa.</strong> Valor homologado ou contratado é o preço final de quem venceu: a referência fica perto do piso do mercado e pode afastar licitantes ou deixar o item deserto. Some uma cotação direta de fornecedor
-        {temEstimada ? " ou inclua uma das referências estimadas abaixo." : "."}
+        {temEstimada ? " ou inclua uma das referências de mercado ou estimadas abaixo." : "."}
       </div>
     </div>
   )
@@ -95,7 +106,7 @@ export function ReferenciasPendentes({
     <div data-testid={`pendentes-${itemNumero}`} className="rounded-md border border-gray-200 bg-gray-50">
       <div className="border-b border-gray-200 px-3 py-2">
         <p className="text-xs font-semibold text-gray-700">Referências encontradas — aguardando sua decisão ({pendentes.length})</p>
-        <p className="text-[11px] text-gray-500">Ainda não contam no cálculo. Inclua as que servem para este item e descarte as demais.</p>
+        <p className="text-[11px] text-gray-500">Ainda não contam no cálculo. Abra a fonte, confira se é o mesmo produto e a mesma embalagem, inclua as que servem e descarte as demais.</p>
       </div>
       <ul className="divide-y divide-gray-200">
         {pendentes.map((c) => (
@@ -106,9 +117,7 @@ export function ReferenciasPendentes({
                   {fmtMoeda(c.valor_unitario)}
                   {c.unidade ? <span className="font-normal text-gray-500"> / {c.unidade}</span> : null}
                 </span>
-                <Badge variant="outline" className={c.complementar ? "border-amber-300 bg-amber-50 text-[10px] text-amber-800" : "border-green-300 bg-green-50 text-[10px] text-green-800"}>
-                  {c.complementar ? "Estimado por outro órgão" : "Preço praticado"}
-                </Badge>
+                <Badge variant="outline" className={SELO[tipoDe(c)].cor}>{SELO[tipoDe(c)].rotulo}</Badge>
                 <span className="text-[11px] text-gray-500">{fmtData(c.data_pesquisa)}</span>
                 {c.quantidade_base ? <span className="text-[11px] text-gray-500">qtd. lá: {Number(c.quantidade_base).toLocaleString("pt-BR")}</span> : null}
               </div>
@@ -179,7 +188,7 @@ export function PrecosDoItem({
 }) {
   return (
     <div className="space-y-3" data-testid={`precos-item-${itemNumero}`}>
-      {soPrecosPraticados(cotacoes) && <AvisoCestaNoPiso itemNumero={itemNumero} temEstimada={pendentes.some((c) => c.complementar)} />}
+      {soPrecosPraticados(cotacoes) && <AvisoCestaNoPiso itemNumero={itemNumero} temEstimada={pendentes.some((c) => tipoDe(c) !== "PRATICADO")} />}
       {cotacoes.length > 0 ? (
         <div className="overflow-x-auto rounded-md border bg-white">
           <table className="w-full min-w-[560px] text-xs">

@@ -31,7 +31,7 @@ import { StatusDocumento, TipoDocumentoFaseInterna } from './entities/documento-
 import { ANEXO_MAX_BYTES, PecasFaseInternaService } from './pecas-fase-interna.service';
 import { ConsumoLimiteService } from '../parametros-licitacao/consumo-limite.service';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
-import { ehReferenciaComplementar } from './pesquisa-precos-providers.service';
+import { exigeConferencia } from './pesquisa-precos-providers.service';
 import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { Public } from '../auth/public.decorator';
@@ -762,9 +762,10 @@ export class FaseInternaController {
 
     if (b.autoAprovar && execucao.candidatos?.length) {
       for (const candidato of execucao.candidatos) {
-        // Valor estimado por outro órgão não é preço praticado: fica à espera
-        // de quem pesquisa decidir, na lista de candidatos.
-        if (ehReferenciaComplementar(candidato)) continue;
+        // Só entra sozinho o preço praticado e conferível. Valor estimado, preço
+        // de loja achado na web, aderência parcial e unidade diferente ficam à
+        // espera de quem pesquisa decidir, na lista de referências.
+        if (exigeConferencia(candidato)) continue;
         try {
           await this.pesquisaPrecosAgentService.aprovarCandidato(
             licitacaoId,
