@@ -399,7 +399,15 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       });
       pncpMock.responder('GET', /\/orgaos\/44444444000191\/compras\/2026\/5\/itens(\?|$)/, {
         status: 200,
-        corpo: [{ numeroItem: 1, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 60, unidadeMedida: 'RESMA', valorUnitarioEstimado: 28, temResultado: true }],
+        corpo: [
+          // dois itens parecidos no mesmo edital: a contratação conta como UMA fonte (fica a quantidade mais próxima)
+          { numeroItem: 2, descricao: 'Papel sulfite A4 reciclado, resma com 500 folhas', quantidade: 9000, unidadeMedida: 'RESMA', valorUnitarioEstimado: 30, temResultado: true },
+          { numeroItem: 1, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 60, unidadeMedida: 'RESMA', valorUnitarioEstimado: 28, temResultado: true },
+        ],
+      });
+      pncpMock.responder('GET', /\/orgaos\/44444444000191\/compras\/2026\/5\/itens\/2\/resultados/, {
+        status: 200,
+        corpo: [{ valorUnitarioHomologado: 25.1, nomeRazaoSocialFornecedor: 'Papelaria Y', dataResultado: agora.slice(0, 10) }],
       });
       const url = `/api/fase-interna/${lic.id}/precos`;
       const r = await http().post(`${url}/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 5, autoAprovar: true });
@@ -408,6 +416,7 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       // o homologado entrou; o estimado, não
       expect(await valores()).toContain(22.4);
       expect(await valores()).not.toContain(31.7);
+      expect(await valores()).not.toContain(25.1);
       // ...mas ele não some: fica na lista de candidatos à espera de decisão
       const pend = await http().get(`${url}/agente/candidatos`).set(bearer(orgao.token)).expect(200);
       const estimado = pend.body.find((c: any) => Number(c.valor_unitario) === 31.7);

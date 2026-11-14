@@ -328,6 +328,29 @@ function dadosContratacaoPncp(registro: any): { cnpj: string; ano: string; seque
 }
 
 /**
+ * GET no PNCP com nova tentativa. O portal derruba conexão (ECONNRESET) e
+ * estoura o tempo com frequência quando recebe consultas seguidas — validação
+ * de 14/11/2026: duas de três buscas voltaram vazias só por isso.
+ */
+async function getPncp(url: string, config: Record<string, any> = {}, tentativas = 3): Promise<any> {
+  let ultimoErro: any;
+  for (let n = 0; n < tentativas; n++) {
+    try {
+      return await axios.get(url, { timeout: REQUEST_TIMEOUT_MS, headers: HTTP_HEADERS, ...config });
+    } catch (error: any) {
+      ultimoErro = error;
+      const status = Number(error?.response?.status) || 0;
+      // 4xx (fora 429) é resposta do portal, não instabilidade: não adianta repetir
+      if (status >= 400 && status < 500 && status !== 429) break;
+      if (n < tentativas - 1 && process.env.NODE_ENV !== 'test') {
+        await new Promise((r) => setTimeout(r, 1200 * (n + 1)));
+      }
+    }
+  }
+  throw ultimoErro;
+}
+
+/**
  * Valor ESTIMADO por outro órgão (contratação ainda sem resultado): serve de
  * referência complementar, mas não é preço praticado. Nunca entra na cesta
  * sozinho — quem pesquisa decide se inclui.
@@ -397,7 +420,11 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
             continue;
           }
 
+          // Uma contratação conta como UMA fonte: vários itens parecidos do mesmo
+          // edital (modelos de toner, por exemplo) não são preços independentes.
+          const daContratacao: Array<{ candidato: PesquisaPrecoCandidateInput; homologado: boolean; proximidade: number }> = [];
           for (const itemPncp of itensPncp) {
+            if (daContratacao.length >= 4) break;
             const registroItem = itemPncpComContexto(itemPncp, registro);
             if (!registroPncpAderente(registroItem, item)) {
               this.logger.debug(`Item PNCP descartado por baixa aderencia ao item ${item.numero_item}: ${String(itemPncp.descricao || registro.objetoCompra || '').slice(0, 120)}`);
@@ -430,7 +457,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
               continue;
             }
 
-            candidatos.push({
+            daContratacao.push({ homologado: homologado > 0, proximidade: proximidade ?? 0, candidato: {
               item_numero: item.numero_item,
               fonte_tipo: 'PNCP',
               descricao_fonte: `PNCP item ${itemPncp.numeroItem || ''} - ${registro.orgaoEntidade?.razaoSocial || registro.nomeOrgao || 'Contratacao publica'}${resultado?.fornecedor ? ` (fornecedor: ${resultado.fornecedor})` : ''}`.trim(),
@@ -447,12 +474,11 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
               },
               score: (homologado > 0 ? 92 : 70) + ajuste,
               flags,
-            });
-
-            if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
-              break;
-            }
+            } });
           }
+          // Fica o preço praticado e, entre iguais, a quantidade mais parecida com a daqui
+          const escolhido = daContratacao.sort((x, y) => Number(y.homologado) - Number(x.homologado) || y.proximidade - x.proximidade)[0];
+          if (escolhido) candidatos.push(escolhido.candidato);
 
           if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
             break;
@@ -488,10 +514,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
     const dados = dadosContratacaoPncp(registro);
     if (!dados || !numeroItem) return null;
     try {
-      const res = await axios.get(
-        `${PNCP_API_BASE}/orgaos/${dados.cnpj}/compras/${dados.ano}/${dados.sequencial}/itens/${numeroItem}/resultados`,
-        { timeout: REQUEST_TIMEOUT_MS, headers: HTTP_HEADERS },
-      );
+      const res = await getPncp(`${PNCP_API_BASE}/orgaos/${dados.cnpj}/compras/${dados.ano}/${dados.sequencial}/itens/${numeroItem}/resultados`);
       const validos = asArray(res.data)
         .filter((r: any) => !r?.dataCancelamento && Number(r?.valorUnitarioHomologado) > 0)
         .sort((x: any, y: any) => Number(x.valorUnitarioHomologado) - Number(y.valorUnitarioHomologado));
@@ -516,7 +539,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
     // Por RELEVÂNCIA: "-data" traz o que acabou de ser publicado, quase sempre sem
     // resultado e pouco ligado ao termo; a relevância traz o objeto certo.
     const pagina = async (ufs?: string): Promise<any[]> => {
-      const res = await axios.get(PNCP_SEARCH_URL, {
+      const res = await getPncp(PNCP_SEARCH_URL, {
         params: {
           q: termo,
           tipos_documento: 'edital',
@@ -526,8 +549,6 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
           status: 'todos',
           ...(ufs ? { ufs } : {}),
         },
-        timeout: REQUEST_TIMEOUT_MS,
-        headers: HTTP_HEADERS,
       });
       return Array.isArray(res.data?.items) ? res.data.items : [];
     };
