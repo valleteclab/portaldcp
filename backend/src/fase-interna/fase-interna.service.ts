@@ -48,6 +48,7 @@ import {
   CotacaoPorFonte,
   ItemPesquisaPrecos,
   PesquisaPrecosDados,
+  FontePesquisaTipo,
   calcularEstatisticasItem,
 } from './types/pesquisa-precos.type';
 import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
@@ -70,6 +71,8 @@ const ATO_DA_ETAPA: Record<string, AtoLicitacao> = {
  * Servico para gerenciamento da Fase Interna (Preparatoria)
  * Conforme Art. 18 da Lei 14.133/2021
  */
+import { INCISO_DA_FONTE, INCISOS_ART23, type IncisoArt23 } from './telas/pesquisa-regras';
+import { hojeEmBrasilia as hojeEmBrasiliaPP } from './peca-regras';
 @Injectable()
 export class FaseInternaService {
   constructor(
@@ -1609,6 +1612,50 @@ export class FaseInternaService {
         itensNaoEncontrados,
       },
     };
+  }
+
+  /**
+   * A busca automática consultou a fonte e não veio preço: isso também é
+   * registro (art. 23, §1º). Sem ele, o cartão da fonte ficava "Pendente" logo
+   * depois de consultada, e a pessoa tinha de registrar à mão o que o sistema
+   * acabou de fazer. Só toca nas fontes que a busca cobre (incisos I a III) e
+   * nunca passa por cima de registro feito por alguém.
+   */
+  async registrarConsultaAutomaticaSemRetorno(
+    licitacaoId: string,
+    fontes: FontePesquisaTipo[],
+  ): Promise<void> {
+    const incisos = new Set(
+      fontes
+        .map((f) => INCISO_DA_FONTE[f])
+        .filter((i): i is IncisoArt23 => i === 'I' || i === 'II' || i === 'III'),
+    );
+    if (!incisos.size) return;
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    const registrados = dados.parametros_art23 || [];
+    const cotacoes = (dados.itens || []).flatMap((i) => i.cotacoes || []);
+    let alterou = false;
+    for (const inciso of incisos) {
+      if (registrados.some((r) => r.inciso === inciso)) continue;
+      if (cotacoes.some((c) => INCISO_DA_FONTE[c.fonte] === inciso)) continue;
+      registrados.push({
+        inciso,
+        situacao: 'SEM_RETORNO',
+        data_consulta: hojeEmBrasiliaPP(),
+        resultado:
+          'Busca automática do sistema: nenhum preço retornado para os itens pesquisados.',
+        registrado_por_nome: 'Busca automática',
+        registrado_em: new Date().toISOString(),
+      } as any);
+      alterou = true;
+    }
+    if (!alterou) return;
+    dados.parametros_art23 = registrados.sort(
+      (x, y) => INCISOS_ART23.indexOf(x.inciso) - INCISOS_ART23.indexOf(y.inciso),
+    );
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
   }
 
   async removerCotacoesEstimadasDoAgente(

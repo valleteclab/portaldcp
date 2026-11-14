@@ -200,12 +200,12 @@ export function PrecosDoItem({
       {soPrecosPraticados(cotacoes) && <AvisoCestaNoPiso itemNumero={itemNumero} temEstimada={pendentes.some((c) => tipoDe(c) !== "PRATICADO")} />}
       {cotacoes.length > 0 ? (
         <div className="overflow-x-auto rounded-md border bg-white">
-          <table className="w-full min-w-[560px] text-xs">
+          <table className="w-full text-xs">
             <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-600">
               <tr>
                 <th scope="col" className="px-3 py-1.5 text-left font-semibold">Fonte</th>
                 <th scope="col" className="px-3 py-1.5 text-left font-semibold">De onde veio</th>
-                <th scope="col" className="px-3 py-1.5 text-left font-semibold">Data</th>
+                <th scope="col" className="hidden px-3 py-1.5 text-left font-semibold sm:table-cell">Data</th>
                 <th scope="col" className="px-3 py-1.5 text-right font-semibold">Valor unitário</th>
                 <th scope="col" className="w-16 px-3 py-1.5" />
               </tr>
@@ -218,7 +218,7 @@ export function PrecosDoItem({
                     {/valor estimado/i.test(c.observacao || "") && <span className="block text-[10px] text-amber-800">estimado</span>}
                   </td>
                   <td className="px-3 py-1.5 text-gray-700">{c.fornecedor_razao_social || c.descricao_fonte}</td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-gray-600">{fmtData(c.data_pesquisa)}</td>
+                  <td className="hidden whitespace-nowrap px-3 py-1.5 text-gray-600 sm:table-cell">{fmtData(c.data_pesquisa)}</td>
                   <td className="whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums">{fmtMoeda(c.valor_unitario)}</td>
                   <td className="whitespace-nowrap px-3 py-1.5 text-right">
                     {c.url_referencia && (

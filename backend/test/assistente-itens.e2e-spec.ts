@@ -435,6 +435,23 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(depois.body.some((c: any) => c.id === estimado.id)).toBe(false);
     });
 
+    it('fonte consultada pela busca automática sem preço fica registrada como "sem retorno", não pendente', async () => {
+      const tela = () => http().get(`/api/fase-interna/${lic.id}/pesquisa`).set(bearer(orgao.token)).expect(200).then((r) => r.body.parametros as any[]);
+      const antes = (await tela()).find((p) => p.inciso === 'I');
+      expect(antes.situacao_tela).toBe('PENDENTE');
+      // Painel de Preços (inciso I) consultado, sem nenhum preço de volta
+      await http().post(`/api/fase-interna/${lic.id}/precos/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PAINEL_DE_PRECOS'], maxPorFonte: 3, autoAprovar: true }).expect(201);
+      const depois = await tela();
+      const painel = depois.find((p) => p.inciso === 'I');
+      expect(painel.situacao_tela).toBe('SEM_RETORNO');
+      expect(painel.evidencia_resumo).toMatch(/sem retorno/);
+      expect(painel.resultado).toMatch(/Busca automática/);
+      // o que a busca não cobre continua à espera de quem pesquisa
+      expect(depois.find((p) => p.inciso === 'V').situacao_tela).toBe('PENDENTE');
+      // e o inciso II, que já tem preço do PNCP, segue como consultado
+      expect(depois.find((p) => p.inciso === 'II').situacao_tela).toBe('ATENDIDO');
+    });
+
     it('documento PP gerado: estimativa de despesa OK na instrução e valor referencial vai aos itens', async () => {
       const fonte = (item: number, valor: number, i: number) =>
         http()

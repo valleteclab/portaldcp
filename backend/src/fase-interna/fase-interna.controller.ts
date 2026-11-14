@@ -779,6 +779,11 @@ export class FaseInternaController {
     }
 
     await this.faseInternaService.removerCotacoesEstimadasDoAgente(licitacaoId);
+    // Fonte consultada sem preço também fica registrada (não volta a "Pendente")
+    await this.faseInternaService.registrarConsultaAutomaticaSemRetorno(
+      licitacaoId,
+      (execucao.escopo?.fontes as FontePesquisaTipo[]) || b.fontes || [],
+    );
     return this.faseInternaService.getPrecos(licitacaoId);
   }
 

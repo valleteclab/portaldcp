@@ -688,17 +688,15 @@ function ValorReferencia({
       </div>
 
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm min-w-[720px]">
+        <table className="w-full text-sm">
           <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-600">
             <tr>
               <th scope="col" className="text-left px-3 py-2 font-semibold">Item</th>
-              <th scope="col" className="text-right px-3 py-2 font-semibold">Qtde</th>
-              <th scope="col" className="text-right px-3 py-2 font-semibold">Preços</th>
-              <th scope="col" className={`text-right px-3 py-2 font-semibold ${metodo === "MENOR" ? "text-blue-800" : ""}`}>Menor</th>
-              <th scope="col" className={`text-right px-3 py-2 font-semibold ${metodo === "MEDIANA" ? "text-blue-800" : ""}`}>Mediana</th>
-              <th scope="col" className={`text-right px-3 py-2 font-semibold ${metodo === "MEDIA" ? "text-blue-800" : ""}`}>Média</th>
-              <th scope="col" className="text-right px-3 py-2 font-semibold">Adotado</th>
-              <th scope="col" className="text-right px-3 py-2 font-semibold">Total</th>
+              <th scope="col" className={`hidden sm:table-cell text-right px-2 py-2 font-semibold ${metodo === "MENOR" ? "text-blue-800" : ""}`}>Menor</th>
+              <th scope="col" className={`text-right px-2 py-2 font-semibold ${metodo === "MEDIANA" ? "text-blue-800" : ""}`}>Mediana</th>
+              <th scope="col" className={`hidden sm:table-cell text-right px-2 py-2 font-semibold ${metodo === "MEDIA" ? "text-blue-800" : ""}`}>Média</th>
+              <th scope="col" className="text-right px-2 py-2 font-semibold">Adotado</th>
+              <th scope="col" className="text-right px-2 py-2 font-semibold">Total</th>
             </tr>
           </thead>
           <tbody className="tabular-nums">
@@ -711,7 +709,7 @@ function ValorReferencia({
               return (
                 <Fragment key={r.item_numero}>
                 <tr className="border-t align-top">
-                  <td className="px-3 py-2 min-w-[180px]">
+                  <td className="px-3 py-2">
                     <button type="button" className="flex items-start gap-1 text-left hover:text-blue-800" aria-expanded={estaAberto} onClick={() => setItemAberto(estaAberto ? null : r.item_numero)} data-testid={`abrir-item-${r.item_numero}`}>
                       {estaAberto ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />}
                       <span>
@@ -719,22 +717,21 @@ function ValorReferencia({
                         {i?.descricao ?? ""}
                       </span>
                     </button>
-                    {r.estatistica.quantidade < 3 && <span className="block pl-5 text-[11px] text-amber-900">menos de 3 preços válidos</span>}
+                    <span className="block pl-5 text-[11px] text-gray-600">
+                      {q.toLocaleString("pt-BR")} {i?.unidade ?? ""} · {r.estatistica.quantidade} {r.estatistica.quantidade === 1 ? "preço" : "preços"}
+                      {r.estatistica.quantidade < 3 && <span className="text-amber-900"> (menos de 3 válidos)</span>}
+                    </span>
                     {aDecidir.length > 0 && <span className="block pl-5 text-[11px] font-semibold text-blue-800">{aDecidir.length} {aDecidir.length === 1 ? "referência a decidir" : "referências a decidir"}</span>}
                   </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {q.toLocaleString("pt-BR")} {i?.unidade ?? ""}
-                  </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">{r.estatistica.quantidade} {r.estatistica.quantidade === 1 ? "preço" : "preços"}</td>
-                  <td className={`px-3 py-2 text-right whitespace-nowrap ${colAtiva("MENOR")}`}>{r.estatistica.menor != null ? fmtMoeda(r.estatistica.menor) : "—"}</td>
-                  <td className={`px-3 py-2 text-right whitespace-nowrap ${colAtiva("MEDIANA")}`}>{r.estatistica.mediana != null ? fmtMoeda(r.estatistica.mediana) : "—"}</td>
-                  <td className={`px-3 py-2 text-right whitespace-nowrap ${colAtiva("MEDIA")}`}>{r.estatistica.media != null ? fmtMoeda(r.estatistica.media) : "—"}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap font-bold">{r.valor_unitario_adotado != null ? fmtMoeda(r.valor_unitario_adotado) : "—"}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap font-bold">{total != null ? fmtMoeda(total) : "—"}</td>
+                  <td className={`hidden sm:table-cell px-2 py-2 text-right whitespace-nowrap ${colAtiva("MENOR")}`}>{r.estatistica.menor != null ? fmtMoeda(r.estatistica.menor) : "—"}</td>
+                  <td className={`px-2 py-2 text-right whitespace-nowrap ${colAtiva("MEDIANA")}`}>{r.estatistica.mediana != null ? fmtMoeda(r.estatistica.mediana) : "—"}</td>
+                  <td className={`hidden sm:table-cell px-2 py-2 text-right whitespace-nowrap ${colAtiva("MEDIA")}`}>{r.estatistica.media != null ? fmtMoeda(r.estatistica.media) : "—"}</td>
+                  <td className="px-2 py-2 text-right whitespace-nowrap font-bold">{r.valor_unitario_adotado != null ? fmtMoeda(r.valor_unitario_adotado) : "—"}</td>
+                  <td className="px-2 py-2 text-right whitespace-nowrap font-bold">{total != null ? fmtMoeda(total) : "—"}</td>
                 </tr>
                 {estaAberto && (
                   <tr className="border-t bg-slate-50/70">
-                    <td colSpan={8} className="px-3 py-3 font-sans">
+                    <td colSpan={6} className="px-3 py-3 font-sans">
                       <PrecosDoItem
                         itemNumero={r.item_numero}
                         cotacoes={precos[r.item_numero] ?? []}
@@ -755,14 +752,14 @@ function ValorReferencia({
             })}
             {d.resumo.itens.length === 0 && (
               <tr className="border-t">
-                <td colSpan={8} className="px-3 py-3 text-sm text-gray-600">A pesquisa ainda não tem itens — eles vêm dos itens do processo.</td>
+                <td colSpan={6} className="px-3 py-3 text-sm text-gray-600">A pesquisa ainda não tem itens — eles vêm dos itens do processo.</td>
               </tr>
             )}
             <tr className="border-t-2 bg-gray-50">
-              <td colSpan={7} className="px-3 py-2 font-bold">
+              <td colSpan={5} className="px-3 py-2 font-bold">
                 Valor estimado da contratação{metodo ? ` (${ROTULO_METODO[metodo].toLowerCase()})` : ""}
               </td>
-              <td className="px-3 py-2 text-right font-bold text-[15px] whitespace-nowrap">{d.resumo.total_adotado != null ? fmtMoeda(d.resumo.total_adotado) : "—"}</td>
+              <td className="px-2 py-2 text-right font-bold text-[15px] whitespace-nowrap">{d.resumo.total_adotado != null ? fmtMoeda(d.resumo.total_adotado) : "—"}</td>
             </tr>
           </tbody>
         </table>
