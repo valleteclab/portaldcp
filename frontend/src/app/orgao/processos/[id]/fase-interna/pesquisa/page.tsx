@@ -641,9 +641,17 @@ function ValorReferencia({
   onRemover: (itemNumero: number, indice: number) => void
   onBuscar: (itemNumero: number) => void
 }) {
-  // Linha aberta: os preços do item e as referências a decidir. Item com decisão pendente já abre.
-  const [abertos, setAbertos] = useState<Record<number, boolean>>({})
-  const aberto = (n: number) => abertos[n] ?? pendentes.some((c) => c.item_numero === n)
+  // Um item aberto por vez, e nenhum abre sozinho: com muitos itens a página
+  // virava um rolo. O contador "N referências a decidir" diz onde olhar.
+  const [itemAberto, setItemAberto] = useState<number | null>(null)
+  const aberto = (n: number) => itemAberto === n
+  // Processo grande: 10 itens por página
+  const POR_PAGINA = 10
+  const [pagina, setPagina] = useState(0)
+  const paginas = Math.max(1, Math.ceil(d.resumo.itens.length / POR_PAGINA))
+  const paginaAtual = Math.min(pagina, paginas - 1)
+  const itensDaPagina = d.resumo.itens.slice(paginaAtual * POR_PAGINA, (paginaAtual + 1) * POR_PAGINA)
+  const totalADecidir = pendentes.length
   const [justMetodo, setJustMetodo] = useState(d.justificativa_metodo)
   const [justForn, setJustForn] = useState(d.justificativa_fornecedores)
   const [justTres, setJustTres] = useState(d.justificativa_menos_de_tres)
@@ -694,7 +702,7 @@ function ValorReferencia({
             </tr>
           </thead>
           <tbody className="tabular-nums">
-            {d.resumo.itens.map((r) => {
+            {itensDaPagina.map((r) => {
               const i = porNumero.get(r.item_numero)
               const q = i?.quantidade ?? 0
               const total = r.valor_total_adotado ?? (r.valor_unitario_adotado != null ? r.valor_unitario_adotado * q : null)
@@ -704,7 +712,7 @@ function ValorReferencia({
                 <Fragment key={r.item_numero}>
                 <tr className="border-t align-top">
                   <td className="px-3 py-2 min-w-[240px]">
-                    <button type="button" className="flex items-start gap-1 text-left hover:text-blue-800" aria-expanded={estaAberto} onClick={() => setAbertos((p) => ({ ...p, [r.item_numero]: !estaAberto }))} data-testid={`abrir-item-${r.item_numero}`}>
+                    <button type="button" className="flex items-start gap-1 text-left hover:text-blue-800" aria-expanded={estaAberto} onClick={() => setItemAberto(estaAberto ? null : r.item_numero)} data-testid={`abrir-item-${r.item_numero}`}>
                       {estaAberto ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />}
                       <span>
                         <span className="font-mono text-[11px] text-gray-500 mr-1.5">{nome2(r.item_numero)}</span>
@@ -759,6 +767,20 @@ function ValorReferencia({
           </tbody>
         </table>
       </div>
+      {(paginas > 1 || totalADecidir > 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-700">
+          <span className={totalADecidir > 0 ? "font-semibold text-blue-800" : ""}>
+            {totalADecidir > 0 ? `${totalADecidir} ${totalADecidir === 1 ? "referência aguarda" : "referências aguardam"} sua decisão — abra o item para conferir.` : ""}
+          </span>
+          {paginas > 1 && (
+            <span className="inline-flex items-center gap-2" data-testid="paginacao-itens">
+              <Button size="sm" variant="outline" className="h-7 text-xs" disabled={paginaAtual === 0} onClick={() => { setPagina(paginaAtual - 1); setItemAberto(null) }}>Anterior</Button>
+              Itens {paginaAtual * POR_PAGINA + 1} a {Math.min((paginaAtual + 1) * POR_PAGINA, d.resumo.itens.length)} de {d.resumo.itens.length}
+              <Button size="sm" variant="outline" className="h-7 text-xs" disabled={paginaAtual >= paginas - 1} onClick={() => { setPagina(paginaAtual + 1); setItemAberto(null) }}>Próxima</Button>
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
         <span className={d.resumo.tres_precos.atende ? "text-green-800 font-semibold" : "text-amber-900 font-semibold"}>{d.resumo.tres_precos.atende ? "✓ " : ""}{d.resumo.tres_precos.motivo}</span>

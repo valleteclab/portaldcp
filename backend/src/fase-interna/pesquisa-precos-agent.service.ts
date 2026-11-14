@@ -171,6 +171,29 @@ export class PesquisaPrecosAgentService {
             Boolean(candidato),
           ),
       );
+      // Preço muito longe dos demais do mesmo item quase sempre é outra
+      // embalagem (resma em vez de caixa) ou outro produto (a impressora em
+      // vez do toner). Não some: fica marcado e espera conferência.
+      const porItem = new Map<number, number[]>();
+      for (const c of deduplicados) {
+        const lista = porItem.get(Number(c.item_numero)) || [];
+        lista.push(Number(c.valor_unitario));
+        porItem.set(Number(c.item_numero), lista);
+      }
+      for (const c of deduplicados) {
+        const valores = [...(porItem.get(Number(c.item_numero)) || [])].sort((x, y) => x - y);
+        if (valores.length < 4) continue;
+        const meio = Math.floor(valores.length / 2);
+        const mediana = valores.length % 2 ? valores[meio] : (valores[meio - 1] + valores[meio]) / 2;
+        const v = Number(c.valor_unitario);
+        if (mediana > 0 && (v < mediana / 3 || v > mediana * 3)) {
+          c.flags = [
+            ...(c.flags || []),
+            `Preço muito ${v < mediana ? 'abaixo' : 'acima'} dos demais deste item (mediana R$ ${mediana.toFixed(2).replace('.', ',')}): revisar se é o mesmo produto e a mesma embalagem.`,
+          ];
+          c.score = Number(c.score ?? 70) - 10;
+        }
+      }
       // Cota por item E por origem. Com um teto só para tudo, a origem que
       // devolvia mais (banco de preços) expulsava as outras (lojas na web).
       const porOrigem = new Map<string, number>();

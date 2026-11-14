@@ -234,6 +234,20 @@ describe('referências que exigem conferência', () => {
     expect(ehPaginaDeListagem('https://www.casadopapel.com.br/papel-a4-75g-chamex-caixa-com-10-pacotes-p10888')).toBe(false);
   });
 
+  it('banco de preços: a impressora não entra sozinha na pesquisa do toner', () => {
+    const toner = { numero_item: 1, descricao_resumida: 'Toner compatível para impressora laser, preto', quantidade: 30, unidade_medida: 'UNIDADE' } as unknown as ItemLicitacao;
+    const base = { valor_unitario: '39,72', quant: '10', dt_homologacao: '18/09/2026', url_edital: 'https://example.gov.br/edital.pdf' };
+    const certo = mapearResultadoFontePrecos({ ...base, descricao: 'Toner compatível preto para impressora laser HP 105A' }, toner);
+    expect(certo).toBeTruthy();
+    expect(exigeConferencia(certo)).toBe(false);
+    const impressora = mapearResultadoFontePrecos({ ...base, valor_unitario: '5.300,00', descricao: 'IMPRESSORA LASER MULTIFUNCIONAL COLOR, compatível com toner preto' }, toner);
+    // pode até vir como referência, mas nunca sem alguém conferir
+    if (impressora) {
+      expect(impressora.flags.join(' ')).toMatch(/revisar/);
+      expect(exigeConferencia(impressora)).toBe(true);
+    }
+  });
+
   it('só o preço praticado e sem ressalva entra sozinho na cesta', () => {
     const praticado = { flags: ['Mesmo estado (BA).'], evidencia: { origem: 'PNCP — valor homologado do item' } };
     expect(tipoDeReferencia(praticado)).toBe('PRATICADO');

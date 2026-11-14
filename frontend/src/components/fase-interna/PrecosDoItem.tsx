@@ -5,7 +5,7 @@
  * referências que a busca automática achou e ainda esperam decisão.
  * Usado na tela da pesquisa (linha do item) e na pesquisa detalhada.
  */
-import React from "react"
+import React, { useState } from "react"
 import { AlertTriangle, Check, ExternalLink, Loader2, Trash2, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -101,7 +101,11 @@ export function ReferenciasPendentes({
   bloqueada?: boolean
   onDecidir: (c: CandidatoPendente, acao: "aprovar" | "rejeitar") => void
 }) {
+  // Lista curta por padrão: as melhores primeiro (a API já manda ordenado)
+  const [todas, setTodas] = useState(false)
+  const LIMITE = 4
   if (!pendentes.length) return null
+  const visiveis = todas ? pendentes : pendentes.slice(0, LIMITE)
   return (
     <div data-testid={`pendentes-${itemNumero}`} className="rounded-md border border-gray-200 bg-gray-50">
       <div className="border-b border-gray-200 px-3 py-2">
@@ -109,7 +113,7 @@ export function ReferenciasPendentes({
         <p className="text-[11px] text-gray-500">Ainda não contam no cálculo. Abra a fonte, confira se é o mesmo produto e a mesma embalagem, inclua as que servem e descarte as demais.</p>
       </div>
       <ul className="divide-y divide-gray-200">
-        {pendentes.map((c) => (
+        {visiveis.map((c) => (
           <li key={c.id} className="flex flex-wrap items-start gap-3 px-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -158,6 +162,11 @@ export function ReferenciasPendentes({
           </li>
         ))}
       </ul>
+      {pendentes.length > LIMITE && (
+        <button type="button" className="w-full border-t border-gray-200 px-3 py-1.5 text-left text-xs text-[#1351b4] hover:underline" onClick={() => setTodas((v) => !v)}>
+          {todas ? "Mostrar menos" : `Mostrar mais ${pendentes.length - LIMITE}`}
+        </button>
+      )}
     </div>
   )
 }
