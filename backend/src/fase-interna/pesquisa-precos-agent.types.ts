@@ -15,6 +15,8 @@ export interface PesquisaPrecoAgentContext {
   licitacao: Licitacao;
   itens: ItemLicitacao[];
   scope: PesquisaPrecoAgentScope;
+  /** UF do órgão que pesquisa: contratações do mesmo estado vêm primeiro. */
+  ufOrgao?: string;
 }
 
 export interface PesquisaPrecoCandidateInput {

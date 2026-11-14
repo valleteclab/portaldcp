@@ -63,6 +63,37 @@ interface CotacaoPorFonte {
   documento_comprobatorio_path?: string
 }
 
+/** Referência que o agente achou e ainda espera a decisão de quem pesquisa. */
+interface CandidatoPendente {
+  id: string
+  item_numero: number
+  fonte_tipo: FontePesquisaTipo
+  descricao_fonte: string
+  url_referencia?: string
+  data_pesquisa: string
+  valor_unitario: number
+  quantidade_base?: number
+  unidade?: string
+  origem?: string
+  titulo?: string
+  flags: string[]
+  complementar: boolean
+}
+
+/** Fontes de preço já praticado em contratação pública (passaram por disputa). */
+const FONTES_DE_PRECO_PRATICADO: string[] = ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA"]
+
+/**
+ * Cesta só com preço que já saiu de disputa: a referência fica no piso do
+ * mercado e tende a afastar licitantes. Estimado aprovado à mão não conta.
+ */
+function soPrecosPraticados(cotacoes: CotacaoPorFonte[]): boolean {
+  if (!cotacoes.length) return false
+  return cotacoes.every(
+    (c) => FONTES_DE_PRECO_PRATICADO.includes(c.fonte) && !/valor estimado/i.test(c.observacao || ""),
+  )
+}
+
 interface ItemPesquisaPrecos {
   item_numero: number
   descricao: string
@@ -293,6 +324,8 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
   const [statusImportacaoCsv, setStatusImportacaoCsv] = useState<string | null>(null)
   const [buscandoAuto, setBuscandoAuto] = useState<Record<number, boolean>>({})
   const [statusBuscaAuto, setStatusBuscaAuto] = useState<Record<number, string>>({})
+  const [pendentes, setPendentes] = useState<CandidatoPendente[]>([])
+  const [decidindo, setDecidindo] = useState<string | null>(null)
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const csvFontePrecosInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -341,9 +374,44 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
     }
   }, [id])
 
+  const carregarPendentes = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos`)
+      if (res.ok) {
+        const lista = await res.json()
+        setPendentes(Array.isArray(lista) ? lista : [])
+      }
+    } catch {
+      // a lista de referências é complementar: a tela segue sem ela
+    }
+  }, [id])
+
   useEffect(() => {
     carregarDados()
-  }, [carregarDados])
+    carregarPendentes()
+  }, [carregarDados, carregarPendentes])
+
+  const decidirPendente = async (candidato: CandidatoPendente, acao: "aprovar" | "rejeitar") => {
+    setDecidindo(candidato.id)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/fase-interna/${id}/precos/agente/candidatos/${candidato.id}/${acao}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(acao === "rejeitar" ? { motivo: "Descartada por quem fez a pesquisa" } : {}),
+        },
+      )
+      if (res.ok) {
+        setPendentes((prev) => prev.filter((c) => c.id !== candidato.id))
+        if (acao === "aprovar") await carregarDados()
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setDecidindo(null)
+    }
+  }
 
   const itens = dados?.itens ?? []
 
@@ -492,6 +560,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
         setDados(d)
         if (d.responsavel) setResponsavel(d.responsavel)
         if (d.metodologia_global) setMetodologia(d.metodologia_global)
+        await carregarPendentes()
       }
     } catch (e) {
       console.error(e)
@@ -976,6 +1045,8 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
               const expandido = expandidosCards[item.item_numero] ?? true
               const buscando = buscandoAuto[item.item_numero] ?? false
               const statusBusca = statusBuscaAuto[item.item_numero]
+              const pendentesDoItem = pendentes.filter((c) => c.item_numero === item.item_numero)
+              const referenciaNoPiso = soPrecosPraticados(item.cotacoes)
 
               return (
                 <Card key={item.item_numero} className="border border-gray-100 shadow-sm">
@@ -1020,6 +1091,117 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
                       {statusBusca && (
                         <div className="mb-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
                           {statusBusca}
+                        </div>
+                      )}
+                      {referenciaNoPiso && (
+                        <div
+                          data-testid={`aviso-piso-${item.item_numero}`}
+                          className="mb-3 flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                        >
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <div>
+                            <strong>Todos os preços deste item já saíram de disputa.</strong> Valor homologado ou
+                            contratado é o preço final de quem venceu: a referência fica perto do piso do mercado e
+                            pode afastar licitantes ou deixar o item deserto. Some uma cotação direta de fornecedor
+                            {pendentesDoItem.some((c) => c.complementar)
+                              ? " ou inclua uma das referências estimadas abaixo."
+                              : "."}
+                          </div>
+                        </div>
+                      )}
+                      {pendentesDoItem.length > 0 && (
+                        <div
+                          data-testid={`pendentes-${item.item_numero}`}
+                          className="mb-4 rounded-md border border-gray-200 bg-gray-50"
+                        >
+                          <div className="border-b border-gray-200 px-3 py-2">
+                            <p className="text-xs font-semibold text-gray-700">
+                              Referências encontradas — aguardando sua decisão ({pendentesDoItem.length})
+                            </p>
+                            <p className="text-[11px] text-gray-500">
+                              Ainda não contam no cálculo. Inclua as que servem para este item e descarte as demais.
+                            </p>
+                          </div>
+                          <ul className="divide-y divide-gray-200">
+                            {pendentesDoItem.map((c) => (
+                              <li key={c.id} className="flex flex-wrap items-start gap-3 px-3 py-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-semibold text-gray-800">
+                                      {fmtMoeda(c.valor_unitario)}
+                                      {c.unidade ? <span className="font-normal text-gray-500"> / {c.unidade}</span> : null}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className={
+                                        c.complementar
+                                          ? "border-amber-300 bg-amber-50 text-[10px] text-amber-800"
+                                          : "border-green-300 bg-green-50 text-[10px] text-green-800"
+                                      }
+                                    >
+                                      {c.complementar ? "Estimado por outro órgão" : "Preço praticado"}
+                                    </Badge>
+                                    <span className="text-[11px] text-gray-500">{fmtData(c.data_pesquisa)}</span>
+                                    {c.quantidade_base ? (
+                                      <span className="text-[11px] text-gray-500">
+                                        qtd. lá: {Number(c.quantidade_base).toLocaleString("pt-BR")}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-0.5 text-xs text-gray-700">{c.titulo || c.descricao_fonte}</p>
+                                  <p className="text-[11px] text-gray-500">
+                                    {c.descricao_fonte}
+                                    {c.url_referencia ? (
+                                      <>
+                                        {" · "}
+                                        <a
+                                          href={c.url_referencia}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-[#1351b4] hover:underline"
+                                        >
+                                          abrir no PNCP
+                                        </a>
+                                      </>
+                                    ) : null}
+                                  </p>
+                                  {c.flags
+                                    .filter((f) => !/^Referência complementar/.test(f))
+                                    .map((f) => (
+                                      <p key={f} className="text-[11px] text-gray-500">
+                                        • {f}
+                                      </p>
+                                    ))}
+                                </div>
+                                <div className="flex shrink-0 gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 border-[#c5d4eb] text-xs text-[#1351b4]"
+                                    disabled={decidindo === c.id}
+                                    onClick={() => decidirPendente(c, "aprovar")}
+                                  >
+                                    {decidindo === c.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <>
+                                        <Check className="mr-1 h-3.5 w-3.5" /> Incluir na pesquisa
+                                      </>
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 text-xs text-gray-500"
+                                    disabled={decidindo === c.id}
+                                    onClick={() => decidirPendente(c, "rejeitar")}
+                                  >
+                                    <X className="mr-1 h-3.5 w-3.5" /> Descartar
+                                  </Button>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       )}
                       {/* Tabela de cotações */}
