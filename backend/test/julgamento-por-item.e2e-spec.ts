@@ -79,6 +79,29 @@ describe('Julgamento item a item com código por item', () => {
     await ctx?.fechar();
   });
 
+  it('proposta enviada e não analisada impede abrir os lances', async () => {
+    const outro = await criarOrgao(ctx, { nome: 'Prefeitura Proposta Pendente' });
+    const G1 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+    const G2 = await criarFornecedor(ctx, { porte: 'DEMAIS' });
+    const p = await prepararPregaoEmDisputa(
+      ctx,
+      outro,
+      [
+        { fornecedor: G1, valores: [90, 45] },
+        { fornecedor: G2, valores: [88, 44] },
+      ],
+      { iniciarItens: false },
+    );
+    await q(`UPDATE propostas SET status = 'ENVIADA' WHERE id = $1`, [p.propostas[G2.id]]);
+    const iniciar = () =>
+      http().post(`/api/disputa/sessao/${p.sessaoId}/iniciar-itens`).set(bearer(outro.token)).send({ itensIds: p.lic.itens.map((i) => i.id) });
+    const recusado = await iniciar();
+    expect(recusado.status).toBe(409);
+    expect(recusado.body.message).toMatch(/1 proposta\(s\) aguardando análise/);
+    await q(`UPDATE propostas SET status = 'CLASSIFICADA' WHERE id = $1`, [p.propostas[G2.id]]);
+    expect((await iniciar()).status).toBe(201);
+  });
+
   it('cada item tem o seu sorteio de códigos', async () => {
     const linhas = await q(`SELECT unidade_id::text AS u, fornecedor_id::text AS f, codigo_anonimo AS c FROM mapeamento_anonimo_unidade WHERE sessao_id = $1`, [sessaoId]);
     for (const item of [item1, item2]) {

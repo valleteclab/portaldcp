@@ -794,6 +794,18 @@ export class DisputaService {
     // Critérios técnicos: a etapa de preços só abre com as notas técnicas publicadas (Lei 14.133 art. 36 §2º)
     const pendenciaTecnica = await pendenciaJulgamentoTecnico(this.dataSource.manager, sessao.licitacao_id);
     if (pendenciaTecnica) throw new ConflictException(pendenciaTecnica);
+    // Proposta enviada e ainda não analisada ficaria FORA dos lances sem que
+    // ninguém percebesse (ensaio do pregão 2026/00094: 5 propostas, 4
+    // classificadas, e a quinta só descobriu ao tentar dar lance).
+    const [semAnalise] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS n FROM propostas WHERE licitacao_id = $1 AND status::text = 'ENVIADA'`,
+      [sessao.licitacao_id],
+    );
+    if (Number(semAnalise?.n) > 0) {
+      throw new ConflictException(
+        `Há ${semAnalise.n} proposta(s) aguardando análise. Classifique ou desclassifique todas antes de abrir os lances — proposta sem análise fica fora da disputa.`,
+      );
+    }
     if (params.baseLance === BaseLance.TOTAL_LOTE) {
       // Disputa por LOTE: ids de lote (ou de itens → seus lotes) — disputa-lote.service.ts
       const r = await this.lotes.iniciar(sessao, itensIds, ator);
