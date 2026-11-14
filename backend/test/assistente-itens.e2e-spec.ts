@@ -358,7 +358,8 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       const r = await http().post(`/api/fase-interna/${lic.id}/precos/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 3 });
       expect(r.status).toBe(201);
       const busca = pncpMock.filtrar('GET', /\/api\/search\//);
-      expect(busca.length).toBe(1);
+      // uma busca no estado do órgão (quando ele tem UF) e outra no país
+      expect(busca.length).toBeGreaterThanOrEqual(1);
       expect(decodeURIComponent(busca[0].caminho)).toMatch(/q=Resma(\+|%20| )de(\+|%20| )papel/i);
       // a contratação COM resultado é examinada primeiro e o valor é o homologado, não o estimado
       expect(pncpMock.filtrar('GET', /compras\/2026\/9\/itens\/3\/resultados/).length).toBe(1);
@@ -373,6 +374,53 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(cand[0].descricao_fonte).toMatch(/Papelaria X/);
       expect(String(cand[0].data_pesquisa)).toMatch(/2026-10-28/);
       expect(decodeURIComponent(busca[0].caminho)).toMatch(/ordenacao=relevancia/);
+    });
+
+    it('valor ESTIMADO do PNCP fica como candidato complementar: nunca entra sozinho na cesta', async () => {
+      pncpMock.limpar();
+      const agora = new Date().toISOString();
+      pncpMock.responder('GET', /\/api\/search\//, {
+        status: 200,
+        corpo: {
+          total: 2,
+          items: [
+            { orgao_cnpj: '33333333000191', orgao_nome: 'Prefeitura Estimada', ano: '2026', numero_sequencial: '4', description: 'Papel A4', tem_resultado: false, data_publicacao_pncp: agora, uf: 'SP' },
+            { orgao_cnpj: '44444444000191', orgao_nome: 'Câmara Homologada', ano: '2026', numero_sequencial: '5', description: 'Papel A4', tem_resultado: true, data_publicacao_pncp: agora, uf: 'SP' },
+          ],
+        },
+      });
+      pncpMock.responder('GET', /\/orgaos\/33333333000191\/compras\/2026\/4\/itens(\?|$)/, {
+        status: 200,
+        corpo: [{ numeroItem: 1, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 90000, unidadeMedida: 'RESMA', valorUnitarioEstimado: 31.7, temResultado: false }],
+      });
+      pncpMock.responder('GET', /\/orgaos\/44444444000191\/compras\/2026\/5\/itens\/1\/resultados/, {
+        status: 200,
+        corpo: [{ valorUnitarioHomologado: 22.4, nomeRazaoSocialFornecedor: 'Papelaria Y', dataResultado: agora.slice(0, 10) }],
+      });
+      pncpMock.responder('GET', /\/orgaos\/44444444000191\/compras\/2026\/5\/itens(\?|$)/, {
+        status: 200,
+        corpo: [{ numeroItem: 1, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 60, unidadeMedida: 'RESMA', valorUnitarioEstimado: 28, temResultado: true }],
+      });
+      const url = `/api/fase-interna/${lic.id}/precos`;
+      const r = await http().post(`${url}/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 5, autoAprovar: true });
+      expect(r.status).toBe(201);
+      const valores = () => http().get(url).set(bearer(orgao.token)).expect(200).then((x) => x.body.dados.itens.find((i: any) => i.item_numero === 1).cotacoes.map((c: any) => Number(c.valor_unitario)));
+      // o homologado entrou; o estimado, não
+      expect(await valores()).toContain(22.4);
+      expect(await valores()).not.toContain(31.7);
+      // ...mas ele não some: fica na lista de candidatos à espera de decisão
+      const pend = await http().get(`${url}/agente/candidatos`).set(bearer(orgao.token)).expect(200);
+      const estimado = pend.body.find((c: any) => Number(c.valor_unitario) === 31.7);
+      expect(estimado).toBeTruthy();
+      expect(estimado.complementar).toBe(true);
+      expect(estimado.origem).toMatch(/estimado/);
+      expect(estimado.flags.join(' ')).toMatch(/Quantidade muito diferente/);
+      expect(pend.body.some((c: any) => Number(c.valor_unitario) === 22.4)).toBe(false);
+      // quem pesquisa decide: aprovado, passa a contar
+      await http().post(`${url}/agente/candidatos/${estimado.id}/aprovar`).set(bearer(orgao.token)).send({}).expect(201);
+      expect(await valores()).toContain(31.7);
+      const depois = await http().get(`${url}/agente/candidatos`).set(bearer(orgao.token)).expect(200);
+      expect(depois.body.some((c: any) => c.id === estimado.id)).toBe(false);
     });
 
     it('documento PP gerado: estimativa de despesa OK na instrução e valor referencial vai aos itens', async () => {

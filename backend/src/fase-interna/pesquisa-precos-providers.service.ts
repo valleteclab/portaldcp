@@ -327,6 +327,29 @@ function dadosContratacaoPncp(registro: any): { cnpj: string; ano: string; seque
   return { cnpj, ano, sequencial: String(Number(sequencial)) };
 }
 
+/**
+ * Valor ESTIMADO por outro órgão (contratação ainda sem resultado): serve de
+ * referência complementar, mas não é preço praticado. Nunca entra na cesta
+ * sozinho — quem pesquisa decide se inclui.
+ */
+export const FLAG_REFERENCIA_COMPLEMENTAR =
+  'Referência complementar: valor ESTIMADO por outro órgão, ainda sem resultado. Só entra na cesta se você aprovar.';
+
+export function ehReferenciaComplementar(candidato: { flags?: string[] | null }): boolean {
+  return (candidato?.flags || []).includes(FLAG_REFERENCIA_COMPLEMENTAR);
+}
+
+/**
+ * Quanto a quantidade contratada lá se parece com a daqui (0 a 1). Escala muda
+ * preço: 10 resmas e 10 mil resmas não custam o mesmo por unidade.
+ */
+export function proximidadeDeQuantidade(quantidadeFonte: number, quantidadeItem: number): number | null {
+  const a = Number(quantidadeFonte);
+  const b = Number(quantidadeItem);
+  if (!(a > 0) || !(b > 0)) return null;
+  return Math.min(a, b) / Math.max(a, b);
+}
+
 function itemPncpComContexto(itemPncp: any, contratacao: any): any {
   return {
     ...itemPncp,
@@ -342,6 +365,7 @@ function itemPncpComContexto(itemPncp: any, contratacao: any): any {
     linkSistemaOrigem: contratacao.linkSistemaOrigem,
     linkProcessoEletronico: contratacao.linkProcessoEletronico,
     _porBuscaTextual: contratacao._porBuscaTextual,
+    uf: contratacao.uf,
   };
 }
 
@@ -364,7 +388,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
       if (!termo) continue;
 
       try {
-        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5));
+        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5), context.ufOrgao);
         // Até 15 contratações por item: cada uma custa uma chamada para listar os itens
         for (const registro of registros.slice(0, Math.max(15, (context.scope.maxPorFonte || 5) * 2))) {
           const itensPncp = await this.consultarItensContratacao(registro);
@@ -381,9 +405,26 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
             }
             // Preço praticado (homologado) vale mais que o estimado pelo outro órgão
             const resultado = itemPncp.temResultado ? await this.consultarResultadoHomologado(registro, itemPncp.numeroItem) : null;
-            const homologado = resultado?.valor ?? 0;
+            // o homologado vem do resultado do item ou, em algumas respostas, no próprio item
+            const homologado = (resultado?.valor ?? 0) || Number(itemPncp.valorUnitarioHomologado || itemPncp.valorUnitarioResultado || 0);
             const valorUnitario = homologado > 0 ? homologado : valorUnitarioPncp(registroItem);
             const quantidade = Number(itemPncp.quantidade) || Number(item.quantidade) || 1;
+            const flags: string[] = [];
+            let ajuste = 0;
+            if (!(homologado > 0)) flags.push(FLAG_REFERENCIA_COMPLEMENTAR);
+            const mesmaUf = !!context.ufOrgao && String(registro.uf || '').toUpperCase() === String(context.ufOrgao).toUpperCase();
+            if (mesmaUf) {
+              flags.push(`Mesmo estado (${String(context.ufOrgao).toUpperCase()}).`);
+              ajuste += 3;
+            }
+            const proximidade = proximidadeDeQuantidade(Number(itemPncp.quantidade), Number(item.quantidade));
+            if (proximidade !== null) {
+              if (proximidade >= 0.5) ajuste += 2;
+              else if (proximidade < 0.1) {
+                flags.push(`Quantidade muito diferente (${Number(itemPncp.quantidade)} lá, ${Number(item.quantidade)} aqui): o preço pode refletir outra escala.`);
+                ajuste -= 6;
+              }
+            }
             if (valorUnitario <= 0) {
               this.logger.debug(`Item PNCP descartado sem valor unitario para item ${item.numero_item}: ${String(itemPncp.descricao || '').slice(0, 120)}`);
               continue;
@@ -404,7 +445,8 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
                 coletado_em: new Date().toISOString(),
                 titulo: itemPncp.descricao || registro.objetoCompra || termo,
               },
-              score: homologado > 0 ? 92 : 70,
+              score: (homologado > 0 ? 92 : 70) + ajuste,
+              flags,
             });
 
             if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
@@ -470,25 +512,59 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
    * do portal devolve as contratações do objeto; as que já têm resultado vêm
    * primeiro, porque trazem o preço homologado.
    */
-  private async buscarPorTexto(termo: string, limite: number): Promise<any[]> {
+  private async buscarPorTexto(termo: string, limite: number, uf?: string): Promise<any[]> {
     // Por RELEVÂNCIA: "-data" traz o que acabou de ser publicado, quase sempre sem
     // resultado e pouco ligado ao termo; a relevância traz o objeto certo.
-    const res = await axios.get(PNCP_SEARCH_URL, {
-      params: { q: termo, tipos_documento: 'edital', ordenacao: 'relevancia', pagina: 1, tam_pagina: Math.min(50, Math.max(30, limite * 5)), status: 'todos' },
-      timeout: REQUEST_TIMEOUT_MS,
-      headers: HTTP_HEADERS,
+    const pagina = async (ufs?: string): Promise<any[]> => {
+      const res = await axios.get(PNCP_SEARCH_URL, {
+        params: {
+          q: termo,
+          tipos_documento: 'edital',
+          ordenacao: 'relevancia',
+          pagina: 1,
+          tam_pagina: Math.min(50, Math.max(30, limite * 5)),
+          status: 'todos',
+          ...(ufs ? { ufs } : {}),
+        },
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: HTTP_HEADERS,
+      });
+      return Array.isArray(res.data?.items) ? res.data.items : [];
+    };
+    // Mercado local primeiro: o preço do mesmo estado é o mais comparável
+    // (frete, tributo, fornecedores). O país inteiro completa a lista.
+    const ufOrgao = String(uf || '').trim().toUpperCase();
+    let doEstado: any[] = [];
+    if (/^[A-Z]{2}$/.test(ufOrgao)) {
+      try {
+        doEstado = await pagina(ufOrgao);
+      } catch (error) {
+        this.logger.warn(`Busca do PNCP no estado ${ufOrgao} falhou para "${termo}": ${(error as Error).message}`);
+      }
+    }
+    const doPais = await pagina();
+    const vistos = new Set<string>();
+    const itens = [...doEstado, ...doPais].filter((r) => {
+      const chave = `${r?.orgao_cnpj}/${r?.ano}/${r?.numero_sequencial}`;
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
     });
-    const itens: any[] = Array.isArray(res.data?.items) ? res.data.items : [];
     // Pesquisa de preços vale para contratações do último ano (IN SEGES 65/2021, art. 5º, II)
     const limiteData = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    const doMesmoEstado = (r: any) => !!ufOrgao && String(r?.uf || '').toUpperCase() === ufOrgao;
     return itens
       .filter((r) => r?.orgao_cnpj && r?.ano && r?.numero_sequencial)
       .filter((r) => {
         const d = new Date(String(r.data_publicacao_pncp || ''));
         return Number.isNaN(d.getTime()) || d.getTime() >= limiteData;
       })
-      // sort estável: mantém a ordem de relevância dentro de cada grupo
-      .sort((x, y) => Number(!!y.tem_resultado) - Number(!!x.tem_resultado))
+      // sort estável: com resultado primeiro; dentro disso, o mesmo estado; depois a relevância
+      .sort(
+        (x, y) =>
+          Number(!!y.tem_resultado) - Number(!!x.tem_resultado) ||
+          Number(doMesmoEstado(y)) - Number(doMesmoEstado(x)),
+      )
       .map((r) => ({
         orgaoEntidade: { cnpj: String(r.orgao_cnpj), razaoSocial: r.orgao_nome },
         nomeOrgao: r.orgao_nome,
@@ -499,13 +575,14 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
         dataPublicacaoPncp: r.data_publicacao_pncp,
         linkSistemaOrigem: r.link_sistema_origem,
         temResultado: !!r.tem_resultado,
+        uf: r.uf,
         _porBuscaTextual: true,
       }));
   }
 
-  private async consultarPncp(termo: string, limite: number): Promise<any[]> {
+  private async consultarPncp(termo: string, limite: number, uf?: string): Promise<any[]> {
     try {
-      const porTexto = await this.buscarPorTexto(termo, limite);
+      const porTexto = await this.buscarPorTexto(termo, limite, uf);
       if (porTexto.length) return porTexto;
     } catch (error) {
       this.logger.warn(`Busca textual do PNCP falhou para "${termo}": ${(error as Error).message}`);
