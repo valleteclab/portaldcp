@@ -324,6 +324,48 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(Number(item1.cotacoes[0].valor_unitario)).toBeCloseTo(23.9, 2);
     });
 
+    it('agente busca no PNCP PELO TEXTO do item e usa o valor homologado', async () => {
+      pncpMock.limpar();
+      pncpMock.responder('GET', /\/api\/search\//, {
+        status: 200,
+        corpo: {
+          total: 2,
+          items: [
+            { orgao_cnpj: '11111111000191', orgao_nome: 'Prefeitura Sem Resultado', ano: '2026', numero_sequencial: '7', numero_controle_pncp: '11111111000191-1-000007/2026', description: 'Papel A4', tem_resultado: false, data_publicacao_pncp: new Date().toISOString() },
+            { orgao_cnpj: '22222222000191', orgao_nome: 'Câmara Com Resultado', ano: '2026', numero_sequencial: '9', numero_controle_pncp: '22222222000191-1-000009/2026', description: 'Material de expediente', tem_resultado: true, data_publicacao_pncp: new Date().toISOString() },
+          ],
+        },
+      });
+      pncpMock.responder('GET', /\/orgaos\/22222222000191\/compras\/2026\/9\/itens\/3\/resultados/, {
+        status: 200,
+        corpo: [{ valorUnitarioHomologado: 21.5, nomeRazaoSocialFornecedor: 'Papelaria X' }],
+      });
+      pncpMock.responder('GET', /\/orgaos\/22222222000191\/compras\/2026\/9\/itens$/, {
+        status: 200,
+        corpo: [
+          { numeroItem: 1, descricao: 'Caneta esferográfica azul', quantidade: 10, unidadeMedida: 'UN', valorUnitarioEstimado: 2, temResultado: true },
+          { numeroItem: 3, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 80, unidadeMedida: 'RESMA', valorUnitarioEstimado: 26, temResultado: true, dataAtualizacao: new Date().toISOString() },
+        ],
+      });
+      pncpMock.responder('GET', /\/orgaos\/11111111000191\/compras\/2026\/7\/itens$/, { status: 200, corpo: [] });
+      // sem `usarBrowserFallback`: é assim que o botão "Consultar PNCP" da tela chama
+      const r = await http().post(`/api/fase-interna/${lic.id}/precos/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 3 });
+      expect(r.status).toBe(201);
+      const busca = pncpMock.filtrar('GET', /\/api\/search\//);
+      expect(busca.length).toBe(1);
+      expect(decodeURIComponent(busca[0].caminho)).toMatch(/q=Resma(\+|%20| )de(\+|%20| )papel/i);
+      // a contratação COM resultado é examinada primeiro e o valor é o homologado, não o estimado
+      expect(pncpMock.filtrar('GET', /compras\/2026\/9\/itens\/3\/resultados/).length).toBe(1);
+      const ex = await http().get(`/api/fase-interna/${lic.id}/precos/agente/execucoes`).set(bearer(orgao.token)).expect(200);
+      const ultima = Array.isArray(ex.body) ? ex.body[0] : ex.body;
+      const det = await http().get(`/api/fase-interna/${lic.id}/precos/agente/execucoes/${ultima.id}`).set(bearer(orgao.token)).expect(200);
+      const cand = (det.body.candidatos || []).filter((c: any) => c.fonte_tipo === 'PNCP');
+      expect(cand.length).toBe(1);
+      expect(Number(cand[0].valor_unitario)).toBeCloseTo(21.5, 2);
+      expect(cand[0].evidencia.origem).toMatch(/homologado/);
+      expect(cand[0].descricao_fonte).toMatch(/Câmara Com Resultado/);
+    });
+
     it('documento PP gerado: estimativa de despesa OK na instrução e valor referencial vai aos itens', async () => {
       const fonte = (item: number, valor: number, i: number) =>
         http()
