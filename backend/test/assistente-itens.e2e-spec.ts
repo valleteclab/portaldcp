@@ -338,16 +338,22 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       });
       pncpMock.responder('GET', /\/orgaos\/22222222000191\/compras\/2026\/9\/itens\/3\/resultados/, {
         status: 200,
-        corpo: [{ valorUnitarioHomologado: 21.5, nomeRazaoSocialFornecedor: 'Papelaria X' }],
+        corpo: [
+          { valorUnitarioHomologado: 21.5, nomeRazaoSocialFornecedor: 'Papelaria X', dataResultado: '2026-10-28' },
+          { valorUnitarioHomologado: 19, nomeRazaoSocialFornecedor: 'Cancelada', dataCancelamento: '2026-10-30' },
+        ],
       });
-      pncpMock.responder('GET', /\/orgaos\/22222222000191\/compras\/2026\/9\/itens$/, {
+      pncpMock.responder('GET', /\/orgaos\/22222222000191\/compras\/2026\/9\/itens(\?|$)/, {
         status: 200,
         corpo: [
           { numeroItem: 1, descricao: 'Caneta esferográfica azul', quantidade: 10, unidadeMedida: 'UN', valorUnitarioEstimado: 2, temResultado: true },
+          // "papelão" não é "papel", e bloco de papel não é resma: nenhum dos dois entra
+          { numeroItem: 2, descricao: 'Caixa box de papelão para arquivo, resma', quantidade: 10, unidadeMedida: 'UN', valorUnitarioEstimado: 11, temResultado: false },
+          { numeroItem: 4, descricao: 'Bloco de anotações em papel sulfite, formato resma', quantidade: 10, unidadeMedida: 'UN', valorUnitarioEstimado: 16, temResultado: false },
           { numeroItem: 3, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 80, unidadeMedida: 'RESMA', valorUnitarioEstimado: 26, temResultado: true, dataAtualizacao: new Date().toISOString() },
         ],
       });
-      pncpMock.responder('GET', /\/orgaos\/11111111000191\/compras\/2026\/7\/itens$/, { status: 200, corpo: [] });
+      pncpMock.responder('GET', /\/orgaos\/11111111000191\/compras\/2026\/7\/itens(\?|$)/, { status: 200, corpo: [] });
       // sem `usarBrowserFallback`: é assim que o botão "Consultar PNCP" da tela chama
       const r = await http().post(`/api/fase-interna/${lic.id}/precos/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 3 });
       expect(r.status).toBe(201);
@@ -364,6 +370,9 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(Number(cand[0].valor_unitario)).toBeCloseTo(21.5, 2);
       expect(cand[0].evidencia.origem).toMatch(/homologado/);
       expect(cand[0].descricao_fonte).toMatch(/Câmara Com Resultado/);
+      expect(cand[0].descricao_fonte).toMatch(/Papelaria X/);
+      expect(String(cand[0].data_pesquisa)).toMatch(/2026-10-28/);
+      expect(decodeURIComponent(busca[0].caminho)).toMatch(/ordenacao=relevancia/);
     });
 
     it('documento PP gerado: estimativa de despesa OK na instrução e valor referencial vai aos itens', async () => {
