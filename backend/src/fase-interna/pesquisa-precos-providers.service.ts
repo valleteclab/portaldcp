@@ -920,10 +920,15 @@ export function fontePrecosAderenteAoItem(registro: any, item: Pick<ItemLicitaca
     .slice(0, 10);
   const encontrados = tokens.filter((token) => texto.includes(token)).length;
   const minimo = Math.min(3, tokens.length);
+  // Aderência integral = todas as palavras do item, até cinco. Com o corte fixo
+  // em cinco, item de descrição curta ("Cabo HDMI 2 metros") nunca passava de
+  // parcial, mesmo com a referência idêntica (teste de 14/11/2026: 52 de 121
+  // referências esperando conferência só por isso).
+  const integral = encontrados >= Math.min(5, tokens.length);
   return {
     aderente: tokens.length > 0 && encontrados >= minimo,
-    score: encontrados >= 5 ? 82 : 66,
-    flags: encontrados < 5 ? ['Aderencia textual parcial: revisar antes de aprovar.'] : flags,
+    score: integral ? 82 : 66,
+    flags: integral ? flags : ['Aderencia textual parcial: revisar antes de aprovar.'],
   };
 }
 
