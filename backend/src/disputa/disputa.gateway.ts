@@ -189,7 +189,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const licId = licitacaoId || (await this.acesso.donoDaSessao(sessaoId))?.licitacaoId || null;
     let vencedorPublico = resultado.vencedor;
     if (resultado.vencedor && !(licId && (await this.sigilo.etapaDeLancesEncerrada(licId)))) {
-      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, resultado.vencedor.fornecedorId);
+      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, resultado.vencedor.fornecedorId, itemId);
       vencedorPublico = { fornecedorId: idAnonimo(codigo), fornecedorNome: codigo, valor: resultado.vencedor.valor };
     }
     const orgaoVe = await this.sigilo.orgaoVeIdentidades(licId);
@@ -206,14 +206,16 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         ...extra,
         itemId,
         etapaDeLancesEncerrada: resultado.etapaDeLancesEncerrada,
-        vencedor: visao.tipo === 'ORGAO' && orgaoVe ? resultado.vencedor : vencedorPublico,
+        // Órgão: o item acabou de encerrar — a identidade DELE já pode aparecer (julgamento item a item)
+        vencedor: visao.tipo === 'ORGAO' ? resultado.vencedor : vencedorPublico,
         itens: aplicar ? aplicar(itens, visao) : itens,
       });
     }
     if (resultado.alertaReinicio) {
       const a = resultado.alertaReinicio;
       this.server.to(salaOrgao(sessaoId)).emit('alerta_diferenca_5_porcento', {
-        ...(orgaoVe ? a : await this.sigilo.anonimizar(a, licId, { sessaoId })),
+        // o alerta é do item que acabou de encerrar: o órgão já pode ver quem são o 1º e o 2º
+        ...a,
         mensagem:
           `Item ${a.itemNumero}: a diferença entre o 1º e o 2º colocado é de ${a.diferencaPercentual.toFixed(2)}% ` +
           `(≥ ${a.percentualMinimo}%). A Administração poderá admitir o reinício da disputa aberta para as demais ` +
@@ -247,7 +249,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       // cliente (~2 s cada) e o último da sala só sabia do lance ~10 s depois (ensaio do
       // pregão com 2 lotes, 09/11/2026); nenhuma tela usava esse quadro do aviso.
       const [codigo, aplicar, lancesPublicos, clientesNaSala] = await Promise.all([
-        this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id),
+        this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id, unidadeId),
         this.sigilo.aplicador(licitacaoId, sessaoId),
         this.disputaService.getTodosLances(unidadeId, sessaoId),
         this.server.in(`sessao:${sessaoId}`).fetchSockets(),

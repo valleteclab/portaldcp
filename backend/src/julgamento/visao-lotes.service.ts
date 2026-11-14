@@ -41,7 +41,31 @@ export class VisaoLotesService {
         (r: any) => [String(r.f), String(r.c)],
       ),
     );
-    return { unidades, lancesEncerrados, anonimizar, codigos };
+    // Código POR UNIDADE (sorteio de cada item/lote); o da sessão fica de reserva
+    const porUnidade = new Map<string, Map<string, string>>();
+    const linhas: Array<{ u: string; f: string; c: string }> = await this.ds
+      .query(`SELECT unidade_id::text AS u, fornecedor_id::text AS f, codigo_anonimo AS c FROM mapeamento_anonimo_unidade WHERE sessao_id::text = $1`, [sessaoId])
+      .catch(() => []);
+    for (const r of linhas) {
+      if (!porUnidade.has(r.u)) porUnidade.set(r.u, new Map());
+      porUnidade.get(r.u)!.set(r.f, r.c);
+    }
+    return { unidades, lancesEncerrados, anonimizar, codigos, porUnidade, orgao: visao.tipo !== 'FORNECEDOR' };
+  }
+
+  /**
+   * Contexto de UMA unidade: o órgão passa a ver quem é quem assim que a
+   * unidade encerra (julgamento item a item); o fornecedor, só no fim de todos.
+   * Os códigos são os daquela unidade.
+   */
+  private daUnidade(
+    ctx: { anonimizar: boolean; codigos: Map<string, string>; porUnidade: Map<string, Map<string, string>>; orgao: boolean },
+    u: UnidadeJulgamento,
+  ): { anonimizar: boolean; codigos: Map<string, string> } {
+    return {
+      anonimizar: ctx.anonimizar && !(ctx.orgao && u.encerrada),
+      codigos: ctx.porUnidade.get(String(u.id)) ?? ctx.codigos,
+    };
   }
 
   private async rankingDe(u: UnidadeJulgamento): Promise<EntradaRanking[]> {
@@ -129,7 +153,7 @@ export class VisaoLotesService {
         valorEstimado: u.itens.reduce((s, it) => s + Number(it.valorTotalEstimado || 0), 0),
         participantes: ranking.length,
         primeiro: lider
-          ? { nome: this.nome(lider.fornecedorId, nomes.get(lider.fornecedorId)?.razao, ctx, lider.fornecedorId === eu), valor: lider.melhorValor, souEu: lider.fornecedorId === eu }
+          ? { nome: this.nome(lider.fornecedorId, nomes.get(lider.fornecedorId)?.razao, this.daUnidade(ctx, u), lider.fornecedorId === eu), valor: lider.melhorValor, souEu: lider.fornecedorId === eu }
           : null,
         melhorLance: lider?.melhorValor ?? null,
         ...(eu ? { participo, minhaPosicao: minha >= 0 ? minha + 1 : null, vencendo: minha === 0 } : {}),
@@ -149,6 +173,7 @@ export class VisaoLotesService {
     const ctx = await this.contexto(sessaoId, licitacaoId, visao);
     const u = ctx.unidades.find((x) => x.id === unidadeId);
     if (!u) throw new NotFoundException('Lote/item não encontrado nesta sessão');
+    const cu = this.daUnidade(ctx, u);
     const ranking = await this.rankingDe(u);
     const eu = visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : null;
     if (eu && !ranking.some((e) => e.fornecedorId === eu)) throw new NotFoundException('Lote/item não encontrado nesta sessão');
@@ -187,8 +212,8 @@ export class VisaoLotesService {
       const habVisivel = meusDocs.length > 0 && anexoVisivel({ tipo: 'HABILITACAO', souOrgao, souDono, statusHabilitacao: meusDocs[0].status_habilitacao });
       return {
         posicao: e.posicao,
-        participante: ctx.codigos.get(e.fornecedorId) ?? null,
-        nome: this.nome(e.fornecedorId, nomes.get(e.fornecedorId)?.razao, ctx, souDono),
+        participante: cu.codigos.get(e.fornecedorId) ?? null,
+        nome: this.nome(e.fornecedorId, nomes.get(e.fornecedorId)?.razao, cu, souDono),
         souEu: souDono,
         melhorValor: e.melhorValor,
         me: nomes.get(e.fornecedorId)?.me ?? false,
@@ -202,7 +227,7 @@ export class VisaoLotesService {
     const grupo = (sit: string[]) => participantes.filter((p) => sit.includes(p.situacao));
     return {
       unidade: { id: u.id, tipo: u.tipo, numero: u.numero, descricao: u.descricao },
-      identidades: !ctx.anonimizar,
+      identidades: !cu.anonimizar,
       classificados: participantes.filter((p) => !p.excluido),
       inabilitados: grupo(['INABILITADO']),
       desclassificados: grupo(['DESCLASSIFICADO', 'RECUSADO']),
@@ -223,11 +248,12 @@ export class VisaoLotesService {
     const ctx = await this.contexto(sessaoId, licitacaoId, visao);
     const u = ctx.unidades.find((x) => x.id === unidadeId);
     if (!u) throw new NotFoundException('Lote/item não encontrado nesta sessão');
+    const cu = this.daUnidade(ctx, u);
     const ranking = await this.rankingDe(u);
     const eu = visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : null;
     if (eu && !ranking.some((e) => e.fornecedorId === eu)) throw new NotFoundException('Lote/item não encontrado nesta sessão');
     const nomes = await this.cadastro(ranking.map((e) => e.fornecedorId));
-    const rotulo = (fornecedorId: string) => this.nome(fornecedorId, nomes.get(fornecedorId)?.razao, ctx, fornecedorId === eu);
+    const rotulo = (fornecedorId: string) => this.nome(fornecedorId, nomes.get(fornecedorId)?.razao, cu, fornecedorId === eu);
 
     const linhas: any[] =
       u.tipo === 'LOTE'
@@ -250,7 +276,7 @@ export class VisaoLotesService {
     const posicaoDe = new Map(ranking.filter((e) => !e.excluido).map((e, i) => [e.fornecedorId, i + 1]));
     return {
       unidade: { id: u.id, tipo: u.tipo, numero: u.numero },
-      identidades: !ctx.anonimizar,
+      identidades: !cu.anonimizar,
       encerrada: u.encerrada,
       classificacao: ranking
         .filter((e) => !e.excluido)
