@@ -248,6 +248,17 @@ describe('referências que exigem conferência', () => {
     }
   });
 
+  it('banco de preços: item de descrição curta com referência idêntica não fica como parcial', () => {
+    const cabo = { numero_item: 10, descricao_resumida: 'Cabo HDMI 2 metros', quantidade: 20, unidade_medida: 'UNIDADE' } as unknown as ItemLicitacao;
+    const base = { valor_unitario: '11,99', quant: '20', unidade: 'UN', dt_homologacao: '18/09/2026', url_edital: 'https://example.gov.br/edital.pdf' };
+    const igual = mapearResultadoFontePrecos({ ...base, descricao: 'CABO HDMI 2 METROS CADA' }, cabo);
+    expect(igual.flags.join(' ')).not.toMatch(/parcial/);
+    expect(exigeConferencia(igual)).toBe(false);
+    // faltando palavra do item, continua parcial
+    const outro = mapearResultadoFontePrecos({ ...base, descricao: 'Cabo HDMI x VGA adaptador, 2 unidades' }, cabo);
+    if (outro) expect(exigeConferencia(outro)).toBe(true);
+  });
+
   it('só o preço praticado e sem ressalva entra sozinho na cesta', () => {
     const praticado = { flags: ['Mesmo estado (BA).'], evidencia: { origem: 'PNCP — valor homologado do item' } };
     expect(tipoDeReferencia(praticado)).toBe('PRATICADO');
