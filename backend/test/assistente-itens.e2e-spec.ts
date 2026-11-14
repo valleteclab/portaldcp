@@ -401,8 +401,8 @@ describe('Itens obrigatórios na publicação + assistente', () => {
         status: 200,
         corpo: [
           // dois itens parecidos no mesmo edital: a contratação conta como UMA fonte (fica a quantidade mais próxima)
-          { numeroItem: 2, descricao: 'Papel sulfite A4 reciclado, resma com 500 folhas', quantidade: 9000, unidadeMedida: 'RESMA', valorUnitarioEstimado: 30, temResultado: true },
-          { numeroItem: 1, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 60, unidadeMedida: 'RESMA', valorUnitarioEstimado: 28, temResultado: true },
+          { numeroItem: 2, descricao: 'Papel sulfite A4 reciclado, resma com 500 folhas', quantidade: 9000, unidadeMedida: 'CAIXA', valorUnitarioEstimado: 30, temResultado: true },
+          { numeroItem: 1, descricao: 'Papel sulfite A4 branco, resma com 500 folhas', quantidade: 60, unidadeMedida: 'CAIXA', valorUnitarioEstimado: 28, temResultado: true },
         ],
       });
       pncpMock.responder('GET', /\/orgaos\/44444444000191\/compras\/2026\/5\/itens\/2\/resultados/, {
@@ -423,7 +423,10 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(estimado).toBeTruthy();
       expect(estimado.complementar).toBe(true);
       expect(estimado.origem).toMatch(/estimado/);
+      expect(estimado.tipo).toBe('ESTIMADO');
       expect(estimado.flags.join(' ')).toMatch(/Quantidade muito diferente/);
+      // vendido em RESMA, e o item é em CAIXA: o aviso de embalagem acompanha a referência
+      expect(estimado.flags.join(' ')).toMatch(/Unidade diferente \(RESMA lá, CAIXA aqui\)/);
       expect(pend.body.some((c: any) => Number(c.valor_unitario) === 22.4)).toBe(false);
       // quem pesquisa decide: aprovado, passa a contar
       await http().post(`${url}/agente/candidatos/${estimado.id}/aprovar`).set(bearer(orgao.token)).send({}).expect(201);

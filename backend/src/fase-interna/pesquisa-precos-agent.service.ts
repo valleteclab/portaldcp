@@ -27,8 +27,10 @@ import {
 import { PesquisaPrecosComplianceService } from './pesquisa-precos-compliance.service';
 import {
   BrowserFallbackProvider,
+  avisoDeUnidadeDiferente,
   ContratosVigentesProvider,
   ehReferenciaComplementar,
+  tipoDeReferencia,
   FontePrecosProvider,
   FornecedorDiretoProvider,
   NfeProvider,
@@ -145,19 +147,40 @@ export class PesquisaPrecosAgentService {
       const coletados = providerResults.flatMap((result) =>
         result.status === 'fulfilled' ? result.value : [],
       );
-      const preparados = this.compliance
-        .deduplicar(
-          coletados
-            .map((candidato) => this.compliance.prepararCandidato(candidato))
-            .filter((candidato): candidato is PesquisaPrecoCandidateInput =>
-              Boolean(candidato),
-            ),
-        )
-        .slice(
-          0,
-          Math.max(1, itens.length) *
-            Math.max(5, (scope.maxPorFonte || 5) * fontes.size),
-        );
+      const unidadeDoItem = new Map(
+        itens.map((i) => [Number(i.numero_item), i.unidade_medida]),
+      );
+      const deduplicados = this.compliance.deduplicar(
+        coletados
+          .map((candidato) => {
+            // Resma lá e caixa aqui: o preço não é comparável sem conversão
+            const aviso = avisoDeUnidadeDiferente(
+              candidato.unidade,
+              unidadeDoItem.get(Number(candidato.item_numero)),
+            );
+            return aviso
+              ? {
+                  ...candidato,
+                  score: (candidato.score ?? 70) - 8,
+                  flags: [...(candidato.flags || []), aviso],
+                }
+              : candidato;
+          })
+          .map((candidato) => this.compliance.prepararCandidato(candidato))
+          .filter((candidato): candidato is PesquisaPrecoCandidateInput =>
+            Boolean(candidato),
+          ),
+      );
+      // Cota por item E por origem. Com um teto só para tudo, a origem que
+      // devolvia mais (banco de preços) expulsava as outras (lojas na web).
+      const porOrigem = new Map<string, number>();
+      const preparados = deduplicados.filter((candidato) => {
+        const chave = `${candidato.item_numero}|${candidato.fonte_tipo}|${candidato.evidencia?.origem || ''}`;
+        const usados = porOrigem.get(chave) || 0;
+        if (usados >= (scope.maxPorFonte || 5)) return false;
+        porOrigem.set(chave, usados + 1);
+        return true;
+      });
 
       const candidatos = await this.candidatoRepository.save(
         preparados.map((candidato) =>
@@ -321,6 +344,7 @@ export class PesquisaPrecosAgentService {
         titulo: c.evidencia?.titulo || '',
         flags: c.flags || [],
         complementar: ehReferenciaComplementar(c),
+        tipo: tipoDeReferencia(c),
       }));
   }
 

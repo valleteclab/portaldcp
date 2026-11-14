@@ -208,3 +208,49 @@ describe('FontePrecosProvider helpers', () => {
     expect(get.mock.calls.map(([url]) => url)).not.toContain('https://fonte.example/login/login');
   });
 });
+
+describe('referências que exigem conferência', () => {
+  const {
+    avisoDeUnidadeDiferente,
+    ehPaginaDeListagem,
+    exigeConferencia,
+    tipoDeReferencia,
+    FLAG_REFERENCIA_COMPLEMENTAR,
+    ORIGEM_BUSCA_WEB,
+  } = require('./pesquisa-precos-providers.service');
+
+  it('unidade: resma lá e caixa aqui avisa; sinônimos e unidade desconhecida não', () => {
+    expect(avisoDeUnidadeDiferente('RESMA', 'CAIXA')).toMatch(/Unidade diferente \(RESMA lá, CAIXA aqui\)/);
+    expect(avisoDeUnidadeDiferente('Unidade', 'UN')).toBeNull();
+    expect(avisoDeUnidadeDiferente('cx', 'Caixa')).toBeNull();
+    expect(avisoDeUnidadeDiferente('Frasco 500 ml', 'UN')).toBeNull();
+    expect(avisoDeUnidadeDiferente('', 'UN')).toBeNull();
+  });
+
+  it('link de listagem ou busca não é página de produto', () => {
+    expect(ehPaginaDeListagem('https://www.kalunga.com.br/depto/papeis/15')).toBe(true);
+    expect(ehPaginaDeListagem('https://www.amazon.com.br/sandisk-64gb/s?k=sandisk+64gb')).toBe(true);
+    expect(ehPaginaDeListagem('https://loja.com.br/busca?q=pen+drive')).toBe(true);
+    expect(ehPaginaDeListagem('https://www.casadopapel.com.br/papel-a4-75g-chamex-caixa-com-10-pacotes-p10888')).toBe(false);
+  });
+
+  it('só o preço praticado e sem ressalva entra sozinho na cesta', () => {
+    const praticado = { flags: ['Mesmo estado (BA).'], evidencia: { origem: 'PNCP — valor homologado do item' } };
+    expect(tipoDeReferencia(praticado)).toBe('PRATICADO');
+    expect(exigeConferencia(praticado)).toBe(false);
+
+    const loja = { flags: [], evidencia: { origem: ORIGEM_BUSCA_WEB } };
+    expect(tipoDeReferencia(loja)).toBe('MERCADO');
+    expect(exigeConferencia(loja)).toBe(true);
+
+    const estimado = { flags: [FLAG_REFERENCIA_COMPLEMENTAR], evidencia: { origem: 'PNCP — valor estimado do item' } };
+    expect(tipoDeReferencia(estimado)).toBe('ESTIMADO');
+    expect(exigeConferencia(estimado)).toBe(true);
+
+    // banco de preços: aderência integral entra; parcial ou com unidade diferente espera
+    const banco = { flags: ['Fonte complementar Fonte de Precos: validar comprovante antes de aprovar como fonte oficial.'], evidencia: { origem: 'Fonte de Precos - Pesquisa Expressa autenticada' } };
+    expect(exigeConferencia(banco)).toBe(false);
+    expect(exigeConferencia({ ...banco, flags: [...banco.flags, 'Aderencia textual parcial: revisar antes de aprovar.'] })).toBe(true);
+    expect(exigeConferencia({ ...banco, flags: [avisoDeUnidadeDiferente('RESMA', 'CAIXA')] })).toBe(true);
+  });
+});

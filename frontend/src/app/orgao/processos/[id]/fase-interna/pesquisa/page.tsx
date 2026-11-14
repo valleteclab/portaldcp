@@ -205,7 +205,7 @@ export default function PesquisaPage() {
         const r = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item/${itemNumeros[k]}/agente/executar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA"], maxPorFonte: 8, autoAprovar: true }),
+          body: JSON.stringify({ fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA", "MIDIA_ESPECIALIZADA"], maxPorFonte: 6, autoAprovar: true }),
         })
         if (!r.ok) falhas++
       } catch {
@@ -328,7 +328,7 @@ export default function PesquisaPage() {
                   <div className="min-w-0 flex-1">
                     <h2 id="busca-titulo" className="text-[15px] font-semibold text-gray-900">Comece por aqui: buscar preços automaticamente</h2>
                     <p className="text-xs text-gray-700">
-                      O sistema consulta o PNCP (primeiro no seu estado), o Painel de Preços e os contratos do órgão, para {d.itens.length === 1 ? "o item" : `os ${d.itens.length} itens`}. Preço já praticado entra direto na pesquisa; valor só estimado por outro órgão fica para você decidir.
+                      O sistema consulta o PNCP (primeiro no seu estado), o Painel de Preços, os contratos do órgão, o banco de preços e lojas e sites na internet, para {d.itens.length === 1 ? "o item" : `os ${d.itens.length} itens`}. Preço já praticado em contratação entra direto na pesquisa; preço de loja e valor só estimado ficam para você conferir e decidir.
                     </p>
                   </div>
                   <Button onClick={() => buscarPrecos(d.itens.map((i) => i.item_numero))} disabled={!!busca || bloqueada || d.itens.length === 0}>
@@ -680,7 +680,7 @@ function ValorReferencia({
       </div>
 
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm min-w-[720px]">
+        <table className="w-full text-sm min-w-[860px]">
           <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-600">
             <tr>
               <th scope="col" className="text-left px-3 py-2 font-semibold">Item</th>
@@ -703,7 +703,7 @@ function ValorReferencia({
               return (
                 <Fragment key={r.item_numero}>
                 <tr className="border-t align-top">
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 min-w-[240px]">
                     <button type="button" className="flex items-start gap-1 text-left hover:text-blue-800" aria-expanded={estaAberto} onClick={() => setAbertos((p) => ({ ...p, [r.item_numero]: !estaAberto }))} data-testid={`abrir-item-${r.item_numero}`}>
                       {estaAberto ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />}
                       <span>

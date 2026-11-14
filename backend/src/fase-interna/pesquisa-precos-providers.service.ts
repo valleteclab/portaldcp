@@ -362,6 +362,65 @@ export function ehReferenciaComplementar(candidato: { flags?: string[] | null })
   return (candidato?.flags || []).includes(FLAG_REFERENCIA_COMPLEMENTAR);
 }
 
+export const ORIGEM_BUSCA_WEB = 'Busca web via Perplexity Sonar/OpenRouter';
+
+/** De onde vem o preço, para a tela dizer com que cuidado tratá-lo. */
+export function tipoDeReferencia(candidato: { flags?: string[] | null; evidencia?: { origem?: string } | null }): 'ESTIMADO' | 'MERCADO' | 'PRATICADO' {
+  if (ehReferenciaComplementar(candidato)) return 'ESTIMADO';
+  if (/busca web/i.test(candidato?.evidencia?.origem || '')) return 'MERCADO';
+  return 'PRATICADO';
+}
+
+/**
+ * Referência que não entra na cesta sem alguém conferir: valor estimado, preço
+ * de loja ou site achado na web, aderência só parcial e unidade diferente da
+ * do item. A busca automática só inclui sozinha o que não cai aqui.
+ */
+export function exigeConferencia(candidato: { flags?: string[] | null; evidencia?: { origem?: string } | null }): boolean {
+  if (tipoDeReferencia(candidato) !== 'PRATICADO') return true;
+  return (candidato?.flags || []).some((f) => /revisar|unidade diferente/i.test(f));
+}
+
+const UNIDADES_EQUIVALENTES: Record<string, string> = {
+  UN: 'UN', UND: 'UN', UNID: 'UN', UNIDADE: 'UN', UNIDADES: 'UN', PC: 'UN', PECA: 'UN',
+  CX: 'CX', CAIXA: 'CX', CAIXAS: 'CX',
+  RESMA: 'RESMA', RESMAS: 'RESMA', RSM: 'RESMA', RM: 'RESMA',
+  PCT: 'PCT', PACOTE: 'PCT', PACOTES: 'PCT', PT: 'PCT',
+  KG: 'KG', QUILO: 'KG', QUILOGRAMA: 'KG',
+  L: 'L', LT: 'L', LITRO: 'L', LITROS: 'L',
+  M: 'M', METRO: 'M', METROS: 'M',
+  FD: 'FD', FARDO: 'FD', GL: 'GL', GALAO: 'GL', FR: 'FR', FRASCO: 'FR', RL: 'RL', ROLO: 'RL',
+};
+
+function unidadeCanonica(unidade: unknown): string | null {
+  const texto = String(unidade || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
+  return UNIDADES_EQUIVALENTES[texto] || null;
+}
+
+/**
+ * Aviso quando a fonte vende noutra embalagem (resma lá, caixa aqui): o preço
+ * não é comparável sem conversão. Só fala quando reconhece as duas unidades.
+ */
+export function avisoDeUnidadeDiferente(unidadeFonte: unknown, unidadeItem: unknown): string | null {
+  const a = unidadeCanonica(unidadeFonte);
+  const b = unidadeCanonica(unidadeItem);
+  if (!a || !b || a === b) return null;
+  return `Unidade diferente (${String(unidadeFonte).trim()} lá, ${String(unidadeItem).trim()} aqui): confira se o preço é da mesma embalagem antes de incluir.`;
+}
+
+/** Página de busca, categoria ou listagem: mostra vários produtos, não comprova o preço de um. */
+export function ehPaginaDeListagem(url: string): boolean {
+  return /[?&](q|k|s|busca|search|query|termo)=|\/(busca|search|s|depto|departamento|categoria|categorias|c|collections?)(\/|\?|$)/i.test(String(url || ''));
+}
+
+function dominioDaUrl(url?: string): string {
+  try {
+    return new URL(String(url)).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Quanto a quantidade contratada lá se parece com a daqui (0 a 1). Escala muda
  * preço: 10 resmas e 10 mil resmas não custam o mesmo por unidade.
@@ -405,6 +464,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
+    const orgaoEPreco = new Set<string>();
 
     for (const item of context.itens) {
       const termo = termoItem(item);
@@ -478,7 +538,13 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
           }
           // Fica o preço praticado e, entre iguais, a quantidade mais parecida com a daqui
           const escolhido = daContratacao.sort((x, y) => Number(y.homologado) - Number(x.homologado) || y.proximidade - x.proximidade)[0];
-          if (escolhido) candidatos.push(escolhido.candidato);
+          // O mesmo órgão com o mesmo preço em duas publicações (ata e contratação,
+          // edital republicado) é uma fonte só — validação de 14/11/2026.
+          const chaveOrgao = `${item.numero_item}|${String(registro.orgaoEntidade?.cnpj || registro.cnpj || '').replace(/\D/g, '')}|${escolhido?.candidato.valor_unitario}`;
+          if (escolhido && !orgaoEPreco.has(chaveOrgao)) {
+            orgaoEPreco.add(chaveOrgao);
+            candidatos.push(escolhido.candidato);
+          }
 
           if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
             break;
@@ -1261,6 +1327,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
         let descartadosInvalidos = 0;
         let sinalizadosSemUrl = 0;
         let sinalizadosUrlIndisponivel = 0;
+        const lojasVistas = new Set<string>();
         for (const produto of results) {
           const valor = normalizarValorPreco(produto.valor_unitario || produto.valorUnitario || produto.preco || produto.valor);
           const url = urlValida(produto.url || produto.url_referencia || produto.urlReferencia);
@@ -1268,6 +1335,10 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             descartadosInvalidos += 1;
             continue;
           }
+          // A mesma loja com o mesmo preço em duas páginas é uma fonte só
+          const chaveLoja = `${dominioDaUrl(url || '') || String(produto.descricao_fonte || produto.fonte || '').toLowerCase()}|${valor.toFixed(2)}`;
+          if (lojasVistas.has(chaveLoja)) continue;
+          lojasVistas.add(chaveLoja);
           let urlReferencia: string | undefined = url || undefined;
           let alertaUrl: string | null = null;
           if (url) {
@@ -1301,7 +1372,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             unidade: String(item.unidade_medida || 'UN'),
             evidencia: {
               tipo: 'api',
-              origem: 'Busca web via Perplexity Sonar/OpenRouter',
+              origem: ORIGEM_BUSCA_WEB,
               coletado_em: new Date().toISOString(),
               titulo: produto.observacao || termo,
             },
@@ -1309,6 +1380,9 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             flags: [
               'Fonte encontrada por busca web: validar aderencia tecnica antes de aprovar.',
               ...(alertaUrl ? [alertaUrl] : []),
+              ...(urlReferencia && ehPaginaDeListagem(urlReferencia)
+                ? ['O link é de uma página de listagem ou busca, não do produto: abra, confira o preço e guarde o comprovante.']
+                : []),
               ...(aderenciaNaoComprovada ? ['A IA nao comprovou aderencia integral a especificacao; revisar antes de usar como referencia.'] : []),
               ...(Array.isArray(produto.criterios_confirmados) && produto.criterios_confirmados.length
                 ? [`Criterios confirmados: ${produto.criterios_confirmados.join('; ')}`]
@@ -1376,12 +1450,18 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
     const dataMinimaIso = dataMinima.toISOString().split('T')[0];
 
     const codigoCatalogo = codigoCatalogoItem(item);
+    // O roteiro nasceu num teste com notebook e ficou preso a ele: papel sulfite
+    // era pesquisado com "garantia on site". Agora só fala de notebook se o item for um.
+    const ehNotebook = /notebook|laptop|computador portatil/i.test(termo.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const nomeCurto = String(item.descricao_resumida || termo).trim();
     const consultasSugeridas = [
-      codigoCatalogo ? `"${codigoCatalogo}" "precoUnitario" notebook` : '',
-      codigoCatalogo ? `"codigoItemCatalogo" "${codigoCatalogo}"` : '',
+      `${nomeCurto} preço`,
+      `${nomeCurto} comprar`,
       `"${especificacao}"`,
-      `"Notebook" "garantia on site" "superior a 36" "480 a 1.000"`,
-      `"Notebook" "núcleos por processador" "superior a 8" "PNCP"`,
+      codigoCatalogo ? `"${codigoCatalogo}" ${nomeCurto} preço unitário` : '',
+      ...(ehNotebook
+        ? [`"Notebook" "garantia on site" "superior a 36" "480 a 1.000"`, `"Notebook" "núcleos por processador" "superior a 8"`]
+        : []),
     ].filter(Boolean);
 
     const prompt = `Use busca web em tempo real. Pesquise no mínimo ${limite} preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
@@ -1397,19 +1477,17 @@ Período obrigatório: somente preços publicados ou vigentes entre ${dataMinima
 Pesquise explicitamente estas consultas, além de variações equivalentes:
 ${consultasSugeridas.map((consulta, index) => `${index + 1}. ${consulta}`).join('\n')}
 
-Priorize fontes verificáveis:
-1. PNCP em pncp.gov.br
-2. Pesquisa de Precos Compras.gov.br por CATMAT/CATSER
-3. portais oficiais .gov.br com editais, atas, termos de referência, adjudicações ou homologações
-4. diários oficiais, câmaras, prefeituras, universidades e conselhos profissionais
-5. fornecedores/distribuidores com página pública de preço
+O PNCP e o Painel de Preços já são consultados por outro caminho. Aqui interessa o preço de MERCADO (art. 23, §1º, III da Lei 14.133/2021). Priorize, nesta ordem:
+1. lojas, distribuidores e fornecedores brasileiros com página pública de preço do produto
+2. tabelas de referência e mídia especializada
+3. atas, contratos e homologações em portais oficiais fora do PNCP
 
 Critério de aderência:
 - Retorne apenas produtos/serviços que atendam integralmente à especificação técnica obrigatória.
-- Para notebook, confira explicitamente tela, interatividade da tela, memória RAM, núcleos do processador, ausência de HDD quando exigida, faixa do SSD, bateria, alimentação, sistema operacional e garantia on site.
-- Se a fonte pública usa o mesmo código CATMAT/CATSER ou reproduz a mesma descrição técnica do item, considere aderente mesmo que a página esteja em edital, ata, homologação, termo de referência ou PDF.
+- Confira a embalagem: o preço tem de ser da MESMA unidade do item (${item.unidade_medida || 'UN'}). Caixa com 10 não é o preço de 1.
+${ehNotebook ? '- Para notebook, confira explicitamente tela, memória RAM, núcleos do processador, faixa do SSD, sistema operacional e garantia on site.\n' : ''}- Se a fonte pública usa o mesmo código CATMAT/CATSER ou reproduz a mesma descrição técnica do item, considere aderente mesmo que a página esteja em edital, ata, homologação, termo de referência ou PDF.
 - Se a fonte não comprovar o código ou as características obrigatórias, descarte o resultado.
-- Não substitua por item parecido, inferior ou sem garantia/SSD/memória/processador compatíveis.
+- Não substitua por item parecido ou inferior.
 
 Retorne somente JSON array válido, sem markdown:
 [
@@ -1432,7 +1510,8 @@ Regras:
 - Não retorne preços internacionais, em dólar, ou indisponíveis no mercado brasileiro.
 - Pode retornar atas, contratos, homologações, adjudicações, editais e PDFs, desde que tragam preço unitário real e data dentro do período obrigatório.
 - Não retorne páginas ou tabelas com data anterior a ${dataMinimaIso}.
-- Inclua apenas itens com URL real começando com http.
+- Inclua apenas itens com URL real começando com http. A URL tem de ser a página do PRODUTO, não página de busca, categoria ou listagem.
+- No máximo um resultado por loja ou site.
 - A data deve estar sempre no formato completo YYYY-MM-DD; se só souber o ano, use YYYY-01-01.
 - Se não encontrar preço brasileiro verificável e tecnicamente aderente dos últimos ${MAX_IDADE_PRECO_DIAS} dias, retorne [].`;
 
@@ -1486,8 +1565,8 @@ Código CATMAT/CATSER: ${codigoCatalogo || 'não informado'}
 Período: entre ${dataMinimaIso} e ${hojeISO()}.
 
 Busque em lojas, marketplaces e distribuidores brasileiros conhecidos, além de páginas oficiais de fornecedores.
-Para notebook, priorize produtos com tela superior a 14, RAM superior a 8GB, SSD entre 480GB e 1TB, Windows ou sistema proprietário, processador com mais de 8 núcleos e garantia informada.
-Se não conseguir comprovar garantia on site superior a 36 meses ou outro requisito, ainda retorne o preço, mas marque "aderente": false e explique o que falta na observação.
+A URL tem de ser a página do PRODUTO (não busca, categoria ou listagem), com no máximo um resultado por loja, e o preço tem de ser da mesma unidade do item (${item.unidade_medida || 'UN'}).
+Se não conseguir comprovar algum requisito da especificação, ainda retorne o preço, mas marque "aderente": false e explique o que falta na observação.
 
 Retorne somente JSON array válido, sem markdown:
 [
@@ -1507,7 +1586,7 @@ Regras:
 - Nunca retorne valor_unitario 0.
 - Não retorne páginas sem preço visível.
 - Não invente preço.
-- Não retorne produto claramente incompatível, como desktop, monitor, tablet, veículo ou acessório.
+- Não retorne produto claramente diferente do item pedido.
 - Retorne até ${limite} resultados com preço real em reais brasileiros.`;
 
     const responseComplementar = await fetch(OPENROUTER_URL, {
