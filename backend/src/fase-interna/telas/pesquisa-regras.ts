@@ -94,7 +94,11 @@ export function parametrosDaPesquisa(registrados: ParametroArt23[] | null | unde
   const lista = Array.isArray(registrados) ? registrados : [];
   return INCISOS_ART23.map((inciso) => {
     const cotacoes = (itens || []).flatMap((i) => i.cotacoes || []).filter((c) => INCISO_DA_FONTE[c.fonte] === inciso);
-    const reg = lista.find((p) => p?.inciso === inciso);
+    const registrado = lista.find((p) => p?.inciso === inciso);
+    // "Sem retorno" gravado pela busca automática vale enquanto não há preço da
+    // fonte; quando um item traz preço, quem fala é a cotação (senão o cartão
+    // dizia "9 preços — nenhum preço retornado").
+    const reg = registrado && cotacoes.length && (registrado as any).registrado_por_nome === 'Busca automática' ? undefined : registrado;
     const base: ParametroArt23 = reg
       ? { ...reg, inciso }
       : cotacoes.length
