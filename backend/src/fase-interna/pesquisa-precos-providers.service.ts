@@ -464,6 +464,7 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
+    const orgaoEPreco = new Set<string>();
 
     for (const item of context.itens) {
       const termo = termoItem(item);
@@ -537,7 +538,13 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
           }
           // Fica o preço praticado e, entre iguais, a quantidade mais parecida com a daqui
           const escolhido = daContratacao.sort((x, y) => Number(y.homologado) - Number(x.homologado) || y.proximidade - x.proximidade)[0];
-          if (escolhido) candidatos.push(escolhido.candidato);
+          // O mesmo órgão com o mesmo preço em duas publicações (ata e contratação,
+          // edital republicado) é uma fonte só — validação de 14/11/2026.
+          const chaveOrgao = `${item.numero_item}|${String(registro.orgaoEntidade?.cnpj || registro.cnpj || '').replace(/\D/g, '')}|${escolhido?.candidato.valor_unitario}`;
+          if (escolhido && !orgaoEPreco.has(chaveOrgao)) {
+            orgaoEPreco.add(chaveOrgao);
+            candidatos.push(escolhido.candidato);
+          }
 
           if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
             break;
