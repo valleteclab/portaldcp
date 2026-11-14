@@ -114,8 +114,8 @@ export function ReferenciasPendentes({
       </div>
       <ul className="divide-y divide-gray-200">
         {visiveis.map((c) => (
-          <li key={c.id} className="flex flex-wrap items-start gap-3 px-3 py-2">
-            <div className="min-w-0 flex-1">
+          <li key={c.id} className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-start sm:gap-3">
+            <div className="min-w-0 sm:flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-gray-800">
                   {fmtMoeda(c.valor_unitario)}
@@ -203,7 +203,7 @@ export function PrecosDoItem({
           <table className="w-full text-xs">
             <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-600">
               <tr>
-                <th scope="col" className="px-3 py-1.5 text-left font-semibold">Fonte</th>
+                <th scope="col" className="hidden px-3 py-1.5 text-left font-semibold sm:table-cell">Fonte</th>
                 <th scope="col" className="px-3 py-1.5 text-left font-semibold">De onde veio</th>
                 <th scope="col" className="hidden px-3 py-1.5 text-left font-semibold sm:table-cell">Data</th>
                 <th scope="col" className="px-3 py-1.5 text-right font-semibold">Valor unitário</th>
@@ -213,11 +213,14 @@ export function PrecosDoItem({
             <tbody>
               {cotacoes.map((c, idx) => (
                 <tr key={`${idx}-${c.valor_unitario}`} className="border-t align-top">
-                  <td className="whitespace-nowrap px-3 py-1.5">
+                  <td className="hidden whitespace-nowrap px-3 py-1.5 sm:table-cell">
                     {ROTULO_FONTE[c.fonte] ?? c.fonte}
                     {/valor estimado/i.test(c.observacao || "") && <span className="block text-[10px] text-amber-800">estimado</span>}
                   </td>
-                  <td className="px-3 py-1.5 text-gray-700">{c.fornecedor_razao_social || c.descricao_fonte}</td>
+                  <td className="px-3 py-1.5 text-gray-700">
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-500 sm:hidden">{ROTULO_FONTE[c.fonte] ?? c.fonte}</span>
+                    {c.fornecedor_razao_social || c.descricao_fonte}
+                  </td>
                   <td className="hidden whitespace-nowrap px-3 py-1.5 text-gray-600 sm:table-cell">{fmtData(c.data_pesquisa)}</td>
                   <td className="whitespace-nowrap px-3 py-1.5 text-right font-semibold tabular-nums">{fmtMoeda(c.valor_unitario)}</td>
                   <td className="whitespace-nowrap px-3 py-1.5 text-right">

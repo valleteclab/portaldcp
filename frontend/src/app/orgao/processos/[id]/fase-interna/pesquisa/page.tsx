@@ -696,7 +696,7 @@ function ValorReferencia({
               <th scope="col" className={`${metodo ? "hidden sm:table-cell" : ""} text-right px-2 py-2 font-semibold ${metodo === "MEDIANA" ? "text-blue-800" : ""}`}>Mediana</th>
               <th scope="col" className={`hidden sm:table-cell text-right px-2 py-2 font-semibold ${metodo === "MEDIA" ? "text-blue-800" : ""}`}>Média</th>
               <th scope="col" className={`${metodo ? "" : "hidden sm:table-cell"} text-right px-2 py-2 font-semibold`}>Adotado</th>
-              <th scope="col" className="text-right px-2 py-2 font-semibold">Total</th>
+              <th scope="col" className="hidden sm:table-cell text-right px-2 py-2 font-semibold">Total</th>
             </tr>
           </thead>
           <tbody className="tabular-nums">
@@ -726,8 +726,12 @@ function ValorReferencia({
                   <td className={`hidden sm:table-cell px-2 py-2 text-right whitespace-nowrap ${colAtiva("MENOR")}`}>{r.estatistica.menor != null ? fmtMoeda(r.estatistica.menor) : "—"}</td>
                   <td className={`${metodo ? "hidden sm:table-cell" : ""} px-2 py-2 text-right whitespace-nowrap ${colAtiva("MEDIANA")}`}>{r.estatistica.mediana != null ? fmtMoeda(r.estatistica.mediana) : "—"}</td>
                   <td className={`hidden sm:table-cell px-2 py-2 text-right whitespace-nowrap ${colAtiva("MEDIA")}`}>{r.estatistica.media != null ? fmtMoeda(r.estatistica.media) : "—"}</td>
-                  <td className={`${metodo ? "" : "hidden sm:table-cell"} px-2 py-2 text-right whitespace-nowrap font-bold`}>{r.valor_unitario_adotado != null ? fmtMoeda(r.valor_unitario_adotado) : "—"}</td>
-                  <td className="px-2 py-2 text-right whitespace-nowrap font-bold">{total != null ? fmtMoeda(total) : "—"}</td>
+                  <td className={`${metodo ? "" : "hidden sm:table-cell"} px-2 py-2 text-right whitespace-nowrap font-bold`}>
+                    {r.valor_unitario_adotado != null ? fmtMoeda(r.valor_unitario_adotado) : "—"}
+                    {/* no celular a coluna Total some; o total do item vem aqui embaixo */}
+                    {total != null && <span className="block text-[11px] font-normal text-gray-600 sm:hidden">total {fmtMoeda(total)}</span>}
+                  </td>
+                  <td className="hidden sm:table-cell px-2 py-2 text-right whitespace-nowrap font-bold">{total != null ? fmtMoeda(total) : "—"}</td>
                 </tr>
                 {estaAberto && (
                   <tr className="border-t bg-slate-50/70">
@@ -758,14 +762,13 @@ function ValorReferencia({
                 <td colSpan={6} className="px-3 py-3 text-sm text-gray-600">A pesquisa ainda não tem itens — eles vêm dos itens do processo.</td>
               </tr>
             )}
-            <tr className="border-t-2 bg-gray-50">
-              <td colSpan={5} className="px-3 py-2 font-bold">
-                Valor estimado da contratação{metodo ? ` (${ROTULO_METODO[metodo].toLowerCase()})` : ""}
-              </td>
-              <td className="px-2 py-2 text-right font-bold text-[15px] whitespace-nowrap">{d.resumo.total_adotado != null ? fmtMoeda(d.resumo.total_adotado) : "—"}</td>
-            </tr>
           </tbody>
         </table>
+        {/* Fora da tabela: como linha, com colunas escondidas no celular, o total ia parar fora da borda */}
+        <div className="flex items-center justify-between gap-3 border-t-2 bg-gray-50 px-3 py-2 text-sm font-bold" data-testid="total-estimado">
+          <span>Valor estimado da contratação{metodo ? ` (${ROTULO_METODO[metodo].toLowerCase()})` : ""}</span>
+          <span className="whitespace-nowrap text-[15px]">{d.resumo.total_adotado != null ? fmtMoeda(d.resumo.total_adotado) : "—"}</span>
+        </div>
       </div>
       {(paginas > 1 || totalADecidir > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-700">
