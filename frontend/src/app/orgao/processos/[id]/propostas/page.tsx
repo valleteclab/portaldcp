@@ -54,6 +54,17 @@ async function baixarDocumentoDesclassificacao(propostaId: string, nomeArquivo?:
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+/**
+ * As datas do edital chegam como hora de Brasília SEM fuso ("2026-11-14T00:08:00").
+ * Passar por `new Date()` reinterpreta no fuso do navegador e, fora de Brasília,
+ * mostra a hora errada (ensaio do pregão 2026/00094: 21:08 em vez de 00:08).
+ */
+function dataHoraDoEdital(valor: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(valor))
+  if (m && !/(Z|[+-]\d{2}:?\d{2})$/.test(String(valor))) return `${m[3]}/${m[2]}/${m[1]}, ${m[4]}:${m[5]}`
+  return new Date(valor).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })
+}
+
 interface Proposta {
   id: string
   fornecedor_id: string
@@ -299,7 +310,7 @@ export default function PropostasPage() {
             </CardTitle>
             <CardDescription className="text-amber-900">
               O conteúdo das propostas fica sob sigilo até o fim do prazo de envio
-              {fim ? ` (${new Date(fim).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}, horário de Brasília)` : ''}.
+              {fim ? ` (${dataHoraDoEdital(fim)}, horário de Brasília)` : ''}.
               Até lá não é possível ver valores, itens nem quem enviou, e a análise ainda não começa. A identificação dos
               licitantes só aparece depois da etapa de lances.
             </CardDescription>
