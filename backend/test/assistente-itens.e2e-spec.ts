@@ -450,6 +450,7 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(depois.find((p) => p.inciso === 'V').situacao_tela).toBe('PENDENTE');
       // e o inciso II, que já tem preço do PNCP, segue como consultado
       expect(depois.find((p) => p.inciso === 'II').situacao_tela).toBe('ATENDIDO');
+      expect(depois.find((p) => p.inciso === 'II').evidencia_resumo).not.toMatch(/nenhum preço/);
     });
 
     it('documento PP gerado: estimativa de despesa OK na instrução e valor referencial vai aos itens', async () => {

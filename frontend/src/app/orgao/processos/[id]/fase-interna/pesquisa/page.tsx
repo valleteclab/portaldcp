@@ -693,9 +693,9 @@ function ValorReferencia({
             <tr>
               <th scope="col" className="text-left px-3 py-2 font-semibold">Item</th>
               <th scope="col" className={`hidden sm:table-cell text-right px-2 py-2 font-semibold ${metodo === "MENOR" ? "text-blue-800" : ""}`}>Menor</th>
-              <th scope="col" className={`text-right px-2 py-2 font-semibold ${metodo === "MEDIANA" ? "text-blue-800" : ""}`}>Mediana</th>
+              <th scope="col" className={`${metodo ? "hidden sm:table-cell" : ""} text-right px-2 py-2 font-semibold ${metodo === "MEDIANA" ? "text-blue-800" : ""}`}>Mediana</th>
               <th scope="col" className={`hidden sm:table-cell text-right px-2 py-2 font-semibold ${metodo === "MEDIA" ? "text-blue-800" : ""}`}>Média</th>
-              <th scope="col" className="text-right px-2 py-2 font-semibold">Adotado</th>
+              <th scope="col" className={`${metodo ? "" : "hidden sm:table-cell"} text-right px-2 py-2 font-semibold`}>Adotado</th>
               <th scope="col" className="text-right px-2 py-2 font-semibold">Total</th>
             </tr>
           </thead>
@@ -724,14 +724,16 @@ function ValorReferencia({
                     {aDecidir.length > 0 && <span className="block pl-5 text-[11px] font-semibold text-blue-800">{aDecidir.length} {aDecidir.length === 1 ? "referência a decidir" : "referências a decidir"}</span>}
                   </td>
                   <td className={`hidden sm:table-cell px-2 py-2 text-right whitespace-nowrap ${colAtiva("MENOR")}`}>{r.estatistica.menor != null ? fmtMoeda(r.estatistica.menor) : "—"}</td>
-                  <td className={`px-2 py-2 text-right whitespace-nowrap ${colAtiva("MEDIANA")}`}>{r.estatistica.mediana != null ? fmtMoeda(r.estatistica.mediana) : "—"}</td>
+                  <td className={`${metodo ? "hidden sm:table-cell" : ""} px-2 py-2 text-right whitespace-nowrap ${colAtiva("MEDIANA")}`}>{r.estatistica.mediana != null ? fmtMoeda(r.estatistica.mediana) : "—"}</td>
                   <td className={`hidden sm:table-cell px-2 py-2 text-right whitespace-nowrap ${colAtiva("MEDIA")}`}>{r.estatistica.media != null ? fmtMoeda(r.estatistica.media) : "—"}</td>
-                  <td className="px-2 py-2 text-right whitespace-nowrap font-bold">{r.valor_unitario_adotado != null ? fmtMoeda(r.valor_unitario_adotado) : "—"}</td>
+                  <td className={`${metodo ? "" : "hidden sm:table-cell"} px-2 py-2 text-right whitespace-nowrap font-bold`}>{r.valor_unitario_adotado != null ? fmtMoeda(r.valor_unitario_adotado) : "—"}</td>
                   <td className="px-2 py-2 text-right whitespace-nowrap font-bold">{total != null ? fmtMoeda(total) : "—"}</td>
                 </tr>
                 {estaAberto && (
                   <tr className="border-t bg-slate-50/70">
                     <td colSpan={6} className="px-3 py-3 font-sans">
+                      {/* w-0 + min-w-full: o conteúdo do painel não entra na conta da largura da tabela */}
+                      <div className="w-0 min-w-full">
                       <PrecosDoItem
                         itemNumero={r.item_numero}
                         cotacoes={precos[r.item_numero] ?? []}
@@ -744,6 +746,7 @@ function ValorReferencia({
                         onRemover={onRemover}
                         onBuscar={onBuscar}
                       />
+                      </div>
                     </td>
                   </tr>
                 )}
