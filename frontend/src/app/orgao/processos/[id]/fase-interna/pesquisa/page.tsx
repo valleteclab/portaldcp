@@ -688,7 +688,7 @@ function ValorReferencia({
       </div>
 
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm min-w-[860px]">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-600">
             <tr>
               <th scope="col" className="text-left px-3 py-2 font-semibold">Item</th>
@@ -711,7 +711,7 @@ function ValorReferencia({
               return (
                 <Fragment key={r.item_numero}>
                 <tr className="border-t align-top">
-                  <td className="px-3 py-2 min-w-[240px]">
+                  <td className="px-3 py-2 min-w-[180px]">
                     <button type="button" className="flex items-start gap-1 text-left hover:text-blue-800" aria-expanded={estaAberto} onClick={() => setItemAberto(estaAberto ? null : r.item_numero)} data-testid={`abrir-item-${r.item_numero}`}>
                       {estaAberto ? <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" /> : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />}
                       <span>
