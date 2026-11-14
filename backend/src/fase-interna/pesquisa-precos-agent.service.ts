@@ -28,6 +28,7 @@ import { PesquisaPrecosComplianceService } from './pesquisa-precos-compliance.se
 import {
   BrowserFallbackProvider,
   ContratosVigentesProvider,
+  ehReferenciaComplementar,
   FontePrecosProvider,
   FornecedorDiretoProvider,
   NfeProvider,
@@ -90,10 +91,12 @@ export class PesquisaPrecosAgentService {
   }
 
   async executar(licitacaoId: string, scope: PesquisaPrecoAgentScope) {
-    const licitacao = await this.licitacaoRepository.findOneBy({
-      id: licitacaoId,
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao'],
     });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+    const ufOrgao = String((licitacao as any).orgao?.uf || '').trim();
 
     const documento =
       await this.faseInternaService.getOuCriarDocPP(licitacaoId);
@@ -134,6 +137,7 @@ export class PesquisaPrecosAgentService {
               licitacao,
               itens,
               scope: { ...scope, maxPorFonte: scope.maxPorFonte || 5 },
+              ufOrgao,
             }),
           ),
       );
@@ -271,6 +275,53 @@ export class PesquisaPrecosAgentService {
     await this.candidatoRepository.save(candidato);
 
     return { dados, candidato };
+  }
+
+  /**
+   * Candidatos que o agente achou e ninguém decidiu ainda — de cada item, só os
+   * da busca mais recente (as antigas ficam no histórico das execuções).
+   */
+  async listarCandidatosPendentes(licitacaoId: string) {
+    const execucoes = await this.execucaoRepository.find({
+      where: { licitacao_id: licitacaoId },
+      relations: ['candidatos'],
+      order: { created_at: 'DESC' },
+      take: 30,
+    });
+    const itensVistos = new Set<number>();
+    const pendentes: PesquisaPrecoCandidato[] = [];
+    for (const execucao of execucoes) {
+      const candidatos = execucao.candidatos || [];
+      const itensDaExecucao = new Set(
+        [
+          ...((execucao.escopo as any)?.itemNumeros || []),
+          ...candidatos.map((c) => c.item_numero),
+        ].map(Number),
+      );
+      for (const candidato of candidatos) {
+        if (itensVistos.has(Number(candidato.item_numero))) continue;
+        if (candidato.status !== StatusCandidatoPesquisaPreco.CANDIDATO) continue;
+        pendentes.push(candidato);
+      }
+      itensDaExecucao.forEach((n) => itensVistos.add(n));
+    }
+    return pendentes
+      .sort((a, b) => Number(b.score) - Number(a.score))
+      .map((c) => ({
+        id: c.id,
+        item_numero: c.item_numero,
+        fonte_tipo: c.fonte_tipo,
+        descricao_fonte: c.descricao_fonte,
+        url_referencia: c.url_referencia,
+        data_pesquisa: c.data_pesquisa,
+        valor_unitario: Number(c.valor_unitario),
+        quantidade_base: c.quantidade_base,
+        unidade: c.unidade,
+        origem: c.evidencia?.origem || '',
+        titulo: c.evidencia?.titulo || '',
+        flags: c.flags || [],
+        complementar: ehReferenciaComplementar(c),
+      }));
   }
 
   async rejeitarCandidato(
