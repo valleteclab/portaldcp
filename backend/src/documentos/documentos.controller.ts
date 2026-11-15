@@ -25,6 +25,8 @@ import type { Ator } from '../auth/acesso/ator';
 import { licitacaoEhPublica } from '../licitacoes/licitacao-visao.util';
 import { ModuleRef } from '@nestjs/core';
 import { MAPA_TIPO_DOCUMENTOS_LICITACAO } from '../fase-interna/espelho-documentos-licitacao';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * AUTORIZAÇÃO (E1a):
@@ -36,6 +38,7 @@ import { MAPA_TIPO_DOCUMENTOS_LICITACAO } from '../fase-interna/espelho-document
  *    licitação já foi divulgada;
  *  - endpoints públicos: só documentos públicos de licitação divulgada.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS)
 @Controller('documentos')
 export class DocumentosController {
   constructor(

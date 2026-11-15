@@ -13,6 +13,8 @@ import { AtorAtual, AutenticacaoOpcional, SomenteOrgao } from '../auth/acesso/ac
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { aplicarVisao, licitacaoResumo, visaoDaManifestacao } from '../impugnacoes/manifestacao-acesso.util';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /** Campos que identificam quem pediu o esclarecimento (fora da visão pública). */
 const IDENTIDADE_SOLICITANTE = ['nome_solicitante', 'cpf_cnpj_solicitante', 'email_solicitante'];
@@ -55,6 +57,7 @@ const uploadConfig = {
  *    de licitação divulgada. Fora disso → 404;
  *  - arquivo anexado: só órgão dono e o próprio autor.
  */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('esclarecimentos')
 export class EsclarecimentosController {
   constructor(

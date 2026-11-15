@@ -16,6 +16,8 @@ import {
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * ============================================================================
@@ -37,6 +39,7 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
  * ============================================================================
  */
 
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('disputa')
 export class DisputaController {
   constructor(

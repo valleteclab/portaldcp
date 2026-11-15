@@ -2,12 +2,15 @@ import { BadRequestException, Body, Controller, Get, Put, Query } from '@nestjs/
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { NumeroProcessoService } from './numero-processo.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * Numeração do processo administrativo do órgão (Configurações › Parâmetros de
  * licitação). O órgão vem SEMPRE do JWT; `?orgaoId=` só vale para o admin da
  * plataforma. Um órgão não lê nem altera a numeração de outro.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('numero-processo')
 export class NumeroProcessoController {
   constructor(private readonly numeros: NumeroProcessoService) {}

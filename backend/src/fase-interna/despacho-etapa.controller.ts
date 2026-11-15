@@ -3,6 +3,8 @@ import type { Response } from 'express';
 import * as fs from 'fs';
 import { DespachoEtapaService } from './despacho-etapa.service';
 import { DonoFaseInternaGuard, DonoPor } from './dono-fase-interna.guard';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * PDF do despacho de uma etapa de registro (folha dos autos). Isolamento:
@@ -10,6 +12,7 @@ import { DonoFaseInternaGuard, DonoPor } from './dono-fase-interna.guard';
  * anônimo 401. (Antes morava no controller da integração tramitação ↔ tarefas
  * do motor antigo, removido em 11/2026.)
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard)
 export class DespachoEtapaController {

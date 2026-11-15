@@ -21,6 +21,8 @@ import { ehFornecedor, ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { LeilaoService, TAMANHO_MAXIMO_COMPROVANTE, TAMANHO_MAXIMO_FOTO, VisaoLeilao } from './leilao.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * LEILÃO (Lei 14.133 art. 31; plano E7c) — `/api/leilao/licitacao/:id/...`
@@ -33,6 +35,7 @@ import { LeilaoService, TAMANHO_MAXIMO_COMPROVANTE, TAMANHO_MAXIMO_FOTO, VisaoLe
  *    (edital publicado: bens, avaliação, preço mínimo, fotos; resultado só
  *    depois da homologação). Comprovante e termo: órgão dono ou o arrematante.
  */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('leilao/licitacao/:licitacaoId')
 export class LeilaoController {
   constructor(

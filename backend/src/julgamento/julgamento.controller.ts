@@ -19,6 +19,8 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { AceitacaoService, TAMANHO_MAXIMO_ARQUIVO } from './aceitacao.service';
 import { VisaoLotesService } from './visao-lotes.service';
 import { RankingService } from './ranking.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * JULGAMENTO (plano E3) — ranking único e ACEITAÇÃO da proposta.
@@ -31,6 +33,7 @@ import { RankingService } from './ranking.service';
  *    convocação (a de outro licitante responde 404);
  *  - arquivo da proposta: órgão dono ou o próprio licitante.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('julgamento')
 export class JulgamentoController {
   constructor(

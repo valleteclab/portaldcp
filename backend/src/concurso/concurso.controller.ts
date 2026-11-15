@@ -22,6 +22,8 @@ import { ehFornecedor, ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { ConcursoService, VisaoConcurso } from './concurso.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 const LIMITE_UPLOAD = 60 * 1024 * 1024; // teto técnico; o regulamento fixa o máximo (padrão 20 MB)
 
@@ -36,6 +38,7 @@ const LIMITE_UPLOAD = 60 * 1024 * 1024; // teto técnico; o regulamento fixa o m
  *    envelope de identificação: autor; órgão só depois do julgamento publicado;
  *  - painel público: regulamento (edital publicado) e classificação depois do julgamento.
  */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('concurso/licitacao/:licitacaoId')
 export class ConcursoController {
   constructor(

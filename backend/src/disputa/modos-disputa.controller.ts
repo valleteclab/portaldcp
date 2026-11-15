@@ -10,6 +10,8 @@ import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { OrigemLance } from './modelo-lance';
 import { motivoModoCriterioInvalido } from './modos-disputa';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * ============================================================================
@@ -24,6 +26,7 @@ import { motivoModoCriterioInvalido } from './modos-disputa';
  *    item está na etapa fechada: é o mesmo `registrarLance`.)
  *  - consulta da combinação modo × critério (art. 56 §§1º-2º) para as telas.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('disputa')
 export class ModosDisputaController {
   constructor(

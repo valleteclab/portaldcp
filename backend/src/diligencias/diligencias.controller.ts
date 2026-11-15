@@ -21,6 +21,8 @@ import type { Ator } from '../auth/acesso/ator';
 import { ComprovantesService } from '../comprovantes/comprovantes.service';
 import { DiligenciasService } from './diligencias.service';
 import { TAMANHO_MAXIMO_ANEXO } from './regras-diligencia';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 const ARQUIVO = FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: TAMANHO_MAXIMO_ANEXO, files: 1 } });
 
@@ -30,6 +32,7 @@ const ARQUIVO = FileInterceptor('arquivo', { storage: memoryStorage(), limits: {
  *  - órgão dono: abre, anexa, prorroga, encerra, vê todas;
  *  - licitante: vê e responde só as suas; outro fornecedor recebe 404.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('diligencias')
 export class DiligenciasController {
   constructor(

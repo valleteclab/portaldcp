@@ -10,6 +10,8 @@ import { TarefasService } from '../tarefas/tarefas.service';
 import { PublicacaoTelaService } from '../telas/publicacao-tela.service';
 import { ConformidadeService } from './conformidade.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
+import { RequireModule } from '../../auth/require-module.decorator';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 /**
  * CONFORMIDADE ANTES DA PUBLICAÇÃO (Entrega 4; mockup Conformidade) e a
@@ -18,6 +20,7 @@ import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etap
  * exige o órgão DONO (leitura de outro órgão 404; escrita 403). Autor sempre
  * do JWT. Achado de outro processo: 404.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class ConformidadeController {
