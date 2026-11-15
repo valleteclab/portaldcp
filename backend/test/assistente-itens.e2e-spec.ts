@@ -472,6 +472,21 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(depois.find((p) => p.inciso === 'II').evidencia_resumo).not.toMatch(/nenhum preço/);
     });
 
+    it('PNCP fora do ar: a resposta diz que a fonte não respondeu, em vez de "sem preço"', async () => {
+      pncpMock.limpar();
+      pncpMock.responder('GET', /\/api\/search\//, { status: 503, corpo: { erro: 'indisponível' } });
+      pncpMock.responder('GET', /contratacoes\/publicacao/, { status: 503, corpo: { erro: 'indisponível' } });
+      const r = await http().post(`/api/fase-interna/${lic.id}/precos/item/2/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 3, autoAprovar: true });
+      expect(r.status).toBe(201);
+      expect(r.body.falhas).toEqual([expect.objectContaining({ fonte: 'PNCP', item_numero: 2 })]);
+      // com o portal respondendo vazio, não há falha a relatar
+      pncpMock.limpar();
+      pncpMock.responder('GET', /\/api\/search\//, { status: 200, corpo: { total: 0, items: [] } });
+      pncpMock.responder('GET', /contratacoes\/publicacao/, { status: 200, corpo: { data: [] } });
+      const ok = await http().post(`/api/fase-interna/${lic.id}/precos/item/2/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 3, autoAprovar: true }).expect(201);
+      expect(ok.body.falhas).toEqual([]);
+    });
+
     it('documento PP gerado: estimativa de despesa OK na instrução e valor referencial vai aos itens', async () => {
       const fonte = (item: number, valor: number, i: number) =>
         http()

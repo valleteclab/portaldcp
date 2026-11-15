@@ -20,6 +20,7 @@ import {
 } from './entities/pesquisa-preco-execucao.entity';
 import { FaseInternaService } from './fase-interna.service';
 import {
+  FalhaDeConsulta,
   PesquisaPrecoAgentScope,
   PesquisaPrecoCandidateInput,
   PesquisaPrecoProvider,
@@ -131,6 +132,7 @@ export class PesquisaPrecosAgentService {
       );
       if (scope.usarBrowserFallback) fontes.add('OUTRA');
 
+      const falhas: FalhaDeConsulta[] = [];
       const providerResults = await Promise.allSettled(
         this.providers
           .filter((provider) => fontes.has(provider.fonte))
@@ -140,6 +142,7 @@ export class PesquisaPrecosAgentService {
               itens,
               scope: { ...scope, maxPorFonte: scope.maxPorFonte || 5 },
               ufOrgao,
+              falhas,
             }),
           ),
       );
@@ -219,7 +222,7 @@ export class PesquisaPrecosAgentService {
       execucao.resumo = this.compliance.resumir(candidatos);
       await this.execucaoRepository.save(execucao);
 
-      return this.obterExecucao(licitacaoId, execucao.id);
+      return { ...(await this.obterExecucao(licitacaoId, execucao.id)), falhas };
     } catch (error) {
       execucao.status = StatusExecucaoPesquisaPreco.FALHOU;
       execucao.finalizado_em = new Date();

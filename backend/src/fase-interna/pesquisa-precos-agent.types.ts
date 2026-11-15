@@ -17,6 +17,17 @@ export interface PesquisaPrecoAgentContext {
   scope: PesquisaPrecoAgentScope;
   /** UF do órgão que pesquisa: contratações do mesmo estado vêm primeiro. */
   ufOrgao?: string;
+  /**
+   * Fontes que NÃO responderam (portal fora do ar, conexão derrubada). Quem
+   * consulta anota aqui: falha de consulta não é "consultado, sem retorno".
+   */
+  falhas?: FalhaDeConsulta[];
+}
+
+export interface FalhaDeConsulta {
+  fonte: FontePesquisaTipo;
+  item_numero: number;
+  motivo: string;
 }
 
 export interface PesquisaPrecoCandidateInput {

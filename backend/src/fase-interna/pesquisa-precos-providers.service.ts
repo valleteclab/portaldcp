@@ -471,7 +471,9 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
       if (!termo) continue;
 
       try {
-        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5), context.ufOrgao);
+        const estado: { textoFalhou?: string } = {};
+        const antes = candidatos.length;
+        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5), context.ufOrgao, estado);
         // Até 15 contratações por item: cada uma custa uma chamada para listar os itens
         for (const registro of registros.slice(0, Math.max(15, (context.scope.maxPorFonte || 5) * 2))) {
           const itensPncp = await this.consultarItensContratacao(registro);
@@ -550,8 +552,13 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
             break;
           }
         }
+        // A busca por texto caiu e nada veio do caminho reserva: o portal não respondeu
+        if (estado.textoFalhou && candidatos.length === antes) {
+          context.falhas?.push({ fonte: 'PNCP', item_numero: item.numero_item, motivo: estado.textoFalhou });
+        }
       } catch (error) {
         this.logger.warn(`Consulta ao PNCP falhou para o item ${item.numero_item}: ${(error as Error).message}`);
+        context.falhas?.push({ fonte: 'PNCP', item_numero: item.numero_item, motivo: (error as Error).message });
       }
     }
 
@@ -667,12 +674,13 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
       }));
   }
 
-  private async consultarPncp(termo: string, limite: number, uf?: string): Promise<any[]> {
+  private async consultarPncp(termo: string, limite: number, uf?: string, estado?: { textoFalhou?: string }): Promise<any[]> {
     try {
       const porTexto = await this.buscarPorTexto(termo, limite, uf);
       if (porTexto.length) return porTexto;
     } catch (error) {
       this.logger.warn(`Busca textual do PNCP falhou para "${termo}": ${(error as Error).message}`);
+      if (estado) estado.textoFalhou = (error as Error).message;
     }
     const consultas = [
       {
