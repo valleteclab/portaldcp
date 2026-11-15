@@ -49,6 +49,8 @@ import { JuntadaPecasService } from './juntada-pecas.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
 import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -57,6 +59,7 @@ import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
  * usam o órgão do token (?orgao_id= só vale para o admin da plataforma).
  */
 
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class FaseInternaController {

@@ -11,6 +11,10 @@ import { DonoFaseInternaGuard } from './dono-fase-interna.guard';
  * DonoFaseInternaGuard: anônimo 401, fornecedor 403; o órgão e o usuário vêm
  * SEMPRE do JWT (sem parâmetro de órgão). Documento de outro órgão → 404;
  * quem não é signatário → 403.
+ *
+ * SEM trava de módulo, de propósito: a Central de Aprovações (que não tem
+ * módulo) lista aqui as assinaturas pendentes de qualquer usuário. Só devolve
+ * o que está para o próprio usuário assinar.
  */
 @Controller('assinaturas-internas')
 @UseGuards(DonoFaseInternaGuard)

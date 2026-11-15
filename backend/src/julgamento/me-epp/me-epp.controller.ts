@@ -5,6 +5,8 @@ import { ehFornecedor } from '../../auth/acesso/ator';
 import type { Ator } from '../../auth/acesso/ator';
 import { atorTransicaoDe } from '../../licitacoes/transicoes/transicoes.tipos';
 import { MeEppService } from './me-epp.service';
+import { RequireModule } from '../../auth/require-module.decorator';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 /**
  * BENEFÍCIO ME/EPP (plano E3 item 3 — LC 123/2006 arts. 44–48).
@@ -16,6 +18,7 @@ import { MeEppService } from './me-epp.service';
  *    sempre o fornecedor do TOKEN e só a própria convocação (a de outra
  *    licitante responde 404). O agente de contratação NÃO responde pela ME/EPP.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('julgamento')
 export class MeEppController {
   constructor(

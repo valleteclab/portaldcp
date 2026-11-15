@@ -32,11 +32,11 @@ describe('AnonimizacaoService.atribuirCodigos', () => {
 
     expect(chamadas[0].sql).toMatch(/pg_advisory_xact_lock/);
     expect(chamadas[0].params).toEqual(['mapeamento_anonimo:s1']);
-    expect([...mapa.entries()]).toEqual([
-      ['f1', 'Fornecedor A'],
-      ['f2', 'Fornecedor B'],
-      ['f3', 'Fornecedor C'],
-    ]);
+    // Quem já tinha código mantém; os novos recebem B e C em ordem sorteada
+    // (o serviço embaralha de propósito, para a letra não revelar a ordem de chegada).
+    expect(mapa.get('f1')).toBe('Fornecedor A');
+    expect([mapa.get('f2'), mapa.get('f3')].sort()).toEqual(['Fornecedor B', 'Fornecedor C']);
+    expect(mapa.size).toBe(3);
     const inserts = chamadas.filter((c) => /INSERT INTO mapeamento_anonimo/.test(c.sql));
     expect(inserts).toHaveLength(2);
     for (const i of inserts) expect(i.sql).toMatch(/ON CONFLICT \(sessao_id, fornecedor_id\) DO NOTHING/);

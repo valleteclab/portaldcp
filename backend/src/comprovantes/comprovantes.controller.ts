@@ -4,8 +4,11 @@ import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service'
 import { AtorAtual, SomenteFornecedor } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ComprovantesService } from './comprovantes.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /** Comprovantes do próprio fornecedor (ver comprovantes.regras.ts). */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('comprovantes')
 export class ComprovantesController {
   constructor(

@@ -20,6 +20,8 @@ import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { JulgamentoTecnicoService, TAMANHO_MAXIMO_DOCUMENTO_TECNICO } from './julgamento-tecnico.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * JULGAMENTO TÉCNICO (Lei 14.133 arts. 35–37) e MAIOR RETORNO (art. 39) —
@@ -33,6 +35,7 @@ import { JulgamentoTecnicoService, TAMANHO_MAXIMO_DOCUMENTO_TECNICO } from './ju
  *    publicação das notas (e se participa); o órgão, depois do acolhimento;
  *  - configuração do edital e resultado publicado → leitura pública.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('julgamento/licitacao/:licitacaoId')
 export class JulgamentoTecnicoController {
   constructor(

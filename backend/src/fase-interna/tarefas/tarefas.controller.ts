@@ -3,6 +3,8 @@ import { AtorAtual } from '../../auth/acesso/acesso.decorators';
 import type { Ator } from '../../auth/acesso/ator';
 import { DonoFaseInternaGuard } from '../dono-fase-interna.guard';
 import { AbaCaixa, TarefasService } from './tarefas.service';
+import { RequireModule } from '../../auth/require-module.decorator';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 const ABAS: AbaCaixa[] = ['para-mim', 'aguardando', 'concluidas'];
 
@@ -25,6 +27,10 @@ function orgaoDoAtor(ator: Ator, informado?: string): string {
  * fornecedor 403 — DonoFaseInternaGuard). Sempre o órgão e o usuário do
  * token: a caixa mostra as tarefas do usuário e as do papel/setor dele, dentro
  * do órgão dele. Tarefa de outro órgão: 403 na escrita.
+ *
+ * SEM trava de módulo, de propósito: a contagem alimenta o selo do menu em
+ * toda página do órgão, contratado ou não o módulo. Só devolve tarefas do
+ * próprio usuário; quem não tem o módulo não tem tarefa.
  */
 @Controller('tarefas')
 @UseGuards(DonoFaseInternaGuard)
@@ -62,6 +68,7 @@ export class TarefasController {
  * Leitura: qualquer usuário do órgão (a tela de reatribuir lista as pessoas).
  * Escrita: só o administrador do órgão. Sempre o órgão do token.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna/configuracao')
 @UseGuards(DonoFaseInternaGuard)
 export class ConfiguracaoFaseInternaController {
@@ -97,6 +104,7 @@ export class ConfiguracaoFaseInternaController {
 }
 
 /** Etapas da fase interna na tela do processo (órgão dono; outro órgão 404). */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard)
 export class EtapasFaseInternaController {

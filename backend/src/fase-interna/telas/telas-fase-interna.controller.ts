@@ -25,6 +25,8 @@ import { OrcamentoService } from '../orcamento/orcamento.service';
 import { DocumentosTelaService } from './documentos-tela.service';
 import { PesquisaTelaService } from './pesquisa-tela.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
+import { RequireModule } from '../../auth/require-module.decorator';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 const UPLOAD_EVIDENCIA = FileInterceptor('arquivo', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
@@ -34,6 +36,7 @@ const UPLOAD_EVIDENCIA = FileInterceptor('arquivo', { storage: memoryStorage(), 
  * 401, fornecedor 403; `:licitacaoId` exige o órgão DONO (leitura de outro
  * órgão 404; escrita 403). Autor sempre do JWT.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class TelasFaseInternaController {
@@ -225,6 +228,7 @@ function orgaoDoAtor(ator: Ator, informado?: string): string {
  * servidor do órgão cadastra (a Contabilidade faz o cadastro rápido na tela
  * da reserva); registro de outro órgão: 403 na escrita.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('orcamento')
 @UseGuards(DonoFaseInternaGuard)
 export class OrcamentoController {

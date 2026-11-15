@@ -5,6 +5,8 @@ import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { DesempateService } from './desempate.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * DESEMPATE (Lei 14.133 art. 60; IN 73 art. 28) —
@@ -16,6 +18,7 @@ import { DesempateService } from './desempate.service';
  * desempates, sem valores de terceiros antes do encerramento); conferência do
  * sorteio → órgão dono ou licitante participante.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('julgamento/sessao/:sessaoId/desempate')
 export class DesempateController {
   constructor(

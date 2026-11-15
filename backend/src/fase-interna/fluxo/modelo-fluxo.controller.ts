@@ -15,6 +15,8 @@ import { ATOS_PROTEGIDOS, ROTULO_ATO } from './travas';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { licitacaoConduzidaPeloFluxo } from '../../workflow/ponte/ponte-fase-interna';
+import { RequireModule } from '../../auth/require-module.decorator';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 /** Administração do órgão: login do órgão, usuário com papel ADMIN ou admin da plataforma. */
 export function exigirAdminDoOrgao(ator: Ator) {
@@ -46,6 +48,7 @@ export function tipoDaRota(tipo: string): TipoProcessoFluxo {
  * (sempre o órgão do token). Escrita: o administrador do órgão. Modelo do
  * sistema, requisitos da lei e travas por ato: só o admin da plataforma.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fluxo-fase-interna')
 @UseGuards(DonoFaseInternaGuard)
 export class ModeloFluxoController {
@@ -192,6 +195,7 @@ export class ModeloFluxoController {
  * dispensar o parecer por ato. `:licitacaoId` → DonoFaseInternaGuard (outro
  * órgão: 403 na escrita); permissão no processo conferida no serviço (403).
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard)
 export class FluxoProcessoController {

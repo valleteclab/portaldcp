@@ -17,6 +17,8 @@ import { AtorAtual, AutenticacaoOpcional, OrgaoOuFornecedor, SomenteFornecedor, 
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { SigiloDisputaService } from '../disputa/sigilo-disputa.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * PROPOSTAS — regras de acesso (E1a):
@@ -28,6 +30,7 @@ import { SigiloDisputaService } from '../disputa/sigilo-disputa.service';
  *  - lista pública e ranking por item: rotas públicas com o sigilo das
  *    propostas (art. 55/63; art. 75 §3º) aplicado no service.
  */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('propostas')
 export class PropostasController {
   constructor(

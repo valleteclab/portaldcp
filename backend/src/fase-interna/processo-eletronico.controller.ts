@@ -29,6 +29,8 @@ import { DonoFaseInternaGuard, DonoModo, DonoPor } from './dono-fase-interna.gua
 import type { Response } from 'express';
 import * as fs from 'fs';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * Processo eletrônico da fase interna (estilo SEI):
@@ -44,6 +46,7 @@ import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa
  * precisam ser do órgão; servidor (USUARIO) só vê a própria caixa, salvo papel
  * ADMIN do órgão.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class ProcessoEletronicoController {

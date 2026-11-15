@@ -8,11 +8,14 @@ import type { ExportarBllDto } from './bll-integracao.service';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * Troca de arquivos com a BLL Compras (e portais com o mesmo leiaute).
  * Só o órgão dono da licitação (leitura de outro órgão → 404; ato → 403).
  */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('licitacoes/:id/bll')
 @SomenteOrgao()
 export class BllIntegracaoController {

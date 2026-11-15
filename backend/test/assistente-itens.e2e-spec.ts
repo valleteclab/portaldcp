@@ -459,7 +459,7 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       const antes = (await tela()).find((p) => p.inciso === 'I');
       expect(antes.situacao_tela).toBe('PENDENTE');
       // Painel de Preços (inciso I) consultado, sem nenhum preço de volta
-      await http().post(`/api/fase-interna/${lic.id}/precos/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PAINEL_DE_PRECOS'], maxPorFonte: 3, autoAprovar: true }).expect(201);
+      await http().post(`/api/fase-interna/${lic.id}/precos/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ["PAINEL_DE_PRECOS"], maxPorFonte: 3, autoAprovar: true }).expect((r) => { if (r.status !== 201) throw new Error(`busca: ${r.status} ${JSON.stringify(r.body)}`); });
       const depois = await tela();
       const painel = depois.find((p) => p.inciso === 'I');
       expect(painel.situacao_tela).toBe('SEM_RETORNO');

@@ -26,6 +26,8 @@ import { ResultadoService } from './resultado.service';
 import type { ArquivoEnviado, OpcoesRegistroAto } from './resultado.service';
 import { FormalizacaoService } from './formalizacao/formalizacao.service';
 import { TAMANHO_MAX_TERMO_EXTERNO } from './formalizacao/regras-formalizacao';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /** Campos do corpo (JSON ou multipart) de quem registra o ato. */
 function opcoesDoCorpo(body: any, arquivo?: ArquivoEnviado | null): OpcoesRegistroAto {
@@ -64,6 +66,7 @@ function enviarPdf(res: Response, caminho: string, nome: string) {
  * em nome da AUTORIDADE escolhida do cadastro (art. 71 IV) — regras em
  * formalizacao/regras-formalizacao.ts. Configuração: conta do órgão ou ADMIN.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.ATAS)
 @Controller('resultado')
 export class ResultadoController {
   constructor(

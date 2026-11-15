@@ -70,6 +70,7 @@ function build(opts: { fase?: string; situacao?: string; paramMinutos?: number }
       if (/FROM usuarios/.test(sql)) return usuarios[p[0]] ? [usuarios[p[0]]] : [];
       if (/FROM orgaos/.test(sql)) return [{ nome: 'Prefeitura' }];
       if (/FROM licitantes_unidade/.test(sql)) return situacoes;
+      if (/FROM habilitacoes_licitante/.test(sql)) return []; // inversão de fases: sem habilitação antecipada neste cenário
       if (/UPDATE recursos_administrativos|UPDATE janelas/.test(sql)) return [];
       throw new Error(`SQL inesperado no teste: ${sql}`);
     }),
@@ -105,10 +106,13 @@ function build(opts: { fase?: string; situacao?: string; paramMinutos?: number }
   return { service, m, licitacao, transicoes, ranking, aceitacao, recursos, janelas, situacoes, tabelas };
 }
 
+const encerrarJanela = (janelas: Array<{ fecha_em: Date }>) => janelas.forEach((j) => (j.fecha_em = new Date(Date.now() - 1000)));
+
 /** Recurso admitido com razões e prazos já vencidos (pronto para o agente). */
 async function recursoEmAnalise(ctx: ReturnType<typeof build>) {
   await ctx.service.abrirJanela('s1', {}, ORGAO);
   const i = await ctx.service.registrarIntencao('s1', 'A', { motivacao: 'minha certidão era válida', atoRecorrido: AtoRecorrido.OUTRO });
+  encerrarJanela(ctx.janelas); // a admissibilidade só é decidida com a janela encerrada
   await ctx.service.admitir(i.id, ORGAO);
   await ctx.service.apresentarRazoes(i.id, 'A', { texto: 'As razões completas do recurso administrativo.' });
   const r = ctx.recursos.find((x) => x.id === i.id)!;
@@ -177,9 +181,10 @@ describe('RecursosService (E5)', () => {
 
   describe('admissibilidade', () => {
     it('admitir abre as razões (3 dias úteis) e o prazo recursal na licitação (ABRIR_PRAZO_RECURSAL)', async () => {
-      const { service, transicoes, licitacao, recursos } = build();
+      const { service, transicoes, licitacao, recursos, janelas } = build();
       await service.abrirJanela('s1', {}, ORGAO);
       const i = await service.registrarIntencao('s1', 'A', { motivacao: 'motivação suficiente' });
+      encerrarJanela(janelas); // a admissibilidade só é decidida com a janela encerrada
       const antes = Date.now();
       const r = await service.admitir(i.id, ORGAO);
       expect(r.status).toBe(StatusRecurso.AGUARDANDO_RAZOES);
@@ -191,9 +196,10 @@ describe('RecursosService (E5)', () => {
     });
 
     it('não admitir exige o pressuposto ausente e fundamentação', async () => {
-      const { service, recursos } = build();
+      const { service, recursos, janelas } = build();
       await service.abrirJanela('s1', {}, ORGAO);
       const i = await service.registrarIntencao('s1', 'A', { motivacao: 'motivação suficiente' });
+      encerrarJanela(janelas);
       await expect(service.recusar(i.id, { motivo: 'sem fundamento algum aqui' }, ORGAO)).rejects.toMatchObject({ status: 400 });
       await expect(service.recusar(i.id, { pressuposto: 'INTERESSE', motivo: 'curto' }, ORGAO)).rejects.toMatchObject({ status: 400 });
       await service.recusar(i.id, { pressuposto: 'INTERESSE', motivo: 'O licitante é o vencedor do item recorrido.' }, ORGAO);
@@ -206,6 +212,7 @@ describe('RecursosService (E5)', () => {
       const ctx = build();
       await ctx.service.abrirJanela('s1', {}, ORGAO);
       const i = await ctx.service.registrarIntencao('s1', 'A', { motivacao: 'motivação suficiente' });
+      encerrarJanela(ctx.janelas); // a admissibilidade só é decidida com a janela encerrada
       await ctx.service.admitir(i.id, ORGAO);
       return { ...ctx, id: i.id };
     }
@@ -253,6 +260,7 @@ describe('RecursosService (E5)', () => {
       const ctx = build();
       await ctx.service.abrirJanela('s1', {}, ORGAO);
       const i = await ctx.service.registrarIntencao('s1', 'A', { motivacao: 'motivação suficiente' });
+      encerrarJanela(ctx.janelas); // a admissibilidade só é decidida com a janela encerrada
       await ctx.service.admitir(i.id, ORGAO);
       await ctx.service.apresentarRazoes(i.id, 'A', { texto: 'As razões completas do recurso administrativo.' });
       await expect(
@@ -310,6 +318,7 @@ describe('RecursosService (E5)', () => {
       const ctx = build();
       await ctx.service.abrirJanela('s1', {}, ORGAO);
       const i = await ctx.service.registrarIntencao('s1', 'A', { motivacao: 'minha certidão era válida', atoRecorrido: AtoRecorrido.INABILITACAO });
+      encerrarJanela(ctx.janelas); // a admissibilidade só é decidida com a janela encerrada
       await ctx.service.admitir(i.id, ORGAO);
       await ctx.service.apresentarRazoes(i.id, 'A', { texto: 'As razões completas do recurso administrativo.' });
       ctx.recursos[0].prazo_contrarrazoes = new Date(Date.now() - MIN);

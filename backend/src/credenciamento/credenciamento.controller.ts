@@ -25,6 +25,8 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { HabilitacaoService } from '../habilitacao/habilitacao.service';
 import { CredenciamentoService } from './credenciamento.service';
 import type { ArquivoRecurso, DadosCredenciamento, PedidoContratacao } from './credenciamento.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * CREDENCIAMENTO COMO PROCESSO (plano E7b) — rotas em /api/credenciamento.
@@ -39,6 +41,7 @@ import type { ArquivoRecurso, DadosCredenciamento, PedidoContratacao } from './c
  *  - publicos/*: só credenciamentos DIVULGADOS (fase externa), com o edital,
  *    as regras, a tabela de valores, as exigências e a relação de credenciados.
  */
+@RequireModule(ModuloSistema.CREDENCIAMENTO)
 @Controller('credenciamento')
 export class CredenciamentoController {
   constructor(

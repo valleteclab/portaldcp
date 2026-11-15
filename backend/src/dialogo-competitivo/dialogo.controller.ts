@@ -20,6 +20,8 @@ import { ehFornecedor, ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { DialogoService, TAMANHO_MAXIMO_GRAVACAO, VisaoDialogo } from './dialogo.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * DIÁLOGO COMPETITIVO (Lei 14.133 art. 32; plano E7c) — `/api/dialogo-competitivo/licitacao/:id/...`
@@ -31,6 +33,7 @@ import { DialogoService, TAMANHO_MAXIMO_GRAVACAO, VisaoDialogo } from './dialogo
  *  - leituras: órgão dono (tudo); licitante (o seu registro, as suas reuniões,
  *    atas, gravações e soluções); público (edital, etapa e contagens).
  */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('dialogo-competitivo/licitacao/:licitacaoId')
 export class DialogoController {
   constructor(

@@ -9,6 +9,8 @@ import { MinutasTelaService } from './minutas-tela.service';
 import { MinutasSubscriber } from './minutas.subscriber';
 import { ParecerTelaService } from './parecer-tela.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
+import { RequireModule } from '../../auth/require-module.decorator';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 /**
  * TELAS DA ETAPA 6 E 7 (Entrega 3B): autorização (também no celular),
@@ -19,6 +21,7 @@ import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etap
  * o papel JURÍDICO abre diligência e emite o parecer; só o papel CONTROLE
  * INTERNO se manifesta (403 para os demais).
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class TelasAnaliseDecisaoController {

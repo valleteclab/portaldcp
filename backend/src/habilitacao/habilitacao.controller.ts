@@ -24,6 +24,8 @@ import { HabilitacaoService, TAMANHO_MAXIMO_DOCUMENTO } from './habilitacao.serv
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { anexoVisivel } from '../julgamento/visao-lotes.regras';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * HABILITAÇÃO (plano E4) — rotas em /api/habilitacao.
@@ -38,6 +40,7 @@ import { anexoVisivel } from '../julgamento/visao-lotes.regras';
  *    própria habilitação (a de outro responde 404);
  *  - arquivo: órgão dono ou o próprio licitante; público nunca.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.CREDENCIAMENTO)
 @Controller('habilitacao')
 export class HabilitacaoController {
   constructor(

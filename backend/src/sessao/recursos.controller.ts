@@ -23,6 +23,8 @@ import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { AtorRecurso, RecursosService, TAMANHO_MAXIMO_ARQUIVO_RECURSO, VisaoRecursos } from './recursos.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 const UPLOAD = FileInterceptor('arquivo', {
   storage: memoryStorage(),
@@ -44,6 +46,7 @@ const UPLOAD = FileInterceptor('arquivo', {
  *    os arquivos; o público (e outros órgãos) vê só os recursos decididos.
  *  O órgão NÃO registra razões/contrarrazões em nome de licitante (E1a → E5).
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('recursos')
 export class RecursosController {
   constructor(

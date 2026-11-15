@@ -31,6 +31,8 @@ import { avaliarPrazosDePublicacao, exigeNaturezaDoObjeto, naturezaEfetiva } fro
 import { RetificacaoService } from './retificacao.service';
 import { DivulgacaoService } from './divulgacao.service';
 import { exigirExtincao } from '../licitacoes/permissao-atos-processo';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 const UPLOAD_EDITAL = FileInterceptor('arquivo', {
   storage: memoryStorage(),
@@ -58,6 +60,7 @@ function json(v: any): any {
  *  - revogação/anulação em dois tempos (art. 71 §3º): intenção (órgão dono),
  *    manifestação (licitante), leitura por papel.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.CREDENCIAMENTO)
 @Controller('publicacao')
 export class PublicacaoController {
   constructor(

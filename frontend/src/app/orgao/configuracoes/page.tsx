@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useModulosOrgao, ModuloSistema } from "@/hooks/useModulosOrgao"
 import { useSearchParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { 
@@ -70,6 +71,9 @@ export default function ConfiguracoesPage() {
   const searchParams = useSearchParams()
   const tabParam = searchParams.get("tab")
   const validTabs = ["orgao", "setores", "usuarios", "notificacoes", "pncp", "transparencia", "painel-tv", "seguranca"]
+  // Atalhos de licitação e processo: só para quem contratou (as rotas recusam os demais)
+  const { temAcesso } = useModulosOrgao()
+  const temLicitacaoOuProcesso = [ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO].some(temAcesso)
   const [activeTab, setActiveTab] = useState(validTabs.includes(tabParam || "") ? tabParam! : "orgao")
 
   // Restringe acesso a usuários com role ADMIN.
@@ -526,6 +530,7 @@ export default function ConfiguracoesPage() {
           <p className="text-muted-foreground">Gerencie as configuracoes do orgao</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {temLicitacaoOuProcesso && (<>
           <Button
             variant="outline"
             size="sm"
@@ -554,6 +559,7 @@ export default function ConfiguracoesPage() {
             <ListChecks className="h-4 w-4" />
             Fase interna e tarefas
           </Button>
+          </>)}
           <Button
             variant="outline"
             size="sm"
