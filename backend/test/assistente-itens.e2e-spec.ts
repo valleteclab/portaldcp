@@ -435,6 +435,25 @@ describe('Itens obrigatórios na publicação + assistente', () => {
       expect(depois.body.some((c: any) => c.id === estimado.id)).toBe(false);
     });
 
+    it('descartar as restantes: limpa de uma vez as referências pendentes do item', async () => {
+      const url = `/api/fase-interna/${lic.id}/precos`;
+      // nova busca com as mesmas fontes simuladas: o estimado volta como referência pendente
+      await http().post(`${url}/item/1/agente/executar`).set(bearer(orgao.token)).send({ fontes: ['PNCP'], maxPorFonte: 5, autoAprovar: true }).expect(201);
+      const antes = await http().get(`${url}/agente/candidatos`).set(bearer(orgao.token)).expect(200);
+      const doItem = antes.body.filter((c: any) => c.item_numero === 1).length;
+      expect(doItem).toBeGreaterThanOrEqual(1);
+      const cesta = (await http().get(url).set(bearer(orgao.token)).expect(200)).body.dados.itens.find((i: any) => i.item_numero === 1).cotacoes.length;
+      const r = await http().post(`${url}/item/1/agente/candidatos/rejeitar-pendentes`).set(bearer(orgao.token)).send({}).expect(201);
+      expect(r.body.descartadas).toBe(doItem);
+      const depois = await http().get(`${url}/agente/candidatos`).set(bearer(orgao.token)).expect(200);
+      expect(depois.body.filter((c: any) => c.item_numero === 1).length).toBe(0);
+      // o que já estava na pesquisa não é tocado
+      expect((await http().get(url).set(bearer(orgao.token)).expect(200)).body.dados.itens.find((i: any) => i.item_numero === 1).cotacoes.length).toBe(cesta);
+      // outro órgão não descarta
+      const fora = await http().post(`${url}/item/1/agente/candidatos/rejeitar-pendentes`).set(bearer(outroOrgao.token)).send({});
+      expect([401, 403, 404]).toContain(fora.status);
+    });
+
     it('fonte consultada pela busca automática sem preço fica registrada como "sem retorno", não pendente', async () => {
       const tela = () => http().get(`/api/fase-interna/${lic.id}/pesquisa`).set(bearer(orgao.token)).expect(200).then((r) => r.body.parametros as any[]);
       const antes = (await tela()).find((p) => p.inciso === 'I');

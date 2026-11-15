@@ -371,6 +371,26 @@ export class PesquisaPrecosAgentService {
       }));
   }
 
+  /** Descarta de uma vez as referências do item que ainda esperam decisão. */
+  async rejeitarPendentesDoItem(
+    licitacaoId: string,
+    itemNumero: number,
+    decisor?: { id?: string; nome?: string },
+  ) {
+    const pendentes = (await this.listarCandidatosPendentes(licitacaoId)).filter(
+      (c) => Number(c.item_numero) === Number(itemNumero),
+    );
+    for (const c of pendentes) {
+      await this.rejeitarCandidato(
+        licitacaoId,
+        c.id,
+        'Descartada em conjunto por quem fez a pesquisa',
+        decisor,
+      );
+    }
+    return { descartadas: pendentes.length };
+  }
+
   async rejeitarCandidato(
     licitacaoId: string,
     candidatoId: string,

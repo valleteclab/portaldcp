@@ -279,3 +279,14 @@ describe('referências que exigem conferência', () => {
     expect(exigeConferencia({ ...banco, flags: [avisoDeUnidadeDiferente('RESMA', 'CAIXA')] })).toBe(true);
   });
 });
+
+describe('inciso do art. 23 de cada cotação', () => {
+  const { incisoDaCotacao } = require('./telas/pesquisa-regras');
+  it('banco "Fonte de Preços" conta como contratações similares (II), loja como mídia (III)', () => {
+    expect(incisoDaCotacao({ fonte: 'MIDIA_ESPECIALIZADA', descricao_fonte: 'Fonte de Precos - pncp - MUNICIPIO DE TIMBO' })).toBe('II');
+    expect(incisoDaCotacao({ fonte: 'MIDIA_ESPECIALIZADA', descricao_fonte: 'Relatório', observacao: 'Importada do CSV Fonte de Precos' })).toBe('II');
+    expect(incisoDaCotacao({ fonte: 'MIDIA_ESPECIALIZADA', descricao_fonte: 'Kalunga' })).toBe('III');
+    expect(incisoDaCotacao({ fonte: 'PNCP', descricao_fonte: 'PNCP item 1' })).toBe('II');
+    expect(incisoDaCotacao({ fonte: 'PAINEL_DE_PRECOS', descricao_fonte: 'Painel' })).toBe('I');
+  });
+});
