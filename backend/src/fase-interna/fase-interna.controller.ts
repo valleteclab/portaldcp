@@ -32,6 +32,7 @@ import { ANEXO_MAX_BYTES, PecasFaseInternaService } from './pecas-fase-interna.s
 import { ConsumoLimiteService } from '../parametros-licitacao/consumo-limite.service';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
 import { exigeConferencia } from './pesquisa-precos-providers.service';
+import { INCISO_DA_FONTE } from './telas/pesquisa-regras';
 import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { Public } from '../auth/public.decorator';
@@ -780,11 +781,17 @@ export class FaseInternaController {
 
     await this.faseInternaService.removerCotacoesEstimadasDoAgente(licitacaoId);
     // Fonte consultada sem preço também fica registrada (não volta a "Pendente")
+    // ...mas só a que respondeu: portal fora do ar não é "consultado, sem retorno"
+    const falhas = execucao.falhas || [];
+    // a fonte que falhou segura o inciso inteiro (PNCP e contratos do órgão são ambos o II)
+    const incisosComFalha = new Set(falhas.map((f) => INCISO_DA_FONTE[f.fonte]));
     await this.faseInternaService.registrarConsultaAutomaticaSemRetorno(
       licitacaoId,
-      (execucao.escopo?.fontes as FontePesquisaTipo[]) || b.fontes || [],
+      ((execucao.escopo?.fontes as FontePesquisaTipo[]) || b.fontes || []).filter(
+        (f) => !incisosComFalha.has(INCISO_DA_FONTE[f]),
+      ),
     );
-    return this.faseInternaService.getPrecos(licitacaoId);
+    return { ...(await this.faseInternaService.getPrecos(licitacaoId)), falhas };
   }
 
   @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'agente de pesquisa de preços' })

@@ -332,18 +332,19 @@ function dadosContratacaoPncp(registro: any): { cnpj: string; ano: string; seque
  * estoura o tempo com frequência quando recebe consultas seguidas — validação
  * de 14/11/2026: duas de três buscas voltaram vazias só por isso.
  */
-async function getPncp(url: string, config: Record<string, any> = {}, tentativas = 3): Promise<any> {
+async function getPncp(url: string, config: Record<string, any> = {}, tentativas = 2): Promise<any> {
   let ultimoErro: any;
   for (let n = 0; n < tentativas; n++) {
     try {
-      return await axios.get(url, { timeout: REQUEST_TIMEOUT_MS, headers: HTTP_HEADERS, ...config });
+      // 8 s por pedido: com 15 s e três tentativas, um portal lento custava minutos
+      return await axios.get(url, { timeout: 8000, headers: HTTP_HEADERS, ...config });
     } catch (error: any) {
       ultimoErro = error;
       const status = Number(error?.response?.status) || 0;
       // 4xx (fora 429) é resposta do portal, não instabilidade: não adianta repetir
       if (status >= 400 && status < 500 && status !== 429) break;
       if (n < tentativas - 1 && process.env.NODE_ENV !== 'test') {
-        await new Promise((r) => setTimeout(r, 1200 * (n + 1)));
+        await new Promise((r) => setTimeout(r, 800));
       }
     }
   }
@@ -471,7 +472,9 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
       if (!termo) continue;
 
       try {
-        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5), context.ufOrgao);
+        const estado: { textoFalhou?: string } = {};
+        const antes = candidatos.length;
+        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5), context.ufOrgao, estado);
         // Até 15 contratações por item: cada uma custa uma chamada para listar os itens
         for (const registro of registros.slice(0, Math.max(15, (context.scope.maxPorFonte || 5) * 2))) {
           const itensPncp = await this.consultarItensContratacao(registro);
@@ -550,8 +553,13 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
             break;
           }
         }
+        // A busca por texto caiu e nada veio do caminho reserva: o portal não respondeu
+        if (estado.textoFalhou && candidatos.length === antes) {
+          context.falhas?.push({ fonte: 'PNCP', item_numero: item.numero_item, motivo: estado.textoFalhou });
+        }
       } catch (error) {
         this.logger.warn(`Consulta ao PNCP falhou para o item ${item.numero_item}: ${(error as Error).message}`);
+        context.falhas?.push({ fonte: 'PNCP', item_numero: item.numero_item, motivo: (error as Error).message });
       }
     }
 
@@ -667,12 +675,13 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
       }));
   }
 
-  private async consultarPncp(termo: string, limite: number, uf?: string): Promise<any[]> {
+  private async consultarPncp(termo: string, limite: number, uf?: string, estado?: { textoFalhou?: string }): Promise<any[]> {
     try {
       const porTexto = await this.buscarPorTexto(termo, limite, uf);
       if (porTexto.length) return porTexto;
     } catch (error) {
       this.logger.warn(`Busca textual do PNCP falhou para "${termo}": ${(error as Error).message}`);
+      if (estado) estado.textoFalhou = (error as Error).message;
     }
     const consultas = [
       {

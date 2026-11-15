@@ -199,6 +199,8 @@ export default function PesquisaPage() {
     if (!itemNumeros.length || busca) return
     const antes = Object.values(precos).reduce((n, c) => n + c.length, 0)
     let falhas = 0
+    // itens em que alguma fonte não respondeu (portal fora do ar): não é o mesmo que "não achou preço"
+    const semResposta = new Map<string, number[]>()
     for (let k = 0; k < itemNumeros.length; k++) {
       setBusca({ atual: k + 1, total: itemNumeros.length, item: itemNumeros[k] })
       try {
@@ -208,6 +210,13 @@ export default function PesquisaPage() {
           body: JSON.stringify({ fontes: ["PNCP", "PAINEL_DE_PRECOS", "CONTRATO_VIGENTE_SISTEMA", "MIDIA_ESPECIALIZADA"], maxPorFonte: 6, autoAprovar: true }),
         })
         if (!r.ok) falhas++
+        else {
+          const j = await r.json().catch(() => null)
+          for (const f of (j?.falhas ?? []) as Array<{ fonte: string; item_numero: number }>) {
+            const nome = f.fonte === "PNCP" ? "O PNCP" : f.fonte === "PAINEL_DE_PRECOS" ? "O Painel de Preços" : f.fonte === "MIDIA_ESPECIALIZADA" ? "A busca em lojas e no banco de preços" : f.fonte === "CONTRATO_VIGENTE_SISTEMA" ? "A consulta aos contratos do órgão" : "Uma fonte"
+            semResposta.set(nome, [...new Set([...(semResposta.get(nome) ?? []), f.item_numero])])
+          }
+        }
       } catch {
         falhas++
       }
@@ -220,8 +229,13 @@ export default function PesquisaPage() {
       const lista = rc.ok ? await rc.json() : []
       const aDecidir = Array.isArray(lista) ? lista.filter((c: CandidatoPendente) => itemNumeros.includes(c.item_numero)).length : 0
       const novos = Math.max(0, depois - antes)
+      for (const [nome, itensSem] of semResposta) {
+        toast.warning(`${nome} não respondeu para ${itensSem.length === 1 ? `o item ${itensSem[0]}` : `os itens ${itensSem.join(", ")}`}. Não é falta de preço: tente de novo ${itensSem.length === 1 ? "nesse item" : "nesses itens"} em alguns minutos (abra o item e use "Buscar preços só deste item").`, { duration: 15000 })
+      }
       if (falhas === itemNumeros.length) toast.error("A busca não foi concluída. Tente de novo em instantes.")
-      else if (!novos && !aDecidir) toast.message("A busca não encontrou preço para este objeto. Registre a consulta nas fontes (sem retorno) e some cotações de fornecedores.")
+      else if (!novos && !aDecidir && semResposta.size) {
+        // já avisado acima
+      } else if (!novos && !aDecidir) toast.message("A busca não encontrou preço para este objeto. Registre a consulta nas fontes (sem retorno) e some cotações de fornecedores.")
       else toast.success(`${novos} ${novos === 1 ? "preço incluído" : "preços incluídos"}${aDecidir ? ` · ${aDecidir} ${aDecidir === 1 ? "referência aguarda" : "referências aguardam"} sua decisão` : ""}. Confira em "Valor de referência por item".`)
     } catch {
       // o resumo abaixo é recarregado de qualquer forma
