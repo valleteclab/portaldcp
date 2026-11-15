@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -21,6 +22,7 @@ import {
 import { FaseInternaService } from './fase-interna.service';
 import {
   FalhaDeConsulta,
+  PesquisaPrecoAgentContext,
   PesquisaPrecoAgentScope,
   PesquisaPrecoCandidateInput,
   PesquisaPrecoProvider,
@@ -46,6 +48,9 @@ import {
 
 const PDFDocument = require('pdfkit');
 
+/** Teto por fonte e por item: a tela espera cerca de 30 s por item. */
+const LIMITE_POR_FONTE_MS = 20000;
+
 const FONTES_PADRAO: FontePesquisaTipo[] = [
   'PNCP',
   'PAINEL_DE_PRECOS',
@@ -60,6 +65,8 @@ export class PesquisaPrecosAgentService {
   private readonly providers: PesquisaPrecoProvider[];
   private readonly uploadDir =
     process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+
+  private readonly logger = new Logger(PesquisaPrecosAgentService.name);
 
   constructor(
     @InjectRepository(PesquisaPrecoExecucao)
@@ -137,13 +144,17 @@ export class PesquisaPrecosAgentService {
         this.providers
           .filter((provider) => fontes.has(provider.fonte))
           .map((provider) =>
-            provider.buscar({
-              licitacao,
-              itens,
-              scope: { ...scope, maxPorFonte: scope.maxPorFonte || 5 },
-              ufOrgao,
+            this.comLimiteDeTempo(
+              provider,
+              {
+                licitacao,
+                itens,
+                scope: { ...scope, maxPorFonte: scope.maxPorFonte || 5 },
+                ufOrgao,
+                falhas,
+              },
               falhas,
-            }),
+            ),
           ),
       );
 
@@ -259,6 +270,49 @@ export class PesquisaPrecosAgentService {
     });
   }
 
+  /**
+   * Cada fonte tem um teto de tempo. Sem ele, um portal lento segurava a busca
+   * por minutos: a tela desistia aos 30 s, a execução ficava "rodando" e as
+   * referências das outras fontes não apareciam (gravação de 15/11/2026, com o
+   * PNCP derrubando conexões). Fonte que estoura o teto vira falha relatada.
+   */
+  private comLimiteDeTempo(
+    provider: PesquisaPrecoProvider,
+    context: PesquisaPrecoAgentContext,
+    falhas: FalhaDeConsulta[],
+  ): Promise<PesquisaPrecoCandidateInput[]> {
+    const limiteMs = Math.min(120000, LIMITE_POR_FONTE_MS * Math.max(1, context.itens.length));
+    return new Promise((resolve) => {
+      let encerrado = false;
+      const relogio = setTimeout(() => {
+        if (encerrado) return;
+        encerrado = true;
+        for (const item of context.itens) {
+          if (!falhas.some((f) => f.fonte === provider.fonte && f.item_numero === item.numero_item)) {
+            falhas.push({ fonte: provider.fonte, item_numero: item.numero_item, motivo: 'tempo esgotado' });
+          }
+        }
+        this.logger.warn(`Fonte ${provider.fonte} passou de ${Math.round(limiteMs / 1000)} s e foi deixada de lado nesta busca.`);
+        resolve([]);
+      }, limiteMs);
+      provider
+        .buscar(context)
+        .then((candidatos) => {
+          if (encerrado) return;
+          encerrado = true;
+          clearTimeout(relogio);
+          resolve(candidatos);
+        })
+        .catch((error) => {
+          if (encerrado) return;
+          encerrado = true;
+          clearTimeout(relogio);
+          this.logger.warn(`Fonte ${provider.fonte} falhou: ${(error as Error).message}`);
+          resolve([]);
+        });
+    });
+  }
+
   async aprovarCandidato(
     licitacaoId: string,
     candidatoId: string,
@@ -332,7 +386,9 @@ export class PesquisaPrecosAgentService {
    */
   async listarCandidatosPendentes(licitacaoId: string) {
     const execucoes = await this.execucaoRepository.find({
-      where: { licitacao_id: licitacaoId },
+      // só as que terminaram: uma busca ainda rodando (ou que morreu no meio)
+      // não pode esconder as referências da busca anterior
+      where: { licitacao_id: licitacaoId, status: StatusExecucaoPesquisaPreco.CONCLUIDA },
       relations: ['candidatos'],
       order: { created_at: 'DESC' },
       take: 30,

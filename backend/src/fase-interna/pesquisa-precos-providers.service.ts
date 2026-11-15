@@ -332,18 +332,19 @@ function dadosContratacaoPncp(registro: any): { cnpj: string; ano: string; seque
  * estoura o tempo com frequência quando recebe consultas seguidas — validação
  * de 14/11/2026: duas de três buscas voltaram vazias só por isso.
  */
-async function getPncp(url: string, config: Record<string, any> = {}, tentativas = 3): Promise<any> {
+async function getPncp(url: string, config: Record<string, any> = {}, tentativas = 2): Promise<any> {
   let ultimoErro: any;
   for (let n = 0; n < tentativas; n++) {
     try {
-      return await axios.get(url, { timeout: REQUEST_TIMEOUT_MS, headers: HTTP_HEADERS, ...config });
+      // 8 s por pedido: com 15 s e três tentativas, um portal lento custava minutos
+      return await axios.get(url, { timeout: 8000, headers: HTTP_HEADERS, ...config });
     } catch (error: any) {
       ultimoErro = error;
       const status = Number(error?.response?.status) || 0;
       // 4xx (fora 429) é resposta do portal, não instabilidade: não adianta repetir
       if (status >= 400 && status < 500 && status !== 429) break;
       if (n < tentativas - 1 && process.env.NODE_ENV !== 'test') {
-        await new Promise((r) => setTimeout(r, 1200 * (n + 1)));
+        await new Promise((r) => setTimeout(r, 800));
       }
     }
   }

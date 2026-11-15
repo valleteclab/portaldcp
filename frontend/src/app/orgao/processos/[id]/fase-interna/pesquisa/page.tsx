@@ -213,7 +213,7 @@ export default function PesquisaPage() {
         else {
           const j = await r.json().catch(() => null)
           for (const f of (j?.falhas ?? []) as Array<{ fonte: string; item_numero: number }>) {
-            const nome = f.fonte === "PNCP" ? "O PNCP" : f.fonte === "PAINEL_DE_PRECOS" ? "O Painel de Preços" : "Uma fonte"
+            const nome = f.fonte === "PNCP" ? "O PNCP" : f.fonte === "PAINEL_DE_PRECOS" ? "O Painel de Preços" : f.fonte === "MIDIA_ESPECIALIZADA" ? "A busca em lojas e no banco de preços" : f.fonte === "CONTRATO_VIGENTE_SISTEMA" ? "A consulta aos contratos do órgão" : "Uma fonte"
             semResposta.set(nome, [...new Set([...(semResposta.get(nome) ?? []), f.item_numero])])
           }
         }

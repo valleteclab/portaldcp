@@ -290,3 +290,33 @@ describe('inciso do art. 23 de cada cotação', () => {
     expect(incisoDaCotacao({ fonte: 'PAINEL_DE_PRECOS', descricao_fonte: 'Painel' })).toBe('I');
   });
 });
+
+describe('teto de tempo por fonte na busca', () => {
+  const { PesquisaPrecosAgentService } = require('./pesquisa-precos-agent.service');
+  const servico = Object.create(PesquisaPrecosAgentService.prototype);
+  servico.logger = { warn: () => undefined };
+  const contexto = { itens: [{ numero_item: 7 }], scope: {}, licitacao: {} } as any;
+  afterEach(() => jest.useRealTimers());
+
+  it('fonte que responde a tempo entrega os preços e não vira falha', async () => {
+    const falhas: any[] = [];
+    const r = await servico.comLimiteDeTempo({ fonte: 'PNCP', buscar: async () => [{ item_numero: 7, valor_unitario: 10 }] }, contexto, falhas);
+    expect(r).toHaveLength(1);
+    expect(falhas).toEqual([]);
+  });
+
+  it('fonte que não responde é deixada de lado e relatada, sem segurar as outras', async () => {
+    jest.useFakeTimers();
+    const falhas: any[] = [];
+    const lenta = servico.comLimiteDeTempo({ fonte: 'PNCP', buscar: () => new Promise(() => undefined) }, contexto, falhas);
+    jest.advanceTimersByTime(20001);
+    expect(await lenta).toEqual([]);
+    expect(falhas).toEqual([{ fonte: 'PNCP', item_numero: 7, motivo: 'tempo esgotado' }]);
+  });
+
+  it('fonte que quebra não derruba a busca', async () => {
+    const falhas: any[] = [];
+    const r = await servico.comLimiteDeTempo({ fonte: 'PAINEL_DE_PRECOS', buscar: async () => { throw new Error('fora do ar'); } }, contexto, falhas);
+    expect(r).toEqual([]);
+  });
+});
