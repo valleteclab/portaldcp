@@ -851,6 +851,20 @@ export class FaseInternaController {
   }
 
   @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
+  @Post(':licitacaoId/precos/item/:itemNumero/agente/candidatos/rejeitar-pendentes')
+  async rejeitarPendentesDoItemPreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('itemNumero') itemNumero: string,
+    @Body() body: { decisorId?: string; decisorNome?: string },
+  ) {
+    return this.pesquisaPrecosAgentService.rejeitarPendentesDoItem(
+      licitacaoId,
+      parseInt(itemNumero),
+      { id: body?.decisorId, nome: body?.decisorNome },
+    );
+  }
+
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
   @Post(':licitacaoId/precos/agente/candidatos/:candidateId/rejeitar')
   async rejeitarCandidatoPreco(
     @Param('licitacaoId') licitacaoId: string,

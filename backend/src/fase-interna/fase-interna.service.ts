@@ -71,7 +71,7 @@ const ATO_DA_ETAPA: Record<string, AtoLicitacao> = {
  * Servico para gerenciamento da Fase Interna (Preparatoria)
  * Conforme Art. 18 da Lei 14.133/2021
  */
-import { INCISO_DA_FONTE, INCISOS_ART23, type IncisoArt23 } from './telas/pesquisa-regras';
+import { INCISO_DA_FONTE, INCISOS_ART23, incisoDaCotacao, type IncisoArt23 } from './telas/pesquisa-regras';
 import { hojeEmBrasilia as hojeEmBrasiliaPP } from './peca-regras';
 @Injectable()
 export class FaseInternaService {
@@ -1638,7 +1638,7 @@ export class FaseInternaService {
     let alterou = false;
     for (const inciso of incisos) {
       if (registrados.some((r) => r.inciso === inciso)) continue;
-      if (cotacoes.some((c) => INCISO_DA_FONTE[c.fonte] === inciso)) continue;
+      if (cotacoes.some((c) => incisoDaCotacao(c) === inciso)) continue;
       registrados.push({
         inciso,
         situacao: 'SEM_RETORNO',

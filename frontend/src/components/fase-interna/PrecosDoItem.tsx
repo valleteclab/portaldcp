@@ -63,6 +63,10 @@ export function soPrecosPraticados(cotacoes: Array<{ fonte: string; observacao?:
   return cotacoes.every((c) => praticado(c) && !/valor estimado/i.test(c.observacao || ""))
 }
 
+/** O banco "Fonte de Preços" chega como mídia, mas traz preço de contratação pública. */
+const ehBancoDePrecos = (c: { descricao_fonte?: string; observacao?: string }) => /Fonte de Precos/i.test(`${c.descricao_fonte || ""} ${c.observacao || ""}`)
+const rotuloDaFonte = (c: { fonte: string; descricao_fonte?: string; observacao?: string }) => (ehBancoDePrecos(c) ? "Banco de preços" : (ROTULO_FONTE[c.fonte] ?? c.fonte))
+
 const tipoDe = (c: CandidatoPendente) => c.tipo ?? (c.complementar ? "ESTIMADO" : "PRATICADO")
 const SELO = {
   ESTIMADO: { rotulo: "Estimado por outro órgão", cor: "border-amber-300 bg-amber-50 text-[10px] text-amber-800" },
@@ -94,13 +98,17 @@ export function ReferenciasPendentes({
   decidindo,
   bloqueada,
   onDecidir,
+  onDescartarTodas,
 }: {
   itemNumero: number
   pendentes: CandidatoPendente[]
   decidindo: string | null
   bloqueada?: boolean
   onDecidir: (c: CandidatoPendente, acao: "aprovar" | "rejeitar") => void
+  /** Descarta de uma vez as que sobraram no item (depois de incluir as que servem). */
+  onDescartarTodas?: (itemNumero: number) => void
 }) {
+  const [confirmando, setConfirmando] = useState(false)
   // Lista curta por padrão: as melhores primeiro (a API já manda ordenado)
   const [todas, setTodas] = useState(false)
   const LIMITE = 4
@@ -109,7 +117,25 @@ export function ReferenciasPendentes({
   return (
     <div data-testid={`pendentes-${itemNumero}`} className="rounded-md border border-gray-200 bg-gray-50">
       <div className="border-b border-gray-200 px-3 py-2">
-        <p className="text-xs font-semibold text-gray-700">Referências encontradas — aguardando sua decisão ({pendentes.length})</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-gray-700">Referências encontradas — aguardando sua decisão ({pendentes.length})</p>
+          {onDescartarTodas &&
+            (confirmando ? (
+              <span className="inline-flex items-center gap-2 text-xs text-gray-700">
+                Descartar as {pendentes.length}?
+                <Button size="sm" variant="outline" className="h-7 border-red-200 text-xs text-red-700" disabled={bloqueada} data-testid={`confirmar-descartar-${itemNumero}`} onClick={() => { setConfirmando(false); onDescartarTodas(itemNumero) }}>
+                  Sim, descartar
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setConfirmando(false)}>
+                  Não
+                </Button>
+              </span>
+            ) : (
+              <Button size="sm" variant="ghost" className="h-7 text-xs text-gray-600" disabled={bloqueada} data-testid={`descartar-todas-${itemNumero}`} onClick={() => setConfirmando(true)}>
+                <X className="mr-1 h-3.5 w-3.5" /> Descartar as {pendentes.length === 1 ? "restante" : `${pendentes.length} restantes`}
+              </Button>
+            ))}
+        </div>
         <p className="text-[11px] text-gray-500">Ainda não contam no cálculo. Abra a fonte, confira se é o mesmo produto e a mesma embalagem, inclua as que servem e descarte as demais.</p>
       </div>
       <ul className="divide-y divide-gray-200">
@@ -183,6 +209,7 @@ export function PrecosDoItem({
   onDecidir,
   onRemover,
   onBuscar,
+  onDescartarTodas,
 }: {
   itemNumero: number
   cotacoes: CotacaoDoItem[]
@@ -194,6 +221,7 @@ export function PrecosDoItem({
   onDecidir: (c: CandidatoPendente, acao: "aprovar" | "rejeitar") => void
   onRemover: (itemNumero: number, indice: number) => void
   onBuscar: (itemNumero: number) => void
+  onDescartarTodas?: (itemNumero: number) => void
 }) {
   return (
     <div className="space-y-3" data-testid={`precos-item-${itemNumero}`}>
@@ -214,11 +242,11 @@ export function PrecosDoItem({
               {cotacoes.map((c, idx) => (
                 <tr key={`${idx}-${c.valor_unitario}`} className="border-t align-top">
                   <td className="hidden whitespace-nowrap px-3 py-1.5 sm:table-cell">
-                    {ROTULO_FONTE[c.fonte] ?? c.fonte}
+                    {rotuloDaFonte(c)}
                     {/valor estimado/i.test(c.observacao || "") && <span className="block text-[10px] text-amber-800">estimado</span>}
                   </td>
                   <td className="px-3 py-1.5 text-gray-700">
-                    <span className="block text-[10px] uppercase tracking-wide text-gray-500 sm:hidden">{ROTULO_FONTE[c.fonte] ?? c.fonte}</span>
+                    <span className="block text-[10px] uppercase tracking-wide text-gray-500 sm:hidden">{rotuloDaFonte(c)}</span>
                     {c.fornecedor_razao_social || c.descricao_fonte}
                   </td>
                   <td className="hidden whitespace-nowrap px-3 py-1.5 text-gray-600 sm:table-cell">{fmtData(c.data_pesquisa)}</td>
@@ -241,7 +269,7 @@ export function PrecosDoItem({
       ) : (
         <p className="text-xs text-gray-600">Nenhum preço neste item ainda.</p>
       )}
-      <ReferenciasPendentes itemNumero={itemNumero} pendentes={pendentes} decidindo={decidindo} bloqueada={bloqueada} onDecidir={onDecidir} />
+      <ReferenciasPendentes itemNumero={itemNumero} pendentes={pendentes} decidindo={decidindo} bloqueada={bloqueada} onDecidir={onDecidir} onDescartarTodas={onDescartarTodas} />
       <Button size="sm" variant="outline" className="h-7 text-xs" disabled={bloqueada || buscando} onClick={() => onBuscar(itemNumero)}>
         {buscando ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
         {buscando ? "Buscando…" : "Buscar preços só deste item"}

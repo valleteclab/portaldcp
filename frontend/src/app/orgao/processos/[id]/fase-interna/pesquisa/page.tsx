@@ -247,6 +247,21 @@ export default function PesquisaPage() {
     }
   }
 
+  const descartarRestantes = async (itemNumero: number) => {
+    setDecidindo(`todas-${itemNumero}`)
+    try {
+      const r = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/item/${itemNumero}/agente/candidatos/rejeitar-pendentes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      if (!r.ok) throw new Error(await erroDaApi(r))
+      const j = await r.json()
+      setPendentes((prev) => prev.filter((x) => x.item_numero !== itemNumero))
+      toast.success(`${j.descartadas} ${j.descartadas === 1 ? "referência descartada" : "referências descartadas"}.`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDecidindo(null)
+    }
+  }
+
   const removerPreco = async (itemNumero: number, indice: number) => {
     setRemovendo(`${itemNumero}-${indice}`)
     try {
@@ -362,6 +377,7 @@ export default function PesquisaPage() {
                 onDecidir={decidirPendente}
                 onRemover={removerPreco}
                 onBuscar={(n) => buscarPrecos([n])}
+                onDescartarTodas={descartarRestantes}
               />
 
               <section className="rounded-lg border bg-white p-4 space-y-3" aria-labelledby="mapa-titulo">
@@ -626,6 +642,7 @@ function ValorReferencia({
   onDecidir,
   onRemover,
   onBuscar,
+  onDescartarTodas,
 }: {
   d: PesquisaTela
   bloqueada: boolean
@@ -640,6 +657,7 @@ function ValorReferencia({
   onDecidir: (c: CandidatoPendente, acao: "aprovar" | "rejeitar") => void
   onRemover: (itemNumero: number, indice: number) => void
   onBuscar: (itemNumero: number) => void
+  onDescartarTodas: (itemNumero: number) => void
 }) {
   // Um item aberto por vez, e nenhum abre sozinho: com muitos itens a página
   // virava um rolo. O contador "N referências a decidir" diz onde olhar.
@@ -749,6 +767,7 @@ function ValorReferencia({
                         onDecidir={onDecidir}
                         onRemover={onRemover}
                         onBuscar={onBuscar}
+                        onDescartarTodas={onDescartarTodas}
                       />
                       </div>
                     </td>
