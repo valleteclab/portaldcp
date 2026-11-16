@@ -225,7 +225,7 @@ export class JanelaDispensaService {
   async abrir(licitacaoId: string, duracaoMinutos: number, prorrogacaoMinutos?: number) {
     // IN SEGES 67/2021, art. 11: a etapa de lances dura de 6 a 10 horas
     const informada = duracaoMinutos === undefined || duracaoMinutos === null || (duracaoMinutos as any) === '' ? null : Number(duracaoMinutos);
-    // Ensaio na homologação (Railway): órgão de teste abre a janela a partir de 5 min (common/prazos/prazos-de-teste.ts)
+    // Ensaio: órgão de teste abre a janela a partir de 5 min (common/prazos/prazos-de-teste.ts)
     const [{ orgao_id: orgaoDaLicitacao } = { orgao_id: null }] = await this.dataSource.query(`SELECT orgao_id::text AS orgao_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
     const minimaJanela = orgaoComPrazosDeTeste(orgaoDaLicitacao) ? JANELA_MINIMA_DE_TESTE_MIN : DURACAO_MINIMA_JANELA_MIN;
     if (informada !== null && !(informada >= minimaJanela && informada <= DURACAO_MAXIMA_JANELA_MIN)) {

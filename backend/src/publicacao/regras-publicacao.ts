@@ -162,7 +162,7 @@ export function exigeNaturezaDoObjeto(d: DadosPrazoArt55): boolean {
 export function prazoMinimoDeDivulgacao(d: DadosPrazoArt55 & { orgao_id?: string | null }): PrazoMinimo {
   const hipoteses: HipotesePrazo[] = [];
   const pendencias: string[] = [];
-  // Ensaio na homologação (Railway): órgão de teste sem prazo mínimo (common/prazos/prazos-de-teste.ts)
+  // Ensaio: órgão de teste sem prazo mínimo (common/prazos/prazos-de-teste.ts)
   if (orgaoComPrazosDeTeste(d.orgao_id)) return { dias: null, fundamento: null, descricao: 'prazos de teste (homologação)', hipoteses, pendencias };
   const criterio = String(d.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO);
   const regime = String(d.regime_execucao ?? '');
