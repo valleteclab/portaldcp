@@ -4,7 +4,7 @@ import { prazoMinimoDeDivulgacao } from '../../publicacao/regras-publicacao';
 const ORGAO = '62203670-0000-4000-8000-000000000162';
 const OUTRO = '11111111-1111-4111-8111-111111111111';
 
-describe('prazos de teste (só homologação/Railway)', () => {
+describe('prazos de teste (homologação; produção só com segunda confirmação)', () => {
   const salvo = { ...process.env };
   afterEach(() => {
     process.env = { ...salvo };
@@ -14,6 +14,16 @@ describe('prazos de teste (só homologação/Railway)', () => {
     const env = { PRAZOS_DE_TESTE_ORGAOS: ORGAO } as any;
     expect(orgaosComPrazosDeTeste(env).size).toBe(0);
     expect(orgaoComPrazosDeTeste(ORGAO, env)).toBe(false);
+  });
+
+  it('na produção vale só para o órgão que estiver nas DUAS variáveis', () => {
+    const base = { PRAZOS_DE_TESTE_ORGAOS: `${ORGAO},${OUTRO}` } as any;
+    expect(orgaosComPrazosDeTeste({ ...base, PRAZOS_DE_TESTE_CONFIRMO_PRODUCAO: ORGAO }).size).toBe(1);
+    expect(orgaoComPrazosDeTeste(ORGAO, { ...base, PRAZOS_DE_TESTE_CONFIRMO_PRODUCAO: ORGAO })).toBe(true);
+    expect(orgaoComPrazosDeTeste(OUTRO, { ...base, PRAZOS_DE_TESTE_CONFIRMO_PRODUCAO: ORGAO })).toBe(false);
+    // confirmação sem a lista, ou com valor que não é id, não liga nada
+    expect(orgaosComPrazosDeTeste({ PRAZOS_DE_TESTE_CONFIRMO_PRODUCAO: ORGAO } as any).size).toBe(0);
+    expect(orgaosComPrazosDeTeste({ ...base, PRAZOS_DE_TESTE_CONFIRMO_PRODUCAO: 'sim' }).size).toBe(0);
   });
 
   it('no Railway vale só para os órgãos listados; ids inválidos são ignorados', () => {
