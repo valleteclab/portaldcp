@@ -68,6 +68,11 @@ services:
       PNCP_LOGIN: ${PNCP_LOGIN:-}
       PNCP_SENHA: ${PNCP_SENHA:-}
       PNCP_CNPJ_ORGAO: ${PNCP_CNPJ_ORGAO:-}
+      # Prazos de teste (ensaio em órgão de TESTE): só valem para o órgão que
+      # estiver nas duas variáveis. Vazias = desligado. Ver
+      # backend/src/common/prazos/prazos-de-teste.ts
+      PRAZOS_DE_TESTE_ORGAOS: ${PRAZOS_DE_TESTE_ORGAOS:-}
+      PRAZOS_DE_TESTE_CONFIRMO_PRODUCAO: ${PRAZOS_DE_TESTE_CONFIRMO_PRODUCAO:-}
       UPLOAD_MAX_SIZE: ${UPLOAD_MAX_SIZE:-52428800}
       UPLOAD_DEST: /app/uploads
       TZ: America/Sao_Paulo
