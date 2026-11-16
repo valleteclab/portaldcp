@@ -71,11 +71,16 @@ export const PAPEIS_OPERADOR: ReadonlyArray<string> = ['ADMIN', 'PREGOEIRO'];
  * plataforma ou usuário do órgão com papel de agente de contratação/pregoeiro
  * ou acima (ADMIN). O ato continua sendo da autoridade (registrada à parte).
  */
-export function motivoOperadorInvalido(ator: { tipo: string; role?: string | null; admin?: boolean }): string | null {
+export function motivoOperadorInvalido(
+  ator: { tipo: string; role?: string | null; admin?: boolean },
+  /** Papéis da fase interna do usuário: a AUTORIDADE e o AGENTE DE CONTRATAÇÃO também registram (homologação 08/11/2026). */
+  papeis: string[] = [],
+): string | null {
   if (ator.admin || ator.tipo === 'ORGAO') return null;
   if (ator.tipo === 'USUARIO' && PAPEIS_OPERADOR.includes(String(ator.role ?? '').toUpperCase())) return null;
+  if (ator.tipo === 'USUARIO' && papeis.some((p) => ['AUTORIDADE', 'AGENTE_CONTRATACAO'].includes(String(p).toUpperCase()))) return null;
   return (
-    'Registrar a adjudicação/homologação exige o agente de contratação/pregoeiro, um ADMIN do órgão ou a conta do órgão ' +
+    'Registrar a adjudicação/homologação exige a autoridade competente, o agente de contratação/pregoeiro, um ADMIN do órgão ou a conta do órgão ' +
     '(o ato é praticado pela autoridade competente escolhida — Lei 14.133/2021, art. 71 IV).'
   );
 }

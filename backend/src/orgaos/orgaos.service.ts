@@ -1,3 +1,4 @@
+import { hashSenha } from '../common/senha.util';
 import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -68,7 +69,7 @@ export class OrgaosService {
 
     // Hash da senha antes de salvar
     if (senha) {
-      dadosOrgao.senha_hash = createHash('sha256').update(senha).digest('hex');
+      dadosOrgao.senha_hash = hashSenha(senha);
     }
     
     const orgao = this.orgaoRepository.create(dadosOrgao);
@@ -82,7 +83,7 @@ export class OrgaosService {
           const usuario = this.usuarioRepository.create({
             nome: createOrgaoDto.responsavel_nome || orgaoSalvo.nome,
             email: createOrgaoDto.email_login,
-            senha_hash: createHash('sha256').update(senha).digest('hex'),
+            senha_hash: hashSenha(senha),
             cpf: createOrgaoDto.responsavel_cpf || undefined,
             cargo: createOrgaoDto.responsavel_cargo || 'Administrador',
             role: RoleUsuario.ADMIN,
@@ -145,7 +146,7 @@ export class OrgaosService {
 
     // Atualiza credenciais de acesso
     orgao.email_login = email;
-    orgao.senha_hash = createHash('sha256').update(senha).digest('hex');
+    orgao.senha_hash = hashSenha(senha);
     orgao.ativo = true;
 
     return await this.orgaoRepository.save(orgao);
@@ -153,12 +154,12 @@ export class OrgaosService {
 
   async update(id: string, updateData: Partial<CreateOrgaoDto>): Promise<Orgao> {
     const orgao = await this.findOne(id);
-    const { senha, ...restData } = updateData;
+    const { senha, id: _id, ...restData } = updateData as any;
     Object.assign(orgao, restData);
 
     // Hash da senha se fornecida
     if (senha) {
-      orgao.senha_hash = createHash('sha256').update(senha).digest('hex');
+      orgao.senha_hash = hashSenha(senha);
     }
 
     return await this.orgaoRepository.save(orgao);

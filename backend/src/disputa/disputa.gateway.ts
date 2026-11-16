@@ -1,3 +1,5 @@
+import { eventoVisivel } from '../julgamento/regras-negociacao';
+import type { VisaoEvento } from '../julgamento/regras-negociacao';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -187,9 +189,10 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const licId = licitacaoId || (await this.acesso.donoDaSessao(sessaoId))?.licitacaoId || null;
     let vencedorPublico = resultado.vencedor;
     if (resultado.vencedor && !(licId && (await this.sigilo.etapaDeLancesEncerrada(licId)))) {
-      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, resultado.vencedor.fornecedorId);
+      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, resultado.vencedor.fornecedorId, itemId);
       vencedorPublico = { fornecedorId: idAnonimo(codigo), fornecedorNome: codigo, valor: resultado.vencedor.valor };
     }
+    const orgaoVe = await this.sigilo.orgaoVeIdentidades(licId);
     const aplicar = licId ? await this.sigilo.aplicador(licId, sessaoId) : null;
     const sockets = await this.server.in(`sessao:${sessaoId}`).fetchSockets();
     for (const s of sockets) {
@@ -203,6 +206,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         ...extra,
         itemId,
         etapaDeLancesEncerrada: resultado.etapaDeLancesEncerrada,
+        // Órgão: o item acabou de encerrar — a identidade DELE já pode aparecer (julgamento item a item)
         vencedor: visao.tipo === 'ORGAO' ? resultado.vencedor : vencedorPublico,
         itens: aplicar ? aplicar(itens, visao) : itens,
       });
@@ -210,6 +214,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     if (resultado.alertaReinicio) {
       const a = resultado.alertaReinicio;
       this.server.to(salaOrgao(sessaoId)).emit('alerta_diferenca_5_porcento', {
+        // o alerta é do item que acabou de encerrar: o órgão já pode ver quem são o 1º e o 2º
         ...a,
         mensagem:
           `Item ${a.itemNumero}: a diferença entre o 1º e o 2º colocado é de ${a.diferencaPercentual.toFixed(2)}% ` +
@@ -239,22 +244,23 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     // Unidade de disputa: o lance do LOTE tem `item_id` nulo e `lote_id` (unidade-disputa.ts)
     const unidadeId = lance.lote_id ?? lance.item_id;
     try {
-      const codigo = await this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id);
-      const aplicar = await this.sigilo.aplicador(licitacaoId, sessaoId);
-      const lancesPublicos = await this.disputaService.getTodosLances(unidadeId, sessaoId);
-      const clientesNaSala = await this.server.in(`sessao:${sessaoId}`).fetchSockets();
-      for (const socketCliente of clientesNaSala) {
+      // Aviso IMEDIATO a todos: o quadro de cada um (posição, melhor lance) a tela busca
+      // ao receber o aviso. Antes o servidor montava, em série, o quadro completo de cada
+      // cliente (~2 s cada) e o último da sala só sabia do lance ~10 s depois (ensaio do
+      // pregão com 2 lotes, 09/11/2026); nenhuma tela usava esse quadro do aviso.
+      const [codigo, aplicar, lancesPublicos, clientesNaSala] = await Promise.all([
+        this.disputaService.codigoAnonimoSeguro(sessaoId, lance.fornecedor_id, unidadeId),
+        this.sigilo.aplicador(licitacaoId, sessaoId),
+        this.disputaService.getTodosLances(unidadeId, sessaoId),
+        this.server.in(`sessao:${sessaoId}`).fetchSockets(),
+      ]);
+      const visoes = clientesNaSala.map((s) => ({ socketCliente: s, visao: this.visaoDe(this.clientes.get(s.id)) }));
+      const lancesOrgao = visoes.some((v) => v.visao.tipo === 'ORGAO')
+        ? await this.disputaService.getTodosLances(unidadeId, sessaoId, { visaoOrgao: true })
+        : lancesPublicos;
+      for (const { socketCliente, visao } of visoes) {
         try {
-          const visao = this.visaoDe(this.clientes.get(socketCliente.id));
-          const orgao = visao.tipo === 'ORGAO';
-          const itensCliente = await this.disputaService.getItensPorStatus(
-            sessaoId,
-            visao.tipo === 'FORNECEDOR' ? visao.fornecedorId : undefined,
-            { visaoOrgao: orgao },
-          );
-          const lances = orgao
-            ? await this.disputaService.getTodosLances(unidadeId, sessaoId, { visaoOrgao: true })
-            : lancesPublicos;
+          const lances = visao.tipo === 'ORGAO' ? lancesOrgao : lancesPublicos;
           socketCliente.emit(
             'novo_lance',
             aplicar(
@@ -270,7 +276,6 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
                   dataHora: lance.created_at,
                 },
                 lances,
-                itens: itensCliente,
               },
               visao,
             ),
@@ -312,7 +317,15 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       if (!dono) return negar('Sessão não encontrada.', 'SESSAO_INEXISTENTE');
 
       const relacao = await this.acesso.relacaoComLicitacao(ator, dono.licitacaoId);
-      if (!relacao) return negar('Você não participa desta licitação.', 'SEM_RELACAO');
+      if (!relacao) {
+        // Proposta desclassificada / licitante inabilitado: diz o porquê (a tela mostra o motivo e o caminho do recurso)
+        const fora = ehFornecedor(ator) ? await this.acesso.situacaoForaDaDisputa(ator.fornecedorId, dono.licitacaoId) : null;
+        if (fora) {
+          const oQue = fora.tipo === 'INABILITADO' ? 'Você foi inabilitado nesta licitação' : 'Sua proposta foi desclassificada nesta licitação';
+          return negar(`${oQue} e não participa dos lances.${fora.motivo ? ` Motivo: ${fora.motivo}` : ''}`, fora.tipo);
+        }
+        return negar('Você não participa desta licitação.', 'SEM_RELACAO');
+      }
 
       let tipo: 'PREGOEIRO' | 'FORNECEDOR';
       let usuarioId: string;
@@ -549,7 +562,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   @SubscribeMessage('reiniciar_sessao')
   async handleReiniciarSessao(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { sessaoId: string; justificativa: string },
+    @MessageBody() data: { sessaoId: string; justificativa: string; confirmaVicio?: boolean },
   ) {
     const info = this.pregoeiroDaSessao(client, data?.sessaoId, 'reiniciar a sessão');
     if (!info) return;
@@ -559,6 +572,7 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         data.sessaoId,
         data.justificativa,
         atorTransicaoDe(atorDoSocket(client)),
+        { confirmaVicio: data.confirmaVicio === true },
       );
 
       const sessao = await this.disputaService.getSessao(data.sessaoId);
@@ -724,14 +738,19 @@ export class DisputaGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const info = this.clienteDaSessao(client, data?.sessaoId);
     if (!info) return;
     try {
-      const mensagens = await this.disputaService.getMensagens(data.sessaoId);
+      const visao = this.visaoDe(info);
+      const mensagens = await this.disputaService.getMensagens(data.sessaoId, 50, (e) => eventoVisivel(e, visao as VisaoEvento));
       const reveladas = await this.sigilo.identidadesReveladas(data.sessaoId);
 
+      // Como no histórico REST: durante os lances o órgão também só vê o código (IN 73 art. 20)
       client.emit('mensagens', {
-        mensagens: await this.sigilo.aplicarVisao(mensagens, info.licitacaoId, this.visaoDe(info), {
-          sessaoId: data.sessaoId,
-          identidades: !reveladas,
-        }),
+        mensagens:
+          visao.tipo === 'ORGAO' && !reveladas
+            ? await this.sigilo.anonimizar(mensagens, info.licitacaoId, { sessaoId: data.sessaoId })
+            : await this.sigilo.aplicarVisao(mensagens, info.licitacaoId, visao, {
+                sessaoId: data.sessaoId,
+                identidades: !reveladas,
+              }),
       });
     } catch (error) {
       client.emit('erro', { mensagem: error.message });

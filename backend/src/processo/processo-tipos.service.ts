@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TipoProcesso, TipoProcessoRegistro } from './entities/processo.entity';
 import { definicaoContratacao } from './tipos/tipo-contratacao';
-import { DefinicaoTipoProcesso, ORDEM_TIPOS, RequisitoDoTipo, definicaoAditivo, definicaoAvulso, definicaoRenovacao, esqueletosFuturos } from './tipos/tipo-processo';
+import { DefinicaoTipoProcesso, ORDEM_TIPOS, RequisitoDoTipo, definicaoAditivo, definicaoAvulso, definicaoOficio, definicaoRenovacao, esqueletosFuturos } from './tipos/tipo-processo';
 
 /**
  * REGISTRO DOS TIPOS DE PROCESSO: o "como" (código) + o "quais/rótulo/ativo"
@@ -23,7 +23,7 @@ export class ProcessoTiposService {
     @InjectRepository(TipoProcessoRegistro) private readonly repo: Repository<TipoProcessoRegistro>,
     private readonly moduleRef: ModuleRef,
   ) {
-    const lista: DefinicaoTipoProcesso[] = [definicaoContratacao({ requisitos: () => this.requisitosDaContratacao() }), definicaoAvulso(), definicaoAditivo(), definicaoRenovacao(), ...esqueletosFuturos()];
+    const lista: DefinicaoTipoProcesso[] = [definicaoContratacao({ requisitos: () => this.requisitosDaContratacao() }), definicaoAvulso(), definicaoOficio(), definicaoAditivo(), definicaoRenovacao(), ...esqueletosFuturos()];
     this.definicoes = new Map(lista.map((d) => [d.tipo, d]));
   }
 

@@ -1,3 +1,5 @@
+import { negociacoesAceitasSql } from './dispensa/pos-julgamento.sql';
+import { ContratacaoNoFluxoService } from '../workflow/contratacao/contratacao-no-fluxo.service';
 import { Injectable, ConflictException, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -16,6 +18,7 @@ import { ItemLicitacao, UnidadeMedida, StatusItem } from '../itens/entities/item
 import { gerarAtaDispensaPdf, DadosAtaDispensa } from './ata-dispensa-pdf';
 import { JanelaDispensaService, LeitorChat } from '../disputa/janela-dispensa.service';
 import { FaseInternaService } from '../fase-interna/fase-interna.service';
+import { DocumentosTelaService } from '../fase-interna/telas/documentos-tela.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { LoteLicitacao } from '../lotes/entities/lote-licitacao.entity';
@@ -42,7 +45,7 @@ import type { Ator } from '../auth/acesso/ator';
 import { aplicarEstadoCompraPncp, estadoCompraPncp } from '../pncp/estado-compra-pncp';
 import { fundamentoLegalTexto } from '../pncp/mapeamento-pncp';
 import { fundamentoEfetivo, fundamentoPadrao, motivoFundamentoInvalido } from './fundamento-legal';
-import { classificacaoPorItem, valoresFinaisDispensa } from './classificacao-dispensa';
+import { classificacaoPorItem, semExcluidosDoItem, SQL_EXCLUSOES_ITEM_DISPENSA, valoresFinaisDispensa } from './classificacao-dispensa';
 import { dispensaSemLances, modoDisputaDaDispensa, vencedoresSemLances } from './modo-disputa-dispensa';
 import { resolverAutoridade } from '../resultado/formalizacao/regras-formalizacao';
 import { nomeDoPregoeiro, nomeDoPregoeiroSql } from './migracao-legado-e9';
@@ -107,6 +110,7 @@ export class LicitacoesService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly faseInternaService: FaseInternaService,
+    private readonly documentosTela: DocumentosTelaService,
     private readonly notificacoesService: NotificacoesService,
     private readonly transicoes: TransicoesService,
     // Resultado único (E6): julgamento da dispensa e resultado externo gravam
@@ -116,6 +120,8 @@ export class LicitacoesService {
     private readonly dfds: DfdConsolidadoService,
     // Processo eletrônico: a licitação é o primeiro TIPO de processo — nasce com a autuação, na mesma transação
     private readonly processos: ProcessoService,
+    // Um motor só (11/2026): toda contratação nasce conduzida pelo fluxo (módulo Processos)
+    private readonly contratacaoNoFluxo: ContratacaoNoFluxoService,
     private readonly auditLog: AuditLogService,
     // Gerador único do nº do processo administrativo (sequencial por órgão/ano)
     private readonly numeros: NumeroProcessoService,
@@ -193,11 +199,12 @@ export class LicitacoesService {
     if (createDto.natureza_objeto !== undefined) {
       createDto.natureza_objeto = this.naturezaValida(createDto.natureza_objeto);
     }
-    // Inversão de fases (art. 17 §1º; plano E4): só concorrência
+    // Inversão de fases (art. 17 §1º; plano E4): pregão e concorrência, com motivação
     const vedacaoInversao = motivoInversaoInvalida({
       inversaoFinal: !!(createDto as any).inversao_fases,
-      inversaoAtual: !!(createDto as any).inversao_fases,
+      inversaoAtual: false,
       modalidadeFinal: createDto.modalidade,
+      motivacaoFinal: (createDto as any).inversao_fases_motivacao,
     });
     if (vedacaoInversao) throw new BadRequestException(vedacaoInversao.mensagem);
     // Nº do processo administrativo: digitado (único no órgão → 409) ou gerado
@@ -242,6 +249,7 @@ export class LicitacoesService {
     });
     Object.assign(licitacao, beneficioMpe);
 
+    let processoId: string | null = null;
     const salva = await this.licitacaoRepository.manager.transaction(async (m) => {
       // PROCESSO ELETRÔNICO: a autuação nasce primeiro (consome o nº do gerador único
       // ou confere o digitado); a licitação recebe o MESMO número e é ligada ao processo.
@@ -260,12 +268,18 @@ export class LicitacoesService {
         throw this.numeros.traduzirViolacao(e, licitacao.numero_processo);
       }
       await this.processos.vincularReferencia(m, processo.id, REFERENCIA_LICITACAO, gravada.id);
+      processoId = processo.id;
       return gravada;
     });
     if (opcoes.dfd_consolidado) await this.dfds.vincularProcesso(opcoes.dfd_consolidado.id, salva.id, opcoes.dfd_consolidado.ator, salva.numero_processo);
     await this.transicoes.registrarCriacao(salva, ator, undefined, opcoes.registro);
     // E6.5: vinculada ao item do PCA / às demandas → item LICITACAO_INICIADA, demandas EM_CONTRATACAO
     if (salva.item_pca_id || salva.demanda_id || opcoes.dfd_consolidado) await this.resultado.aoCriarProcesso(salva.id);
+    // Um motor só: assistente, demanda e fase interna feita fora (com ou sem DFD consolidado)
+    // também nascem no fluxo; o "Abrir processo" do DFD entra pelo criarAPartirDeDfd
+    if (processoId && ator.tipo !== 'SISTEMA') {
+      await this.contratacaoNoFluxo.iniciar(salva.orgao_id, processoId, String(ator.id ?? ''));
+    }
     return salva;
   }
 
@@ -415,7 +429,7 @@ export class LicitacoesService {
    */
   async criarAPartirDeDfd(
     dfdId: string,
-    dto: Partial<CreateFromDemandaDto>,
+    dto: Partial<CreateFromDemandaDto> & { fundamento_legal?: string | null; modalidade_a_definir?: boolean },
     orgaoIdDoAtor: string | null | undefined,
     ator: AtorTransicao = atorSistema('api'),
     atorAcesso?: Ator | null,
@@ -446,6 +460,9 @@ export class LicitacoesService {
         modalidade: dto.modalidade ?? ModalidadeLicitacao.PREGAO_ELETRONICO,
         tipo_contratacao: dto.tipo_contratacao ?? (itens.some((i) => i.categoria === 'SERVICO') ? TipoContratacao.SERVICO : TipoContratacao.COMPRA),
         criterio_julgamento: dto.criterio_julgamento ?? CriterioJulgamento.MENOR_PRECO,
+        // Enquadramento escolhido ao abrir (sem escolha, a entidade preenche o padrão da modalidade)
+        ...(dto.fundamento_legal ? { fundamento_legal: dto.fundamento_legal } : {}),
+        modalidade_definida: !dto.modalidade_a_definir,
         fase: FaseLicitacao.PLANEJAMENTO,
         situacao: SituacaoLicitacao.ATIVA,
         ano,
@@ -483,7 +500,6 @@ export class LicitacoesService {
     });
     // E6.5: demandas → EM_CONTRATACAO (todas as do DFD); item do PCA → LICITACAO_INICIADA
     await this.resultado.aoCriarProcesso(licitacaoSalva.id);
-
     // 7. Itens do processo = itens consolidados do DFD
     const itensLicitacao = itens.map((item, i) =>
       this.itemRepository.create({
@@ -508,7 +524,10 @@ export class LicitacoesService {
     );
     if (itensLicitacao.length > 0) await this.itemRepository.save(itensLicitacao);
 
-    // 7.5 Peça DFD do processo, preenchida a partir do DFD consolidado
+    // 7.5 DFD ÚNICO (decisão do dono, 13/10/2026): o DFD consolidado É o DFD dos
+    // autos. A peça nasce preenchida e já GERADA (PDF, emitida) — a instrução, a
+    // trava da lei (art. 72, I) e o fluxo passam a ver a mesma peça pronta. Antes
+    // a linha ficava "em elaboração" e o fluxo concluía a etapa sozinho.
     const alertas = await this.dfds.alertas(dfd.orgao_id, dfd.ano, itens, { dfdId: dfd.id, demandaIds: demandas.map((d) => d.id), licitacaoId: licitacaoSalva.id });
     const alerta = textoDoAlerta(alertas);
     try {
@@ -535,9 +554,29 @@ export class LicitacoesService {
           contexto: atorAcesso?.usuarioId ? { usuario_id: atorAcesso.usuarioId } : undefined,
         })
         .catch(() => undefined);
+      try {
+        const [u] = atorAcesso?.usuarioId
+          ? await this.dataSource.query(`SELECT nome FROM usuarios WHERE id::text = $1 AND orgao_id::text = $2`, [atorAcesso.usuarioId, licitacaoSalva.orgao_id])
+          : [null];
+        await this.documentosTela.gerar(licitacaoSalva.id, 'DFD', { id: atorAcesso?.usuarioId ?? null, nome: u?.nome ?? null });
+      } catch (eGerar: unknown) {
+        // Fica em elaboração: a tela do DFD mostra "Gerar DFD" para quem conduz
+        this.logger.warn(`DFD do processo ${licitacaoSalva.numero_processo} preenchido mas não gerado: ${comoErro(eGerar).message}`);
+      }
     } catch (eCapturado: unknown) {
       const e = comoErro(eCapturado);
       this.logger.warn(`DFD automático do DFD consolidado não gerado: ${e.message}`);
+    }
+
+    // Fluxo desenhado (07/10/2026): a contratação aberta pelo DFD já nasce seguindo o fluxo de Contratação ativo
+    try {
+      const [proc] = await this.dataSource.query(
+        `SELECT id::text AS id FROM processos WHERE referencia_tipo = 'LICITACAO' AND referencia_id::text = $1 AND orgao_id::text = $2`,
+        [licitacaoSalva.id, licitacaoSalva.orgao_id],
+      );
+      if (proc) await this.contratacaoNoFluxo.iniciar(licitacaoSalva.orgao_id, proc.id, String(atorAcesso?.usuarioId ?? atorAcesso?.id ?? ator.id ?? ""));
+    } catch (e) {
+      this.logger.warn(`Fluxo da contratação ${licitacaoSalva.id} não iniciou sozinho: ${e instanceof Error ? e.message : e}`);
     }
 
     // 8. Processo recarregado com os itens
@@ -725,15 +764,20 @@ export class LicitacoesService {
       dadosLicitacao.modo_disputa ?? licitacao.modo_disputa,
     );
     if (vedacaoModalidade) throw new BadRequestException(vedacaoModalidade);
-    // Inversão de fases (art. 17 §1º; plano E4): só concorrência, definida antes da publicação
+    // Inversão de fases (art. 17 §1º; plano E4): pregão e concorrência, motivada, definida antes da publicação
     if (dadosLicitacao.inversao_fases !== undefined) {
       dadosLicitacao.inversao_fases = dadosLicitacao.inversao_fases === true || dadosLicitacao.inversao_fases === 'true';
     }
+    const motivacaoAlterada =
+      dadosLicitacao.inversao_fases_motivacao !== undefined &&
+      (dadosLicitacao.inversao_fases_motivacao ?? '') !== (licitacao.inversao_fases_motivacao ?? '');
     const vedacaoInversao = motivoInversaoInvalida({
       inversaoFinal: !!(dadosLicitacao.inversao_fases ?? licitacao.inversao_fases),
       inversaoAtual: !!licitacao.inversao_fases,
       modalidadeFinal: dadosLicitacao.modalidade ?? licitacao.modalidade,
       faseAtual: licitacao.fase,
+      motivacaoFinal: dadosLicitacao.inversao_fases_motivacao !== undefined ? dadosLicitacao.inversao_fases_motivacao : licitacao.inversao_fases_motivacao,
+      motivacaoAlterada,
     });
     if (vedacaoInversao) {
       if (vedacaoInversao.status === 409) throw new ConflictException(vedacaoInversao.mensagem);
@@ -1114,7 +1158,8 @@ export class LicitacoesService {
     );
     // Sem etapa de lances (Entrega 5): só as propostas; empate → a registrada primeiro (ordem da consulta)
     const lances = dispensaSemLances(licitacao) ? [] : await this.janelaDispensa.lancesDaJanela(id);
-    const porItem = classificacaoPorItem(valoresFinaisDispensa(linhas, lances as any));
+    const exclusoes = await this.dataSource.query(SQL_EXCLUSOES_ITEM_DISPENSA, [id]);
+    const porItem = classificacaoPorItem(valoresFinaisDispensa(semExcluidosDoItem(linhas as any[], exclusoes) as any, lances as any));
     const itens = await this.itemRepository.find({ where: { licitacao_id: id }, order: { numero_item: 'ASC' } });
     return {
       em_sigilo: false,
@@ -1124,7 +1169,12 @@ export class LicitacoesService {
         descricao: (i as any).descricao_resumida || (i as any).descricao,
         status: i.status,
         fornecedor_vencedor_id: i.fornecedor_vencedor_id ?? null,
-        classificacao: porItem.get(String(i.id)) ?? [],
+        // O vencedor aparece com o valor adjudicado (negociação aceita reduz o valor do lance)
+        classificacao: (porItem.get(String(i.id)) ?? []).map((c) =>
+          i.fornecedor_vencedor_id && String(c.fornecedor_id) === String(i.fornecedor_vencedor_id) && (i as any).valor_unitario_homologado != null
+            ? { ...c, valor_unitario: Number((i as any).valor_unitario_homologado) }
+            : c,
+        ),
       })),
     };
   }
@@ -1585,14 +1635,15 @@ export class LicitacoesService {
     await this.transicoes.verificar(id, AtoLicitacao.JULGAR_DISPENSA, { ator });
 
     // Propostas válidas (por item), ordenadas por menor valor unitário
-    const linhas: Array<{
+    type LinhaJulgamento = {
       item_licitacao_id: string;
       valor_unitario: string;
       proposta_id: string;
       fornecedor_id: string;
       razao_social: string;
       registrada_em: Date | null;
-    }> = await this.dataSource.query(
+    };
+    const linhasBrutas: LinhaJulgamento[] = await this.dataSource.query(
       `SELECT pi.item_licitacao_id, pi.valor_unitario, p.id AS proposta_id,
               p.fornecedor_id, f.razao_social, COALESCE(p.data_envio, p.created_at) AS registrada_em
        FROM proposta_itens pi
@@ -1603,6 +1654,8 @@ export class LicitacoesService {
        ORDER BY pi.item_licitacao_id, pi.valor_unitario ASC, p.data_envio ASC NULLS LAST`,
       [id],
     );
+    // Fornecedor fora de UM item (proposta desclassificada ou inabilitação só nele) segue nos demais
+    const linhas = semExcluidosDoItem(linhasBrutas, await this.dataSource.query(SQL_EXCLUSOES_ITEM_DISPENSA, [id]));
     if (linhas.length === 0) {
       throw new BadRequestException(
         'Nenhuma proposta válida recebida para julgamento — declare a dispensa deserta (ato "Declarar deserta").',
@@ -1669,6 +1722,8 @@ export class LicitacoesService {
     // (proposta ou lance da janela — IN 67/2021; a dispensa não tem a etapa de
     // aceitação da proposta adequada do pregão) × quantidade. Decisão documentada.
     const entradas: EntradaAdjudicacao[] = [];
+    // Contrapropostas ACEITAS pelo vencedor (IN 67 art. 16) continuam valendo no rejulgamento
+    const negociadas = await negociacoesAceitasSql(this.dataSource, id);
 
     for (const item of itens) {
       const v = vencedorPorItem.get(item.id);
@@ -1676,9 +1731,11 @@ export class LicitacoesService {
         semProposta.push(item.numero_item);
         continue;
       }
+      const negociado = negociadas.get(`${item.id}:${v.fornecedor_id}`);
+      const unitarioFinal = negociado != null ? Math.min(negociado, Number(v.valor_unitario)) : Number(v.valor_unitario);
       const valor = valorAdjudicadoDoUnitario(
         { itemId: item.id, numero: Number(item.numero_item), quantidade: Number(item.quantidade || 0) },
-        Number(v.valor_unitario),
+        unitarioFinal,
       );
       entradas.push({ tipo: 'ITEM', unidadeId: item.id, numero: valor.numero, fornecedorId: v.fornecedor_id, valores: [valor] });
       propostasVencedoras.add(v.proposta_id);
@@ -1849,6 +1906,40 @@ export class LicitacoesService {
       this.janelaDispensa.dadosAta(id, orgaoDono || !!licitacao.data_homologacao),
     ]);
 
+    // Pós-julgamento: saídas por item, negociação, habilitação e diligências. A negociação e a
+    // diligência só entram para o órgão dono antes da homologação (mesma regra do chat).
+    const reservado = orgaoDono || !!licitacao.data_homologacao;
+    const [saidas, negociacoes, habilitacoes, diligencias] = await Promise.all([
+      this.dataSource.query(
+        `SELECT i.numero_item AS numero, f.razao_social, e.tipo, e.motivo, e.registrado_por_nome, e.created_at
+           FROM exclusoes_item_dispensa e JOIN itens_licitacao i ON i.id = e.item_licitacao_id LEFT JOIN fornecedores f ON f.id = e.fornecedor_id
+          WHERE e.licitacao_id = $1 ORDER BY e.created_at`,
+        [id],
+      ),
+      reservado
+        ? this.dataSource.query(
+            `SELECT i.numero_item AS numero, f.razao_social, n.valor_anterior, n.valor_unitario, n.status, n.motivo_recusa, n.created_at
+               FROM negociacoes_dispensa n JOIN itens_licitacao i ON i.id = n.item_licitacao_id LEFT JOIN fornecedores f ON f.id = n.fornecedor_id
+              WHERE n.licitacao_id = $1 ORDER BY n.created_at`,
+            [id],
+          )
+        : [],
+      this.dataSource.query(
+        `SELECT f.razao_social, h.resultado, h.motivo, h.conferidos, h.registrado_por_nome, h.created_at
+           FROM habilitacoes_dispensa h LEFT JOIN fornecedores f ON f.id = h.fornecedor_id
+          WHERE h.licitacao_id = $1 ORDER BY h.created_at`,
+        [id],
+      ),
+      reservado
+        ? this.dataSource.query(
+            `SELECT f.razao_social, d.pedido, d.aberta_em, d.resposta, d.respondida_em, d.resultado, d.resultado_motivo, d.encerrada_em
+               FROM diligencias_licitante d LEFT JOIN fornecedores f ON f.id::text = d.fornecedor_id::text
+              WHERE d.licitacao_id = $1 ORDER BY d.aberta_em`,
+            [id],
+          )
+        : [],
+    ]);
+
     return {
       orgao_nome: orgaoRow?.[0]?.nome || 'Órgão',
       licitacao,
@@ -1856,6 +1947,10 @@ export class LicitacoesService {
       propostas,
       lances: sala.lances,
       mensagens: sala.mensagens,
+      saidas,
+      negociacoes,
+      habilitacoes,
+      diligencias,
     };
   }
 
@@ -1977,6 +2072,9 @@ export class LicitacoesService {
       await manager.delete(LicitacaoTransicao, { licitacao_id: id });
       await manager.delete(ItemLicitacao, { licitacao_id: id });
       await manager.delete(LoteLicitacao, { licitacao_id: id });
+      // Tramitação (posse dos autos): a FK não tem cascade. Todo processo conduzido pelo fluxo
+      // tramita ("Encaminhado pelo fluxo") — sem isto o "Excluir processo" dava 500.
+      await manager.delete('tramitacoes_processo', { licitacao_id: id });
       // Processo eletrônico: a autuação sai junto (libera o número no órgão)
       await this.processos.aoExcluirLicitacao(id, manager);
       await manager.delete(Licitacao, id);

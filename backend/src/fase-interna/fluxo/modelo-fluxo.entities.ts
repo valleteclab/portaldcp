@@ -327,54 +327,6 @@ export class FluxoProcessoFaseInterna {
 }
 
 /**
- * CONSTRUTOR DE FLUXO — RASCUNHO do modelo (um por órgão e tipo; `orgao_id`
- * nulo = o do sistema). O órgão edita o rascunho à vontade (a conferência
- * aponta o que falta); só o "Ativar" valida e publica a nova versão.
- */
-@Entity('rascunhos_modelo_fluxo')
-@Index('uq_rascunho_fluxo_orgao_tipo', ['orgao_id', 'tipo_processo'], { unique: true, where: 'orgao_id IS NOT NULL' })
-@Index('uq_rascunho_fluxo_sistema_tipo', ['tipo_processo'], { unique: true, where: 'orgao_id IS NULL' })
-export class RascunhoModeloFluxo {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @ManyToOne(() => Orgao, { onDelete: 'CASCADE', nullable: true })
-  @JoinColumn({ name: 'orgao_id' })
-  orgao: Orgao | null;
-
-  @Column({ type: 'uuid', nullable: true })
-  orgao_id: string | null;
-
-  /** DISPENSA | INEXIGIBILIDADE | LICITACAO. */
-  @Column({ type: 'varchar', length: 20 })
-  tipo_processo: string;
-
-  /** { nome, descricao, aprovacao_demanda, exigir_posse_pecas, grafo }. */
-  @Column({ type: 'jsonb' })
-  dados: Record<string, any>;
-
-  /** Versão ativa sobre a qual o rascunho foi começado. */
-  @Column({ type: 'int', nullable: true })
-  base_versao: number | null;
-
-  /** De onde veio: EDICAO | MODELO_PRONTO:<código> | RESTAURAR | IA. */
-  @Column({ type: 'varchar', length: 80, nullable: true })
-  origem: string | null;
-
-  @Column({ type: 'varchar', length: 100, nullable: true })
-  atualizado_por_id: string | null;
-
-  @Column({ type: 'varchar', length: 200, nullable: true })
-  atualizado_por_nome: string | null;
-
-  @CreateDateColumn({ type: 'timestamptz' })
-  created_at: Date;
-
-  @UpdateDateColumn({ type: 'timestamptz' })
-  updated_at: Date;
-}
-
-/**
  * CONSTRUTOR DE FLUXO — HISTÓRICO DE VERSÕES do modelo: cada versão ativada
  * (pelo construtor, pela tela antiga, pelo restaurar ou pela migração), com
  * o grafo, quem ativou e quando. Processos guardam a versão em que nasceram.

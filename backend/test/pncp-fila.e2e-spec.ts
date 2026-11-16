@@ -40,7 +40,7 @@ import { prepararPregaoEmDisputa } from './support/isolamento';
 import { convocarAceitacao, decidirAceitacao, enviarPropostaAdequada } from './support/julgamento';
 import { habilitarLicitante } from './support/habilitacao';
 import { precluirIntencaoDeRecurso } from './support/recursos';
-import { adjudicarResultado, homologarResultado } from './support/resultado';
+import { adjudicarResultado, habilitarVencedoresDispensa, homologarResultado } from './support/resultado';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 import { assinarContrato } from './support/contratos';
@@ -330,6 +330,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       await precluirIntencaoDeRecurso(ctx, p.sessaoId, A.token);
       exigir(await adjudicarResultado(ctx, lic.id, A.token), 200, 'adjudicar');
       pncpMock.limpar();
+      await habilitarVencedoresDispensa(ctx, lic.id, A.token);
       exigir(await homologarResultado(ctx, lic.id, A.token), 200, 'homologar');
 
       // porte mudou no cadastro depois da proposta: o PNCP recebe o do RETRATO da proposta (E3)
@@ -418,6 +419,7 @@ describe('E7b — fila do PNCP (outbox) e publicação automática', () => {
       await abrirSessaoAgora(ctx, lic);
       await encerrarEtapaDeLances(ctx, lic); // IN 67 arts. 11 e 15
       exigir(await http().post(`/api/licitacoes/${lic.id}/julgar-dispensa`).set(bearer(A.token)), 201, 'julgar dispensa');
+      await habilitarVencedoresDispensa(ctx, lic.id, A.token);
       exigir(await homologarResultado(ctx, lic.id, A.token), 200, 'homologar');
       await ctx.processarFilaPncp({ licitacaoId: lic.id });
       const [res] = pncpMock.filtrar('POST', /\/itens\/1\/resultados$/);

@@ -489,3 +489,13 @@ export function alertaExequibilidade(p: {
       'O aceite exige justificativa (demonstração de exequibilidade, art. 59 §2º).',
   };
 }
+
+/**
+ * No desempate ME/EPP (LC 123 art. 45), a oferta a cobrir é a melhor de quem
+ * AINDA está no ranking: lances de licitante recusado, inabilitado ou
+ * desclassificado na unidade não contam (reapuração após a saída do 1º).
+ */
+export async function fornecedoresForaDoRankingSql(m: { query: (sql: string, p?: any[]) => Promise<any[]> }, unidadeId: string): Promise<Set<string>> {
+  const linhas = await m.query(`SELECT fornecedor_id FROM licitantes_unidade WHERE unidade_id = $1 AND situacao = ANY($2)`, [unidadeId, [...SITUACOES_EXCLUIDAS]]);
+  return new Set(linhas.map((l: any) => String(l.fornecedor_id)));
+}

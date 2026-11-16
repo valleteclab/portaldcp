@@ -13,7 +13,7 @@ import type { EstadoRecursal } from '../licitacoes/transicoes/transicoes.tipos';
  */
 export async function estadoRecursalSql(m: EntityManager, licitacaoId: string, agora = new Date()): Promise<EstadoRecursal> {
   const janelas: any[] = await m.query(
-    `SELECT fecha_em FROM janelas_intencao_recurso WHERE licitacao_id = $1 AND superada_em IS NULL`,
+    `SELECT fecha_em, COALESCE(momento, 'FINAL') AS momento FROM janelas_intencao_recurso WHERE licitacao_id = $1 AND superada_em IS NULL`,
     [licitacaoId],
   );
   const recursos: any[] = await m.query(
@@ -35,10 +35,14 @@ export async function estadoRecursalSql(m: EntityManager, licitacaoId: string, a
   const pendentes = recursos
     .filter((r) => PENDENTES.includes(r.status))
     .map((r) => `recurso de ${r.razao_social || r.fornecedor_id} (${ROTULO[r.status] ?? r.status})`);
+  const previas = janelas.filter((j) => j.momento === 'HABILITACAO_PREVIA');
+  const finais = janelas.filter((j) => j.momento !== 'HABILITACAO_PREVIA');
   const efeitos = (r: any) => (typeof r.efeitos === 'string' ? JSON.parse(r.efeitos) : r.efeitos) ?? {};
   return {
     janelaAberta: janelas.some((j) => new Date(j.fecha_em).getTime() > agora.getTime()),
-    janelaEncerrada: janelas.some((j) => new Date(j.fecha_em).getTime() <= agora.getTime()),
+    // Só a janela FINAL dá o direito de recorrer sobre o resultado: a da habilitação prévia (inversão) não libera a adjudicação
+    janelaEncerrada: finais.some((j) => new Date(j.fecha_em).getTime() <= agora.getTime()),
+    janelaPrevia: !previas.length ? 'AUSENTE' : previas.some((j) => new Date(j.fecha_em).getTime() > agora.getTime()) ? 'ABERTA' : 'ENCERRADA',
     pendentes,
     intencoesAdmitidas: recursos.filter((r) => PENDENTES.includes(r.status) && r.status !== 'INTENCAO').length,
     providosSemDesfecho: recursos.filter((r) => r.status === 'PROVIDO' && efeitos(r).alterou_resultado && !efeitos(r).fase_concluida).length,

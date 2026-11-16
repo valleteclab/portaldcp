@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
+import { toast } from 'sonner'
 import { API_URL, authFetch, getAuthToken } from '@/lib/api'
 import {
   DisputaMensagem,
@@ -36,6 +37,13 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
   const [sendingCancel, setSendingCancel] = useState(false)
   // Negociação (E3): muda a cada evento privado/resultado da negociação — os painéis recarregam
   const [negociacaoVersao, setNegociacaoVersao] = useState(0)
+  // Muda só quando o quadro é recarregado (lance, troca de etapa, início/fim de item) — é o gatilho
+  // das consultas da sala. O próprio `board` muda a cada segundo com o relógio: usado como gatilho,
+  // cada sala aberta repetia três consultas a cada 3 s durante toda a disputa (bloqueio por excesso
+  // de requisições no ensaio do pregão 2026/00077)
+  const [boardVersao, setBoardVersao] = useState(0)
+  // Aviso `diligencia_atualizada`: os painéis de diligência recarregam na hora
+  const [diligenciaVersao, setDiligenciaVersao] = useState(0)
 
   const socketRef = useRef<Socket | null>(null)
   const actorRef = useRef<{ id: string; nome: string; tipo: 'PREGOEIRO' | 'FORNECEDOR' } | null>(null)
@@ -85,20 +93,36 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     return actor
   }, [area])
 
+  // Ordem das buscas do quadro: cada lance dispara várias (novo_lance, lance_confirmado…) e o quadro
+  // leva ~2 s; sem isso, uma resposta ANTIGA que chegasse por último sobrescrevia a nova e a tela
+  // ficava no valor de antes do lance (ensaio do pregão com 2 lotes, 09/11/2026)
+  // Aplica a resposta mais nova que chegar, sem descartar uma busca só porque outra começou depois:
+  // com a resposta levando mais que o intervalo entre buscas (Railway, 09/11/2026), descartar assim
+  // fazia "Meus lances" nunca atualizar — ficava a lista do lote anterior (pregão 2026/00072)
+  const ultimaBuscaBoardRef = useRef(0)
+  const boardAplicadoRef = useRef(0)
+  const ultimaBuscaMeusLancesRef = useRef(0)
+  const meusLancesAplicadoRef = useRef(0)
+
   const refreshBoard = useCallback(
     async (resolvedSessaoId?: string) => {
       const actor = actorRef.current || carregarActor()
       const targetSessaoId = resolvedSessaoId || sessaoId
       if (!targetSessaoId || !actor) return
+      const minhaBusca = ++ultimaBuscaBoardRef.current
 
       // A visão (pregoeiro ou do próprio fornecedor) é decidida pelo token no backend
-      const response = await authFetch(`${API_URL}/api/disputa/sessao/${targetSessaoId}/board`)
+      const response = await authFetch(`${API_URL}/api/disputa/sessao/${targetSessaoId}/board`, { cache: 'no-store' })
       if (!response.ok) {
         throw new Error('Nao foi possivel carregar o board da disputa.')
       }
 
       const data = (await response.json()) as DisputaV3Board
+      // Resposta mais antiga que a já aplicada: descarta
+      if (minhaBusca < boardAplicadoRef.current) return
+      boardAplicadoRef.current = minhaBusca
       setBoard(data)
+      setBoardVersao((v) => v + 1)
       setSelectedItemId((current) => {
         if (current && [
           ...data.colunas.emDisputa,
@@ -123,9 +147,13 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
         setMeusLances([])
         return
       }
-      const res = await authFetch(`${API_URL}/api/disputa/sessao/${sid}/item/${iid}/lances-meus`)
+      const minhaBusca = ++ultimaBuscaMeusLancesRef.current
+      const res = await authFetch(`${API_URL}/api/disputa/sessao/${sid}/item/${iid}/lances-meus`, { cache: 'no-store' })
       if (!res.ok) return
       const data = (await res.json()) as DisputaV3LanceMeu[]
+      // Mais antiga que a já aplicada, ou de outro item (o licitante trocou de lote): descarta
+      if (minhaBusca < meusLancesAplicadoRef.current || iid !== selectedItemIdRef.current) return
+      meusLancesAplicadoRef.current = minhaBusca
       setMeusLances(Array.isArray(data) ? data : [])
     },
     [area, sessaoId, carregarActor],
@@ -217,7 +245,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     if (area !== 'fornecedor' || !sessaoId || !selectedItemId) return
     const id = setInterval(() => {
       void carregarMeusLances(sessaoId, selectedItemId)
-    }, 3000)
+    }, 10_000) // rede de segurança: lance e confirmação já recarregam a lista na hora
     return () => clearInterval(id)
   }, [area, sessaoId, selectedItemId, carregarMeusLances])
 
@@ -268,7 +296,21 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
       await refreshBoard(sessaoId)
     })
     // Modos de disputa (E2.4): troca de fase do item, contagem de lances fechados, retomada agendada
-    for (const evento of ['fase_item_alterada', 'lance_fechado_recebido', 'retomada_agendada']) {
+    // A troca de etapa do aberto-fechado vale NA HORA em que o aviso chega: o quadro completo
+    // pode demorar segundos (no ensaio do 2026/00075 a tela seguiu oferecendo "Enviar lance"
+    // por mais de 10 s depois de aberta a etapa do lance final fechado)
+    socket.on('fase_item_alterada', async (p: { itemId?: string; fase?: string }) => {
+      if (p?.itemId && p.fase) {
+        setBoard((atual) => {
+          if (!atual) return atual
+          const trocar = (itens: DisputaV3ItemBoard[]) => itens.map((i) => (i.id === p.itemId ? { ...i, faseModo: p.fase } : i))
+          return { ...atual, colunas: { ...atual.colunas, emDisputa: trocar(atual.colunas.emDisputa) } }
+        })
+      }
+      await refreshBoard(sessaoId)
+    })
+    socket.on('diligencia_atualizada', () => setDiligenciaVersao((v) => v + 1))
+    for (const evento of ['lance_fechado_recebido', 'retomada_agendada']) {
       socket.on(evento, async () => {
         await refreshBoard(sessaoId)
       })
@@ -295,7 +337,11 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     socket.on('erro', (payload: { mensagem?: string }) => {
       setSendingBid(false)
       setSendingMessage(false)
-      setActionError(payload?.mensagem || 'Erro ao operar a sala.')
+      const mensagem = payload?.mensagem || 'Erro ao operar a sala.'
+      setActionError(mensagem)
+      // O cartão de erro fica no topo da sala, fora da vista de quem está no campo de lance:
+      // o lance recusado (ex.: igual a outro já registrado) precisa aparecer na hora
+      toast.error(mensagem, { duration: 8000 })
     })
 
     return () => {
@@ -328,10 +374,10 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     socketRef.current.emit('retomar_sessao', { sessaoId })
   }, [sessaoId])
 
-  const reiniciarSessao = useCallback((justificativa: string) => {
+  const reiniciarSessao = useCallback((justificativa: string, confirmaVicio = false) => {
     if (!socketRef.current || !justificativa.trim()) return
     setActionError(null)
-    socketRef.current.emit('reiniciar_sessao', { sessaoId, justificativa: justificativa.trim() })
+    socketRef.current.emit('reiniciar_sessao', { sessaoId, justificativa: justificativa.trim(), confirmaVicio })
   }, [sessaoId])
 
   const enviarMensagem = useCallback((conteudo: string) => {
@@ -515,5 +561,7 @@ export function useSalaDisputa({ area, sessaoIdParam }: UseSalaDisputaOptions) {
     solicitarCancelamentoLance,
     pregoeiroCancelarLance,
     negociacaoVersao,
+    boardVersao,
+    diligenciaVersao,
   }
 }

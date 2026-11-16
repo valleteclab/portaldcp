@@ -1,0 +1,151 @@
+/*
+ * Andamento do processo (mockup aprovado em 06/10/2026). Usa as variáveis do
+ * tema do processo (.tema em processo.module.css) com reserva fora dele.
+ */
+.bloco {
+  background: var(--papel, #ffffff);
+  border: 1px solid var(--linha, #dbe0e7);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.topo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.titulo {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--apagado, #687282);
+}
+.fila {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 14px;
+  align-items: center;
+}
+.item {
+  display: flex;
+  align-items: center;
+}
+.seta {
+  flex-shrink: 0;
+  margin: 0 6px;
+  color: var(--linha, #b8c1cc);
+}
+.setaFeita {
+  color: var(--ok, #1d7443);
+}
+.cartao {
+  position: relative;
+  width: 150px;
+  min-height: 72px;
+  box-sizing: border-box;
+  padding: 8px 22px 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 17px;
+}
+.texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.detalhe {
+  font-size: 12px;
+  color: var(--tinta2, #3d4756);
+}
+.marca {
+  flex-shrink: 0;
+}
+.feita {
+  background: var(--ok-fundo, #e6f4ec);
+  border: 1px solid color-mix(in srgb, var(--ok, #1d7443) 40%, transparent);
+  color: var(--tinta, #17202c);
+}
+.feita .marca {
+  color: var(--ok, #1d7443);
+}
+.atual {
+  background: var(--azul-fundo, #e8efff);
+  border: 2px solid var(--azul, #1f4fd1);
+  box-shadow: 0 0 0 3px var(--azul-fundo, #e8efff);
+  color: var(--tinta, #17202c);
+}
+.atual .marca,
+.atual .detalhe {
+  color: var(--azul-tinta, #173b9c);
+}
+.atrasada {
+  background: var(--alerta-fundo, #fdeee6);
+  border-color: var(--alerta, #9a3412);
+  box-shadow: 0 0 0 3px var(--alerta-fundo, #fdeee6);
+}
+.atrasada .marca,
+.atrasada .detalhe {
+  color: var(--alerta, #9a3412);
+}
+.futura {
+  background: var(--papel, #ffffff);
+  border: 1px solid var(--linha, #dbe0e7);
+  color: var(--apagado, #687282);
+}
+.futura .detalhe {
+  color: var(--apagado, #687282);
+}
+.trava {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  color: var(--vez, #a4540a);
+  display: flex;
+}
+.legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 12px;
+  color: var(--apagado, #687282);
+}
+.legenda span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legenda span > svg {
+  color: var(--vez, #a4540a);
+}
+.legenda .amostra {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+.atrasadaAmostra {
+  background: var(--alerta-fundo, #fdeee6);
+  border: 1px solid var(--alerta, #9a3412);
+}
+@media (max-width: 480px) {
+  .cartao {
+    width: 132px;
+  }
+}

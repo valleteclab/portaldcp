@@ -19,11 +19,11 @@ export const INCISOS_ART23: IncisoArt23[] = ['I', 'II', 'III', 'IV', 'V'];
 
 export const PARAMETROS_ART23: Record<IncisoArt23, { titulo: string; texto: string }> = {
   I: {
-    titulo: 'Painel de preços / banco de preços (PNCP)',
+    titulo: 'Painel de Preços do governo federal',
     texto: 'Composição de custos unitários menores ou iguais à mediana do item no painel para consulta de preços ou no banco de preços em saúde disponíveis no PNCP.',
   },
   II: {
-    titulo: 'Contratações similares (último ano)',
+    titulo: 'Contratações similares no PNCP e em outros órgãos (último ano)',
     texto: 'Contratações similares feitas pela Administração Pública, em execução ou concluídas no período de 1 (um) ano anterior à data de pesquisa de preços.',
   },
   III: {
@@ -49,6 +49,16 @@ export const INCISO_DA_FONTE: Partial<Record<FontePesquisaTipo, IncisoArt23>> = 
   FORNECEDOR_DIRETO: 'IV',
   NOTA_FISCAL_ELETRONICA: 'V',
 };
+
+/**
+ * Inciso de UMA cotação. O banco "Fonte de Preços" entra no sistema como mídia
+ * especializada (é assim que a busca o seleciona), mas o que ele traz são
+ * preços de contratações públicas de outros órgãos — inciso II, não III.
+ */
+export function incisoDaCotacao(c: Pick<CotacaoPorFonte, 'fonte' | 'descricao_fonte' | 'observacao'>): IncisoArt23 | undefined {
+  if (/Fonte de Precos/i.test(`${c?.descricao_fonte || ''} ${c?.observacao || ''}`)) return 'II';
+  return INCISO_DA_FONTE[c.fonte];
+}
 
 /**
  * Registro de um parâmetro do art. 23, §1º. "Consultado sem retorno" é um
@@ -93,8 +103,12 @@ const fmtDiaBr = (dia: string | null | undefined) => {
 export function parametrosDaPesquisa(registrados: ParametroArt23[] | null | undefined, itens: ItemPesquisaPrecos[]): ParametroCalculado[] {
   const lista = Array.isArray(registrados) ? registrados : [];
   return INCISOS_ART23.map((inciso) => {
-    const cotacoes = (itens || []).flatMap((i) => i.cotacoes || []).filter((c) => INCISO_DA_FONTE[c.fonte] === inciso);
-    const reg = lista.find((p) => p?.inciso === inciso);
+    const cotacoes = (itens || []).flatMap((i) => i.cotacoes || []).filter((c) => incisoDaCotacao(c) === inciso);
+    const registrado = lista.find((p) => p?.inciso === inciso);
+    // "Sem retorno" gravado pela busca automática vale enquanto não há preço da
+    // fonte; quando um item traz preço, quem fala é a cotação (senão o cartão
+    // dizia "9 preços — nenhum preço retornado").
+    const reg = registrado && cotacoes.length && (registrado as any).registrado_por_nome === 'Busca automática' ? undefined : registrado;
     const base: ParametroArt23 = reg
       ? { ...reg, inciso }
       : cotacoes.length

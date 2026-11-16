@@ -5,6 +5,8 @@ import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { NegociacaoService } from './negociacao.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * NEGOCIAÇÃO (plano E3 item 4 — Lei 14.133 art. 61; IN SEGES 73/2022 art. 30).
@@ -18,6 +20,7 @@ import { NegociacaoService } from './negociacao.service';
  *    TOKEN e só a própria negociação (a de outro responde 404);
  *  - mensagem privada e leitura → órgão dono ou o próprio licitante.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('julgamento')
 export class NegociacaoController {
   constructor(

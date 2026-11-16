@@ -231,6 +231,10 @@ export type VisaoEvento = { tipo: 'ORGAO' } | { tipo: 'FORNECEDOR'; fornecedorId
  */
 export function eventoVisivel(evento: { dados_adicionais?: Record<string, any> | null }, visao: VisaoEvento): boolean {
   const d = evento?.dados_adicionais;
+  // Negociação da dispensa (canal NEGOCIACAO, IN 67 art. 16): privada entre o órgão e o negociado
+  if (d?.canal === 'NEGOCIACAO' && d.visibilidade == null) {
+    return visao.tipo === 'ORGAO' || (visao.tipo === 'FORNECEDOR' && !!d.fornecedor_id && String(d.fornecedor_id) === String(visao.fornecedorId));
+  }
   if (!d || (d.visibilidade !== VISIBILIDADE_PRIVADA && d.visibilidade !== VISIBILIDADE_PARTICIPANTES)) return true;
   if (visao.tipo === 'ORGAO') return true;
   if (d.visibilidade === VISIBILIDADE_PARTICIPANTES) return visao.tipo === 'FORNECEDOR';

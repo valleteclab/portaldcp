@@ -108,6 +108,10 @@ export default function ReservaPage() {
   const [renovar, setRenovar] = useState(false)
   const [renovarForm, setRenovarForm] = useState({ exercicio: "", motivo: "" })
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Homologação 07/11/2026: "Emitir" antes de a gravação automática terminar dava "Declare a adequação…".
+  // Emitir grava já o que espera o debounce e aguarda as gravações em curso.
+  const pendente = useRef<(() => Promise<void>) | null>(null)
+  const emCurso = useRef(new Set<Promise<void>>())
 
   const aplicar = (j: ReservaTela, manterLinhas = false) => {
     setD(j)
@@ -149,7 +153,7 @@ export default function ReservaPage() {
     return j
   }
 
-  const salvar = async (corpo: Record<string, unknown>) => {
+  const salvarAgora = async (corpo: Record<string, unknown>) => {
     setSalvando("salvando")
     try {
       await chamar("PUT", "", corpo, !("linhas" in corpo))
@@ -159,19 +163,33 @@ export default function ReservaPage() {
       toast.error(e instanceof Error ? e.message : String(e))
     }
   }
+  const salvar = (corpo: Record<string, unknown>) => {
+    const p = salvarAgora(corpo).finally(() => emCurso.current.delete(p))
+    emCurso.current.add(p)
+    return p
+  }
+  const aguardarGravacoes = async () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+    const agora = pendente.current
+    pendente.current = null
+    if (agora) void agora()
+    while (emCurso.current.size) await Promise.allSettled([...emCurso.current])
+  }
 
   const salvarLinhas = (novas: typeof linhas) => {
     setLinhas(novas)
     if (timer.current) clearTimeout(timer.current)
     const completas = novas.every((l) => l.exercicio && l.valor && numero(l.valor) > 0)
     if (!completas) return
-    timer.current = setTimeout(
-      () =>
-        salvar({
-          linhas: novas.map((l) => ({ exercicio: Number(l.exercicio), valor: numero(l.valor), situacao: l.situacao, numero_reserva: l.numero_reserva || null })),
-        }),
-      900,
-    )
+    const gravar = () => {
+      pendente.current = null
+      return salvar({
+        linhas: novas.map((l) => ({ exercicio: Number(l.exercicio), valor: numero(l.valor), situacao: l.situacao, numero_reserva: l.numero_reserva || null })),
+      })
+    }
+    pendente.current = gravar
+    timer.current = setTimeout(gravar, 900)
   }
 
   const acao = async (fn: () => Promise<unknown>, ok: string) => {
@@ -265,7 +283,7 @@ export default function ReservaPage() {
             >
               Devolver sem saldo
             </Button>
-            <Button disabled={ocupado || !r || !!d.conferencia?.bloqueios.length || !perm.pode} title={d.conferencia?.bloqueios.join(" ") || "Emite a informação orçamentária pelo modelo"} onClick={() => acao(() => chamar("POST", "/emitir"), "Informação orçamentária emitida e saldo reservado")}>
+            <Button disabled={ocupado || salvando === "salvando" || !r || !!d.conferencia?.bloqueios.length || !perm.pode} title={salvando === "salvando" ? "Gravando as alterações…" : d.conferencia?.bloqueios.join(" ") || "Emite a informação orçamentária pelo modelo"} onClick={() => acao(async () => { await aguardarGravacoes(); return chamar("POST", "/emitir") }, "Informação orçamentária emitida e saldo reservado")}>
               {ocupado ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />} Emitir e reservar saldo
             </Button>
           </>

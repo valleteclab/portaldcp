@@ -5,6 +5,8 @@ import { DonoFaseInternaGuard, DonoModo } from '../dono-fase-interna.guard';
 import { TarefasService } from '../tarefas/tarefas.service';
 import { RascunhoIaService } from './rascunho-ia.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etapa.guard';
+import { RequireModule } from '../../auth/require-module.decorator';
+import { ModuloSistema } from '../../orgaos/enums/modulos.enum';
 
 /**
  * RASCUNHO DA IA POR ETAPA (F4a). DonoFaseInternaGuard na classe: anônimo
@@ -13,6 +15,7 @@ import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from '../fluxo/trabalho-na-etap
  * rascunho é sempre procurado pelo par (processo, rascunho) — id de rascunho
  * de outro processo → 404. Autor sempre do JWT.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class RascunhoIaController {

@@ -1,12 +1,12 @@
 'use client'
 
+import { TabelaColocacao, TabelaUltimosLances, useLancesAoVivo } from '../LancesAoVivo'
 import { useState } from 'react'
 import { ArrowDown } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { Textarea } from '@/components/ui/textarea'
 import type { DisputaV3Contexto, DisputaV3ItemBoard, DisputaV3LanceMeu } from '../types'
@@ -19,19 +19,15 @@ import {
   formatarMoeda,
   getItemStatusClass,
   getItemStatusLabel,
+  reducaoSuspeita,
+  abaixoDoEstimado,
   textoCronometro,
 } from '../utils'
 import { percentualDoCiclo } from '../orgao/ItemEmFocoOrgao'
+import { lerValorMonetario, moedaDeNumero } from '@/lib/moeda'
+import { InputMoeda } from '@/components/ui/input-moeda'
 
-/**
- * Valor digitado → número. Com vírgula: formato brasileiro ("1.234,56");
- * sem vírgula: ponto decimal ("1234.56"). Nunca remove o ponto de "1234.56".
- */
-export function lerValorMonetario(texto: string): number {
-  const t = texto.trim().replace(/[R$\s]/g, '')
-  if (!t) return NaN
-  return t.includes(',') ? Number(t.replace(/\./g, '').replace(',', '.')) : Number(t)
-}
+export { lerValorMonetario } from '@/lib/moeda'
 
 function classePosicao(posicao?: number | null) {
   if (posicao === 1) return 'text-emerald-700'
@@ -54,6 +50,8 @@ function rotuloPosicao(posicao?: number | null) {
 export function PainelLancesFornecedor({
   item,
   contexto,
+  sessaoId,
+  atualizacao,
   meusLances,
   enviandoLance,
   enviandoCancelamento,
@@ -63,6 +61,9 @@ export function PainelLancesFornecedor({
 }: {
   item: DisputaV3ItemBoard | null
   contexto?: DisputaV3Contexto | null
+  /** Sessão e gatilho de atualização: ligam a colocação e os lances de todos, ao vivo, ao lado do campo do lance. */
+  sessaoId?: string
+  atualizacao?: unknown
   meusLances: DisputaV3LanceMeu[]
   enviandoLance?: boolean
   enviandoCancelamento?: boolean
@@ -73,6 +74,7 @@ export function PainelLancesFornecedor({
   const [valor, setValor] = useState('')
   const [erroValor, setErroValor] = useState<string | null>(null)
   const [confirmarFechado, setConfirmarFechado] = useState<number | null>(null)
+  const [confirmarReducao, setConfirmarReducao] = useState<{ valor: number; reducao: number | null; doEstimado: number | null } | null>(null)
   const [solicitarLanceId, setSolicitarLanceId] = useState<string | null>(null)
   const [motivo, setMotivo] = useState('')
 
@@ -85,6 +87,7 @@ export function PainelLancesFornecedor({
   const podeDarLance = item?.status === 'EM_DISPUTA' && item.possoDarLance !== false
   const descricaoFase = item ? descricaoFaseItem(item) : null
   const percentual = percentualDoCiclo(item, contexto)
+  const aoVivo = useLancesAoVivo(sessaoId, item?.id, atualizacao)
 
   const enviar = () => {
     if (!item || !valor) return
@@ -96,6 +99,12 @@ export function PainelLancesFornecedor({
     setErroValor(null)
     if (etapaFechada) {
       setConfirmarFechado(numero)
+      return
+    }
+    const reducao = direcao === 'MENOR' ? reducaoSuspeita(numero, Number(item.meuMelhorLance) || null) : null
+    const doEstimado = direcao === 'MENOR' ? abaixoDoEstimado(numero, Number(item.valorReferencia) || null) : null
+    if (reducao !== null || doEstimado !== null) {
+      setConfirmarReducao({ valor: numero, reducao, doEstimado })
       return
     }
     onLance(item.id, numero)
@@ -152,41 +161,26 @@ export function PainelLancesFornecedor({
               </Card>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm text-slate-600">
-                <span>{getItemStatusLabel(item)}</span>
-                <span>{percentual}% do ciclo atual restante</span>
-              </div>
-              <Progress value={percentual} />
-              {descricaoFase && (
-                <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">{descricaoFase}</div>
-              )}
-              <ItensDoLote item={item} visao="FORNECEDOR" />
-              {item.status === 'EM_DISPUTA' && item.possoDarLance === false && !ehLote(item) && (
-                <div className="rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-700">
-                  {item.meuLanceFechado != null
-                    ? 'Seu lance final fechado já foi registrado.'
-                    : 'Você não está entre os licitantes classificados para esta fase. Sua proposta/último lance continua na classificação.'}
-                </div>
-              )}
-            </div>
-
+            {/* Colocação de TODOS ao lado do campo do lance (dono, 09/11/2026): o licitante decide o lance
+                olhando a classificação, sem sair da tela nem rolar */}
             <div className="grid gap-4 md:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Meu painel de decisão</CardTitle>
+                  <CardTitle className="text-base">Colocação {item.status === 'EM_DISPUTA' ? 'ao vivo' : ''}</CardTitle>
+                  <CardDescription>
+                    {aoVivo && !aoVivo.identidades
+                      ? 'Todos os participantes e o melhor lance de cada um. Identificação por código até o fim da etapa de lances.'
+                      : 'Todos os participantes e o melhor lance de cada um.'}
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3 text-sm text-slate-600">
-                  <div className="flex items-center justify-between">
-                    <span>Diferença para o líder</span>
-                    <strong>{diferenca === null ? '-' : formatarMoeda(diferenca)}</strong>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Proposta inicial</span>
-                    <strong>{formatarMoeda(item.minhaPropostaInicial)}</strong>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Status do item</span>
+                <CardContent>
+                  {aoVivo && aoVivo.classificacao.length > 0 ? (
+                    <TabelaColocacao dados={aoVivo} altura="max-h-64" />
+                  ) : (
+                    <p className="text-sm text-slate-500">A colocação aparece quando a disputa do {ehLote(item) ? 'lote' : 'item'} começar.</p>
+                  )}
+                  <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                    <span>Minha proposta inicial: {formatarMoeda(item.minhaPropostaInicial)}</span>
                     <Badge className={getItemStatusClass(item)}>{getItemStatusLabel(item)}</Badge>
                   </div>
                 </CardContent>
@@ -196,7 +190,9 @@ export function PainelLancesFornecedor({
                 <CardHeader>
                   <CardTitle className="text-base">{etapaFechada ? 'Lance final fechado' : 'Novo lance'}</CardTitle>
                   <CardDescription>
-                    {etapaFechada
+                    {etapaFechada && item.possoDarLance === false && item.meuLanceFechado == null
+                      ? 'Você não foi convocado para o lance final: participam só a melhor oferta e as que estão até 10% dela (no mínimo três). Seu último lance continua valendo na classificação.'
+                      : etapaFechada
                       ? 'Um único lance, menor que o seu último valor, sigiloso até o fim do prazo. Para manter o último lance da etapa aberta, não envie.'
                       : item.valorPrimeiraColocacao != null
                         ? `Reinício para as demais colocações: o lance não pode alcançar ${formatarMoeda(item.valorPrimeiraColocacao)} (1ª colocação).`
@@ -211,23 +207,26 @@ export function PainelLancesFornecedor({
                   )}
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <Input
+                  <InputMoeda
                     value={valor}
-                    inputMode="decimal"
                     onChange={(e) => setValor(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') enviar()
                     }}
-                    placeholder="Digite o valor em R$"
+                    placeholder="R$ 0,00"
                     disabled={!podeDarLance || enviandoLance}
                   />
                   {erroValor && <p className="text-xs text-red-700">{erroValor}</p>}
+                  <div className="flex items-center justify-between px-1 text-sm text-slate-600">
+                    <span>Diferença para o líder</span>
+                    <strong>{diferenca === null ? '-' : formatarMoeda(diferenca)}</strong>
+                  </div>
                   <div className="flex items-center justify-between rounded-xl border bg-slate-50 px-3 py-2 text-sm text-slate-600">
                     <span>Sugestão</span>
                     <button
                       type="button"
                       className="font-medium text-emerald-700 disabled:text-slate-400"
-                      onClick={() => sugerido !== null && setValor(sugerido.toFixed(2).replace('.', ','))}
+                      onClick={() => sugerido !== null && setValor(moedaDeNumero(sugerido))}
                       disabled={sugerido === null}
                     >
                       {sugerido === null ? '-' : formatarMoeda(sugerido)}
@@ -244,12 +243,44 @@ export function PainelLancesFornecedor({
                 </CardContent>
               </Card>
 
-              <Card className="md:col-span-2">
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm text-slate-600">
+                <span>{getItemStatusLabel(item)}</span>
+                <span>{percentual}% do ciclo atual restante</span>
+              </div>
+              <Progress value={percentual} />
+              {descricaoFase && (
+                <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">{descricaoFase}</div>
+              )}
+              {item.status === 'EM_DISPUTA' && item.possoDarLance === false && !ehLote(item) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-700">
+                  {item.meuLanceFechado != null
+                    ? 'Seu lance final fechado já foi registrado.'
+                    : 'Você não está entre os licitantes classificados para esta fase. Sua proposta/último lance continua na classificação.'}
+                </div>
+              )}
+            </div>
+
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Últimos lances de todos</CardTitle>
+                  <CardDescription>Do mais recente para o mais antigo.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {aoVivo && aoVivo.lances.length > 0 ? <TabelaUltimosLances dados={aoVivo} /> : <p className="text-sm text-slate-500">Nenhum lance ainda.</p>}
+                </CardContent>
+              </Card>
+
+              <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Meus lances neste item</CardTitle>
                   <CardDescription>Até 15 segundos após o envio você pode cancelar diretamente. Depois disso, solicite ao pregoeiro.</CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-3 md:grid-cols-2">
+                <CardContent className="grid max-h-72 gap-3 overflow-auto">
                   {meusLances.length === 0 ? (
                     <p className="text-sm text-slate-500">Nenhum lance seu neste item ainda.</p>
                   ) : (
@@ -277,9 +308,48 @@ export function PainelLancesFornecedor({
                 </CardContent>
               </Card>
             </div>
+
+            <ItensDoLote item={item} visao="FORNECEDOR" />
           </>
         )}
       </CardContent>
+
+      <Dialog open={confirmarReducao !== null} onOpenChange={(o) => !o && setConfirmarReducao(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirmarReducao?.doEstimado != null ? 'Confirmar lance: indício de inexequibilidade' : 'Confirmar lance com redução grande'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-slate-700">
+            {confirmarReducao?.doEstimado != null && (
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                O lance de {formatarMoeda(confirmarReducao.valor)} equivale a {confirmarReducao.doEstimado}% do valor estimado ({formatarMoeda(Number(item?.valorReferencia) || 0)}) —
+                abaixo de 50% é indício de inexequibilidade (IN SEGES 73/2022, arts. 33 e 34). Se confirmar, o agente de contratação poderá exigir a comprovação da exequibilidade.
+              </p>
+            )}
+            {confirmarReducao?.reducao != null && (
+              <p>
+                O lance de {formatarMoeda(confirmarReducao.valor)} é {confirmarReducao.reducao}% menor que o seu último ({formatarMoeda(Number(item?.meuMelhorLance) || 0)}).
+              </p>
+            )}
+            <p>{ehLote(item) ? 'O lance é pelo valor global do lote.' : 'O lance é pelo valor TOTAL do item, não pelo preço unitário.'} Confira antes de enviar.</p>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setConfirmarReducao(null)}>Corrigir o valor</Button>
+            <Button
+              type="button"
+              disabled={enviandoLance || !item || confirmarReducao === null}
+              onClick={() => {
+                if (!item || confirmarReducao === null) return
+                onLance(item.id, confirmarReducao.valor)
+                setValor('')
+                setConfirmarReducao(null)
+              }}
+            >
+              Enviar mesmo assim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirmarFechado !== null} onOpenChange={(o) => !o && setConfirmarFechado(null)}>
         <DialogContent>

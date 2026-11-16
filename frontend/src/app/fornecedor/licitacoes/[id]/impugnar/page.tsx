@@ -28,6 +28,7 @@ import { abrirArquivoAutenticado } from '@/lib/arquivo-autenticado'
 
 interface Licitacao {
   id: string
+  modalidade?: string
   numero_processo: string
   objeto: string
   fase: string
@@ -229,6 +230,7 @@ export default function ImpugnarPage() {
       </div>
 
       {/* Informações */}
+      {!(licitacao?.modalidade === 'DISPENSA_ELETRONICA') && (
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="pt-6">
           <div className="flex items-start gap-3">
@@ -248,6 +250,7 @@ export default function ImpugnarPage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Formulário de Nova Impugnação */}
       {podeImpugnar() ? (
@@ -356,7 +359,9 @@ export default function ImpugnarPage() {
           <CardContent className="py-8 text-center">
             <AlertCircle className="h-12 w-12 mx-auto mb-4 text-slate-400" />
             <p className="text-muted-foreground">
-              O prazo para impugnação já encerrou (até 3 dias úteis antes da abertura do certame — art. 164 da Lei 14.133/2021).
+              {licitacao?.modalidade === 'DISPENSA_ELETRONICA'
+                ? <>Na dispensa eletrônica não há impugnação (IN SEGES 67/2021; o art. 164 trata do edital de licitação): fale com o órgão pelas mensagens da <a className="underline" href={`/fornecedor/licitacoes/${licitacao.id}/sala`}>sala da sessão</a>.</>
+                : 'O prazo para impugnação já encerrou (até 3 dias úteis antes da abertura do certame — art. 164 da Lei 14.133/2021).'}
             </p>
           </CardContent>
         </Card>

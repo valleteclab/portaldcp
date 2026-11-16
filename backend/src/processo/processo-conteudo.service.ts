@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { RegistroNos, type EventoFluxo } from '../workflow/nos/executor-no';
+import { definicaoDoNo } from '../workflow/nos/catalogo-nos';
 import { ModuleRef } from '@nestjs/core';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -7,6 +9,7 @@ import { Processo, TipoProcesso } from './entities/processo.entity';
 import { ProcessoService } from './processo.service';
 import { ProcessoTramitacaoService } from './processo-tramitacao.service';
 import { temTramitacaoPropria } from './processo-tramitacao-regras';
+import { etapaDaLicitacao } from './processo-regras';
 
 export interface PosseResumida {
   setor_nome: string | null;
@@ -33,7 +36,7 @@ export interface PosseResumida {
  * esqueleto) devolvem estruturas vazias com `disponivel: false`.
  */
 @Injectable()
-export class ProcessoConteudoService {
+export class ProcessoConteudoService implements OnModuleInit {
   private readonly logger = new Logger(ProcessoConteudoService.name);
 
   constructor(
@@ -41,7 +44,55 @@ export class ProcessoConteudoService {
     private readonly moduleRef: ModuleRef,
     private readonly processos: ProcessoService,
     private readonly tramitacaoPropria: ProcessoTramitacaoService,
+    private readonly registro: RegistroNos,
   ) {}
+
+  /** Ponte: na contratação com fluxo desenhado, a posse da fase interna vai para quem responde pela etapa. */
+  onModuleInit(): void {
+    this.registro.registrarOuvinte({ aoEvento: (e) => this.posseDaContratacao(e) });
+    this.registro.registrarOuvinte({ aoEvento: (e) => this.encerrarAoFimDoFluxo(e) });
+  }
+
+  /**
+   * PROCESSO AVULSO QUE SEGUE UM FLUXO (homologação 08/11/2026): com todas as
+   * etapas concluídas, o processo continuava "Em andamento" e parado no último
+   * setor, sem como encerrar (o encerramento manual é bloqueado enquanto há
+   * fluxo). Ao concluir o fluxo, o processo avulso é encerrado com o motivo.
+   * Contratação, aditivo e renovação seguem as regras próprias.
+   */
+  private async encerrarAoFimDoFluxo(e: EventoFluxo): Promise<void> {
+    if (e.tipo !== 'FLUXO_CONCLUIDO' || !e.ctx.processoId) return;
+    try {
+      await this.ds.query(
+        `UPDATE processos SET situacao = 'ENCERRADO', encerrado_em = now(), motivo_encerramento = $3
+          WHERE id::text = $1 AND orgao_id::text = $2 AND tipo::text = 'AVULSO' AND situacao::text = 'ABERTO'`,
+        [e.ctx.processoId, e.ctx.orgaoId, 'Fluxo concluído: todas as etapas foram feitas.'],
+      );
+    } catch (err) {
+      this.logger.warn(`Processo ${e.ctx.processoId} não foi encerrado ao fim do fluxo: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  private async posseDaContratacao(e: EventoFluxo): Promise<void> {
+    if (e.tipo !== 'TAREFA_CRIADA' || !e.ctx.processoId || definicaoDoNo(e.ctx.acao.tipo)?.automatico) return;
+    const { tarefa, instancia, acao, orgaoId, processoId } = e.ctx;
+    const [p] = await this.ds.query(`SELECT tipo, referencia_tipo, referencia_id::text AS referencia_id FROM processos WHERE id::text = $1 AND orgao_id::text = $2`, [processoId, orgaoId]);
+    if (!p || p.tipo !== TipoProcesso.CONTRATACAO || p.referencia_tipo !== 'LICITACAO' || !p.referencia_id) return;
+    const lista = Array.isArray(tarefa.responsaveis) ? tarefa.responsaveis.map(String) : [];
+    const tipo = String(tarefa.responsavel_tipo).toUpperCase();
+    const para = tipo === 'SETOR' ? { setor_id: lista[0] } : tipo === 'USUARIO' ? { usuario_id: lista[0] } : tipo === 'SOLICITANTE' ? { usuario_id: instancia.iniciado_por_id } : null;
+    if (!para || !Object.values(para)[0]) return;
+    const tram = this.servico<any>('../fase-interna/tramitacao.service', 'TramitacaoService');
+    if (!tram) return;
+    const atual = await tram.comQuemEsta(p.referencia_id).catch(() => null);
+    if (atual && ((para as any).setor_id ? atual.setor?.id === (para as any).setor_id && !atual.usuario : atual.usuario?.id === (para as any).usuario_id)) return;
+    const ator: Ator = { tipo: 'ORGAO', id: orgaoId, orgaoId, usuarioId: null, fornecedorId: null, admin: false, role: null };
+    try {
+      await tram.enviar({ licitacaoId: p.referencia_id, para, automatico: true, despacho: `Encaminhado pelo fluxo: etapa “${acao.nome}”.`, ator });
+    } catch (err) {
+      this.logger.warn(`Posse da contratação ${p.referencia_id} não acompanhou o fluxo: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 
   private servico<T>(caminho: string, nome: string): T | null {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -114,7 +165,13 @@ export class ProcessoConteudoService {
     const { licId, tram } = this.tramitacaoDaLicitacao(p);
     return tram.tramitar(
       licId,
-      { para_setor_id: body?.para_setor_id ?? null, para_usuario_id: body?.para_usuario_id ?? null, despacho: body?.despacho ?? null, prazo_dias_uteis: body?.prazo_dias_uteis ?? null },
+      {
+        para_setor_id: body?.para_setor_id ?? null,
+        para_usuario_id: body?.para_usuario_id ?? null,
+        despacho: body?.despacho ?? null,
+        prazo_dias_uteis: body?.prazo_dias_uteis ?? null,
+        justificativa_fora_do_fluxo: body?.justificativa_fora_do_fluxo ?? null,
+      },
       ator,
     );
   }
@@ -133,40 +190,22 @@ export class ProcessoConteudoService {
     return tram.devolver(atual.id, String(body?.motivo ?? body?.despacho ?? '').trim(), ator, {});
   }
 
-  /** Setores e pessoas do órgão + o destino sugerido pelo fluxo da fase interna (sugestão, nunca trava). */
+  /** Setores e pessoas do órgão (destino do envio manual). */
   async destinosLicitacao(p: Processo, ator: Ator) {
     const { licId } = this.tramitacaoDaLicitacao(p);
     const [setores, usuarios] = await Promise.all([
       this.ds.query(`SELECT id::text AS id, nome, chefe_usuario_id::text AS chefe_usuario_id FROM setores WHERE orgao_id::text = $1 ORDER BY nome ASC`, [p.orgao_id]),
       this.ds.query(`SELECT id::text AS id, nome, cargo, setor_id::text AS setor_id FROM usuarios WHERE orgao_id::text = $1 AND ativo = true ORDER BY nome ASC LIMIT 500`, [p.orgao_id]),
     ]);
-    let sugerido: { setor_id: string | null; setor_nome: string | null; usuario_id: string | null; motivo: string } | null = null;
-    let despacho_sugerido: string | null = null;
-    const integracao = this.servico<any>('../fase-interna/fluxo/integracao-fluxo.service', 'IntegracaoFluxoService');
-    if (integracao) {
-      try {
-        const s = await integracao.sugestaoEnvio(licId, ator);
-        const d = (s?.destinos ?? []).find((x: any) => x.principal) ?? (s?.destinos ?? [])[0] ?? null;
-        if (d) {
-          const setor = d.setor_id ? setores.find((x: any) => x.id === String(d.setor_id)) : null;
-          const titulos = Array.isArray(d.etapas) ? [...new Set(d.etapas.map((e: any) => (Array.isArray(e) ? e[1] ?? e[0] : e)).filter(Boolean))] : [];
-          sugerido = {
-            setor_id: d.setor_id ? String(d.setor_id) : null,
-            setor_nome: setor?.nome ?? d.rotulo ?? null,
-            usuario_id: d.usuario_id ? String(d.usuario_id) : null,
-            motivo: titulos.length ? `Responsável pela etapa seguinte: ${titulos.join('; ')}.` : 'Responsável pela etapa seguinte do fluxo.',
-          };
-        }
-        despacho_sugerido = s?.despacho_sugerido ?? null;
-      } catch (e) {
-        this.logger.warn(`Sugestão de envio da licitação ${licId} indisponível: ${e instanceof Error ? e.message : e}`);
-      }
-    }
+    // Um motor só (11/2026): a sugestão de destino do motor antigo saiu — a próxima etapa é do fluxo
+    // do processo, e o envio por aqui é manual. Os campos ficam (nulos) para a tela não mudar.
+    const sugerido: { setor_id: string | null; setor_nome: string | null; usuario_id: string | null; motivo: string } | null = null;
+    const despacho_sugerido: string | null = null;
     return { processo_id: p.id, setores, usuarios, sugerido, despacho_sugerido };
   }
 
   /** "Está com" de vários processos do mesmo órgão em duas consultas (lista), sem uma chamada por linha. */
-  async comPosse(lista: Processo[]): Promise<Array<Processo & { esta_com: PosseResumida | null }>> {
+  async comPosse(lista: Processo[]): Promise<Array<Processo & { esta_com: PosseResumida | null; etapa: (ReturnType<typeof etapaDaLicitacao> & { licitacao_id: string }) | null }>> {
     if (!lista.length) return [];
     const orgaoId = lista[0].orgao_id;
     const posse = new Map<string, PosseResumida>();
@@ -192,7 +231,31 @@ export class ProcessoConteudoService {
       }
     }
 
-    return lista.map((p) => Object.assign(p, { esta_com: posse.get(p.id) ?? null }));
+    // Onde a licitação está (fase, situação, sessão e contratos) — a lista mostrava só "Em andamento"
+    const etapas = new Map<string, ReturnType<typeof etapaDaLicitacao> & { licitacao_id: string }>();
+    if (comLicitacao.length) {
+      const ids = comLicitacao.map((p) => String(p.referencia_id));
+      const rows: Array<{ id: string; fase: string; situacao: string; modalidade: string; tem_sessao: boolean; contratos: Array<{ status: string }> | null }> =
+        await this.ds.query(
+          `SELECT l.id::text AS id, l.fase::text AS fase, l.situacao::text AS situacao, l.modalidade::text AS modalidade,
+                  EXISTS (SELECT 1 FROM sessoes_disputa s WHERE s.licitacao_id = l.id AND s.status::text <> 'AGUARDANDO_INICIO') AS tem_sessao,
+                  (SELECT json_agg(json_build_object('status', c.status::text)) FROM contratos c WHERE c.licitacao_id = l.id) AS contratos
+             FROM licitacoes l WHERE l.id::text = ANY($1::text[])`,
+          [ids],
+        );
+      const porId = new Map(rows.map((r) => [r.id, r]));
+      for (const p of comLicitacao) {
+        const r = porId.get(String(p.referencia_id));
+        if (r) {
+          etapas.set(p.id, {
+            ...etapaDaLicitacao({ fase: r.fase, situacao: r.situacao, modalidade: r.modalidade, temSessao: r.tem_sessao, contratos: r.contratos ?? [] }),
+            licitacao_id: r.id,
+          });
+        }
+      }
+    }
+
+    return lista.map((p) => Object.assign(p, { esta_com: posse.get(p.id) ?? null, etapa: etapas.get(p.id) ?? null }));
   }
 
   async fluxo(p: Processo, ator: Ator) {
@@ -284,7 +347,7 @@ export class ProcessoConteudoService {
       const [lic] = await this.ds.query(
         `SELECT id::text AS id, numero_processo, numero_edital, modalidade::text AS modalidade, fase::text AS fase, situacao::text AS situacao,
                 valor_total_estimado, fundamento_legal, criterio_julgamento::text AS criterio_julgamento, nome_unidade_compradora,
-                numero_controle_pncp, srp, data_publicacao_edital
+                numero_controle_pncp, srp, data_publicacao_edital, modalidade_definida
            FROM licitacoes WHERE id::text = $1`,
         [licId],
       );

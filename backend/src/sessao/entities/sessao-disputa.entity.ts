@@ -186,6 +186,24 @@ export class SessaoDisputa {
   @Column({ default: false })
   chat_desabilitado: boolean;
 
+  // === FILA AUTOMÁTICA (dono, 09/11/2026 — fila-disputa.regras.ts) ===
+  /** A fila abre sozinha a próxima unidade quando há vaga (até `fila_max_simultaneos`). */
+  @Column({ default: false })
+  fila_ativa: boolean;
+
+  @Column({ type: 'int', nullable: true })
+  fila_max_simultaneos: number | null;
+
+  /** Aviso prévio anunciado na sala antes de abrir cada unidade (0 a 10 min). */
+  @Column({ type: 'int', default: 0 })
+  fila_aviso_minutos: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  fila_proxima_unidade_id: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  fila_proxima_abertura_em: Date | null;
+
   // === ANONIMIZAÇÃO ===
   // Por padrão TRUE (Lei 14.133/2021) - identidade dos fornecedores é sigilosa durante disputa
   @Column({ default: true })

@@ -217,6 +217,16 @@ describe('E7a — publicação, prazos (art. 55/183), retificação (art. 55 §1
   describe('2. Edital real (art. 54) — sem PDF em branco', () => {
     let lic: LicitacaoFixture;
 
+    it('sem pregoeiro ou agente designado não publica (art. 8º); designado, publica', async () => {
+      const sem = await prontaParaPublicar(A, ModalidadeLicitacao.PREGAO_ELETRONICO, { extras: { pregoeiro_nome: '' } });
+      const corpo = corpoPublicacao(new Date(minimoAbertura(A.id, 9).getTime()));
+      const r = await publicar(sem, corpo);
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(/Designe o pregoeiro do processo antes de publicar/);
+      await http().put(`/api/licitacoes/${sem.id}`).set(bearer(A.token)).send({ pregoeiro_nome: 'Lia Licitações' }).expect(200);
+      expect((await publicar(sem, corpo)).status).toBe(200);
+    });
+
     it('pregão sem edital anexado não publica', async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.PREGAO_ELETRONICO);
       await levarAteFase(ctx, lic, FaseLicitacao.ANALISE_JURIDICA);

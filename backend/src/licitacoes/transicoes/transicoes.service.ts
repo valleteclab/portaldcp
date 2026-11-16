@@ -38,6 +38,7 @@ import {
 } from './transicoes.tipos';
 import { conferenciaArt48Sql } from '../../julgamento/me-epp/beneficio-mpe.sql';
 import { habilitacaoPreviaPendenteSql, unidadesSemHabilitadoSql } from '../../habilitacao/habilitacao.sql';
+import { vencedoresDispensaSemHabilitacaoSql } from '../dispensa/pos-julgamento.sql';
 import { estadoRecursalSql } from '../../sessao/recursos.sql';
 import {
   editalVigenteSql,
@@ -502,6 +503,7 @@ export class TransicoesService {
       conferenciaArt48: () => conferenciaArt48Sql(manager, licitacaoId),
       habilitacaoPreviaPendente: () => habilitacaoPreviaPendenteSql(manager, licitacaoId),
       unidadesSemHabilitado: () => unidadesSemHabilitadoSql(manager, licitacaoId),
+      vencedoresDispensaSemHabilitacao: () => vencedoresDispensaSemHabilitacaoSql(manager, licitacaoId),
       estadoRecursal: () => estadoRecursalSql(manager, licitacaoId),
       // Publicação (E7a)
       editalVigente: () => editalVigenteSql(manager, licitacaoId),

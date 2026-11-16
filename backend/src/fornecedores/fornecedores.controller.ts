@@ -1,3 +1,4 @@
+import { comLimiteDeLogin } from '../common/limite-login';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Req, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { FornecedoresService } from './fornecedores.service';
 import { CreateFornecedorDto, UpdateFornecedorDto } from './dto/create-fornecedor.dto';
@@ -8,7 +9,7 @@ import { Public } from '../auth/public.decorator';
 import { AuditService, AuditAction } from '../audit/audit.service';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
 import { atorDaRequisicao, ehFornecedor, ehOrgao } from '../auth/acesso/ator';
-import { SomenteOrgao } from '../auth/acesso/acesso.decorators';
+import { AutenticacaoOpcional, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 
 @Controller('fornecedores')
 export class FornecedoresController {
@@ -73,6 +74,16 @@ export class FornecedoresController {
     }
   }
 
+  /** Só o PRÓPRIO fornecedor (ou o admin): chave de API e dados cadastrais não são do órgão. */
+  private exigirProprioFornecedor(req: any, fornecedorId: string): void {
+    const ator = atorDaRequisicao(req);
+    if (!ator) throw new UnauthorizedException('Autenticação necessária');
+    if (ator.admin) return;
+    if (ehFornecedor(ator) && ator.fornecedorId === fornecedorId) return;
+    this.auditService.logAccessDenied(req.user, 'Fornecedor', fornecedorId, req?.ip);
+    throw new ForbiddenException('Ação exclusiva do próprio fornecedor');
+  }
+
   // === CONSULTA CNPJ ===
   @Public()
   @Get('consultar-cnpj/:cnpj')
@@ -80,13 +91,16 @@ export class FornecedoresController {
     return await this.fornecedoresService.consultarCnpj(cnpj);
   }
 
-  @Public()
+  /** Pública (cadastro): só diz se existe. Órgão e admin logados recebem também id, razão social e CNPJ. */
+  @AutenticacaoOpcional()
   @Get('verificar-cnpj/:cnpj')
   async verificarCnpjExistente(
     @Param('cnpj') cnpj: string,
+    @Req() req: any,
     @Query('email') email?: string
   ) {
-    return await this.fornecedoresService.verificarCnpjExistente(cnpj, email);
+    const ator = atorDaRequisicao(req);
+    return await this.fornecedoresService.verificarCnpjExistente(cnpj, email, !!(ator?.admin || ehOrgao(ator)));
   }
 
   @Post('orgao/cadastro-rapido')
@@ -129,7 +143,7 @@ export class FornecedoresController {
 
   @Put(':id/atualizar-cnpj')
   async atualizarDadosCnpj(@Param('id') id: string, @Req() req: any): Promise<Fornecedor> {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.atualizarDadosCnpj(id);
   }
 
@@ -141,22 +155,32 @@ export class FornecedoresController {
     return await this.fornecedoresService.create(createDto);
   }
 
+  /** Lista de fornecedores: só órgão e admin (fornecedor não baixa a base dos concorrentes). CPF do representante só para o admin. */
   @Get()
-  async findAll() {
-    return await this.fornecedoresService.findAll();
+  @SomenteOrgao()
+  async findAll(@Req() req: any) {
+    const lista: any[] = await this.fornecedoresService.findAll();
+    if (atorDaRequisicao(req)?.admin) return lista;
+    return lista.map(({ representante_cpf: _c, api_key_hash: _k, spedy_api_key: _s, spedy_company_id: _i, ...resto }) => resto);
   }
 
   @Get(':id')
   async findOne(@Param('id') id: string, @Req() req: any) {
+    this.validarOwnership(req.user, id, req);
     const f: any = await this.fornecedoresService.findOne(id);
     // nunca devolve hash de senha/API key; chave da Spedy só ao próprio fornecedor ou ADMIN
     const { senha: _s, api_key_hash: _k, ...resto } = f;
     const ator = atorDaRequisicao(req);
-    if (!(ator?.admin || (ehFornecedor(ator) && ator.fornecedorId === id))) delete resto.spedy_api_key;
+    if (!(ator?.admin || (ehFornecedor(ator) && ator.fornecedorId === id))) {
+      delete resto.spedy_api_key;
+      delete resto.spedy_company_id;
+      delete resto.representante_cpf;
+    }
     return resto;
   }
 
   @Get('cpf-cnpj/:cpfCnpj')
+  @SomenteOrgao()
   async findByCpfCnpj(@Param('cpfCnpj') cpfCnpj: string) {
     return await this.fornecedoresService.findByCpfCnpj(cpfCnpj);
   }
@@ -220,7 +244,7 @@ export class FornecedoresController {
     @Req() req: any,
   ): Promise<FornecedorDocumento> {
     // só o próprio fornecedor (ou órgão/admin, como antes) grava no cadastro
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.addDocumento(id, documento);
   }
 
@@ -284,7 +308,8 @@ export class FornecedoresController {
   }
 
   @Get(':id/habilitacao')
-  async verificarHabilitacao(@Param('id') id: string) {
+  async verificarHabilitacao(@Param('id') id: string, @Req() req: any) {
+    this.validarOwnership(req.user, id, req);
     return await this.fornecedoresService.verificarHabilitacao(id);
   }
 
@@ -340,7 +365,7 @@ export class FornecedoresController {
   async login(
     @Body() body: { email: string; senha: string }
   ): Promise<{ fornecedor: Fornecedor; token: string }> {
-    const result = await this.authService.loginFornecedorPorEmail(body.email, body.senha);
+    const result = await comLimiteDeLogin('fornecedor', body?.email, () => this.authService.loginFornecedorPorEmail(body.email, body.senha));
     return {
       fornecedor: result.fornecedor as Fornecedor,
       token: result.token,
@@ -422,7 +447,7 @@ export class FornecedoresController {
     },
     @Req() req: any
   ): Promise<Fornecedor> {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.salvarHabilitacaoJuridica(id, body);
   }
 
@@ -436,7 +461,7 @@ export class FornecedoresController {
     },
     @Req() req: any
   ): Promise<Fornecedor> {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.salvarFiscalFederal(id, body);
   }
 
@@ -451,7 +476,7 @@ export class FornecedoresController {
     },
     @Req() req: any
   ): Promise<Fornecedor> {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.salvarFiscalEstadual(id, body);
   }
 
@@ -461,7 +486,7 @@ export class FornecedoresController {
     @Body() body: { atestados: Array<{ emissor: string; data: string; descricao: string }> },
     @Req() req: any
   ): Promise<Fornecedor> {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.salvarQualificacaoTecnica(id, body.atestados);
   }
 
@@ -471,7 +496,7 @@ export class FornecedoresController {
     @Body() body: { balancos: Array<{ ano: string; tipo: string; exercicioFinanceiro: string }> },
     @Req() req: any
   ): Promise<Fornecedor> {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.salvarQualificacaoEconomica(id, body.balancos);
   }
 
@@ -593,7 +618,7 @@ export class FornecedoresController {
    */
   @Get(':id/api-key')
   async statusApiKey(@Param('id') id: string, @Req() req: any) {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.statusApiKey(id);
   }
 
@@ -604,7 +629,7 @@ export class FornecedoresController {
    */
   @Post(':id/api-key')
   async gerarApiKey(@Param('id') id: string, @Req() req: any) {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     return await this.fornecedoresService.gerarApiKey(id);
   }
 
@@ -614,7 +639,7 @@ export class FornecedoresController {
    */
   @Delete(':id/api-key')
   async revogarApiKey(@Param('id') id: string, @Req() req: any) {
-    this.validarOwnership(req.user, id, req);
+    this.exigirProprioFornecedor(req, id);
     await this.fornecedoresService.revogarApiKey(id);
     return { message: 'API Key revogada com sucesso' };
   }

@@ -1,5 +1,7 @@
 'use client'
 
+import { lerValorMonetario } from '@/lib/moeda'
+import { InputMoeda } from '@/components/ui/input-moeda'
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, Clock3, RefreshCw, ShieldCheck, XCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
@@ -74,7 +76,7 @@ export function DesempateMeEppFornecedorPanel({ sessaoId }: { sessaoId: string }
     setErro(null)
     setOcupado(true)
     try {
-      const corpo = acao === 'exercer' ? { valor: Number(String(valores[c.id] ?? '').replace(',', '.')) } : {}
+      const corpo = acao === 'exercer' ? { valor: lerValorMonetario(String(valores[c.id] ?? '')) } : {}
       const res = await authFetch(`${API_URL}/api/julgamento/sessao/${sessaoId}/me-epp/${c.id}/${acao}`, {
         method: 'POST',
         body: JSON.stringify(corpo),
@@ -119,7 +121,7 @@ export function DesempateMeEppFornecedorPanel({ sessaoId }: { sessaoId: string }
           const pausado = !!c.prazoPausado
           const aberta = c.status === 'AGUARDANDO' && !pausado && new Date(c.prazoAte).getTime() > agora
           const rotulo = c.unidade ? `${c.unidade.tipo === 'LOTE' ? 'Lote' : 'Item'} ${c.unidade.numero}` : 'Unidade'
-          const valor = Number(String(valores[c.id] ?? '').replace(',', '.'))
+          const valor = lerValorMonetario(String(valores[c.id] ?? ''))
           const valido = Number.isFinite(valor) && valor > 0 && valor < c.valorACobrir
           return (
             <div key={c.id} className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
@@ -171,12 +173,11 @@ export function DesempateMeEppFornecedorPanel({ sessaoId }: { sessaoId: string }
                         <label className="text-xs text-slate-600" htmlFor={`mpe-${c.id}`}>
                           Nova oferta ({c.tipoUnidade === 'LOTE' ? 'valor global do lote' : 'valor do item'}) — menor que {formatarMoeda(c.valorACobrir)}
                         </label>
-                        <Input
+                        <InputMoeda
                           id={`mpe-${c.id}`}
-                          inputMode="decimal"
                           value={valores[c.id] ?? ''}
                           onChange={(e) => setValores((v) => ({ ...v, [c.id]: e.target.value }))}
-                          placeholder="0,00"
+                          placeholder="R$ 0,00"
                         />
                       </div>
                       <Button onClick={() => responder(c, 'exercer')} disabled={ocupado || !valido}>

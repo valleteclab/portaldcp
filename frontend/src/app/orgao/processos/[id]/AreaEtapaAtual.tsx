@@ -15,7 +15,6 @@ import { ContratosProcesso } from "./ContratosProcesso"
 import { EtapaDispensa } from "./EtapaDispensa"
 import { ConsumoLimiteDispensa } from "./ConsumoLimiteDispensa"
 import { PecasFaseInterna } from "./PecasFaseInterna"
-import { FluxoFaseInterna } from "./FluxoFaseInterna"
 import type { EtapasFluxo } from "./useEtapasFluxo"
 import { PublicacaoEdital, MODALIDADES_COMPETITIVAS } from "./PublicacaoEdital"
 import { SessaoPublicaCard } from "./SessaoPublicaCard"
@@ -107,7 +106,7 @@ export function AreaEtapaAtual({
 
       {/* Publicação: checklist de pré-publicação (fase interna e aguardando o PNCP) */}
       {(interna || aguardando) && !encerrada && (
-        <div className="rounded-lg border bg-white p-4 space-y-4">
+        <div className="rounded-lg border bg-white p-4 space-y-4" data-guia="publicacao">
           <ChecklistPrePublicacao
             licitacaoId={id}
             dados={dados}
@@ -118,7 +117,6 @@ export function AreaEtapaAtual({
             onAtualizado={onAtualizado}
           />
           {dispensa && <ConsumoLimiteDispensa licitacaoId={id} atualizacao={dados} />}
-          {interna && <FluxoFaseInterna licitacaoId={id} atualizacao={dados} fluxo={fluxo} interna={interna && ativa} onAtualizado={onAtualizado} />}
           {interna && (
             <PecasFaseInterna licitacaoId={id} mostrarCopiloto={!l.preparacao_automatica || l.preparacao_automatica.status === "ERRO"} atualizacao={dados} onAtualizado={onAtualizado} permissoes={fluxo?.dados?.permissoes_trabalho ?? null} />
           )}
@@ -176,7 +174,7 @@ export function AreaEtapaAtual({
         </div>
       )}
 
-      {mostrarResultado && <ResultadoPanel licitacaoId={id} onAtualizado={onAtualizado} />}
+      {mostrarResultado && <ResultadoPanel licitacaoId={id} onAtualizado={onAtualizado} atualizacao={dados} />}
 
       {/* Disputa em plataforma externa: troca de arquivos com a BLL Compras */}
       {!dispensa && checklist.possui_itens && (

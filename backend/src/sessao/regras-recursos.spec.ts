@@ -1,5 +1,6 @@
 import { fimDoPrazoEmDiasUteis, limiteDiasUteisAntes } from '../common/prazos/dias-uteis';
 import { AtoRecorrido, StatusRecurso } from './entities/recurso-administrativo.entity';
+import { MOMENTO_JANELA, motivoIntencaoPreviaEmEspera } from './regras-recursos';
 import {
   atrasosDoRecurso,
   desfechoDaFaseRecursal,
@@ -169,5 +170,14 @@ describe('Efeito do provimento (art. 165 §3º)', () => {
     expect(desfechoDaFaseRecursal({ unidadesSemAceite: 0, resultadoAlterado: false })).toBe('DECIDIR_RECURSOS');
     expect(desfechoDaFaseRecursal({ unidadesSemAceite: 0, resultadoAlterado: true })).toBe('RETORNAR_HABILITACAO');
     expect(desfechoDaFaseRecursal({ unidadesSemAceite: 2, resultadoAlterado: true })).toBe('RETORNAR_JULGAMENTO');
+  });
+
+  describe('inversão de fases: intenção da habilitação prévia fica em espera', () => {
+    test('só a janela prévia espera; apreciável com a janela final encerrada', () => {
+      expect(motivoIntencaoPreviaEmEspera('FINAL', false)).toBeNull();
+      expect(motivoIntencaoPreviaEmEspera(null, false)).toBeNull();
+      expect(motivoIntencaoPreviaEmEspera(MOMENTO_JANELA.HABILITACAO_PREVIA, false)).toMatch(/depois do julgamento/);
+      expect(motivoIntencaoPreviaEmEspera(MOMENTO_JANELA.HABILITACAO_PREVIA, true)).toBeNull();
+    });
   });
 });

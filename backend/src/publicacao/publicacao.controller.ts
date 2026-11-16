@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { memoryStorage } from 'multer';
 import { DataSource } from 'typeorm';
+import { ModuleRef } from '@nestjs/core';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { AtorAtual, AutenticacaoOpcional, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor } from '../auth/acesso/ator';
@@ -30,6 +31,8 @@ import { avaliarPrazosDePublicacao, exigeNaturezaDoObjeto, naturezaEfetiva } fro
 import { RetificacaoService } from './retificacao.service';
 import { DivulgacaoService } from './divulgacao.service';
 import { exigirExtincao } from '../licitacoes/permissao-atos-processo';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 const UPLOAD_EDITAL = FileInterceptor('arquivo', {
   storage: memoryStorage(),
@@ -57,6 +60,7 @@ function json(v: any): any {
  *  - revogação/anulação em dois tempos (art. 71 §3º): intenção (órgão dono),
  *    manifestação (licitante), leitura por papel.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.CREDENCIAMENTO)
 @Controller('publicacao')
 export class PublicacaoController {
   constructor(
@@ -67,6 +71,7 @@ export class PublicacaoController {
     private readonly feriados: FeriadosService,
     private readonly divulgacao: DivulgacaoService,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   private validarId(id: string) {
@@ -185,6 +190,19 @@ export class PublicacaoController {
     this.validarId(id);
     await this.acesso.assertOrgaoDaLicitacao(ator, id);
     const doc = await this.edital.anexar(id, arquivo as any, { id: ator.usuarioId ?? ator.id, nome: null });
+    return { id: doc.id, versao: doc.versao, hash: doc.hash_arquivo, status: doc.status };
+  }
+
+  /** Gera o edital (PDF) da minuta do edital da fase interna, com o TR e a minuta do contrato como anexos. */
+  @Post('licitacao/:id/edital/gerar-da-minuta')
+  @SomenteOrgao()
+  async gerarEditalDaMinuta(@Param('id') id: string, @AtorAtual() ator: Ator) {
+    this.validarId(id);
+    await this.acesso.assertOrgaoDaLicitacao(ator, id);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('../fase-interna/gerador-documento.service');
+    const gerador = this.moduleRef.get(mod.GeradorDocumentoService, { strict: false });
+    const doc = await this.edital.gerarDaMinuta(id, { id: ator.usuarioId ?? ator.id, nome: null }, (docId, destino) => gerador.materializarPdf(docId, destino));
     return { id: doc.id, versao: doc.versao, hash: doc.hash_arquivo, status: doc.status };
   }
 

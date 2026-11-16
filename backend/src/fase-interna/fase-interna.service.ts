@@ -1,3 +1,4 @@
+import { SQL_PORTARIA_JUNTADA_NO_PROCESSO, numeroDaPortariaJuntada } from './telas/minutas-regras';
 import {
   Injectable,
   BadRequestException,
@@ -35,9 +36,9 @@ import {
   MODALIDADES_CONTRATACAO_DIRETA,
   TITULO_DOCUMENTO,
   linhasDoChecklist,
+  LINHAS_FACULTATIVAS_RITO_COMPLETO,
 } from './documentos-obrigatorios';
-import { conteudoEditavel, mesmoTextoDaSecao, pecaContaComoPronta, registroDeEmissao } from './peca-regras';
-import { fluxoEhGenerico, fluxoParaTipo, rotuloAguardando } from './aprovacao-pecas-regras';
+import { conteudoEditavel, mesmoTextoDaSecao, registroDeEmissao, statusDaPeca } from './peca-regras';
 import {
   RiscoIdentificado,
   MatrizRiscosDados,
@@ -47,6 +48,7 @@ import {
   CotacaoPorFonte,
   ItemPesquisaPrecos,
   PesquisaPrecosDados,
+  FontePesquisaTipo,
   calcularEstatisticasItem,
 } from './types/pesquisa-precos.type';
 import { NumeroProcessoService } from '../numero-processo/numero-processo.service';
@@ -69,6 +71,8 @@ const ATO_DA_ETAPA: Record<string, AtoLicitacao> = {
  * Servico para gerenciamento da Fase Interna (Preparatoria)
  * Conforme Art. 18 da Lei 14.133/2021
  */
+import { INCISO_DA_FONTE, INCISOS_ART23, incisoDaCotacao, type IncisoArt23 } from './telas/pesquisa-regras';
+import { hojeEmBrasilia as hojeEmBrasiliaPP } from './peca-regras';
 @Injectable()
 export class FaseInternaService {
   constructor(
@@ -182,14 +186,6 @@ export class FaseInternaService {
     return CHECKLIST_CONTRATACAO_DIRETA.map((l) => ({ ...l }));
   }
 
-  /**
-   * Na contratação direta o documento "conta" sem exigir o fluxo formal de
-   * aprovação (frequentemente é o mesmo servidor que elabora e autoriza):
-   * basta ter conteúdo ou arquivo e não estar reprovado.
-   */
-  private documentoPresente(doc: DocumentoFaseInterna): boolean {
-    return pecaContaComoPronta(doc as any);
-  }
 
   /**
    * Instrução documental do processo — base do GATE ÚNICO da fase interna
@@ -197,7 +193,7 @@ export class FaseInternaService {
    * `etapa` (só rito completo): restringe o checklist aos obrigatórios daquela
    * etapa interna — é o que o ato de conclusão da etapa cobra.
    */
-  async getInstrucao(licitacaoId: string, etapa?: FaseLicitacao): Promise<{
+  async getInstrucao(licitacaoId: string, etapa?: FaseLicitacao, opcoes: { comFacultativasDaLicitacao?: boolean } = {}): Promise<{
     modalidade: string;
     contratacao_direta: boolean;
     fase: FaseLicitacao;
@@ -258,112 +254,29 @@ export class FaseInternaService {
       controle_interno_ativo: !!operacional?.controle_interno_ativo,
       etapa,
     });
+    // Roteiro do parecer da licitação: também as peças que o art. 53 analisa e que não travam etapa
+    // (relatório, minutas, riscos). Só para a leitura do parecer — o gate e as etapas não mudam.
+    if (opcoes.comFacultativasDaLicitacao && !contratacaoDireta && !etapa) {
+      for (const l of LINHAS_FACULTATIVAS_RITO_COMPLETO) if (!checklist.some((c) => c.tipo === l.tipo)) checklist.push({ ...l, pode_nao_se_aplicar: false });
+    }
 
     const docs = await this.documentoRepository.find({
       where: { licitacao_id: licitacaoId, versao_atual: true },
     });
 
-    // APROVAÇÃO INTERNA DA ETAPA (F1 + fluxo de aprovação nas telas das
-    // etapas): só as peças das etapas com "aprovação interna" ligada no modelo
-    // de fluxo exigem a aprovação — a peça feita no sistema conta depois de
-    // APROVADA no fluxo do órgão (do tipo → genérico → aprovação única por
-    // quem conduz) ou ASSINADA. Fluxo cadastrado sem a aprovação interna não
-    // trava nada (a peça enviada à mão continua "em aprovação" até a decisão).
-    const manager = this.documentoRepository.manager;
-    const fluxos: Array<{ id: string; nome: string; tipo_documento: string | null; tipos_documento: string[] | null; ativo: boolean; updated_at: Date }> = await manager
-      .query(
-        `SELECT id::text AS id, nome, tipo_documento::text AS tipo_documento, tipos_documento, ativo, updated_at
-           FROM fluxos_aprovacao_documento
-          WHERE orgao_id = $1 AND ativo = true`,
-        [licitacao.orgao_id],
-      )
-      .catch(() => []);
-    const tiposComAprovacao = new Set<string>(operacional?.tipos_com_aprovacao ?? []);
-
-    // Etapa em análise de cada documento em aprovação (p/ mostrar com quem está)
-    const etapasAtuais: Array<{
-      documento_id: string;
-      ordem: number;
-      nome: string;
-      setor_nome: string | null;
-      usuario_nome: string | null;
-      total: string;
-    }> = await manager
-      .query(
-        `SELECT e.documento_id::text AS documento_id, e.ordem, e.nome, e.setor_nome, e.usuario_nome,
-                (SELECT COUNT(*) FROM aprovacoes_documento t
-                  WHERE t.documento_id = e.documento_id AND t.rodada = e.rodada AND t.status <> 'CANCELADA') AS total
-         FROM aprovacoes_documento e
-         WHERE e.licitacao_id = $1 AND e.status = 'EM_ANALISE'`,
-        [licitacaoId],
-      )
-      .catch(() => []);
-    // Última reprovação de cada documento (o motivo volta para quem fez a peça)
-    const reprovacoes: Array<{ documento_id: string; nome: string; justificativa: string | null; decidido_por_nome: string | null; data_decisao: Date | null }> = await manager
-      .query(
-        `SELECT DISTINCT ON (documento_id) documento_id::text AS documento_id, nome, justificativa, decidido_por_nome, data_decisao
-           FROM aprovacoes_documento
-          WHERE licitacao_id = $1 AND status = 'REPROVADA'
-          ORDER BY documento_id, data_decisao DESC NULLS LAST`,
-        [licitacaoId],
-      )
-      .catch(() => []);
-
+    // A aprovação interna das peças (fluxos de aprovação do motor antigo) saiu em 11/2026:
+    // quem aprova é a etapa de Aprovação do fluxo do processo. A peça conta pelo critério
+    // único (peca-regras.ts) — o mesmo da ponte do fluxo e da trava da lei.
     const itens = checklist.map((item) => {
       const doc = docs.find((d) => d.tipo === item.tipo);
-      const naoSeAplica = Boolean(doc?.dados_estruturados?.nao_se_aplica);
-      const aprovacaoInterna = tiposComAprovacao.has(item.tipo as string);
-      const fluxo = fluxoParaTipo(fluxos, item.tipo as string);
-      const exigeAprovacao = aprovacaoInterna;
-      let status: 'OK' | 'EM_ELABORACAO' | 'PENDENTE' | 'NAO_SE_APLICA' | 'EM_APROVACAO' | 'EM_ASSINATURA';
-      let aprovacao:
-        | { etapa: number; total: number; etapa_nome: string; responsavel: string | null; rotulo: string }
-        | undefined;
+      const status = statusDaPeca(doc, { pode_nao_se_aplicar: item.pode_nao_se_aplicar });
       let reprovacao: { motivo: string | null; por: string | null; em: Date | null; etapa_nome: string } | undefined;
-
-      if (naoSeAplica) {
-        status = 'NAO_SE_APLICA';
-      } else if (!doc) {
-        status = 'PENDENTE';
-      } else if (doc.status === StatusDocumento.AGUARDANDO_ASSINATURA) {
-        // Enviada aos signatários: só conta quando TODOS assinarem
-        status = 'EM_ASSINATURA';
-      } else if (doc.status === StatusDocumento.AGUARDANDO_APROVACAO) {
-        // Em aprovação (automática ou enviada à mão): só conta depois da decisão
-        status = 'EM_APROVACAO';
-        const etapa = etapasAtuais.find((e) => e.documento_id === doc.id);
-        if (etapa) {
-          const total = Number(etapa.total);
-          aprovacao = {
-            etapa: Number(etapa.ordem),
-            total,
-            etapa_nome: etapa.nome,
-            responsavel: etapa.usuario_nome || etapa.setor_nome || null,
-            rotulo: rotuloAguardando({ ...etapa, ordem: Number(etapa.ordem) }, total),
-          };
-        }
-      } else if (exigeAprovacao) {
-        // Aprovação interna ligada: pronto = APROVADO/IMPORTADO (anexada — a
-        // anexada pela etapa vai para o fluxo) ou ASSINADO (todos os signatários)
-        if (
-          doc.status === StatusDocumento.APROVADO ||
-          doc.status === StatusDocumento.IMPORTADO ||
-          doc.status === StatusDocumento.ASSINADO
-        ) {
-          status = 'OK';
-        } else {
-          status = 'EM_ELABORACAO';
-        }
-      } else {
-        status = this.documentoPresente(doc) ? 'OK' : 'EM_ELABORACAO';
-      }
       if (doc && doc.status === StatusDocumento.REPROVADO) {
-        const r = reprovacoes.find((x) => x.documento_id === doc.id);
         reprovacao = {
-          motivo: r?.justificativa ?? doc.observacao_aprovacao ?? null,
-          por: r?.decidido_por_nome ?? doc.aprovador_nome ?? null,
-          em: r?.data_decisao ?? null,
-          etapa_nome: r?.nome ?? 'Aprovação',
+          motivo: doc.observacao_aprovacao ?? null,
+          por: doc.aprovador_nome ?? null,
+          em: doc.data_aprovacao ?? null,
+          etapa_nome: 'Aprovação',
         };
       }
 
@@ -372,13 +285,7 @@ export class FaseInternaService {
         status,
         documento_id: doc?.id,
         justificativa: doc?.dados_estruturados?.justificativa_nao_se_aplica,
-        exige_aprovacao: exigeAprovacao,
-        aprovacao,
-        // Aprovação interna da etapa (telas das etapas): fluxo que vale para a
-        // peça e o aviso "ligada, mas sem fluxo cadastrado" (aprovação única)
-        aprovacao_interna: aprovacaoInterna,
-        fluxo_aprovacao: fluxo ? { id: fluxo.id, nome: fluxo.nome, generico: fluxoEhGenerico(fluxo) } : null,
-        sem_fluxo_aprovacao: aprovacaoInterna && !fluxo,
+        exige_aprovacao: false,
         reprovacao,
         pode_nao_se_aplicar: item.pode_nao_se_aplicar,
         peca: doc
@@ -402,6 +309,15 @@ export class FaseInternaService {
       };
     });
 
+    // Licitação: a designação do pregoeiro (DP) feita como PORTARIA — juntada por uma etapa do
+    // fluxo do processo ou a portaria do órgão no exercício — vale como a peça (pregão 2026/00070:
+    // a portaria estava nos autos e a instrução seguia "pendente", travando a publicação).
+    const dp = itens.find((i) => i.tipo === TipoDocumentoFaseInterna.DESIGNACAO_PREGOEIRO);
+    if (!contratacaoDireta && dp && !dp.documento_id && dp.status !== 'OK') {
+      const portaria = await this.portariaDeDesignacao(licitacao).catch(() => null);
+      if (portaria) Object.assign(dp, { status: 'OK' as const, justificativa: portaria });
+    }
+
     // Obrigatórios não admitem "não se aplica" — precisam estar OK.
     const pendentes = itens.filter((i) => i.obrigatorio && i.status !== 'OK');
 
@@ -417,6 +333,19 @@ export class FaseInternaService {
           `${p.titulo} (${p.fundamento})${p.status === 'EM_APROVACAO' ? ' — em aprovação' : p.status === 'EM_ASSINATURA' ? ' — aguardando assinaturas' : ''}`,
       ),
     };
+  }
+
+  /** Portaria que designa o agente/pregoeiro: a juntada no processo ou a do órgão no exercício (texto para a instrução). */
+  private async portariaDeDesignacao(licitacao: Licitacao): Promise<string | null> {
+    const [juntada] = await this.licitacaoRepository.query(SQL_PORTARIA_JUNTADA_NO_PROCESSO, [licitacao.id]);
+    if (juntada) return `${numeroDaPortariaJuntada(juntada) ?? juntada.titulo} — juntada no processo`;
+    if (!licitacao.orgao_id) return null;
+    const exercicio = Number((licitacao as any).ano) || new Date((licitacao as any).created_at ?? Date.now()).getFullYear();
+    const [doOrgao] = await this.licitacaoRepository.query(
+      `SELECT numero FROM documentos_orgao WHERE orgao_id::text = $1 AND tipo::text = 'PORTARIA_DESIGNACAO' AND ativo = true AND exercicio = $2 ORDER BY versao DESC LIMIT 1`,
+      [licitacao.orgao_id, exercicio],
+    );
+    return doOrgao ? `${doOrgao.numero} — portaria do órgão no exercício` : null;
   }
 
   /**
@@ -885,7 +814,10 @@ export class FaseInternaService {
    * uma VERSÃO NOVA em elaboração (a anterior vira SUBSTITUIDO). Devolve o
    * rascunho a editar (ou o próprio documento, se ainda é rascunho).
    */
-  async novaVersaoSeFinalizada(documento: DocumentoFaseInterna | null): Promise<DocumentoFaseInterna | null> {
+  async novaVersaoSeFinalizada(
+    documento: DocumentoFaseInterna | null,
+    repo: Repository<DocumentoFaseInterna> = this.documentoRepository,
+  ): Promise<DocumentoFaseInterna | null> {
     if (!documento) return null;
     const finalizada =
       documento.origem !== OrigemDocumento.INTERNO ||
@@ -894,12 +826,12 @@ export class FaseInternaService {
     if (!finalizada || documento.dados_estruturados?.nao_se_aplica) return documento;
     // Homologação E5: a versão nova parte do CONTEÚDO da última versão feita no sistema (a
     // própria, se foi feita aqui; senão a anterior ao anexo) — as seções não somem
-    const base = await this.baseEditavel(documento);
+    const base = await this.baseEditavel(documento, repo);
     documento.versao_atual = false;
     documento.status = StatusDocumento.SUBSTITUIDO;
-    await this.documentoRepository.save(documento);
+    await repo.save(documento);
     const dados = conteudoEditavel(base?.dados_estruturados);
-    return this.documentoRepository.create({
+    return repo.create({
       licitacao_id: documento.licitacao_id,
       tipo: documento.tipo,
       titulo: documento.origem === OrigemDocumento.INTERNO ? documento.titulo : TITULO_DOCUMENTO[documento.tipo] ?? documento.titulo,
@@ -920,9 +852,12 @@ export class FaseInternaService {
    * anexada (PDF feito fora), a versão interna mais recente. É o que a tela
    * mostra para gerar de novo; não conta como peça pronta (a vigente é o anexo).
    */
-  async baseEditavel(documento: Pick<DocumentoFaseInterna, 'licitacao_id' | 'tipo' | 'origem' | 'dados_estruturados' | 'versao'> & { id?: string }) {
+  async baseEditavel(
+    documento: Pick<DocumentoFaseInterna, 'licitacao_id' | 'tipo' | 'origem' | 'dados_estruturados' | 'versao'> & { id?: string },
+    repo: Repository<DocumentoFaseInterna> = this.documentoRepository,
+  ) {
     if (documento.origem === OrigemDocumento.INTERNO && Object.keys(conteudoEditavel(documento.dados_estruturados)).length) return documento as DocumentoFaseInterna;
-    const anteriores = await this.documentoRepository.find({
+    const anteriores = await repo.find({
       where: { licitacao_id: documento.licitacao_id, tipo: documento.tipo, origem: OrigemDocumento.INTERNO },
       order: { versao: 'DESC' },
       take: 20,
@@ -981,7 +916,33 @@ export class FaseInternaService {
   ): Promise<{ ok: boolean; secaoId: string; documento_id?: string }> {
     // Chaves internas (_edicoes, _dfd, _marca...) não são seções do editor
     if (!secaoId || secaoId.startsWith('_')) throw new BadRequestException('Seção inválida');
-    let documento = await this.documentoRepository.findOne({
+    // Homologação 07/11/2026 (seção do TR perdida): o editor salva cada seção
+    // por conta própria e duas gravações simultâneas liam o mesmo JSON e a
+    // segunda apagava a primeira. A trava da peça serializa as gravações.
+    return this.comTravaDaPeca(licitacaoId, tipo, (repo) => this.gravarSecao(repo, licitacaoId, tipo, secaoId, html, edicao));
+  }
+
+  /**
+   * TRAVA DA PEÇA: quem lê e regrava `dados_estruturados` de uma peça faz isso
+   * dentro desta transação, uma gravação por vez por (processo, tipo) — vale
+   * também quando a peça ainda não existe (duas criações simultâneas).
+   */
+  async comTravaDaPeca<T>(licitacaoId: string, tipo: string, fn: (repo: Repository<DocumentoFaseInterna>) => Promise<T>): Promise<T> {
+    return this.documentoRepository.manager.transaction(async (em) => {
+      await em.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`peca:${licitacaoId}:${tipo}`]);
+      return fn(em.getRepository(DocumentoFaseInterna));
+    });
+  }
+
+  private async gravarSecao(
+    repo: Repository<DocumentoFaseInterna>,
+    licitacaoId: string,
+    tipo: TipoDocumentoFaseInterna,
+    secaoId: string,
+    html: string,
+    edicao?: { autor?: { id: string | null; nome: string | null }; origem?: 'USUARIO' | 'IA_ACEITA' },
+  ): Promise<{ ok: boolean; secaoId: string; documento_id?: string }> {
+    let documento = await repo.findOne({
       where: { licitacao_id: licitacaoId, tipo, versao_atual: true },
     });
     // Homologação (TR "Rascunho" depois de gerar): salvar a seção com o MESMO texto não é
@@ -990,10 +951,10 @@ export class FaseInternaService {
       return { ok: true, secaoId, documento_id: documento.id };
     }
 
-    documento = await this.novaVersaoSeFinalizada(documento);
+    documento = await this.novaVersaoSeFinalizada(documento, repo);
     if (!documento) {
       // Cria rascunho automaticamente se ainda não existir
-      documento = this.documentoRepository.create({
+      documento = repo.create({
         licitacao_id: licitacaoId,
         tipo,
         titulo: TITULO_DOCUMENTO[tipo] ?? tipo,
@@ -1030,7 +991,7 @@ export class FaseInternaService {
       .map(([, v]) => v)
       .join('\n');
 
-    const salvo = await this.documentoRepository.save(documento);
+    const salvo = await repo.save(documento);
     return { ok: true, secaoId, documento_id: salvo.id };
   }
 
@@ -1651,6 +1612,50 @@ export class FaseInternaService {
         itensNaoEncontrados,
       },
     };
+  }
+
+  /**
+   * A busca automática consultou a fonte e não veio preço: isso também é
+   * registro (art. 23, §1º). Sem ele, o cartão da fonte ficava "Pendente" logo
+   * depois de consultada, e a pessoa tinha de registrar à mão o que o sistema
+   * acabou de fazer. Só toca nas fontes que a busca cobre (incisos I a III) e
+   * nunca passa por cima de registro feito por alguém.
+   */
+  async registrarConsultaAutomaticaSemRetorno(
+    licitacaoId: string,
+    fontes: FontePesquisaTipo[],
+  ): Promise<void> {
+    const incisos = new Set(
+      fontes
+        .map((f) => INCISO_DA_FONTE[f])
+        .filter((i): i is IncisoArt23 => i === 'I' || i === 'II' || i === 'III'),
+    );
+    if (!incisos.size) return;
+    const doc = await this.getOuCriarDocPP(licitacaoId);
+    const dados: PesquisaPrecosDados = doc.dados_estruturados || { itens: [] };
+    const registrados = dados.parametros_art23 || [];
+    const cotacoes = (dados.itens || []).flatMap((i) => i.cotacoes || []);
+    let alterou = false;
+    for (const inciso of incisos) {
+      if (registrados.some((r) => r.inciso === inciso)) continue;
+      if (cotacoes.some((c) => incisoDaCotacao(c) === inciso)) continue;
+      registrados.push({
+        inciso,
+        situacao: 'SEM_RETORNO',
+        data_consulta: hojeEmBrasiliaPP(),
+        resultado:
+          'Busca automática do sistema: nenhum preço retornado para os itens pesquisados.',
+        registrado_por_nome: 'Busca automática',
+        registrado_em: new Date().toISOString(),
+      } as any);
+      alterou = true;
+    }
+    if (!alterou) return;
+    dados.parametros_art23 = registrados.sort(
+      (x, y) => INCISOS_ART23.indexOf(x.inciso) - INCISOS_ART23.indexOf(y.inciso),
+    );
+    doc.dados_estruturados = dados;
+    await this.documentoRepository.save(doc);
   }
 
   async removerCotacoesEstimadasDoAgente(

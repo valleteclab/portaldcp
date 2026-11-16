@@ -186,22 +186,45 @@ export function motivoPrazoInvalido(horas: number | undefined | null, minimo: nu
 
 const FASES_INTERNAS_TXT = ['PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA'];
 
+/** Modalidades em que a inversão de fases é admitida (art. 17 §1º; IN SEGES 73/2022 art. 8º §1º). */
+export const MODALIDADES_COM_INVERSAO = ['PREGAO_ELETRONICO', 'CONCORRENCIA'];
+
+/** Tamanho mínimo da motivação — o ato tem de explicitar os benefícios (art. 17 §1º). */
+export const MOTIVACAO_INVERSAO_MIN = 20;
+
 /**
- * `inversao_fases` só na CONCORRÊNCIA (Lei 14.133 art. 17 §1º — "desde que
- * expressamente previsto no edital") e só se altera antes da publicação.
- * Devolve o motivo (400/409) ou null.
+ * `inversao_fases` no PREGÃO e na CONCORRÊNCIA (Lei 14.133 art. 17 §1º — "mediante
+ * ato motivado com explicitação dos benefícios decorrentes", previsto no edital;
+ * IN SEGES 73/2022 art. 8º §1º). Exige a motivação ao ligar (ou ao alterá-la) e
+ * só se altera antes da publicação. Devolve o motivo (400/409) ou null.
  */
 export function motivoInversaoInvalida(p: {
   inversaoFinal: boolean;
   inversaoAtual: boolean;
   modalidadeFinal: string | null | undefined;
   faseAtual?: string | null;
+  /** Motivação que ficará gravada. `undefined` = não informada nesta gravação. */
+  motivacaoFinal?: string | null;
+  /** A motivação foi enviada nesta gravação (criação ou edição do campo). */
+  motivacaoAlterada?: boolean;
 }): { status: 400 | 409; mensagem: string } | null {
-  if (p.inversaoFinal && p.modalidadeFinal !== 'CONCORRENCIA') {
-    return { status: 400, mensagem: 'Inversão de fases (habilitação antes do julgamento) só é admitida na concorrência (Lei 14.133/2021, art. 17 §1º).' };
+  if (p.inversaoFinal && !MODALIDADES_COM_INVERSAO.includes(p.modalidadeFinal ?? '')) {
+    return {
+      status: 400,
+      mensagem: 'Inversão de fases (habilitação antes do julgamento) só é admitida no pregão e na concorrência (Lei 14.133/2021, art. 17 §1º).',
+    };
   }
   if (p.inversaoFinal !== p.inversaoAtual && p.faseAtual && !FASES_INTERNAS_TXT.includes(p.faseAtual)) {
     return { status: 409, mensagem: 'A inversão de fases é definida no edital: não pode ser alterada depois da publicação (retificação — art. 55 §1º).' };
+  }
+  if (p.motivacaoAlterada && p.inversaoAtual && p.faseAtual && !FASES_INTERNAS_TXT.includes(p.faseAtual)) {
+    return { status: 409, mensagem: 'A motivação da inversão de fases consta do edital: não pode ser alterada depois da publicação.' };
+  }
+  if (p.inversaoFinal && (!p.inversaoAtual || p.motivacaoAlterada) && (p.motivacaoFinal ?? '').trim().length < MOTIVACAO_INVERSAO_MIN) {
+    return {
+      status: 400,
+      mensagem: `Informe a motivação da inversão de fases, com os benefícios esperados (mínimo de ${MOTIVACAO_INVERSAO_MIN} caracteres — Lei 14.133/2021, art. 17 §1º).`,
+    };
   }
   return null;
 }
@@ -365,6 +388,28 @@ export function diligenciaVigente(d: EstadoDiligencia, agora: Date = new Date())
   return d.status === StatusDiligencia.ABERTA && agora.getTime() <= ms(d.prazo_ate);
 }
 
+/**
+ * A diligência ainda RECEBE do licitante: aberta ou já respondida, com o prazo
+ * correndo. O prazo é dele até o fim (dono, 11/11/2026): responder não trava —
+ * ele pode complementar, trocar o que enviou errado e atualizar a resposta.
+ * (`diligenciaVigente` continua valendo para a análise do agente: respondida,
+ * a habilitação volta à análise.)
+ */
+export function diligenciaRecebe(d: EstadoDiligencia, agora: Date = new Date()): boolean {
+  return (d.status === StatusDiligencia.ABERTA || d.status === StatusDiligencia.RESPONDIDA) && agora.getTime() <= ms(d.prazo_ate);
+}
+
+/** O prazo da convocação ainda corre (há prazo e ele não venceu) e a habilitação não foi decidida. */
+export function prazoDaConvocacaoCorrendo(h: EstadoHabilitacao, agora: Date = new Date()): boolean {
+  if (STATUS_HABILITACAO_FINAIS.includes(h.status)) return false;
+  if (h.status === StatusHabilitacao.AGUARDANDO_ENVIO) return !prazoEntregaEncerrado(h, agora);
+  // Depois do ato de entrega, só a CONVOCAÇÃO tem prazo próprio gravado. Na inversão de fases o
+  // prazo é o fim do recebimento das propostas e, na inscrição em credenciamento, a vigência do
+  // edital — neles a entrega continua encerrando o envio.
+  if (h.origem !== OrigemHabilitacao.CONVOCACAO) return false;
+  return !!h.prazo_ate && !prazoEntregaEncerrado(h, agora);
+}
+
 /** Status da diligência considerando o relógio (ABERTA vencida → EXPIRADA). */
 export function statusEfetivoDiligencia(d: EstadoDiligencia, agora: Date = new Date()): string {
   if (d.status === StatusDiligencia.ABERTA && !diligenciaVigente(d, agora)) return StatusDiligencia.EXPIRADA;
@@ -393,10 +438,12 @@ export function motivoNaoProrroga(h: EstadoHabilitacao, agora: Date = new Date()
 }
 
 /**
- * ENVIO de documento (regra do art. 64 — sem substituição):
- *  - AGUARDANDO_ENVIO no prazo → ENVIO (a documentação ainda não foi entregue);
- *  - depois de entregue (ato ou prazo): só COMPLEMENTO, numa diligência
- *    vigente que inclua a exigência;
+ * ENVIO de documento — o que manda é o PRAZO (dono, 11/11/2026: "sempre seguir
+ * o tempo"):
+ *  - enquanto o prazo da convocação corre, o licitante envia, mesmo depois de
+ *    clicar em "Entregar": pode ter enviado errado e corrigir → ENVIO;
+ *  - depois do prazo: só COMPLEMENTO, numa diligência que ainda receba (aberta
+ *    ou já respondida, dentro do prazo dela) e que inclua a exigência;
  *  - decidida → nada.
  */
 export function regraDeEnvio(
@@ -406,32 +453,40 @@ export function regraDeEnvio(
   agora: Date = new Date(),
 ): { origem: OrigemDocumento; diligenciaId: string | null } | { erro: string } {
   if (STATUS_HABILITACAO_FINAIS.includes(h.status)) return { erro: 'A habilitação deste licitante já foi decidida — não se recebem documentos' };
-  if (h.status === StatusHabilitacao.AGUARDANDO_ENVIO && !prazoEntregaEncerrado(h, agora)) {
-    return { origem: OrigemDocumento.ENVIO, diligenciaId: null };
-  }
-  const d = diligencias.find((x) => diligenciaVigente(x, agora) && x.exigencia_ids.includes(exigenciaId));
+  const d = diligencias.find((x) => diligenciaRecebe(x, agora) && x.exigencia_ids.includes(exigenciaId));
   if (d) return { origem: OrigemDocumento.COMPLEMENTO, diligenciaId: d.id };
-  if (diligencias.some((x) => diligenciaVigente(x, agora))) {
+  if (prazoDaConvocacaoCorrendo(h, agora)) return { origem: OrigemDocumento.ENVIO, diligenciaId: null };
+  if (diligencias.some((x) => diligenciaRecebe(x, agora))) {
     return { erro: 'A diligência aberta não inclui esta exigência — só se complementam os documentos indicados pelo agente (art. 64)' };
   }
   return {
     erro:
-      'Documentação já entregue: não é permitida a substituição nem a apresentação de novos documentos, ' +
+      'O prazo de envio terminou: não se recebem novos documentos nem substituições, ' +
       'salvo em diligência aberta pelo agente de contratação (Lei 14.133/2021, art. 64; IN SEGES 73/2022, art. 39 §4º)',
   };
 }
 
-/** Remover documento: só o próprio envio, antes da entrega (rascunho), e ainda não analisado. */
+/**
+ * Remover documento (para corrigir um envio errado): o próprio envio enquanto o
+ * prazo da convocação corre, ou o próprio complemento enquanto a diligência
+ * dele ainda recebe — e só se o agente ainda não o analisou.
+ */
 export function motivoNaoRemove(
   h: EstadoHabilitacao,
-  doc: { origem: string; analise: string },
+  doc: { origem: string; analise: string; diligencia_id?: string | null },
   agora: Date = new Date(),
+  diligencias: EstadoDiligencia[] = [],
 ): string | null {
-  if (doc.origem !== OrigemDocumento.ENVIO) return 'Só se retira documento enviado pelo licitante antes da entrega da documentação';
-  if (h.status !== StatusHabilitacao.AGUARDANDO_ENVIO || prazoEntregaEncerrado(h, agora)) {
-    return 'Documentação já entregue: não é permitida a substituição (art. 64)';
+  if (STATUS_HABILITACAO_FINAIS.includes(h.status)) return 'A habilitação deste licitante já foi decidida';
+  if (doc.origem === OrigemDocumento.ENVIO) {
+    if (!prazoDaConvocacaoCorrendo(h, agora)) return 'O prazo de envio terminou: o documento não pode mais ser retirado nem substituído (art. 64)';
+  } else if (doc.origem === OrigemDocumento.COMPLEMENTO) {
+    const d = diligencias.find((x) => x.id === doc.diligencia_id);
+    if (!d || !diligenciaRecebe(d, agora)) return 'O prazo da diligência terminou: o complemento não pode mais ser retirado nem substituído';
+  } else {
+    return 'Só se retira documento enviado pelo próprio licitante';
   }
-  if (doc.analise !== ResultadoAnalise.PENDENTE) return 'Documento já analisado';
+  if (doc.analise !== ResultadoAnalise.PENDENTE) return 'Documento já analisado pelo agente de contratação';
   return null;
 }
 

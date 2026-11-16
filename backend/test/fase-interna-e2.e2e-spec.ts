@@ -2,15 +2,24 @@
  * FASE INTERNA — ENTREGA 2 (Tarefas e caixa de entrada + etapas).
  * docs/licitacao/PLANO-FASE-INTERNA.md §8.
  *
- *  A. Modo SIMPLES (padrão): ao abrir o processo nasce a tarefa da demanda
- *     para o responsável (agente); anexar a peça conclui a tarefa (registrando
- *     quem cumpriu) e libera as seguintes; "não se aplica" também conclui;
- *     assinatura concluída conclui; histórico das etapas; etapas na tela.
- *  B. Modo POR_SETOR: a tarefa vai para o papel certo; assumir; reatribuir.
- *  C. Controle interno: ativo cria a etapa/tarefa; desativado cancela.
+ * UM MOTOR SÓ (11/2026, docs/backup-motor-antigo.md): o motor antigo não cria
+ * mais tarefa de etapa — as etapas são conduzidas pelo fluxo do processo. Aqui
+ * fica o que continua valendo: o cálculo das etapas (situação, responsável
+ * previsto, prazo), a caixa de tarefas (com as tarefas do sistema: assinatura,
+ * diligência, renovar dotação…), assumir/reatribuir e o cancelamento na
+ * revogação.
+ *
+ *  A. Modo SIMPLES (padrão): ao abrir o processo a etapa da demanda fica
+ *     disponível para o agente; anexar a peça conclui a etapa e libera as
+ *     seguintes; "não se aplica" também conclui; a peça enviada para assinatura
+ *     volta a andamento e a tarefa "Assinar" do signatário conclui com a
+ *     assinatura; etapas na tela.
+ *  B. Modo POR_SETOR: a etapa vai para o papel certo; a tarefa do sistema vai
+ *     para a caixa do papel; assumir; reatribuir.
+ *  C. Controle interno: ativo cria a etapa; desativado, ela sai.
  *  D. Processo revogado cancela as tarefas abertas.
  *  E. Caixa: ordem por prazo, atrasadas, contagem (badge), abas.
- *  F. Migração de boot rodada 2x (idempotente).
+ *  F. Migração de boot rodada 2x (idempotente, sem criar tarefa de etapa).
  *  Isolamento em todo endpoint novo: outro órgão (leitura 404 / escrita 403),
  *  usuário do mesmo órgão sem o papel não vê, fornecedor 403, anônimo 401.
  */
@@ -32,6 +41,7 @@ import { ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity
 import { TipoDocumentoFaseInterna } from '../src/fase-interna/entities/documento-fase-interna.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 import { TarefasService } from '../src/fase-interna/tarefas/tarefas.service';
+import { PassoFaseInterna } from '../src/fase-interna/fluxo/codigos';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 const hoje = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -55,8 +65,19 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
     await tarefas().aguardarPendentes();
     return sql(`SELECT * FROM tarefas WHERE licitacao_id = $1 ORDER BY created_at`, [lic.id]);
   };
-  const abertaDe = async (lic: { id: string }, passo: string) =>
-    (await tarefasDoProcesso(lic)).find((t: any) => t.passo === passo && t.status === 'ABERTA');
+  const etapasDe = async (lic: { id: string }, token: string) => {
+    await tarefas().aguardarPendentes();
+    return (await http().get(`/api/fase-interna/${lic.id}/etapas`).set(bearer(token)).expect(200)).body;
+  };
+  const passoDe = async (lic: { id: string }, codigo: string, token: string) =>
+    (await etapasDe(lic, token)).etapas.flatMap((e: any) => e.passos).find((p: any) => p.passo === codigo);
+  /** Tarefa do SISTEMA (as que continuam existindo — ex.: renovar dotação), para a caixa, assumir e reatribuir. */
+  const tarefaDoSistema = async (lic: { id: string }, chave: string, passo: PassoFaseInterna = PassoFaseInterna.DFD) => {
+    const id = await tarefas().criarTarefaDoSistema(lic.id, { chave, passo, titulo: `Tarefa do sistema (${chave})`, descricao: 'Tarefa do sistema do e2e.', notificar: false });
+    expect(id).toBeTruthy();
+    const [t] = await sql(`SELECT * FROM tarefas WHERE id = $1`, [id]);
+    return t;
+  };
   const anexar = (lic: { id: string }, tipo: string, token: string) =>
     http()
       .post(`/api/fase-interna/${lic.id}/documentos/${tipo}/anexo`)
@@ -103,58 +124,55 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
       expect(r.body.prazos).toMatchObject({ PESQUISA: 30, RESERVA: 3, PARECER: 5, CONTROLE_INTERNO: 3, PUBLICACAO: 5 });
     });
 
-    it('ao abrir o processo nasce SÓ a tarefa da demanda, para o agente, na caixa dele', async () => {
-      const ts = await tarefasDoProcesso(lic);
-      expect(ts.map((t: any) => [t.passo, t.status])).toEqual([['DFD', 'ABERTA']]);
-      expect(ts[0]).toMatchObject({ responsavel_usuario_id: agente.id, origem: 'ETAPA', tipo: 'PECA', tipo_peca: 'DFD', orgao_id: A.id });
-      const cx = await caixa(agente.token);
-      const t = cx.tarefas.find((x: any) => x.processo.id === lic.id);
-      expect(t).toMatchObject({ titulo: 'Formalizar a demanda (DFD)', destino: `/orgao/processos/${lic.id}/fase-interna/dfd`, atrasada: false });
-      expect(t.responsavel.nome).toBe('Joel Agente');
-      // o login do órgão vê a tarefa em "Aguardando outros" (está com uma pessoa)
-      expect((await caixa(A.token, 'aguardando')).tarefas.some((x: any) => x.processo.id === lic.id)).toBe(true);
-      expect((await caixa(A.token)).tarefas.some((x: any) => x.processo.id === lic.id)).toBe(false);
+    it('ao abrir o processo a etapa da demanda fica disponível para o agente (sem tarefa de etapa — um motor só)', async () => {
+      expect(await tarefasDoProcesso(lic)).toEqual([]);
+      const dfd = await passoDe(lic, 'DFD', agente.token);
+      expect(dfd).toMatchObject({ situacao: 'DISPONIVEL', tarefa: null });
+      expect(dfd.responsavel_previsto).toMatchObject({ usuario_id: agente.id, rotulo: 'Joel Agente' });
+      expect((await passoDe(lic, 'ETP', agente.token)).situacao).toBe('AGUARDANDO');
+      // a caixa não recebe tarefa de etapa
+      expect((await caixa(agente.token)).tarefas.some((x: any) => x.processo.id === lic.id)).toBe(false);
+      expect((await caixa(A.token, 'aguardando')).tarefas.some((x: any) => x.processo.id === lic.id)).toBe(false);
     });
 
-    it('anexar o DFD conclui a tarefa (quem cumpriu = quem anexou) e libera estudo, TR e pesquisa', async () => {
+    it('anexar o DFD conclui a etapa e libera estudo, TR e pesquisa (para o agente, com o prazo do modelo)', async () => {
       expect((await anexar(lic, 'DFD', agente.token)).status).toBe(201);
-      const ts = await tarefasDoProcesso(lic);
-      const dfd = ts.find((t: any) => t.passo === 'DFD');
-      expect(dfd).toMatchObject({ status: 'CONCLUIDA', concluida_por_id: agente.id, concluida_por_nome: 'Joel Agente' });
-      expect(dfd.concluida_em).toBeTruthy();
-      const abertas = ts.filter((t: any) => t.status === 'ABERTA');
-      expect(abertas.map((t: any) => t.passo).sort()).toEqual(['ETP', 'PESQUISA', 'TR']);
-      expect(abertas.every((t: any) => t.responsavel_usuario_id === agente.id)).toBe(true);
-      const pesquisa = abertas.find((t: any) => t.passo === 'PESQUISA');
-      expect(pesquisa.prazo_dias_uteis).toBe(30);
-      expect(pesquisa.prazo).toBeTruthy();
-      // concluída aparece na aba "Concluídas" de quem cumpriu
-      expect((await caixa(agente.token, 'concluidas')).tarefas.some((x: any) => x.id === dfd.id)).toBe(true);
+      const passos = (await etapasDe(lic, agente.token)).etapas.flatMap((e: any) => e.passos);
+      const p = (c: string) => passos.find((x: any) => x.passo === c);
+      expect(p('DFD').situacao).toBe('CONCLUIDO');
+      for (const c of ['ETP', 'PESQUISA', 'TR']) {
+        expect([c, p(c).situacao]).toEqual([c, 'DISPONIVEL']);
+        expect(p(c).responsavel_previsto.usuario_id).toBe(agente.id);
+      }
+      expect(p('PESQUISA').prazo_dias_uteis).toBe(30);
+      expect(await tarefasDoProcesso(lic)).toEqual([]);
     });
 
     it('"não se aplica" também conclui (ETP e riscos) — autor do JWT', async () => {
       expect((await naoSeAplica(lic, 'ETP', agente.token)).status).toBe(201);
-      expect((await abertaDe(lic, 'ETP'))).toBeTruthy(); // falta a análise de riscos
+      expect((await passoDe(lic, 'ETP', agente.token)).situacao).not.toBe('CONCLUIDO'); // falta a análise de riscos
       expect((await naoSeAplica(lic, 'AR', agente.token)).status).toBe(201);
-      const etp = (await tarefasDoProcesso(lic)).find((t: any) => t.passo === 'ETP');
-      expect(etp).toMatchObject({ status: 'CONCLUIDA', concluida_por_nome: 'Joel Agente' });
+      expect((await passoDe(lic, 'ETP', agente.token)).situacao).toBe('CONCLUIDO');
+      // quem marcou = o autor do JWT
+      const [etp] = await sql(`SELECT aprovador_id, aprovador_nome FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'ETP' AND versao_atual`, [lic.id]);
+      expect(etp).toMatchObject({ aprovador_id: agente.id, aprovador_nome: 'Joel Agente' });
     });
 
-    it('etapas na tela do processo: situação, responsável, prazo, etapa atual; histórico das mudanças', async () => {
+    it('etapas na tela do processo: situação, responsável, prazo, etapa atual', async () => {
       const r = await http().get(`/api/fase-interna/${lic.id}/etapas`).set(bearer(agente.token)).expect(200);
       expect(r.body.modo).toBe('SIMPLES');
       const etapa = (e: string) => r.body.etapas.find((x: any) => x.etapa === e);
       expect(etapa('DEMANDA').situacao).toBe('CONCLUIDA');
       expect(etapa('ETP_RISCOS')).toMatchObject({ situacao: 'CONCLUIDA', nao_se_aplica: true });
       expect(etapa('PESQUISA_PRECOS').situacao).toBe('DISPONIVEL');
-      expect(etapa('PESQUISA_PRECOS').passos[0].tarefa.responsavel.nome).toBe('Joel Agente');
+      expect(etapa('PESQUISA_PRECOS').passos[0].responsavel_previsto.rotulo).toBe('Joel Agente');
       expect(etapa('PESQUISA_PRECOS').passos[0].prazo_dias_uteis).toBe(30);
       expect(etapa('RESERVA_ORCAMENTARIA').situacao).toBe('AGUARDANDO');
       expect(r.body.etapa_atual).toBe('TERMO_REFERENCIA');
       expect(r.body.etapas.some((e: any) => e.etapa === 'CONTROLE_INTERNO')).toBe(false);
-      const logs = await sql(`SELECT descricao, dados_depois FROM logs_fase_interna WHERE licitacao_id = $1 AND acao::text = 'ETAPA_ALTERADA'`, [lic.id]);
-      expect(logs.some((l: any) => l.dados_depois.etapa === 'DEMANDA' && l.dados_depois.situacao === 'CONCLUIDA')).toBe(true);
-      expect(r.body.historico.length).toBeGreaterThan(0);
+      // Um motor só (11/2026): a sincronização só calcula — o histórico "etapa alterada" do motor antigo
+      // (ETAPA_ALTERADA) não é mais gravado; o andamento do processo fica no fluxo
+      expect(Array.isArray(r.body.historico)).toBe(true);
     });
 
     it('isolamento das etapas: outro órgão 404, fornecedor 403, anônimo 401', async () => {
@@ -163,18 +181,20 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
       expect((await http().get(`/api/fase-interna/${lic.id}/etapas`)).status).toBe(401);
     });
 
-    it('peça que volta a ser trabalhada (enviada para assinatura) reabre a tarefa; a assinatura concluída a conclui', async () => {
+    it('peça que volta a ser trabalhada (enviada para assinatura) reabre a etapa; a tarefa "Assinar" do signatário conclui com a assinatura', async () => {
       const outro = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
-      expect(await abertaDe(outro, 'DFD')).toBeTruthy();
+      expect((await passoDe(outro, 'DFD', A.token)).situacao).toBe('DISPONIVEL');
       await criarDocumentoInstrucao(ctx, outro, TipoDocumentoFaseInterna.DOCUMENTO_FORMALIZACAO_DEMANDA, 'DFD');
-      expect((await tarefasDoProcesso(outro)).find((t: any) => t.passo === 'DFD').status).toBe('CONCLUIDA');
+      expect((await passoDe(outro, 'DFD', A.token)).situacao).toBe('CONCLUIDO');
       const envio = await http()
         .post(`/api/fase-interna/${outro.id}/documentos/DFD/assinatura`)
         .set(bearer(A.token))
         .send({ signatarios: [{ usuario_id: requisitante.id, papel: 'Requisitante' }] });
       expect(envio.status).toBe(201);
-      const reaberta = await abertaDe(outro, 'DFD');
-      expect(reaberta).toBeTruthy();
+      expect((await passoDe(outro, 'DFD', A.token)).situacao).not.toBe('CONCLUIDO');
+      // um motor só (11/2026): a tarefa que abre é a do signatário (tarefa do sistema), não a de etapa
+      const reaberta = (await tarefasDoProcesso(outro)).find((t: any) => t.origem === 'ASSINATURA' && t.status === 'ABERTA');
+      expect(reaberta).toMatchObject({ responsavel_usuario_id: requisitante.id, tipo_peca: 'DFD' });
       const [sig] = await sql(`SELECT id::text AS id FROM signatarios_documento WHERE documento_id = $1`, [envio.body.documento_assinatura_id]);
       const r = await http().post(`/api/portal-assinaturas/${envio.body.documento_assinatura_id}/signatarios/${sig.id}/assinar`).set(bearer(requisitante.token)).send({});
       expect(r.status).toBe(201);
@@ -185,6 +205,7 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
         await new Promise((res) => setTimeout(res, 100));
       }
       expect(t).toMatchObject({ status: 'CONCLUIDA', concluida_por_nome: 'Rita Requisitante' });
+      expect((await passoDe(outro, 'DFD', A.token)).situacao).toBe('CONCLUIDO');
     });
   });
 
@@ -221,10 +242,12 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
       expect(lista.some((u: any) => u.id === deB.id)).toBe(false);
     });
 
-    it('a tarefa da demanda vai para o papel Requisitante: quem tem o papel vê; sem o papel, não', async () => {
+    it('a etapa da demanda é do papel Requisitante; a tarefa do sistema dela vai para a caixa do papel: quem tem o papel vê; sem o papel, não', async () => {
       lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
-      dfd = await abertaDe(lic, 'DFD');
-      expect(dfd).toMatchObject({ responsavel_usuario_id: null, responsavel_papel: 'REQUISITANTE' });
+      expect((await passoDe(lic, 'DFD', A.token)).responsavel_previsto).toMatchObject({ usuario_id: null, papel: 'REQUISITANTE' });
+      expect(await tarefasDoProcesso(lic)).toEqual([]); // um motor só (11/2026): sem tarefa de etapa
+      dfd = await tarefaDoSistema(lic, 'sistema:e2e-demanda');
+      expect(dfd).toMatchObject({ responsavel_usuario_id: null, responsavel_papel: 'REQUISITANTE', origem: 'SISTEMA', passo: 'DFD' });
       const cx = await caixa(requisitante.token);
       expect(cx.tarefas.find((t: any) => t.id === dfd.id)).toMatchObject({ pode_assumir: true, responsavel: { rotulo: 'Requisitante' } });
       for (const u of [juridico, semPapel]) {
@@ -278,13 +301,22 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
     });
 
     it('com o DFD pronto, a pesquisa vai para Compras (30 dias úteis) e o estudo para o Requisitante', async () => {
-      // Por setor, só quem está com o processo trabalha na peça (homologação multiusuário): recebeu a tarefa, recebe o processo
-      expect((await anexar(lic, 'DFD', juridico.token)).status).toBe(403);
+      // Por setor, só quem responde pela etapa E está com o processo trabalha na peça (homologação multiusuário).
+      // Um motor só (11/2026): sem a tarefa de etapa, a vez é do papel da etapa (Requisitante) — a tarefa do
+      // sistema reatribuída não a dá a quem não tem o papel, nem com o processo na mão
+      expect((await anexar(lic, 'DFD', juridico.token)).status).toBe(403); // sem o papel
       await http().post(`/api/fase-interna/${lic.id}/tramitar`).set(bearer(A.token)).send({ para_usuario_id: juridico.id, despacho: 'Encaminhe-se ao Paulo para a demanda.' }).expect(201);
-      expect((await anexar(lic, 'DFD', juridico.token)).status).toBe(201);
-      expect(await abertaDe(lic, 'PESQUISA')).toMatchObject({ responsavel_papel: 'COMPRAS', prazo_dias_uteis: 30 });
-      expect(await abertaDe(lic, 'ETP')).toMatchObject({ responsavel_papel: 'REQUISITANTE' });
-      expect((await tarefasDoProcesso(lic)).find((t: any) => t.passo === 'DFD')).toMatchObject({ status: 'CONCLUIDA', concluida_por_nome: 'Paulo Procurador' });
+      expect((await anexar(lic, 'DFD', juridico.token)).status).toBe(403); // com o processo, mas sem o papel
+      expect((await anexar(lic, 'DFD', requisitante.token)).status).toBe(403); // com o papel, mas o processo está com o Paulo
+      await http().post(`/api/fase-interna/${lic.id}/tramitar`).set(bearer(A.token)).send({ para_usuario_id: requisitante.id, despacho: 'Encaminhe-se à Rita para a demanda.' }).expect(201);
+      expect((await anexar(lic, 'DFD', requisitante.token)).status).toBe(201);
+      const pesquisa = await passoDe(lic, 'PESQUISA', A.token);
+      expect(pesquisa).toMatchObject({ situacao: 'DISPONIVEL', prazo_dias_uteis: 30 });
+      expect(pesquisa.responsavel_previsto).toMatchObject({ papel: 'COMPRAS' });
+      expect((await passoDe(lic, 'ETP', A.token)).responsavel_previsto).toMatchObject({ papel: 'REQUISITANTE' });
+      expect((await passoDe(lic, 'DFD', A.token)).situacao).toBe('CONCLUIDO');
+      const [peca] = await sql(`SELECT criado_por_nome FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'DFD' AND versao_atual`, [lic.id]);
+      expect(peca.criado_por_nome).toBe('Rita Requisitante');
     });
 
     afterAll(async () => {
@@ -311,31 +343,28 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
       expect(etapas.etapas.some((e: any) => e.etapa === 'CONTROLE_INTERNO')).toBe(true);
     });
 
-    it('com parecer pronto nasce a tarefa do controle interno (caixa do papel, sem agente); desativar cancela', async () => {
+    it('com parecer pronto a etapa do controle interno abre (papel do agente, sem agente); desativar a tira', async () => {
       for (const t of ['DFD', 'PP']) expect((await anexar(lic, t, C.token)).status).toBe(201);
       // Na ordem do fluxo (mapa do dono): ETP/TR → reserva → minutas → parecer → controle interno → autorização
       for (const t of ['ETP', 'AR', 'TR']) expect([t, (await naoSeAplica(lic, t, C.token)).status]).toEqual([t, 201]);
       // art. 72, IV não admite "não se aplica": a informação orçamentária é anexada
       expect((await anexar(lic, 'DO', C.token)).status).toBe(201);
       for (const t of ['RAG', 'MC', 'JC', 'ME', 'PJ']) expect([t, (await naoSeAplica(lic, t, C.token)).status]).toEqual([t, 201]);
-      const ci = await abertaDe(lic, 'CONTROLE_INTERNO');
-      // processo criado pelo login do órgão, sem agente: a caixa do papel "Agente de contratação"
-      expect(ci).toMatchObject({ responsavel_papel: 'AGENTE_CONTRATACAO', prazo_dias_uteis: 3, tipo_peca: 'MCI' });
+      const ci = await passoDe(lic, 'CONTROLE_INTERNO', C.token);
+      // processo criado pelo login do órgão, sem agente: o papel "Agente de contratação"
+      expect(ci).toMatchObject({ situacao: 'DISPONIVEL', prazo_dias_uteis: 3 });
+      expect(ci.responsavel_previsto).toMatchObject({ usuario_id: null, papel: 'AGENTE_CONTRATACAO' });
       // a autorização espera o controle interno ligado (e a publicação, a autorização)
       expect((await anexar(lic, 'AA', C.token)).status).toBe(403);
-      expect(await abertaDe(lic, 'PUBLICACAO')).toBeFalsy();
-      // o login do órgão vê a tarefa sem dono em "Para mim"
-      expect((await caixa(C.token)).tarefas.some((t: any) => t.id === ci.id)).toBe(true);
+      expect((await passoDe(lic, 'PUBLICACAO', C.token)).situacao).toBe('AGUARDANDO');
 
       expect((await configurar(C.token, { controle_interno_ativo: false })).status).toBe(200);
-      const [t] = await sql(`SELECT status, motivo_cancelamento FROM tarefas WHERE id = $1`, [ci.id]);
-      expect(t).toMatchObject({ status: 'CANCELADA', motivo_cancelamento: expect.stringMatching(/deixou de se aplicar/) });
+      expect((await etapasDe(lic, C.token)).etapas.some((e: any) => e.etapa === 'CONTROLE_INTERNO')).toBe(false);
       // Portão B (Entrega 4): o despacho entra depois do art. 72, I, II e IV — e do parecer (art. 53, §4º)
       expect((await anexar(lic, 'AA', C.token)).status).toBe(201);
       expect((await naoSeAplica(lic, 'DP', C.token)).status).toBe(201);
-      expect(await abertaDe(lic, 'PUBLICACAO')).toMatchObject({ tipo: 'PUBLICACAO', prazo_dias_uteis: 5 });
-      const logs = await sql(`SELECT dados_depois FROM logs_fase_interna WHERE licitacao_id = $1 AND acao::text = 'ETAPA_ALTERADA'`, [lic.id]);
-      expect(logs.some((l: any) => l.dados_depois.etapa === 'CONTROLE_INTERNO' && l.dados_depois.situacao === 'NAO_APLICAVEL')).toBe(true);
+      expect(await passoDe(lic, 'PUBLICACAO', C.token)).toMatchObject({ situacao: 'DISPONIVEL', prazo_dias_uteis: 5 });
+      expect(await tarefasDoProcesso(lic)).toEqual([]); // um motor só (11/2026): sem tarefa de etapa
     });
   });
 
@@ -343,10 +372,14 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
   describe('D. processo revogado cancela as tarefas abertas', () => {
     it('REVOGAR na fase interna → tarefas canceladas', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
-      expect(await abertaDe(lic, 'DFD')).toBeTruthy();
+      // um motor só (11/2026): as tarefas abertas são as do sistema (ex.: assinatura, renovar dotação)
+      await tarefaDoSistema(lic, 'sistema:e2e-revogar-1');
+      await tarefaDoSistema(lic, 'sistema:e2e-revogar-2', PassoFaseInterna.RESERVA);
+      expect((await tarefasDoProcesso(lic)).filter((t: any) => t.status === 'ABERTA')).toHaveLength(2);
       const r = await http().post(`/api/licitacoes/${lic.id}/atos/REVOGAR`).set(bearer(A.token)).send({ motivo: 'Demanda deixou de existir' });
       expect(r.status).toBe(201);
       const ts = await tarefasDoProcesso(lic);
+      expect(ts).toHaveLength(2);
       expect(ts.every((t: any) => t.status === 'CANCELADA')).toBe(true);
       expect(ts[0].motivo_cancelamento).toMatch(/revogado/);
     });
@@ -359,8 +392,9 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
       const ag = await criarUsuarioOrgao(ctx, D, { role: RoleUsuario.PREGOEIRO, nome: 'Agente D' });
       const l1 = await criarLicitacao(ctx, D, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: ag.id } });
       const l2 = await criarLicitacao(ctx, D, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: ag.id } });
-      const t1 = await abertaDe(l1, 'DFD');
-      const t2 = await abertaDe(l2, 'DFD');
+      // um motor só (11/2026): a caixa mostra as tarefas do sistema (não há mais tarefa de etapa)
+      const t1 = await tarefaDoSistema(l1, 'sistema:e2e-caixa');
+      const t2 = await tarefaDoSistema(l2, 'sistema:e2e-caixa');
       await sql(`UPDATE tarefas SET prazo = now() - interval '2 days' WHERE id = $1`, [t2.id]);
       await sql(`UPDATE tarefas SET prazo = now() + interval '5 days' WHERE id = $1`, [t1.id]);
       const cx = await caixa(ag.token);
@@ -375,16 +409,14 @@ describe('Fase interna — Entrega 2 (tarefas e etapas)', () => {
 
   // ==========================================================================
   describe('F. migração de boot (tarefas dos processos existentes)', () => {
-    it('cria as tarefas abertas que faltam e, rodada 2x, não duplica', async () => {
+    it('um motor só (11/2026): recalcula os processos sem criar tarefa de etapa e, rodada 2x, não muda nada', async () => {
       const lic = await criarLicitacao(ctx, A, ModalidadeLicitacao.DISPENSA_ELETRONICA, { extras: { pregoeiro_id: agente.id } });
       await tarefas().aguardarPendentes();
-      // processo "de antes da Entrega 2": sem tarefa nenhuma
-      await sql(`DELETE FROM tarefas WHERE licitacao_id = $1`, [lic.id]);
       const r1 = await tarefas().migrarProcessosExistentes();
-      expect(r1.criadas).toBeGreaterThanOrEqual(1);
+      expect(r1.processos).toBeGreaterThanOrEqual(1);
+      expect(r1.criadas).toBe(0);
       const depois1 = await sql(`SELECT id, passo, status FROM tarefas ORDER BY id`);
-      expect(depois1.filter((t: any) => t.status === 'ABERTA' && t.passo === 'DFD').length).toBeGreaterThan(0);
-      expect((await tarefasDoProcesso(lic)).map((t: any) => t.passo)).toEqual(['DFD']);
+      expect(await tarefasDoProcesso(lic)).toEqual([]);
       const r2 = await tarefas().migrarProcessosExistentes();
       expect(r2.criadas).toBe(0);
       expect(await sql(`SELECT id, passo, status FROM tarefas ORDER BY id`)).toEqual(depois1);

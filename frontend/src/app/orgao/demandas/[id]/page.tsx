@@ -534,6 +534,7 @@ export default function DetalheDemandaPage() {
           )}
           {podeEditar && (
             <Button
+              data-guia="enviar-demanda"
               onClick={enviarParaAprovacao}
               disabled={enviando || !podeEnviar}
               title={podeEnviar ? 'Envia o pedido para aprovação' : 'Para enviar: descrição do pedido e ao menos 1 item'}

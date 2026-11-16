@@ -1,3 +1,4 @@
+import { ComprovantesService } from '../comprovantes/comprovantes.service';
 import {
   Body,
   Controller,
@@ -20,6 +21,11 @@ import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { HabilitacaoService, TAMANHO_MAXIMO_DOCUMENTO } from './habilitacao.service';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { anexoVisivel } from '../julgamento/visao-lotes.regras';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * HABILITAÇÃO (plano E4) — rotas em /api/habilitacao.
@@ -34,11 +40,14 @@ import { HabilitacaoService, TAMANHO_MAXIMO_DOCUMENTO } from './habilitacao.serv
  *    própria habilitação (a de outro responde 404);
  *  - arquivo: órgão dono ou o próprio licitante; público nunca.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.CREDENCIAMENTO)
 @Controller('habilitacao')
 export class HabilitacaoController {
   constructor(
     private readonly habilitacao: HabilitacaoService,
     private readonly acesso: AcessoLicitacaoService,
+    @InjectDataSource() private readonly ds: DataSource,
+    private readonly comprovantes: ComprovantesService,
   ) {}
 
   private exigirIds(...ids: string[]) {
@@ -176,9 +185,10 @@ export class HabilitacaoController {
 
   @SomenteOrgao()
   @Post(':habilitacaoId/inabilitar')
-  async inabilitar(@Param('habilitacaoId') id: string, @Body() body: { motivo?: string }, @AtorAtual() ator: Ator) {
+  async inabilitar(@Param('habilitacaoId') id: string, @Body() body: { motivo?: string; unidadesIds?: string[] }, @AtorAtual() ator: Ator) {
     await this.orgaoDaHabilitacao(ator, id);
-    return this.habilitacao.inabilitar(id, body?.motivo, atorTransicaoDe(ator));
+    const unidades = Array.isArray(body?.unidadesIds) ? body.unidadesIds.filter((u) => typeof u === 'string') : undefined;
+    return this.habilitacao.inabilitar(id, body?.motivo, atorTransicaoDe(ator), undefined, unidades);
   }
 
   // --------------------------------------------------------------------------
@@ -198,18 +208,42 @@ export class HabilitacaoController {
   ) {
     this.exigirIds(exigenciaId);
     const fid = await this.fornecedorDaLicitacao(ator, licitacaoId);
-    return this.habilitacao.enviarDocumento(licitacaoId, exigenciaId, fid, {
+    const r = await this.habilitacao.enviarDocumento(licitacaoId, exigenciaId, fid, {
       arquivo: arquivo ?? null,
       validade: body?.validade ?? null,
       observacao: body?.observacao ?? null,
     });
+    // Comprovante do anexo (dono, 10/11/2026): o que foi enviado e o que ficou gravado
+    const [ex] = await this.ds.query(`SELECT descricao FROM exigencias_habilitacao WHERE id::text = $1`, [exigenciaId]);
+    await this.comprovantes.emitir({
+      licitacaoId,
+      fornecedorId: fid,
+      tipo: 'DOCUMENTO_ANEXADO',
+      descricao: `Anexado "${arquivo?.originalname ?? 'documento'}" — ${ex?.descricao ?? 'exigência do edital'}`,
+    });
+    return r;
   }
 
   @SomenteFornecedor()
   @Delete('documentos/:documentoId')
   async removerDocumento(@Param('documentoId') documentoId: string, @AtorAtual() ator: Ator) {
     this.exigirIds(documentoId);
-    return this.habilitacao.removerDocumento(documentoId, this.acesso.fornecedorDoToken(ator));
+    const fid = this.acesso.fornecedorDoToken(ator);
+    const [doc] = await this.ds.query(
+      `SELECT d.licitacao_id::text AS licitacao_id, d.fornecedor_id::text AS fornecedor_id, d.arquivo_nome, e.descricao
+         FROM documentos_habilitacao d JOIN exigencias_habilitacao e ON e.id = d.exigencia_id WHERE d.id::text = $1`,
+      [documentoId],
+    );
+    const r = await this.habilitacao.removerDocumento(documentoId, fid);
+    if (doc && doc.fornecedor_id === fid) {
+      await this.comprovantes.emitir({
+        licitacaoId: doc.licitacao_id,
+        fornecedorId: fid,
+        tipo: 'DOCUMENTO_REMOVIDO',
+        descricao: `Removido "${doc.arquivo_nome ?? 'documento'}" — ${doc.descricao ?? 'exigência do edital'}`,
+      });
+    }
+    return r;
   }
 
   /** Entrega da documentação (encerra o envio — depois, só complementação em diligência). */
@@ -217,7 +251,9 @@ export class HabilitacaoController {
   @Post('licitacao/:licitacaoId/entregar')
   async entregar(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
     const fid = await this.fornecedorDaLicitacao(ator, licitacaoId);
-    return this.habilitacao.concluirEnvio(licitacaoId, fid);
+    const r = await this.habilitacao.concluirEnvio(licitacaoId, fid);
+    await this.comprovantes.emitir({ licitacaoId, fornecedorId: fid, tipo: 'DOCUMENTACAO_ENTREGUE' });
+    return r;
   }
 
   @SomenteFornecedor()
@@ -231,7 +267,12 @@ export class HabilitacaoController {
   // Arquivo
   // --------------------------------------------------------------------------
 
-  /** Arquivo do documento: órgão dono ou o próprio licitante. */
+  /**
+   * Arquivo do documento: órgão dono, o próprio licitante e — com o resultado da
+   * habilitação daquele licitante (habilitado ou inabilitado) — os demais
+   * licitantes da licitação (dono, 09/11/2026: "os documentos devem ser vistos
+   * por todos, depois da habilitação").
+   */
   @OrgaoOuFornecedor()
   @Get('documentos/:documentoId/arquivo')
   async arquivo(@Param('documentoId') documentoId: string, @AtorAtual() ator: Ator) {
@@ -239,8 +280,20 @@ export class HabilitacaoController {
     const dono = await this.habilitacao.donoDoDocumento(documentoId);
     if (!dono) throw new NotFoundException('Documento não encontrado');
     if (ehFornecedor(ator)) {
-      // documento de outro licitante: 404 (não revela a existência)
-      if (this.acesso.fornecedorDoToken(ator) !== dono.fornecedorId) throw new NotFoundException('Documento não encontrado');
+      const eu = this.acesso.fornecedorDoToken(ator);
+      if (eu !== dono.fornecedorId) {
+        // documento de outro licitante: só decidido e para quem participa; senão 404 (não revela a existência)
+        await this.acesso.assertFornecedorParticipa(ator, dono.licitacaoId).catch(() => {
+          throw new NotFoundException('Documento não encontrado');
+        });
+        const [h] = await this.ds.query(
+          `SELECT h.status::text AS status FROM documentos_habilitacao d JOIN habilitacoes_licitante h ON h.id = d.habilitacao_id WHERE d.id::text = $1`,
+          [documentoId],
+        );
+        if (!anexoVisivel({ tipo: 'HABILITACAO', souOrgao: false, souDono: false, statusHabilitacao: h?.status })) {
+          throw new NotFoundException('Documento não encontrado');
+        }
+      }
     } else {
       await this.acesso.assertOrgaoDaLicitacao(ator, dono.licitacaoId, 'leitura');
     }

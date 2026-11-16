@@ -299,6 +299,8 @@ export async function criarLicitacao(
       criterio_julgamento: opts.criterio ?? CriterioJulgamento.MENOR_PRECO,
       modo_disputa: opts.modo_disputa ?? ModoDisputa.ABERTO,
       valor_total_estimado: Number(valorTotal.toFixed(2)),
+      // Publicar exige quem conduz designado (precondição agenteDesignado)
+      pregoeiro_nome: 'Agente de contratação (teste)',
       ...(opts.extras ?? {}),
     });
   esperarStatus(resp, 201, 'criar licitação');

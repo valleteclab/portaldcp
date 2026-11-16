@@ -37,6 +37,8 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 import { DisputaModule } from './disputa/disputa.module';
 import { JulgamentoModule } from './julgamento/julgamento.module';
 import { HabilitacaoModule } from './habilitacao/habilitacao.module';
+import { ComprovantesModule } from './comprovantes/comprovantes.module';
+import { DiligenciasModule } from './diligencias/diligencias.module';
 import { ResultadoModule } from './resultado/resultado.module';
 import { AdminModule } from './admin/admin.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
@@ -69,6 +71,7 @@ import { ConcursoModule } from './concurso/concurso.module';
 import { DialogoCompetitivoModule } from './dialogo-competitivo/dialogo.module';
 import { PainelTvModule } from './painel-tv/painel-tv.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { GuiaModule } from './guia/guia.module';
 
 @Module({
   imports: [
@@ -153,6 +156,8 @@ import { WorkflowModule } from './workflow/workflow.module';
     DisputaModule,
     JulgamentoModule,
     HabilitacaoModule,
+    ComprovantesModule,
+    DiligenciasModule,
     ResultadoModule,
     AdminModule,
     AlmoxarifadoModule,
@@ -185,6 +190,7 @@ import { WorkflowModule } from './workflow/workflow.module';
     DialogoCompetitivoModule, // diálogo competitivo (E7c — art. 32)
     PainelTvModule, // painel para TV do setor de licitação (link com token, só leitura)
     WorkflowModule,
+    GuiaModule, // guia de primeiros passos (botão Guia)
   ],
   controllers: [HealthController],
   providers: [

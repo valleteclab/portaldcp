@@ -22,6 +22,18 @@ export function fornecedorSemSegredos<T>(fornecedor: T): T {
   return copia as T;
 }
 
+/** O que terceiros (público, outros fornecedores) veem do autor de uma proposta já aberta. */
+export function fornecedorParaTerceiros(f: any) {
+  if (!f || typeof f !== 'object') return f;
+  return { id: f.id, razao_social: f.razao_social, nome_fantasia: f.nome_fantasia, cpf_cnpj: f.cpf_cnpj, porte: f.porte, cidade: f.cidade, uf: f.uf };
+}
+
+/** Fases em que a etapa de lances ainda não terminou — propostas identificadas não saem para terceiros. */
+const FASES_ANTES_DO_FIM_DOS_LANCES: string[] = [
+  'PLANEJAMENTO', 'TERMO_REFERENCIA', 'PESQUISA_PRECOS', 'ANALISE_JURIDICA', 'APROVACAO_INTERNA',
+  'AGUARDANDO_DIVULGACAO', 'PUBLICADO', 'IMPUGNACAO', 'ACOLHIMENTO_PROPOSTAS', 'ANALISE_PROPOSTAS', 'EM_DISPUTA',
+];
+
 /** Dono de uma proposta (para as checagens de acesso no controller). */
 export interface DonoProposta {
   id: string;
@@ -68,6 +80,11 @@ export class PropostasService {
    * acolhimento (ou da abertura da sessão), o conteúdo das propostas não pode
    * ser exposto — as rotas públicas por licitação/item retornam dados mascarados.
    */
+  /** EntityManager para leituras auxiliares (planilha-modelo). */
+  manager() {
+    return this.propostaRepository.manager;
+  }
+
   async emSigiloDePropostas(licitacaoId: string): Promise<boolean> {
     const licitacao = await this.licitacaoRepository.findOne({
       where: { id: licitacaoId },
@@ -81,6 +98,32 @@ export class PropostasService {
     if (!corte) return false;
     const d = new Date(corte);
     return !isNaN(d.getTime()) && agora < d;
+  }
+
+  /**
+   * Sigilo para QUEM NÃO É O ÓRGÃO DONO (público e outros fornecedores): além
+   * do relógio do acolhimento, as propostas identificadas só saem quando a
+   * disputa acabou — no pregão a proposta vira o primeiro lance, e publicar
+   * autor + valor durante os lances desfaz o anonimato da sala.
+   *  - dispensa com lances: até o fim da janela (inclusive o intervalo entre o
+   *    fim das propostas e a abertura da janela);
+   *  - demais: até a licitação sair da fase de lances (julgamento em diante).
+   */
+  async emSigiloParaTerceiros(licitacaoId: string): Promise<boolean> {
+    if (await this.emSigiloDePropostas(licitacaoId)) return true;
+    const l = await this.licitacaoRepository.findOne({ where: { id: licitacaoId } });
+    if (!l) return true;
+    if (l.modalidade === 'DISPENSA_ELETRONICA') {
+      if (!l.dispensa_com_lances) return false;
+      if (l.dispensa_lances_fim) return new Date() < new Date(l.dispensa_lances_fim);
+      // Janela nunca aberta (ex.: julgada direto): o sigilo acaba com o julgamento.
+      const [j] = await this.propostaRepository.manager.query(
+        `SELECT 1 FROM itens_licitacao WHERE licitacao_id = $1 AND status::text IN ('ADJUDICADO','HOMOLOGADO') LIMIT 1`,
+        [licitacaoId],
+      );
+      return !j && !l.data_homologacao;
+    }
+    return FASES_ANTES_DO_FIM_DOS_LANCES.includes(l.fase);
   }
 
   private async validarAntesAberturaSessao(licitacaoId: string): Promise<void> {
@@ -123,6 +166,19 @@ export class PropostasService {
       if (agora >= abertura) {
         throw new BadRequestException('Não é possível enviar/alterar proposta após a abertura da sessão');
       }
+    }
+    this.exigirPrazoDeEnvioAberto(licitacao, 'enviar/alterar');
+  }
+
+  /**
+   * O conteúdo das propostas deixa de ser sigiloso no fim do prazo de envio:
+   * a partir daí ninguém mais altera nem retira a sua (senão quem já viu as
+   * dos outros ainda poderia ajustar a própria).
+   */
+  private exigirPrazoDeEnvioAberto(licitacao: Licitacao | null | undefined, acao: string): void {
+    const fim = licitacao?.data_fim_acolhimento ? new Date(licitacao.data_fim_acolhimento) : null;
+    if (fim && !isNaN(fim.getTime()) && new Date() >= fim) {
+      throw new BadRequestException(`Não é possível ${acao} proposta depois do fim do prazo de envio`);
     }
   }
 
@@ -247,16 +303,18 @@ export class PropostasService {
     return await this.propostaRepository.save(propostaSalva);
   }
 
-  async findByLicitacao(licitacaoId: string): Promise<Proposta[]> {
+  async findByLicitacao(licitacaoId: string, orgaoDono = false): Promise<Proposta[]> {
     // Rota pública: durante o sigilo, expõe apenas a EXISTÊNCIA das propostas
     // (sem id, autor, valores ou itens) — impede que concorrentes vejam o
-    // conteúdo antes do fim do acolhimento.
-    if (await this.emSigiloDePropostas(licitacaoId)) {
-      const sigilosas = await this.propostaRepository.find({
+    // conteúdo antes do fim do acolhimento e, para quem não é o órgão dono,
+    // antes do fim dos lances.
+    const sigilo = orgaoDono ? await this.emSigiloDePropostas(licitacaoId) : await this.emSigiloParaTerceiros(licitacaoId);
+    if (sigilo) {
+      const sigilosas = (await this.propostaRepository.find({
         where: { licitacao_id: licitacaoId },
         select: ['id', 'status', 'data_envio'],
         order: { data_envio: 'ASC' },
-      });
+      })).filter((p) => orgaoDono || p.status !== StatusProposta.RASCUNHO);
       return sigilosas.map(
         (p) =>
           ({
@@ -277,7 +335,8 @@ export class PropostasService {
       order: { valor_total_proposta: 'ASC' }
     });
 
-    return propostas.map((proposta) => {
+    // Rascunho nunca foi apresentado: só o órgão dono enxerga que ele existe.
+    return propostas.filter((p) => orgaoDono || p.status !== StatusProposta.RASCUNHO).map((proposta) => {
       const itens_proposta = (proposta.itens || []).map((pi) => {
         const item = pi.item_licitacao;
         return {
@@ -303,7 +362,7 @@ export class PropostasService {
       const { itens: _itensCrus, ...semItens } = proposta;
       return {
         ...semItens,
-        fornecedor: fornecedorSemSegredos(proposta.fornecedor),
+        fornecedor: orgaoDono ? fornecedorSemSegredos(proposta.fornecedor) : fornecedorParaTerceiros(proposta.fornecedor),
         itens_proposta,
       } as any;
     });
@@ -515,12 +574,20 @@ export class PropostasService {
         throw new BadRequestException('Não é possível excluir a proposta após a abertura da sessão');
       }
     }
+    this.exigirPrazoDeEnvioAberto(licitacao, 'excluir a');
 
     await this.propostaRepository.remove(proposta);
   }
 
+  /** Licitação de um item (para decidir a visão do ranking). */
+  async licitacaoDoItem(itemId: string): Promise<string | null> {
+    if (!ehUuid(itemId)) return null;
+    const r = await this.propostaRepository.manager.query(`SELECT licitacao_id FROM itens_licitacao WHERE id = $1`, [itemId]);
+    return r[0]?.licitacao_id ?? null;
+  }
+
   // Ranking de propostas por item
-  async getRankingPorItem(itemLicitacaoId: string) {
+  async getRankingPorItem(itemLicitacaoId: string, orgaoDono = false) {
     const propostaItens = await this.propostaItemRepository.find({
       where: { item_licitacao_id: itemLicitacaoId },
       relations: ['proposta', 'proposta.fornecedor'],
@@ -530,13 +597,15 @@ export class PropostasService {
     // Rota pública: ranking só após o fim do acolhimento (sigilo das propostas)
     if (propostaItens.length > 0) {
       const licitacaoId = propostaItens[0].proposta?.licitacao_id;
-      if (licitacaoId && (await this.emSigiloDePropostas(licitacaoId))) {
-        return [];
-      }
+      const sigilo = !licitacaoId || (orgaoDono
+        ? await this.emSigiloDePropostas(licitacaoId)
+        : await this.emSigiloParaTerceiros(licitacaoId));
+      if (sigilo) return [];
     }
 
     return propostaItens
-      .filter(pi => pi.proposta.status !== StatusProposta.DESCLASSIFICADA && 
+      .filter(pi => pi.proposta.status !== StatusProposta.RASCUNHO &&
+                    pi.proposta.status !== StatusProposta.DESCLASSIFICADA && 
                     pi.proposta.status !== StatusProposta.CANCELADA)
       .map((pi, index) => ({
         posicao: index + 1,
@@ -610,40 +679,31 @@ export class PropostasService {
   }
 
   async findFornecedoresByOrgao(orgaoId: string): Promise<any[]> {
-    // Busca fornecedores únicos que enviaram propostas para licitações deste órgão
-    const result = await this.propostaRepository
-      .createQueryBuilder('proposta')
-      .innerJoin('proposta.licitacao', 'licitacao')
-      .innerJoin('proposta.fornecedor', 'fornecedor')
-      .where('licitacao.orgao_id = :orgaoId', { orgaoId })
-      .select([
-        'fornecedor.id as id',
-        'fornecedor.razao_social as razao_social',
-        'fornecedor.nome_fantasia as nome_fantasia',
-        'fornecedor.cnpj as cnpj',
-        'fornecedor.email as email',
-        'fornecedor.telefone as telefone',
-        'fornecedor.municipio as municipio',
-        'fornecedor.uf as uf',
-        'fornecedor.status as status',
-        'fornecedor.porte as porte',
-        'COUNT(DISTINCT proposta.id) as total_propostas',
-        'COUNT(DISTINCT licitacao.id) as total_licitacoes',
-        'MAX(proposta.created_at) as ultima_proposta',
-      ])
-      .groupBy('fornecedor.id')
-      .addGroupBy('fornecedor.razao_social')
-      .addGroupBy('fornecedor.nome_fantasia')
-      .addGroupBy('fornecedor.cnpj')
-      .addGroupBy('fornecedor.email')
-      .addGroupBy('fornecedor.telefone')
-      .addGroupBy('fornecedor.municipio')
-      .addGroupBy('fornecedor.uf')
-      .addGroupBy('fornecedor.status')
-      .addGroupBy('fornecedor.porte')
-      .orderBy('MAX(proposta.created_at)', 'DESC')
-      .getRawMany();
-
-    return result;
+    // Fornecedores que propuseram em licitações do órgão — só propostas cuja
+    // autoria o órgão já pode conhecer: nunca rascunho, nunca no prazo de
+    // envio e, no pregão/concorrência, só depois dos lances.
+    return this.propostaRepository.manager.query(
+      `SELECT f.id, f.razao_social, f.nome_fantasia, f.cpf_cnpj AS cnpj, f.email, f.telefone,
+              f.cidade AS municipio, f.uf, f.status, f.porte,
+              COUNT(DISTINCT p.id)::int AS total_propostas,
+              COUNT(DISTINCT l.id)::int AS total_licitacoes,
+              MAX(p.created_at) AS ultima_proposta
+         FROM propostas p
+         JOIN licitacoes l ON l.id = p.licitacao_id
+         JOIN fornecedores f ON f.id = p.fornecedor_id
+        WHERE l.orgao_id = $1
+          AND CAST(p.status AS text) <> 'RASCUNHO'
+          AND COALESCE(l.data_fim_acolhimento, l.data_abertura_sessao) <= NOW()
+          AND (
+            CAST(l.modalidade AS text) NOT IN ('PREGAO_ELETRONICO','CONCORRENCIA','DISPENSA_ELETRONICA')
+            OR (CAST(l.modalidade AS text) = 'DISPENSA_ELETRONICA'
+                AND (l.dispensa_com_lances IS NOT TRUE OR l.dispensa_lances_fim <= NOW() OR l.data_homologacao IS NOT NULL))
+            OR (CAST(l.modalidade AS text) <> 'DISPENSA_ELETRONICA'
+                AND (l.inversao_fases IS TRUE OR NOT (CAST(l.fase AS text) = ANY($2::text[]))))
+          )
+        GROUP BY f.id
+        ORDER BY MAX(p.created_at) DESC`,
+      [orgaoId, FASES_ANTES_DO_FIM_DOS_LANCES],
+    );
   }
 }

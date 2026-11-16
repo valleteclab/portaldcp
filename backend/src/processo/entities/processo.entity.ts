@@ -18,6 +18,8 @@ export enum TipoProcesso {
   PAGAMENTO = 'PAGAMENTO',
   /** Processo sem fluxo: só autuação, tramitação e juntada de documentos. */
   AVULSO = 'AVULSO',
+  /** Ofício: escreve, assina e envia a outro setor; numerado por setor e ano. Livre (sem fluxo). */
+  OFICIO = 'OFICIO',
 }
 
 export type SituacaoProcesso = 'ABERTO' | 'ENCERRADO';
@@ -101,6 +103,13 @@ export class Processo {
 
   @Column({ type: 'text', nullable: true })
   motivo_encerramento: string | null;
+
+  /**
+   * Rascunho da peça em elaboração (ofício: texto, título e setor de destino),
+   * salvo pelo "Salvar rascunho" — some quando a peça é assinada e juntada.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  rascunho_peca: { titulo: string | null; html: string; para_setor_id: string | null; salvo_em: string; salvo_por: string } | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;

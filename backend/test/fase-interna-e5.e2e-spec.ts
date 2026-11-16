@@ -16,9 +16,9 @@
  *  D. Publicar pela tela da conformidade: o portão C segura (BLOQUEIO), a tela
  *     mostra o quadro (modo, canais, controle interno); corrigido, publica; a
  *     etapa 8 fica EM ANDAMENTO até a confirmação do PNCP, que conclui a etapa
- *     e a tarefa.
+ *     (um motor só, 11/2026: sem a tarefa de etapa do motor antigo).
  *  E. Diário Oficial como peça da publicação: órgão sem PNCP — o registro é a
- *     divulgação oficial (confirma, conclui a etapa 8 e a tarefa); antes de
+ *     divulgação oficial (confirma e conclui a etapa 8); antes de
  *     publicar 409.
  *  F. Controle interno ativo: aviso antes de publicar, não bloqueia. DISP-01:
  *     sem lances num órgão que adota a IN 67 → ATENÇÃO (não bloqueia).
@@ -99,8 +99,9 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
     await esperar();
     return (await http().get(`/api/fase-interna/${lic.id}/conformidade`).set(bearer(token)).expect(200)).body;
   };
-  const tarefaPublicacao = async (lic: { id: string }) =>
-    (await esperar(), await sql(`SELECT * FROM tarefas WHERE licitacao_id = $1 AND passo = 'PUBLICACAO' AND origem = 'ETAPA' ORDER BY created_at DESC LIMIT 1`, [lic.id]))[0];
+  /** Um motor só (11/2026): o motor antigo não cria mais a tarefa de etapa da publicação. */
+  const tarefasDaPublicacao = async (lic: { id: string }) =>
+    (await esperar(), await sql(`SELECT * FROM tarefas WHERE licitacao_id = $1 AND passo = 'PUBLICACAO' AND origem = 'ETAPA'`, [lic.id]));
   const passoPublicacao = async (lic: { id: string }, token: string) => {
     await esperar();
     const r = (await http().get(`/api/fase-interna/${lic.id}/etapas`).set(bearer(token)).expect(200)).body;
@@ -322,8 +323,8 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       expect(t.aviso.canais.map((c: any) => c.chave)).toEqual(['PNCP', 'SITIO', 'DIARIO_OFICIAL', 'PLATAFORMA']);
       expect(t.aviso.canais[0].situacao).toBe('Aguardando a conformidade');
       expect(t.aviso.canais[2].situacao).toBe('Registrar depois de publicar');
-      const tarefa = await tarefaPublicacao(lic);
-      expect(tarefa).toMatchObject({ status: 'ABERTA', tipo: 'PUBLICACAO' });
+      expect((await passoPublicacao(lic, agenteB.token)).situacao).toBe('DISPONIVEL');
+      expect(await tarefasDaPublicacao(lic)).toEqual([]);
     });
 
     it('o PUBLICAR da tela é recusado pelo portão C com o que falta e onde; o Diário Oficial antes de publicar é 409', async () => {
@@ -338,7 +339,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       expect(d.status).toBe(409);
     });
 
-    it('corrigida a peça, publica: etapa 8 EM ANDAMENTO e a tarefa aberta até a confirmação do PNCP', async () => {
+    it('corrigida a peça, publica: etapa 8 EM ANDAMENTO até a confirmação do PNCP', async () => {
       expect((await anexar(lic, 'MC', agenteB.token, 'Minuta do contrato vinculada ao PA 555/2026 Dispensa 055/2026')).status).toBe(201);
       const t = await conformidade(lic, agenteB.token);
       expect(t.publicar.pode).toBe(true);
@@ -347,20 +348,17 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       expect(r.status).toBe(200);
       expect(r.body.fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
       expect((await passoPublicacao(lic, agenteB.token)).situacao).toBe('EM_ANDAMENTO');
-      expect((await tarefaPublicacao(lic)).status).toBe('ABERTA');
       const q = (await http().get(`/api/fase-interna/${lic.id}/publicacao`).set(bearer(agenteB.token)).expect(200)).body;
       expect(q.etapa8.situacao).toBe('AGUARDANDO_CONFIRMACAO');
       expect(q.canais.find((c: any) => c.chave === 'PNCP').situacao).toMatch(/fila|aguardando/i);
       expect(q.modo_disputa).toMatchObject({ congelado: true, com_lances: true });
     });
 
-    it('a confirmação do PNCP conclui a etapa 8 e fecha a tarefa (quem cumpriu = quem publicou)', async () => {
+    it('a confirmação do PNCP conclui a etapa 8', async () => {
       const l = await confirmarDivulgacao(ctx, lic);
       expect([FaseLicitacao.PUBLICADO, FaseLicitacao.ACOLHIMENTO_PROPOSTAS]).toContain(l.fase);
       expect((await passoPublicacao(lic, agenteB.token)).situacao).toBe('CONCLUIDO');
-      const tarefa = await tarefaPublicacao(lic);
-      expect(tarefa.status).toBe('CONCLUIDA');
-      expect(tarefa.concluida_por_id).toBe(agenteB.id);
+      expect(await tarefasDaPublicacao(lic)).toEqual([]);
       const q = (await http().get(`/api/fase-interna/${lic.id}/publicacao`).set(bearer(agenteB.token)).expect(200)).body;
       expect(q.etapa8.situacao).toBe('CONCLUIDA');
       expect(q.canais.find((c: any) => c.chave === 'PNCP')).toMatchObject({ ok: true });
@@ -421,11 +419,11 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       expect(t.publicar.pode).toBe(true);
     });
 
-    it('publica (sem lances, controle interno manifestado) e o registro no Diário Oficial confirma a divulgação: etapa 8 e tarefa concluídas', async () => {
+    it('publica (sem lances, controle interno manifestado) e o registro no Diário Oficial confirma a divulgação: etapa 8 concluída', async () => {
       const r = await http().put(`/api/licitacoes/${lic.id}/publicar-edital`).set(bearer(agenteA.token)).send(corpoDivulgacao(fimPropostasSugerido()));
       expect(r.status).toBe(200);
       expect(r.body.fase).toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
-      expect((await tarefaPublicacao(lic)).status).toBe('ABERTA');
+      expect((await passoPublicacao(lic, agenteA.token)).situacao).toBe('EM_ANDAMENTO');
       const q = (await http().get(`/api/fase-interna/${lic.id}/publicacao`).set(bearer(agenteA.token)).expect(200)).body;
       expect(q.diario_oficial).toMatchObject({ pode_registrar: true, confirma_divulgacao: true });
       expect(q.canais[0].situacao).toMatch(/sem integração/);
@@ -442,7 +440,7 @@ describe('Fase interna — Entrega 5 (publicação; dispensa com ou sem etapa de
       expect(l.fase).not.toBe(FaseLicitacao.AGUARDANDO_DIVULGACAO);
       expect(l).toMatchObject({ meio_divulgacao_oficial: 'DIARIO_OFICIAL', referencia_divulgacao_oficial: 'Diário Oficial nº 3.100, p. 4', dispensa_com_lances: false });
       expect((await passoPublicacao(lic, agenteA.token)).situacao).toBe('CONCLUIDO');
-      expect((await tarefaPublicacao(lic)).status).toBe('CONCLUIDA');
+      expect(await tarefasDaPublicacao(lic)).toEqual([]);
       expect(d.body.publicacao.etapa8.situacao).toBe('CONCLUIDA');
       // sem anexo: a peça existe sem folhas (não há página a numerar)
       const [doc] = await sql(`SELECT folha_inicial, caminho_arquivo FROM documentos_fase_interna WHERE id = $1`, [d.body.documento_id]);

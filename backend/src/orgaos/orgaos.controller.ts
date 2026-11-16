@@ -1,3 +1,5 @@
+import { comLimiteDeLogin } from '../common/limite-login';
+import { hashSenha } from '../common/senha.util';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, UnauthorizedException, Req, Logger, UseInterceptors, UploadedFile, BadRequestException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -84,7 +86,7 @@ export class OrgaosController {
       throw new UnauthorizedException('Email e senha são obrigatórios');
     }
 
-    const result = await this.authService.loginOrgao(email, senha);
+    const result = await comLimiteDeLogin('orgao', email, () => this.authService.loginOrgao(email, senha));
     
     return {
       success: true,
@@ -109,7 +111,7 @@ export class OrgaosController {
       throw new UnauthorizedException('Email já cadastrado');
     }
 
-    const senhaHash = createHash('sha256').update(senha).digest('hex');
+    const senhaHash = hashSenha(senha);
     
     const orgao = await this.orgaosService.create({
       email_login: email,
@@ -335,6 +337,12 @@ export class OrgaosController {
       throw new ForbiddenException('Sem permissão para alterar este órgão');
     }
     if (req.user.type !== UserType.ADMIN) {
+      // Cadastro do órgão é ato do GESTOR; e-mail/senha mestres, módulos
+      // contratados e identificadores nunca vêm por aqui para quem não é admin.
+      this.exigirGestorDoOrgao(req.user, id);
+      for (const campo of ['id', 'email_login', 'senha', 'senha_hash', 'modulos_habilitados', 'codigo', 'created_at', 'updated_at']) {
+        delete (updateData as any)[campo];
+      }
       delete updateData.pncp_vinculado;
       delete updateData.pncp_codigo_unidade;
       delete updateData.pncp_cnpj_orgao;

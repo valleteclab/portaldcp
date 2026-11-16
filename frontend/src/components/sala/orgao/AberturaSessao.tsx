@@ -76,6 +76,16 @@ export function AberturaSessao({
     void carregar()
   }, [carregar])
 
+  // A pregoeira costuma abrir esta tela antes da hora: as conferências (data de abertura,
+  // prazo de impugnação) são refeitas sozinhas até liberarem o botão. Antes, o botão ficava
+  // desabilitado até recarregar a página (ensaio do pregão 2026/00081).
+  const liberado = !!dados?.verificacoes?.podeIniciar
+  useEffect(() => {
+    if (liberado) return
+    const t = setInterval(() => void carregar(), 15_000)
+    return () => clearInterval(t)
+  }, [liberado, carregar])
+
   const abrir = async () => {
     if (!dados) return
     setErroAto(null)

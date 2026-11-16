@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, use } from "react"
+import { ROTULO_CRITERIO, ROTULO_MODO_DISPUTA } from "@/lib/licitacao-rotulos"
+import { useState, useEffect, use, Fragment } from "react"
 import { useRouter } from "next/navigation"
 import { 
   ArrowLeft, 
@@ -10,7 +11,9 @@ import {
   Package, 
   Send,
   AlertCircle,
-  Info
+  Info,
+  Download,
+  Upload
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -29,9 +32,21 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { lerPlanilhaDaProposta } from '@/lib/planilha-proposta'
+import { baixarArquivo } from '@/components/sala/recursos-comum'
+import { ComprovantesFornecedor } from '@/components/fornecedor/ComprovantesFornecedor'
+
+interface LoteLicitacao {
+  id: string
+  numero: number
+  descricao: string
+  valor_total_estimado?: string | number | null
+  tipo_beneficio_mpe?: string | null
+}
 
 interface ItemLicitacao {
   id: string
+  lote_id?: string | null
   numero_item: number
   descricao_resumida: string
   quantidade: number
@@ -51,9 +66,9 @@ interface Licitacao {
 }
 
 const steps = [
-  { id: 1, title: "Declaracoes", icon: FileText },
+  { id: 1, title: "Declarações", icon: FileText },
   { id: 2, title: "Itens e Valores", icon: Package },
-  { id: 3, title: "Revisao e Envio", icon: Send },
+  { id: 3, title: "Revisão e Envio", icon: Send },
 ]
 
 export default function CadastrarPropostaPage({ params }: { params: Promise<{ id: string }> }) {
@@ -105,8 +120,13 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
     itens: Array<{ itemId: string; numero: number; somenteMpe: boolean; ehCota: boolean }>
   } | null>(null)
 
+  // Licitação por lote: os itens aparecem agrupados sob o lote, com o benefício ME/EPP no cabeçalho
+  const [lotes, setLotes] = useState<LoteLicitacao[]>([])
+
   const [itensPropostos, setItensPropostos] = useState<Array<{
     id: string
+    numero: number
+    loteId: string | null
     descricao: string
     quantidade: number
     unidade: string
@@ -149,8 +169,10 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         const resItens = await authFetch(`${API_URL}/api/itens/licitacao/${resolvedParams.id}`)
         if (resItens.ok) {
           const dataItens = await resItens.json()
-          setItensPropostos(dataItens.map((item: ItemLicitacao) => ({
+          setItensPropostos(dataItens.map((item: ItemLicitacao, i: number) => ({
             id: item.id,
+            numero: item.numero_item ?? i + 1,
+            loteId: item.lote_id ?? null,
             descricao: item.descricao_resumida,
             quantidade: item.quantidade,
             unidade: item.unidade_medida,
@@ -159,6 +181,13 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
             marca: '',
             modelo: ''
           })))
+        }
+
+        // Lotes (leitura pública da licitação divulgada)
+        const resLotes = await authFetch(`${API_URL}/api/lotes/licitacao/${resolvedParams.id}`)
+        if (resLotes.ok) {
+          const dataLotes = await resLotes.json()
+          if (Array.isArray(dataLotes)) setLotes([...dataLotes].sort((a, b) => Number(a.numero) - Number(b.numero)))
         }
       } catch (err) {
         console.error('Erro ao buscar dados:', err)
@@ -179,11 +208,55 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
   const podeExclusivos = !!participacao?.porteMpe && declaracoes.mpe
   const bloqueado = (id: string) => exclusivos.has(id) && !podeExclusivos
   const itensPermitidos = itensPropostos.filter((i) => !bloqueado(i.id))
+  const oQue = lotes.length > 0 && itensPropostos.some((i) => i.loteId) ? 'lotes' : 'itens'
   const avisoExclusivo = exclusivos.size === 0 || podeExclusivos
     ? null
     : participacao?.porteMpe
-      ? 'Há itens EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48). Para cotá-los, marque a "Declaração ME/EPP" na etapa 1.'
-      : `Há itens EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48, I e III). Seu cadastro indica porte ${participacao?.porte ?? 'não informado'}: esses itens ficam fora da sua proposta.`
+      ? `Há ${oQue} EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48). Para cotá-los, marque a "Declaração ME/EPP" na etapa 1.`
+      : `Há ${oQue} EXCLUSIVOS para ME/EPP ou de COTA RESERVADA (LC 123/2006, art. 48, I e III). Seu cadastro indica porte ${participacao?.porte ?? 'não informado'}: esses ${oQue} ficam fora da sua proposta.`
+
+  // Grupos da tabela: um por lote (na ordem dos lotes) e, se houver, os itens sem lote
+  type ItemProposto = (typeof itensPropostos)[number]
+  const porLote = lotes.length > 0 && itensPropostos.some((i) => i.loteId)
+  const grupos: Array<{ lote: LoteLicitacao | null; itens: ItemProposto[] }> = porLote
+    ? [
+        ...lotes.map((lote) => ({ lote, itens: itensPropostos.filter((i) => i.loteId === lote.id) })).filter((g) => g.itens.length > 0),
+        ...(itensPropostos.some((i) => !i.loteId || !lotes.some((l) => l.id === i.loteId))
+          ? [{ lote: null, itens: itensPropostos.filter((i) => !i.loteId || !lotes.some((l) => l.id === i.loteId)) }]
+          : []),
+      ]
+    : [{ lote: null, itens: itensPropostos }]
+  const lancePorLote = (licitacao as { base_lance?: string } | null)?.base_lance === 'TOTAL_LOTE'
+  const reais = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const colunasTabela = licitacao?.sigilo_orcamento !== 'SIGILOSO' ? 7 : 6
+
+  // Importação da planilha-modelo (dono, 10/11/2026): preenche o formulário; o fornecedor confere e envia
+  const [importacao, setImportacao] = useState<{ preenchidos: number; avisos: string[] } | null>(null)
+  const baixarModelo = () =>
+    baixarArquivo(`${API_URL}/api/propostas/licitacao/${resolvedParams.id}/planilha-modelo`, `proposta-modelo-${licitacao?.numero_processo?.replace(/[^0-9A-Za-z]+/g, '-') ?? 'licitacao'}.xlsx`).catch(() =>
+      setError('Não foi possível baixar a planilha-modelo.'),
+    )
+  const importarPlanilha = async (arquivo: File | undefined) => {
+    if (!arquivo) return
+    const { linhas, avisos } = await lerPlanilhaDaProposta(arquivo)
+    const porNumero = new Map(linhas.map((l) => [l.numero, l]))
+    const avisosTela = [...avisos]
+    let preenchidos = 0
+    for (const l of linhas) if (!itensPropostos.some((i) => i.numero === l.numero)) avisosTela.push(`Item ${l.numero}: não existe nesta licitação — ignorado.`)
+    // Calculado fora do setState (o atualizador pode rodar mais de uma vez)
+    const novos = itensPropostos.map((item) => {
+      const l = porNumero.get(item.numero)
+      if (!l) return item
+      if (bloqueado(item.id)) {
+        if (l.valorUnitario) avisosTela.push(`Item ${item.numero}: exclusivo de ME/EPP — fora da sua proposta, valor ignorado.`)
+        return item
+      }
+      if (l.valorUnitario) preenchidos++
+      return { ...item, valorProposto: l.valorUnitario ?? item.valorProposto, marca: l.marca || item.marca, modelo: l.modelo || item.modelo }
+    })
+    setItensPropostos(novos)
+    setImportacao({ preenchidos, avisos: avisosTela })
+  }
 
   const calcularTotalProposta = () => {
     return itensPermitidos.reduce((total, item) => {
@@ -327,8 +400,8 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="pt-4">
           <div className="flex items-center gap-4 text-sm">
-            <Badge variant="outline" className="bg-white">Critério: {licitacao?.criterio_julgamento}</Badge>
-            <Badge variant="outline" className="bg-white">Modo: {licitacao?.modo_disputa}</Badge>
+            <Badge variant="outline" className="bg-white">Critério: {ROTULO_CRITERIO[licitacao?.criterio_julgamento ?? ""] ?? licitacao?.criterio_julgamento}</Badge>
+            <Badge variant="outline" className="bg-white">Modo: {ROTULO_MODO_DISPUTA[licitacao?.modo_disputa ?? ""] ?? licitacao?.modo_disputa}</Badge>
           </div>
         </CardContent>
       </Card>
@@ -361,27 +434,30 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
         </div>
       </div>
 
+      {/* Comprovantes já emitidos nesta licitação (ex.: de uma proposta excluída) */}
+      <ComprovantesFornecedor licitacaoId={resolvedParams.id} ocultarSeVazio />
+
       {currentStep === 1 && (
         <Card>
           <CardHeader>
-            <CardTitle>Termos e Declaracoes</CardTitle>
-            <CardDescription>Confirme as declaracoes obrigatorias para participar</CardDescription>
+            <CardTitle>Termos e Declarações</CardTitle>
+            <CardDescription>Confirme as declarações obrigatórias para participar</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <Alert>
               <Info className="h-4 w-4" />
               <AlertTitle>Importante</AlertTitle>
               <AlertDescription>
-                As declaracoes marcadas com (*) sao obrigatorias conforme Lei 14.133/2021
+                As declarações marcadas com (*) são obrigatórias conforme a Lei 14.133/2021
               </AlertDescription>
             </Alert>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex-1">
-                  <Label className="font-medium">Termo de Aceitacao *</Label>
+                  <Label className="font-medium">Termo de Aceitação *</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro que cumpro e estou ciente de todas as declaracoes contidas no termo de aceitacao.
+                    Declaro que cumpro e estou ciente de todas as declarações contidas no termo de aceitação.
                   </p>
                 </div>
                 <Switch 
@@ -392,9 +468,9 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex-1">
-                  <Label className="font-medium">Declaracao ME/EPP</Label>
+                  <Label className="font-medium">Declaração ME/EPP</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro que nao ultrapasso o limite de faturamento e cumpro os requisitos da LC 123/2006.
+                    Declaro que não ultrapasso o limite de faturamento e cumpro os requisitos da LC 123/2006.
                   </p>
                 </div>
                 <Switch 
@@ -410,7 +486,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                     Declaro que desenvolvo programa de integridade conforme Art. 60 da Lei 14.133/2021.
                   </p>
                   <p className="text-xs text-blue-600 mt-1">
-                    Opcional - Exigido apenas para contratos de grande vulto (acima de R$ 200 milhões)
+                    Opcional — exigido apenas para contratos de grande vulto (acima de R$ 200 milhões)
                   </p>
                 </div>
                 <Switch 
@@ -421,9 +497,9 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
 
               <div className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex-1">
-                  <Label className="font-medium">Inexistencia de Fatos Impeditivos *</Label>
+                  <Label className="font-medium">Inexistência de Fatos Impeditivos *</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro a inexistencia de fatos impeditivos para participar desta licitacao.
+                    Declaro a inexistência de fatos impeditivos para participar desta licitação.
                   </p>
                 </div>
                 <Switch 
@@ -436,7 +512,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                 <div className="flex-1">
                   <Label className="font-medium">Trabalho de Menor *</Label>
                   <p className="text-sm text-muted-foreground">
-                    Declaro que nao emprego menor de 18 anos em trabalho noturno, perigoso ou insalubre.
+                    Declaro que não emprego menor de 18 anos em trabalho noturno, perigoso ou insalubre.
                   </p>
                 </div>
                 <Switch
@@ -480,10 +556,52 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       {currentStep === 2 && (
         <Card>
           <CardHeader>
-            <CardTitle>Itens da Licitacao</CardTitle>
-            <CardDescription>Informe os valores e especificacoes para cada item</CardDescription>
+            <CardTitle>Itens da Licitação</CardTitle>
+            <CardDescription>Informe os valores e especificações para cada item</CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+              <span className="text-slate-700">Prefere preencher numa planilha?</span>
+              <Button type="button" size="sm" variant="outline" onClick={baixarModelo}>
+                <Download className="mr-1 h-4 w-4" /> Baixar planilha-modelo
+              </Button>
+              <Button type="button" size="sm" variant="outline" asChild>
+                <label className="cursor-pointer">
+                  <Upload className="mr-1 h-4 w-4" /> Importar planilha preenchida
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      void importarPlanilha(e.target.files?.[0])
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+              </Button>
+            </div>
+            {importacao && (
+              <Alert className={`mb-4 ${importacao.avisos.length ? 'border-amber-300 bg-amber-50' : 'border-emerald-300 bg-emerald-50'}`}>
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>
+                  Planilha importada: {importacao.preenchidos} {importacao.preenchidos === 1 ? 'item preenchido' : 'itens preenchidos'}. Confira os valores abaixo antes de enviar.
+                </AlertTitle>
+                {importacao.avisos.length > 0 && (
+                  <AlertDescription>
+                    <ul className="list-disc pl-5">
+                      {importacao.avisos.map((a) => (
+                        <li key={a}>{a}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                )}
+              </Alert>
+            )}
+            {porLote && lancePorLote && (
+              <p className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                Licitação por lote, com lance pelo valor global do lote: informe o preço unitário de cada item; a disputa será pelo total do lote.
+              </p>
+            )}
             {avisoExclusivo && (
               <Alert className="mb-4 border-amber-300 bg-amber-50">
                 <AlertCircle className="h-4 w-4" />
@@ -498,7 +616,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[50px]">Item</TableHead>
-                  <TableHead>Descricao</TableHead>
+                  <TableHead>Descrição</TableHead>
                   <TableHead className="text-center">Qtd</TableHead>
                   {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
                     <TableHead className="text-right">{(licitacao as any)?.modalidade === 'LEILAO' ? 'Preço mínimo' : 'Valor Ref.'}</TableHead>
@@ -509,48 +627,97 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {itensPropostos.map((item, index) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium align-top">{index + 1}</TableCell>
-                    <TableCell className="max-w-md align-top">
-                      <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
-                      {exclusivos.has(item.id) && (
-                        <Badge variant="outline" className="mt-1 border-amber-400 text-amber-800">
-                          {exclusivos.get(item.id)?.ehCota ? 'Cota reservada ME/EPP' : 'Exclusivo ME/EPP'}
-                          {bloqueado(item.id) ? ' — fora da sua proposta' : ''}
-                        </Badge>
+                {grupos.map((g) => {
+                  const beneficio = g.itens.map((i) => exclusivos.get(i.id)).find(Boolean)
+                  const foraDaProposta = g.itens.length > 0 && g.itens.every((i) => bloqueado(i.id))
+                  const cotados = g.itens.filter((i) => !bloqueado(i.id) && (i.valorProposto || 0) > 0).length
+                  const totalLote = g.itens.reduce((t, i) => t + (bloqueado(i.id) ? 0 : i.quantidade * (i.valorProposto || 0)), 0)
+                  const estimadoLote = g.itens.reduce((t, i) => t + Number(i.quantidade) * Number(i.valorEstimado || 0), 0)
+                  return (
+                    <Fragment key={g.lote?.id ?? 'sem-lote'}>
+                      {g.lote && (
+                        <TableRow className="bg-slate-100 hover:bg-slate-100">
+                          <TableCell colSpan={colunasTabela} className="py-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-slate-900">
+                                  Lote {g.lote.numero} — {g.lote.descricao}
+                                </span>
+                                {beneficio ? (
+                                  <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-800">
+                                    {beneficio.ehCota ? 'Cota reservada ME/EPP' : 'Exclusivo ME/EPP'}
+                                    {foraDaProposta ? ' — fora da sua proposta' : ''}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-slate-600">Ampla participação</Badge>
+                                )}
+                              </div>
+                              <div className="text-sm text-slate-600">
+                                {licitacao?.sigilo_orcamento !== 'SIGILOSO' && <span>Estimado do lote: {reais(estimadoLote)}</span>}
+                                {!foraDaProposta && (
+                                  <span className="ml-3 font-semibold text-blue-700">Sua proposta: {reais(totalLote)}</span>
+                                )}
+                              </div>
+                            </div>
+                            {lancePorLote && !foraDaProposta && cotados > 0 && cotados < g.itens.length && (
+                              <p className="mt-1 text-xs text-amber-800">
+                                O lance é pelo valor global do lote: cote os {g.itens.length} itens para disputá-lo (faltam {g.itens.length - cotados}).
+                              </p>
+                            )}
+                          </TableCell>
+                        </TableRow>
                       )}
-                    </TableCell>
-                    <TableCell className="text-center align-top">{item.quantidade} {item.unidade}</TableCell>
-                    {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
-                      <TableCell className="text-right text-muted-foreground">
-                        R$ {item.valorEstimado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </TableCell>
-                    )}
-                    <TableCell className="text-right">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        className="w-32 text-right"
-                        placeholder="0,00"
-                        value={item.valorProposto || ""}
-                        disabled={bloqueado(item.id)}
-                        onChange={(e) => updateItemValue(item.id, 'valorProposto', parseFloat(e.target.value) || 0)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        className="w-40"
-                        placeholder="Marca / Modelo"
-                        value={item.marca}
-                        onChange={(e) => updateItemValue(item.id, 'marca', e.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      R$ {(item.quantidade * (item.valorProposto || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      {!g.lote && porLote && (
+                        <TableRow className="bg-slate-100 hover:bg-slate-100">
+                          <TableCell colSpan={colunasTabela} className="py-2 font-semibold text-slate-900">Itens fora de lote</TableCell>
+                        </TableRow>
+                      )}
+                      {g.itens.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium align-top">{item.numero}</TableCell>
+                        <TableCell className="max-w-md align-top">
+                          <p className="whitespace-pre-wrap break-words">{item.descricao}</p>
+                          {/* Por lote, o benefício aparece uma vez, no cabeçalho do lote */}
+                          {!g.lote && exclusivos.has(item.id) && (
+                            <Badge variant="outline" className="mt-1 border-amber-400 text-amber-800">
+                              {exclusivos.get(item.id)?.ehCota ? 'Cota reservada ME/EPP' : 'Exclusivo ME/EPP'}
+                              {bloqueado(item.id) ? ' — fora da sua proposta' : ''}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center align-top">{Number(item.quantidade).toLocaleString('pt-BR')} {item.unidade}</TableCell>
+                        {licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
+                          <TableCell className="text-right text-muted-foreground">
+                            R$ {Number(item.valorEstimado).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            className="w-32 text-right"
+                            placeholder="0,00"
+                            value={item.valorProposto || ""}
+                            disabled={bloqueado(item.id)}
+                            onChange={(e) => updateItemValue(item.id, 'valorProposto', parseFloat(e.target.value) || 0)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            className="w-40"
+                            placeholder="Marca / Modelo"
+                            value={item.marca}
+                            onChange={(e) => updateItemValue(item.id, 'marca', e.target.value)}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          R$ {(item.quantidade * (item.valorProposto || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </TableCell>
+                      </TableRow>
+                      ))}
+                    </Fragment>
+                  )
+                })}
               </TableBody>
             </Table>
 
@@ -571,18 +738,18 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
       {currentStep === 3 && (
         <Card>
           <CardHeader>
-            <CardTitle>Revisao da Proposta</CardTitle>
+            <CardTitle>Revisão da Proposta</CardTitle>
             <CardDescription>Confira os dados antes de enviar</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <h3 className="font-medium mb-2">Declaracoes Aceitas</h3>
+                <h3 className="font-medium mb-2">Declarações Aceitas</h3>
                 <ul className="space-y-1 text-sm">
-                  {declaracoes.termos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Termo de Aceitacao</li>}
+                  {declaracoes.termos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Termo de Aceitação</li>}
                   {declaracoes.mpe && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> ME/EPP</li>}
                   {declaracoes.integridade && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Programa de Integridade</li>}
-                  {declaracoes.inexistenciaFatos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Inexistencia de Fatos</li>}
+                  {declaracoes.inexistenciaFatos && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Inexistência de Fatos Impeditivos</li>}
                   {declaracoes.menor && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Trabalho de Menor</li>}
                   {declaracoes.custosTrabalhistas && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Custos Trabalhistas</li>}
                   {declaracoes.responsabilidade && <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600" /> Responsabilidade pela Proposta</li>}
@@ -611,7 +778,7 @@ export default function CadastrarPropostaPage({ params }: { params: Promise<{ id
                   </span>
                 )}
                 Você poderá alterar sua proposta até a abertura da sessão.
-                Após a abertura da sessão, alterações só serão permitidas se solicitadas pelo pregoeiro 
+                Após a abertura da sessão, alterações só serão permitidas se solicitadas pelo pregoeiro ou agente de contratação 
                 (ex: adequação de preços após fase de lances).
               </AlertDescription>
             </Alert>

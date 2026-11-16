@@ -24,6 +24,22 @@ import { nomeDoPregoeiroSql } from '../licitacoes/migracao-legado-e9';
  * Servico de Controle da Sessao de Disputa
  * Implementa regras da Lei 14.133/2021 e IN SEGES/ME
  */
+
+/** "09/11/2026, 00:29" no relógio de Brasília (nunca o Date.toString cru). */
+export function dataHoraBrasilia(d: Date | string | null | undefined): string {
+  if (!d) return '—';
+  const x = new Date(d);
+  return Number.isNaN(x.getTime()) ? '—' : x.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/** "001/2026" fica como está; "001" ganha o ano da criação; vazio vira "s/n/ano". */
+export function numeroComAno(numero: string | null | undefined, criadoEm: Date | string | null | undefined): string {
+  const n = String(numero ?? '').trim();
+  if (/\/\d{4}$/.test(n)) return n;
+  const ano = criadoEm ? new Date(criadoEm).getFullYear() : new Date().getFullYear();
+  return `${n || 's/n'}/${ano}`;
+}
+
 @Injectable()
 export class SessaoService {
   private readonly logger = new Logger(SessaoService.name);
@@ -332,6 +348,7 @@ export class SessaoService {
     mensagens: any[];
     eventos: any[];
     resumo: any;
+    julgamento?: any;
   }> {
     // Buscar sessão com licitação
     const sessao = await this.sessaoRepository.findOne({
@@ -392,6 +409,13 @@ export class SessaoService {
       ])
       .getRawMany();
 
+    // Razão social dos licitantes (alguns eventos guardam o id do fornecedor como autor)
+    const nomesDosLicitantes = new Map<string, string>(
+      (await this.eventoRepository.manager.query(
+        `SELECT DISTINCT f.id::text AS id, f.razao_social FROM propostas p JOIN fornecedores f ON f.id = p.fornecedor_id WHERE p.licitacao_id = $1`,
+        [sessao.licitacao_id],
+      )).map((r: any) => [String(r.id), String(r.razao_social)]),
+    );
     // Buscar todos os eventos (inclui mensagens)
     const eventos = await this.eventoRepository.find({
       where: { sessao_id: sessaoId },
@@ -425,6 +449,8 @@ export class SessaoService {
     const totalLances = ativos.length;
     const totalParticipantes = participantesUnicos.length;
     const valorTotalAdjudicado = itens.reduce((acc, item) => {
+      // Adjudicado/homologado: vale o valor do vencedor de verdade (o melhor lance pode ter sido recusado ou inabilitado)
+      if (item.fornecedor_vencedor_nome && item.valor_total_homologado != null) return acc + Number(item.valor_total_homologado);
       const melhor = melhorDoItem(item.id);
       return acc + (melhor ? totalDoLance(melhor, item).valor_total : 0);
     }, 0);
@@ -460,8 +486,70 @@ export class SessaoService {
           data_hora: melhorLance.data_hora,
         } : null,
         economia: v ? estimadoTotal - v.valor_total : 0,
+        // Vencedor de verdade (adjudicado/homologado): o melhor lance pode ter sido recusado ou inabilitado
+        vencedor: item.fornecedor_vencedor_nome
+          ? {
+              fornecedor: item.fornecedor_vencedor_nome,
+              valor_total: item.valor_total_homologado != null ? Number(item.valor_total_homologado) : null,
+              valor_unitario: item.valor_unitario_homologado != null ? Number(item.valor_unitario_homologado) : null,
+              economia: item.valor_total_homologado != null ? estimadoTotal - Number(item.valor_total_homologado) : null,
+            }
+          : null,
+        status: item.status,
       };
     });
+
+    // JULGAMENTO, HABILITAÇÃO, RECURSOS E RESULTADO — os atos depois dos lances, em seções próprias
+    // (antes a ata só os trazia diluídos no histórico de eventos)
+    const q = (sql: string, p: any[] = []) => this.sessaoRepository.manager.query(sql, p);
+    const licId = sessao.licitacao_id;
+    const [aceitacoes, desempates, habilitacoes, diligencias, janelas, recursos, formalizacoes] = await Promise.all([
+      q(
+        `SELECT COALESCE('Lote ' || lt.numero, 'Item ' || it.numero_item) AS unidade, COALESCE(lt.numero, it.numero_item) AS numero, f.razao_social AS fornecedor,
+                a.status, a.convocada_em, a.enviada_em, a.valor_total_readequado, a.decidida_em, a.decisao_motivo, a.justificativa_exequibilidade
+           FROM aceitacoes_proposta a
+           LEFT JOIN itens_licitacao it ON it.id::text = a.unidade_id::text
+           LEFT JOIN lotes_licitacao lt ON lt.id::text = a.unidade_id::text
+           LEFT JOIN fornecedores f ON f.id::text = a.fornecedor_id::text
+          WHERE a.licitacao_id::text = $1 ORDER BY 2, a.convocada_em`,
+        [licId],
+      ),
+      q(
+        `SELECT COALESCE('Lote ' || lt.numero, 'Item ' || it.numero_item) AS unidade, COALESCE(lt.numero, it.numero_item) AS numero, d.status, d.motivo, d.melhor_valor,
+                fm.razao_social AS melhor, fv.razao_social AS vencedor, d.valor_vencedor, d.concluido_em
+           FROM desempates_mpe d
+           LEFT JOIN itens_licitacao it ON it.id::text = d.unidade_id::text
+           LEFT JOIN lotes_licitacao lt ON lt.id::text = d.unidade_id::text
+           LEFT JOIN fornecedores fm ON fm.id::text = d.melhor_fornecedor_id
+           LEFT JOIN fornecedores fv ON fv.id::text = d.vencedor_fornecedor_id
+          WHERE d.licitacao_id::text = $1 AND d.status <> 'NAO_APLICAVEL' ORDER BY 2`,
+        [licId],
+      ),
+      q(
+        `SELECT f.razao_social AS fornecedor, h.status, h.convocada_em, h.enviada_em, h.decidida_em, h.decisao_motivo, h.inabilitacoes_unidade
+           FROM habilitacoes_licitante h LEFT JOIN fornecedores f ON f.id::text = h.fornecedor_id::text
+          WHERE h.licitacao_id::text = $1 AND h.status <> 'CANCELADA' ORDER BY h.convocada_em`,
+        [licId],
+      ),
+      q(
+        `SELECT f.razao_social AS fornecedor, d.unidade_rotulo, d.pedido, d.aberta_em, d.resposta, d.respondida_em, d.resultado, d.resultado_motivo, d.encerrada_em
+           FROM diligencias_licitante d LEFT JOIN fornecedores f ON f.id::text = d.fornecedor_id::text
+          WHERE d.licitacao_id::text = $1 ORDER BY d.aberta_em`,
+        [licId],
+      ),
+      q(`SELECT aberta_em, fecha_em, minutos, momento, aberta_por_nome, superada_em FROM janelas_intencao_recurso WHERE licitacao_id::text = $1 ORDER BY aberta_em`, [licId]),
+      q(
+        `SELECT f.razao_social AS recorrente, r.status, r.ato_recorrido, r.motivacao_intencao, r.data_intencao, r.data_decisao, r.decisao, r.instancia_decisao
+           FROM recursos_administrativos r LEFT JOIN fornecedores f ON f.id::text = r.fornecedor_id::text
+          WHERE r.licitacao_id::text = $1 ORDER BY r.data_intencao`,
+        [licId],
+      ),
+      q(
+        `SELECT tipo, status, autoridade_nome, autoridade_cargo, operador_nome, valor_total, created_at
+           FROM formalizacoes_resultado WHERE licitacao_id::text = $1 ORDER BY created_at`,
+        [licId],
+      ),
+    ]);
 
     return {
       sessao: {
@@ -482,6 +570,7 @@ export class SessaoService {
         modalidade: licitacao?.modalidade,
       },
       itens: itensComResultado,
+      julgamento: { aceitacoes, desempates, habilitacoes, diligencias, janelas_recurso: janelas, recursos, formalizacoes },
       participantes: participantesUnicos.map(p => ({
         id: p.fornecedor_id,
         nome: p.razao_social || p.fornecedor_nome,
@@ -507,7 +596,8 @@ export class SessaoService {
         tipo: e.tipo,
         descricao: e.descricao,
         data_hora: e.created_at,
-        usuario: e.usuario_nome,
+        // Ato do licitante gravado com o id no lugar do nome: a ata mostra a razão social
+        usuario: (/^[0-9a-f-]{36}$/i.test(String(e.usuario_nome ?? '')) && nomesDosLicitantes.get(String(e.usuario_nome))) || e.usuario_nome,
         item_id: e.item_id,
         fornecedor_id: e.fornecedor_id,
         valor: e.valor,
@@ -647,7 +737,7 @@ export class SessaoService {
           p.status,
           p.created_at,
           f.razao_social,
-          f.cnpj
+          f.cpf_cnpj AS cnpj
         FROM propostas p
         LEFT JOIN fornecedores f ON f.id = p.fornecedor_id
         WHERE p.licitacao_id = $1
@@ -658,18 +748,17 @@ export class SessaoService {
       propostasRaw = [];
     }
 
-    // Anonimiza propostas (Fornecedor A, B, C...)
+    // Preparação da sessão acontece ANTES dos lances: nunca leva quem é quem
+    // (nem id, nome ou CNPJ) e, enquanto o prazo de propostas corre, nem os
+    // valores — só que a proposta existe (sigilo também contra o órgão).
+    const corte = licitacao.data_fim_acolhimento || licitacao.data_abertura_sessao;
+    const noPrazoDePropostas = !!corte && new Date() < new Date(corte);
     const propostas = propostasRaw.map((p: any, index: number) => ({
       id: p.id,
-      fornecedorId: p.fornecedor_id,
-      // Nome anonimizado para exibição antes da disputa
-      fornecedorAnonimo: `Fornecedor ${String.fromCharCode(65 + index)}`,
-      // Nome real (só usar após disputa)
-      fornecedorNome: p.razao_social,
-      cnpj: p.cnpj,
-      valorTotal: parseFloat(p.valor_total_proposta) || 0,
+      fornecedorAnonimo: noPrazoDePropostas ? 'Proposta sob sigilo' : `Fornecedor ${String.fromCharCode(65 + index)}`,
+      valorTotal: noPrazoDePropostas ? null : parseFloat(p.valor_total_proposta) || 0,
       status: p.status,
-      dataEnvio: p.created_at,
+      dataEnvio: noPrazoDePropostas ? null : p.created_at,
     }));
 
     // Busca itens da licitação
@@ -730,7 +819,8 @@ export class SessaoService {
     return {
       licitacao: {
         id: licitacao.id,
-        numero: `${licitacao.modalidade?.substring(0, 2) || 'PE'} ${licitacao.numero_edital || ''}/${new Date(licitacao.created_at).getFullYear()}`,
+        // "PR 001/2026" — o número do edital já traz o ano (antes saía "001/2026/2026")
+        numero: `${licitacao.modalidade?.substring(0, 2) || 'PE'} ${numeroComAno(licitacao.numero_edital, licitacao.created_at)}`,
         numeroProcesso: licitacao.numero_processo,
         objeto: licitacao.objeto,
         modalidade: licitacao.modalidade,
@@ -755,7 +845,7 @@ export class SessaoService {
         prazoImpugnacao: prazoImpugnacaoEncerrado,
         prazoImpugnacaoMsg: prazoImpugnacaoEncerrado 
           ? 'Prazo de impugnação encerrado' 
-          : `Prazo de impugnação até ${licitacao.data_limite_impugnacao}`,
+          : `Prazo de impugnação até ${dataHoraBrasilia(licitacao.data_limite_impugnacao)}`,
         propostasRecebidas: temPropostas,
         propostasRecebidasMsg: temPropostas 
           ? `${propostasValidas.length} proposta(s) válida(s)` 
@@ -764,7 +854,7 @@ export class SessaoService {
         dataAbertura: dataAberturaChegou,
         dataAberturaMsg: dataAberturaChegou 
           ? 'Data de abertura atingida' 
-          : `Aguardando data de abertura: ${licitacao.data_abertura_sessao ? new Date(licitacao.data_abertura_sessao).toLocaleString('pt-BR') : 'não definida'}`,
+          : `Aguardando data de abertura: ${licitacao.data_abertura_sessao ? dataHoraBrasilia(licitacao.data_abertura_sessao) : 'não definida'}`,
         podeIniciar,
       },
       propostas,

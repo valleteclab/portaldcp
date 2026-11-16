@@ -36,6 +36,6 @@ export function itemParaPublico<T extends Record<string, any>>(item: T, lic: Lic
 /** Item para o órgão dono: completo (licitação relacionada sem credenciais do órgão). */
 export function itemParaOrgao<T extends Record<string, any>>(item: T): T {
   if (!item || typeof item !== 'object') return item;
-  const i: any = item;
-  return i.licitacao ? ({ ...i, licitacao: licitacaoParaOrgao(i.licitacao) } as T) : item;
+  const { melhor_lance_fornecedor_id: _m, ...i }: any = item;
+  return (i.licitacao ? { ...i, licitacao: licitacaoParaOrgao(i.licitacao) } : i) as T;
 }

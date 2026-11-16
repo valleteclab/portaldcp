@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Clock3, Database, FileSearch, FileText, RefreshCw, Scale, TimerReset, UserCheck, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Clock3, Database, FileSearch, FileText, RefreshCw, Scale, TimerReset, UserCheck, XCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -27,7 +27,6 @@ import {
   mensagemDeErro,
   porCategoria,
 } from '@/components/habilitacao/comum'
-import { formatarMoeda } from './utils'
 
 /**
  * PAINEL DE HABILITAÇÃO DO AGENTE (plano E4 — Lei 14.133/2021 arts. 62–70;
@@ -53,7 +52,7 @@ interface LicitanteRanking {
   habilitacaoId: string | null
   statusHabilitacao: string | null
   podeConvocar: boolean
-  unidades: Array<{ tipo: string; numero: number; situacao: string }>
+  unidades: Array<{ tipo: string; unidadeId: string; numero: number; situacao: string }>
 }
 interface Painel {
   licitacaoId: string
@@ -76,23 +75,49 @@ type Acao =
   | { tipo: 'habilitar'; hab: Habilitacao; confirmacaoInversao?: boolean }
   | { tipo: 'inabilitar'; hab: Habilitacao }
 
-export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }: { licitacaoId: string; somentePreviaInversao?: boolean }) {
+export function HabilitacaoPanel({
+  licitacaoId,
+  somentePreviaInversao = false,
+  unidade,
+}: {
+  licitacaoId: string
+  somentePreviaInversao?: boolean
+  /** Só os licitantes desta unidade (detalhe do lote na sala por fases). */
+  unidade?: { tipo: 'ITEM' | 'LOTE'; numero: number }
+}) {
   const [painel, setPainel] = useState<Painel | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [acao, setAcao] = useState<Acao | null>(null)
   const [texto, setTexto] = useState('')
   const [horas, setHoras] = useState('')
+  // Inabilitação por item/lote: onde o licitante sai (os documentos valem para todos)
+  const [unidadesInab, setUnidadesInab] = useState<Set<string>>(() => new Set())
   const [salvando, setSalvando] = useState(false)
+  // "Atende" sem travar o painel (gravação do pregão 2026/00072, 09/11/2026): cada clique levava ~10 s
+  // (gravar + recarregar o painel inteiro) com TODOS os botões travados — 28 documentos, ~5 minutos.
+  // Agora o documento fica marcado na hora; só o botão dele espera, e o painel se atualiza ao fundo.
+  const [atendeLocal, setAtendeLocal] = useState<Set<string>>(() => new Set())
+  const [analisando, setAnalisando] = useState<Set<string>>(() => new Set())
+  const pedidos = useRef(0)
+  const aplicado = useRef(0)
   const [agora, setAgora] = useState(Date.now())
   const [aberta, setAberta] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!licitacaoId) return
+    const n = ++pedidos.current
     setCarregando(true)
     try {
-      const res = await authFetch(`${API_URL}/api/habilitacao/licitacao/${licitacaoId}`)
-      if (res.ok) setPainel(await res.json())
+      const res = await authFetch(`${API_URL}/api/habilitacao/licitacao/${licitacaoId}`, { cache: 'no-store' })
+      // Resposta mais antiga que a já aplicada (consultas sobrepostas): descarta
+      if (res.ok && n >= aplicado.current) {
+        const j = await res.json()
+        if (n >= aplicado.current) {
+          aplicado.current = n
+          setPainel(j)
+        }
+      }
     } catch {
       /* polling: ignora falha pontual */
     } finally {
@@ -127,7 +152,61 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
     }
   }
 
-  const analisar = (doc: DocumentoHab) => ato(`/api/habilitacao/documentos/${doc.id}/analisar`, { resultado: 'ATENDE' }, 'Não foi possível registrar a análise')
+  const alterarConjunto = (set: (f: (s: Set<string>) => Set<string>) => void, id: string, incluir: boolean) =>
+    set((atual) => {
+      const novo = new Set(atual)
+      if (incluir) novo.add(id)
+      else novo.delete(id)
+      return novo
+    })
+  const analisar = async (doc: DocumentoHab) => {
+    setErro(null)
+    alterarConjunto(setAnalisando, doc.id, true)
+    alterarConjunto(setAtendeLocal, doc.id, true)
+    try {
+      const res = await authFetch(`${API_URL}/api/habilitacao/documentos/${doc.id}/analisar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resultado: 'ATENDE' }),
+      })
+      if (!res.ok) throw new Error(await mensagemDeErro(res, 'Não foi possível registrar a análise'))
+    } catch (e) {
+      alterarConjunto(setAtendeLocal, doc.id, false)
+      setErro(e instanceof Error ? e.message : 'Não foi possível registrar a análise')
+    } finally {
+      alterarConjunto(setAnalisando, doc.id, false)
+      void carregar()
+    }
+  }
+
+  // Ação em lote: marca ATENDE em todos os documentos ainda sem análise do licitante (um por um, em sequência)
+  const [atendendoTodos, setAtendendoTodos] = useState<string | null>(null)
+  const pendentesDeAnalise = (h: Habilitacao) =>
+    h.exigencias.flatMap((e) => e.documentos).filter((d) => !atendeLocal.has(d.id) && d.analise !== 'ATENDE' && d.analise !== 'NAO_ATENDE')
+  const atenderTodos = async (h: Habilitacao) => {
+    const docs = pendentesDeAnalise(h)
+    if (!docs.length) return
+    setErro(null)
+    setAtendendoTodos(h.id)
+    const falhas: string[] = []
+    for (const d of docs) {
+      alterarConjunto(setAtendeLocal, d.id, true)
+      try {
+        const res = await authFetch(`${API_URL}/api/habilitacao/documentos/${d.id}/analisar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resultado: 'ATENDE' }),
+        })
+        if (!res.ok) throw new Error(await mensagemDeErro(res, 'Não foi possível registrar a análise'))
+      } catch (e) {
+        alterarConjunto(setAtendeLocal, d.id, false)
+        falhas.push(e instanceof Error ? e.message : 'erro')
+      }
+    }
+    setAtendendoTodos(null)
+    if (falhas.length) setErro(`${falhas.length} documento(s) não foram marcados: ${falhas[0]}`)
+    void carregar()
+  }
 
   const confirmar = async () => {
     if (!acao) return
@@ -137,13 +216,18 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
       case 'prorrogar':
         return ato(`/api/habilitacao/${acao.hab.id}/prorrogar`, { motivo: texto }, 'Não foi possível prorrogar')
       case 'naoAtende':
+        alterarConjunto(setAtendeLocal, acao.doc.id, false)
         return ato(`/api/habilitacao/documentos/${acao.doc.id}/analisar`, { resultado: 'NAO_ATENDE', motivo: texto }, 'Não foi possível registrar a análise')
       case 'diligencia':
         return ato(`/api/habilitacao/${acao.hab.id}/diligencia`, { motivo: texto, prazoHoras: Number(horas), exigenciaIds: acao.exigenciaIds }, 'Não foi possível abrir a diligência')
       case 'habilitar':
         return ato(`/api/habilitacao/${acao.hab.id}/habilitar`, { observacao: texto || undefined }, 'Não foi possível habilitar')
       case 'inabilitar':
-        return ato(`/api/habilitacao/${acao.hab.id}/inabilitar`, { motivo: texto }, 'Não foi possível inabilitar')
+        return ato(
+          `/api/habilitacao/${acao.hab.id}/inabilitar`,
+          { motivo: texto, ...(inabilitacaoParcial ? { unidadesIds: [...unidadesInab] } : {}) },
+          'Não foi possível inabilitar',
+        )
     }
   }
 
@@ -164,11 +248,36 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
 
   const posFaseInversao = painel.inversaoFases && (painel.fase === 'JULGAMENTO' || painel.fase === 'HABILITACAO')
   const aceitos = new Set(painel.ranking.filter((r) => r.unidades.some((u) => u.situacao === 'ACEITO')).map((r) => r.fornecedorId))
-  const convocaveis = painel.ranking.filter((r) => r.podeConvocar)
-  const ordenadas = [...painel.habilitacoes].sort((a, b) => {
+  // Na vista de um lote, só quem chegou à habilitação NESTE lote (aceito, habilitado, inabilitado ou
+  // vencedor): no pregão 2026/00072, o lote 1 mostrava também a Alfa, que só deu lance nele
+  const SITUACOES_HABILITACAO = ['ACEITO', 'HABILITADO', 'INABILITADO', 'VENCEDOR']
+  const chegouNaUnidade = (r: LicitanteRanking) =>
+    !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero && SITUACOES_HABILITACAO.includes(u.situacao))
+  const daUnidade = new Set(painel.ranking.filter(chegouNaUnidade).map((r) => r.fornecedorId))
+  // Convocável NESTA unidade = proposta aceita nela (pregão 2026/00083: o item 1 listava, como
+  // "1º colocado", quem tinha proposta aceita em OUTRO item — bastava ter dado lance neste)
+  const aceitoNaUnidade = (r: LicitanteRanking) =>
+    !unidade || r.unidades.some((u) => u.tipo === unidade.tipo && Number(u.numero) === unidade.numero && u.situacao === 'ACEITO')
+  const convocaveis = painel.ranking.filter((r) => r.podeConvocar && aceitoNaUnidade(r))
+  const unidadesAceitas = (r: LicitanteRanking) =>
+    r.unidades
+      .filter((u) => u.situacao === 'ACEITO')
+      .sort((x, y) => Number(x.numero) - Number(y.numero))
+      .map((u) => `${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}`)
+      .join(', ')
+  const ordenadas = [...painel.habilitacoes].filter((h) => !unidade || daUnidade.has(h.fornecedorId)).sort((a, b) => {
     const peso = (h: Habilitacao) => (['AGUARDANDO_ENVIO', 'ENVIADA', 'EM_DILIGENCIA'].includes(h.status) ? 0 : 1)
     return peso(a) - peso(b)
   })
+
+  // Unidades em que o licitante do diálogo tem proposta aceita ainda não decidida
+  const aceitasDe = (fornecedorId: string) =>
+    (painel.ranking.find((r) => r.fornecedorId === fornecedorId)?.unidades ?? [])
+      .filter((u) => u.situacao === 'ACEITO')
+      .sort((x, y) => Number(x.numero) - Number(y.numero))
+  const aceitasDoAlvo = acao?.tipo === 'inabilitar' ? aceitasDe(acao.hab.fornecedorId) : []
+  const inabilitacaoParcial = aceitasDoAlvo.length > 1 && unidadesInab.size > 0 && unidadesInab.size < aceitasDoAlvo.length
+  const rotuloUnidade = (u: { tipo: string; numero: number }) => `${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}`
 
   const tituloAcao: Record<Acao['tipo'], string> = {
     convocar: 'Convocar para a habilitação',
@@ -182,7 +291,8 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
   const podeConfirmar = (() => {
     if (!acao) return false
     if (acao.tipo === 'prorrogar') return texto.trim().length > 0
-    if (acao.tipo === 'naoAtende' || acao.tipo === 'inabilitar') return texto.trim().length >= 10
+    if (acao.tipo === 'inabilitar') return texto.trim().length >= 10 && (aceitasDoAlvo.length <= 1 || unidadesInab.size > 0)
+    if (acao.tipo === 'naoAtende') return texto.trim().length >= 10
     if (acao.tipo === 'diligencia') return texto.trim().length >= 10 && Number(horas) >= 2 && acao.exigenciaIds.length > 0
     if (acao.tipo === 'convocar') return !horas || Number(horas) >= painel.prazoMinimoHoras
     return true
@@ -216,9 +326,11 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
             {convocaveis.map((r) => (
               <div key={r.fornecedorId} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-3">
                 <div>
-                  <div className="text-xs text-slate-500">{r.posicao}º colocado</div>
                   <div className="font-medium text-slate-900">{r.razaoSocial}</div>
-                  <div className="text-sm text-slate-600">{r.cpfCnpj} · {formatarMoeda(r.valorTotal)}</div>
+                  <div className="text-sm text-slate-600">{r.cpfCnpj}</div>
+                  <div className="text-xs text-slate-500">
+                    Proposta aceita em: {unidadesAceitas(r) || '—'} · a habilitação vale para todos
+                  </div>
                 </div>
                 <Button size="sm" onClick={() => { setAcao({ tipo: 'convocar', licitante: r }); setHoras(String(painel.prazoMinimoHoras)) }}>
                   Convocar
@@ -236,8 +348,11 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
 
         {ordenadas.map((h) => {
           const st = ROTULO_STATUS_HAB[h.status] ?? { label: h.status, cls: 'bg-slate-100' }
-          const expandida = aberta === h.id || (aberta === null && ['ENVIADA', 'EM_DILIGENCIA', 'AGUARDANDO_ENVIO'].includes(h.status))
           const confirmarInversao = posFaseInversao && h.status === 'HABILITADO' && aceitos.has(h.fornecedorId)
+          // Abre sozinha quando há algo a fazer — inclusive a confirmação do vencedor na inversão de fases:
+          // o botão fica aqui dentro, e com o licitante já habilitado (recolhido) a pregoeira não o achava
+          // (pregão 2026/00073, 09/11/2026)
+          const expandida = aberta === h.id || (aberta === null && (['ENVIADA', 'EM_DILIGENCIA', 'AGUARDANDO_ENVIO'].includes(h.status) || confirmarInversao))
           const exigenciasSemAtender = h.exigencias.filter((e) => e.situacao !== 'ATENDIDA').map((e) => e.id)
           return (
             <div key={h.id} className="rounded-xl border border-slate-200">
@@ -251,13 +366,41 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                       {h.prorrogadaEm && <span className="ml-1 text-slate-500">— prorrogado</span>}
                     </div>
                   )}
-                  {h.decisaoMotivo && <div className="mt-1 text-xs text-slate-600">Motivo: {h.decisaoMotivo}</div>}
+                  {(h.inabilitacoesUnidade ?? []).map((i) => (
+                    <div key={i.unidadeId} className="mt-1 text-xs text-red-700">
+                      Inabilitado só em {i.rotulo}: {i.motivo}
+                    </div>
+                  ))}
+                  {h.decisaoMotivo && (
+                    <div className="mt-1 text-xs text-slate-600">
+                      {h.status === 'HABILITADO' ? 'Observação' : 'Motivo'}: {h.decisaoMotivo}
+                    </div>
+                  )}
+                  {confirmarInversao && (
+                    <div className="mt-1 text-xs font-semibold text-amber-800">
+                      Inversão de fases: falta confirmar a habilitação deste vencedor (botão abaixo).
+                    </div>
+                  )}
+                  {/* Os documentos continuam acessíveis depois da decisão: o cartão recolhe, mas o caminho fica à vista */}
+                  <div className="mt-1 flex items-center gap-1 text-xs font-medium text-blue-700">
+                    {expandida ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    {expandida ? 'Ocultar documentos' : `Ver os documentos enviados (${h.exigencias.reduce((n, e) => n + e.documentos.length, 0)})`}
+                  </div>
                 </div>
                 <Badge className={st.cls}>{st.label}</Badge>
               </button>
 
               {expandida && (
                 <div className="space-y-3 border-t p-3">
+                  {h.podeAnalisar && pendentesDeAnalise(h).length > 1 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                      <span>Conferiu os documentos e todos estão em ordem? Marque de uma vez; o que não atende pode ser alterado depois, um a um.</span>
+                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={atendendoTodos === h.id} onClick={() => atenderTodos(h)}>
+                        <CheckCircle2 className="mr-1 h-4 w-4" />
+                        {atendendoTodos === h.id ? 'Marcando…' : `Atende em todos (${pendentesDeAnalise(h).length})`}
+                      </Button>
+                    </div>
+                  )}
                   {porCategoria(h.exigencias).map((g) => (
                     <div key={g.categoria} className="space-y-2">
                       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{ROTULO_CATEGORIA[g.categoria] ?? g.categoria}</div>
@@ -279,7 +422,8 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                               <Badge className={sit.cls}>{sit.label}</Badge>
                             </div>
                             {e.documentos.map((d) => {
-                              const an = ROTULO_ANALISE[d.analise]
+                              const analise = atendeLocal.has(d.id) ? 'ATENDE' : d.analise
+                              const an = ROTULO_ANALISE[analise]
                               // arquivo do registro cadastral: baixado pela habilitação (autenticado), nunca por link direto
                               const link = d.origem === 'CADASTRO' && !!d.cadastro?.caminhoArquivo
                               return (
@@ -306,7 +450,7 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                                   {d.analiseMotivo && <div className="mt-1 text-xs text-red-700">{d.analiseMotivo}</div>}
                                   {h.podeAnalisar && (
                                     <div className="mt-2 flex flex-wrap gap-1">
-                                      <Button size="sm" variant="outline" className="h-7 text-emerald-700" disabled={salvando || d.analise === 'ATENDE'} onClick={() => analisar(d)}>
+                                      <Button size="sm" variant="outline" className="h-7 text-emerald-700" disabled={analisando.has(d.id) || analise === 'ATENDE'} onClick={() => analisar(d)}>
                                         <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Atende
                                       </Button>
                                       <Button size="sm" variant="outline" className="h-7 text-red-700" disabled={salvando} onClick={() => { setTexto(''); setAcao({ tipo: 'naoAtende', hab: h, doc: d, exigencia: e }) }}>
@@ -368,7 +512,7 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                       </Button>
                     )}
                     {h.podeInabilitar && (
-                      <Button size="sm" variant="destructive" onClick={() => { setTexto(''); setAcao({ tipo: 'inabilitar', hab: h }) }}>
+                      <Button size="sm" variant="destructive" onClick={() => { setTexto(''); setUnidadesInab(new Set(aceitasDe(h.fornecedorId).map((u) => u.unidadeId))); setAcao({ tipo: 'inabilitar', hab: h }) }}>
                         <XCircle className="mr-1 h-4 w-4" /> Inabilitar
                       </Button>
                     )}
@@ -397,7 +541,10 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                 (acao.confirmacaoInversao
                   ? 'Habilitação julgada antes da disputa (art. 17 §1º): confirmar para o vencedor com proposta aceita.'
                   : 'Todas as exigências obrigatórias foram atendidas. O licitante fica HABILITADO nas unidades com proposta aceita.')}
-              {acao?.tipo === 'inabilitar' && 'O licitante sai do ranking; o próximo classificado pelos lances é convocado para a aceitação da proposta.'}
+              {acao?.tipo === 'inabilitar' &&
+                (inabilitacaoParcial
+                  ? 'O licitante sai do ranking só nos itens marcados; nos demais ele segue e pode ser habilitado. O próximo classificado é convocado onde ele saiu.'
+                  : 'O licitante sai do ranking; o próximo classificado pelos lances é convocado para a aceitação da proposta.')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -422,6 +569,37 @@ export function HabilitacaoPanel({ licitacaoId, somentePreviaInversao = false }:
                     <span>{e.descricao}</span>
                   </label>
                 ))}
+              </div>
+            )}
+            {acao?.tipo === 'inabilitar' && aceitasDoAlvo.length > 1 && (
+              <div className="space-y-1 rounded border p-2">
+                <div className="text-xs font-semibold text-slate-600">
+                  Inabilitar em (os documentos são os mesmos para todos; desmarque onde o licitante deve continuar):
+                </div>
+                {aceitasDoAlvo.map((u) => (
+                  <label key={u.unidadeId} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={unidadesInab.has(u.unidadeId)}
+                      onChange={(e) =>
+                        setUnidadesInab((p) => {
+                          const n = new Set(p)
+                          if (e.target.checked) n.add(u.unidadeId)
+                          else n.delete(u.unidadeId)
+                          return n
+                        })
+                      }
+                    />
+                    <span>{rotuloUnidade(u)}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {acao?.tipo === 'inabilitar' && acao.hab.podeHabilitar && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Atenção: todas as exigências obrigatórias deste licitante estão marcadas como <strong>Atende</strong>. Se algum documento não
+                serve, marque <strong>Não atende</strong> nele (com o motivo) antes de inabilitar — é essa análise que sustenta a decisão em
+                caso de recurso. Se o motivo é outro, descreva-o abaixo.
               </div>
             )}
             {acao && acao.tipo !== 'convocar' && (

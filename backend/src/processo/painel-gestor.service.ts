@@ -8,6 +8,8 @@ import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { ProcessoService } from './processo.service';
 import { TipoProcesso } from './entities/processo.entity';
+import { calendarioDoOrgao, diasUteisEntre } from '../common/prazos/dias-uteis';
+import { TempoEtapasService } from '../workflow/tempo/tempo-etapas.service';
 import { diasEntre, estadoPeloTempo, EstadoAndamento, EtapaDoCaminho, etapasDaLicitacao, etapasDoPedido, etapasDoProcessoProprio, rotuloTipoProcesso } from './painel-gestor-regras';
 
 /**
@@ -32,6 +34,8 @@ export interface LinhaDoPainel {
   prazo: { rotulo: string; data: string | null; vencido: boolean } | null;
   link: string;
   aberto_em: string | null;
+  /** Processo que segue um fluxo desenhado: a etapa e o tempo vêm do fluxo (dias úteis). */
+  fluxo: { nome: string; versao: number; etapa: string | null; dias_uteis: number; prazo_dias_uteis: number | null; media_dias_uteis: number | null } | null;
 }
 
 @Injectable()
@@ -42,6 +46,7 @@ export class PainelGestorService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly processos: ProcessoService,
     private readonly notificacoes: NotificacoesService,
+    private readonly tempo: TempoEtapasService,
   ) {}
 
   private orgaoDe(ator: Ator, informado?: string): string {
@@ -190,6 +195,7 @@ export class PainelGestorService {
     const pecas: Array<{ processo_id: string; etapa: string }> = ids.length
       ? await this.ds.query(`SELECT processo_id::text AS processo_id, etapa FROM processo_pecas WHERE processo_id::text = ANY($1::text[]) AND etapa IS NOT NULL`, [ids])
       : [];
+    const fluxos = await this.fluxosDosProcessos(orgaoId, procs.filter((p) => p.situacao !== 'ENCERRADO').map((p) => p.id), agora);
     const etapasPorProcesso = new Map<string, Set<string>>();
     for (const pc of pecas) {
       if (!etapasPorProcesso.has(pc.processo_id)) etapasPorProcesso.set(pc.processo_id, new Set());
@@ -209,6 +215,7 @@ export class PainelGestorService {
           ? { setor_id: p.mov_setor_id, setor_nome: p.mov_setor_nome, usuario_nome: p.mov_usuario_nome, recebida: !!p.mov_recebida_em, desde: iso(p.mov_recebida_em ?? p.mov_em), dias: diasEntre(p.mov_em, agora), despacho: p.mov_despacho, limite_dias: null }
           : null;
       const prazo = prazoDaLinha(p, agora);
+      const fluxo = fluxos.get(p.id) ?? null;
       return {
         id: p.id,
         tipo: p.tipo,
@@ -216,16 +223,68 @@ export class PainelGestorService {
         numero: p.numero,
         objeto: p.objeto,
         situacao: encerrado ? 'ENCERRADO' : 'ABERTO',
-        estado: estadoPeloTempo(posse?.dias ?? diasEntre(p.aberto_em, agora), posse?.limite_dias, encerrado),
-        etapas,
-        etapa_atual: etapas.find((e) => e.estado === 'ATUAL')?.rotulo ?? null,
+        estado: fluxo ? estadoPeloTempo(fluxo.info.dias_uteis, fluxo.info.prazo_dias_uteis, encerrado) : estadoPeloTempo(posse?.dias ?? diasEntre(p.aberto_em, agora), posse?.limite_dias, encerrado),
+        etapas: fluxo ? fluxo.etapas : etapas,
+        etapa_atual: fluxo ? fluxo.info.etapa : etapas.find((e) => e.estado === 'ATUAL')?.rotulo ?? null,
         esta_com: posse,
         valor: numeroOuNulo(p.lic_valor ?? p.contrato_valor),
         prazo,
         link: `/orgao/processo/${p.id}`,
         aberto_em: iso(p.aberto_em),
+        fluxo: fluxo?.info ?? null,
       };
     });
+  }
+
+  /**
+   * Processos abertos que seguem um fluxo desenhado: o caminho são as etapas
+   * da versão, a atual é a que tem tarefa aberta, e o tempo conta em dias
+   * úteis desde que a etapa abriu (devolução reabre e o tempo recomeça).
+   */
+  private async fluxosDosProcessos(orgaoId: string, processoIds: string[], agora: Date) {
+    const out = new Map<string, { etapas: EtapaDoCaminho[]; info: NonNullable<LinhaDoPainel['fluxo']> }>();
+    if (!processoIds.length) return out;
+    const instancias: Array<{ id: string; processo_id: string; workflow_id: string; nome: string; versao: number }> = await this.ds.query(
+      `SELECT i.id::text AS id, i.vinculo_id::text AS processo_id, i.workflow_id::text AS workflow_id, m.nome, i.workflow_versao AS versao
+         FROM workflow_instancias i JOIN workflow_modelos m ON m.id = i.workflow_id
+        WHERE i.orgao_id::text = $1 AND i.vinculo_tipo = 'PROCESSO' AND i.status = 'EM_ANDAMENTO' AND i.vinculo_id::text = ANY($2::text[])`,
+      [orgaoId, processoIds],
+    );
+    if (!instancias.length) return out;
+    const workflows = [...new Set(instancias.map((i) => i.workflow_id))];
+    const [acoes, abertas, medias]: [Array<{ id: string; workflow_id: string; nome: string; prazo_dias_uteis: number | null }>, Array<{ instancia_id: string; acao_id: string; created_at: Date }>, Map<string, number | null>] = await Promise.all([
+      this.ds.query(
+        `SELECT a.id::text AS id, f.workflow_id::text AS workflow_id, a.nome, a.prazo_dias_uteis
+           FROM workflow_acoes a JOIN workflow_fases f ON f.id = a.fase_id
+          WHERE f.workflow_id::text = ANY($1::text[]) ORDER BY f.ordem, a.ordem`,
+        [workflows],
+      ),
+      this.ds.query(
+        `SELECT instancia_id::text AS instancia_id, acao_id::text AS acao_id, created_at FROM workflow_tarefas
+          WHERE instancia_id::text = ANY($1::text[]) AND status = 'ABERTA' ORDER BY created_at DESC`,
+        [instancias.map((i) => i.id)],
+      ),
+      this.tempo.mediasDasVersoes(orgaoId, workflows),
+    ]);
+    const cal = calendarioDoOrgao(orgaoId);
+    for (const i of instancias) {
+      const passos = acoes.filter((a) => a.workflow_id === i.workflow_id);
+      const aberta = abertas.find((t) => t.instancia_id === i.id);
+      const idx = aberta ? passos.findIndex((a) => a.id === aberta.acao_id) : -1;
+      const atual = idx >= 0 ? passos[idx] : null;
+      out.set(i.processo_id, {
+        etapas: passos.map((a, n) => ({ chave: a.id, rotulo: a.nome, estado: idx < 0 ? 'FUTURA' : n < idx ? 'CONCLUIDA' : n === idx ? 'ATUAL' : 'FUTURA' })),
+        info: {
+          nome: i.nome,
+          versao: Number(i.versao),
+          etapa: atual?.nome ?? null,
+          dias_uteis: aberta ? diasUteisEntre(new Date(aberta.created_at), agora, cal) : 0,
+          prazo_dias_uteis: atual?.prazo_dias_uteis ?? null,
+          media_dias_uteis: atual ? (medias.get(atual.id) ?? null) : null,
+        },
+      });
+    }
+    return out;
   }
 
   private async linhasDosPedidos(orgaoId: string, agora: Date): Promise<LinhaDoPainel[]> {
@@ -260,6 +319,7 @@ export class PainelGestorService {
         prazo: null,
         link: `/orgao/demandas/${d.id}`,
         aberto_em: iso(d.created_at),
+        fluxo: null,
       };
     });
   }

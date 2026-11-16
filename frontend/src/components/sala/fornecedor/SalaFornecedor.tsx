@@ -1,21 +1,23 @@
 'use client'
 
-import { type ReactNode } from 'react'
-import { AlertTriangle, Clock3, RefreshCw, Trophy } from 'lucide-react'
+import { useCallback, useState, type ReactNode } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { useSalaDisputa } from '@/hooks/useSalaDisputa'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { ChatSala } from '../ChatSala'
+import { Card, CardContent } from '@/components/ui/card'
 import { SalaStepper } from '../sala-stepper'
-import { rotuloUnidade } from '../unidade-lote'
-import { getItemStatusClass, getItemStatusLabel, getStatusBadgeClass, getStatusLabel, rotuloModo } from '../utils'
+import { getStatusBadgeClass, getStatusLabel, rotuloModo } from '../utils'
 import { DesempateMeEppFornecedorPanel } from '../DesempateMeEppFornecedorPanel'
 import { PropostaAdequadaPanel } from '../PropostaAdequadaPanel'
 import { DisputaFinalPanel } from '../DisputaFinalPanel'
 import { HabilitacaoFornecedorPanel } from '../HabilitacaoFornecedorPanel'
+import { DiligenciasFornecedor } from '../Diligencias'
 import { NegociacaoFornecedorPanel } from '../NegociacaoFornecedorPanel'
 import { RecursosFornecedorPanel } from '../RecursosFornecedorPanel'
+import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
+import { ChatLateral } from '../ChatLateral'
+import { ComprovantesFornecedor } from '@/components/fornecedor/ComprovantesFornecedor'
+import { ForaDaDisputa } from './ForaDaDisputa'
 import { PainelLancesFornecedor } from './PainelLancesFornecedor'
 
 /**
@@ -29,10 +31,16 @@ import { PainelLancesFornecedor } from './PainelLancesFornecedor'
  */
 export function SalaFornecedor({
   sessaoId,
+  licitacaoId,
+  resumo,
   acoesCabecalho,
   rodape,
 }: {
   sessaoId: string
+  /** Licitação da sala: permite explicar a quem está fora da disputa (desclassificado/inabilitado) o motivo. */
+  licitacaoId?: string
+  /** Número e objeto da licitação, para o cabeçalho de quem não carrega a sala (fora da disputa). */
+  resumo?: { numero?: string | null; objeto?: string | null }
   acoesCabecalho?: ReactNode
   /** Conteúdo abaixo da sala (resultado, painéis da modalidade). */
   rodape?: ReactNode
@@ -43,7 +51,6 @@ export function SalaFornecedor({
     loading,
     error,
     wsConectado,
-    selectedItemId,
     selectedItem,
     setSelectedItemId,
     actionError,
@@ -56,11 +63,34 @@ export function SalaFornecedor({
     cancelarLanceDireto,
     solicitarCancelamentoLance,
     negociacaoVersao,
+    boardVersao,
+    diligenciaVersao,
   } = useSalaDisputa({ area: 'fornecedor', sessaoIdParam: sessaoId })
 
   const contexto = board?.contexto
   const itens = board ? [...board.colunas.emDisputa, ...board.colunas.aguardando, ...board.colunas.encerrados] : []
   const itemFoco = selectedItem || itens[0] || null
+  const [lotes, setLotes] = useState<LoteVisao[]>([])
+  const aoCarregarLotes = useCallback((l: LoteVisao[]) => setLotes(l), [])
+  const loteSel = lotes.find((l) => l.id === itemFoco?.id) ?? lotes[0] ?? null
+  const itemDoLote = loteSel ? itens.find((i) => i.id === loteSel.id) ?? null : null
+  const painelLances = (
+    <PainelLancesFornecedor
+      item={itemDoLote}
+      contexto={contexto}
+      sessaoId={sessaoId}
+      atualizacao={boardVersao}
+      meusLances={meusLances}
+      enviandoLance={sendingBid}
+      enviandoCancelamento={sendingCancel}
+      onLance={enviarLance}
+      onCancelarDireto={cancelarLanceDireto}
+      onSolicitarCancelamento={solicitarCancelamentoLance}
+    />
+  )
+
+  // A sala não carregou (licitante fora da disputa ou erro): o cabeçalho mostra só o que se sabe
+  const semSala = !loading && !!error && !contexto
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -68,23 +98,38 @@ export function SalaFornecedor({
         <div className="mx-auto max-w-7xl space-y-4 px-4 py-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className={getStatusBadgeClass(contexto?.status || 'AGENDADA')}>{getStatusLabel(contexto?.status || 'AGENDADA')}</Badge>
-                <Badge variant="outline">Modo {rotuloModo(contexto?.modo)}</Badge>
-                <Badge variant="outline" className={wsConectado ? 'border-emerald-300 text-emerald-700' : 'border-red-300 text-red-700'}>
-                  {wsConectado ? 'Tempo real conectado' : 'Tempo real desconectado'}
-                </Badge>
-              </div>
+              {/* Fora da disputa (sala não carrega): sem situação, modo e conexão — eram "Agendada" e "desconectado" enganosos */}
+              {!semSala && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={getStatusBadgeClass(contexto?.status || 'AGENDADA')}>{getStatusLabel(contexto?.status || 'AGENDADA')}</Badge>
+                  <Badge variant="outline">Modo {rotuloModo(contexto?.modo)}</Badge>
+                  <Badge variant="outline" className={wsConectado ? 'border-emerald-300 text-emerald-700' : 'border-red-300 text-red-700'}>
+                    {wsConectado ? 'Tempo real conectado' : 'Tempo real desconectado'}
+                  </Badge>
+                </div>
+              )}
               <div>
                 <h1 className="text-2xl font-semibold text-slate-900">Sala da sessão</h1>
                 <p className="text-sm text-slate-600">
-                  {contexto?.licitacao?.numero || contexto?.licitacao?.processo || 'Sessão'} — {contexto?.licitacao?.objeto || 'carregando a licitação...'}
+                  {contexto?.licitacao?.numero || contexto?.licitacao?.processo || resumo?.numero || 'Sessão'} —{' '}
+                  {contexto?.licitacao?.objeto || resumo?.objeto || (semSala ? '' : 'carregando a licitação...')}
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">{acoesCabecalho}</div>
+            <div className="flex flex-wrap gap-2">
+              {!semSala && (
+                <ChatLateral
+                  mensagens={mensagens}
+                  onEnviar={enviarMensagem}
+                  enviando={sendingMessage}
+                  habilitado={!!contexto?.operacao.chatHabilitado}
+                  placeholder="Enviar mensagem ao pregoeiro..."
+                />
+              )}
+              {acoesCabecalho}
+            </div>
           </div>
-          <SalaStepper contexto={contexto} />
+          {!semSala && <SalaStepper contexto={contexto} />}
         </div>
       </div>
 
@@ -97,12 +142,7 @@ export function SalaFornecedor({
             </CardContent>
           </Card>
         ) : error ? (
-          <Card className="border-red-200">
-            <CardContent className="py-12 text-center">
-              <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-red-500" />
-              <p className="font-medium text-red-700">{error}</p>
-            </CardContent>
-          </Card>
+          <ForaDaDisputa licitacaoId={licitacaoId} sessaoId={sessaoId} erroPadrao={error} />
         ) : (
           <div className="space-y-6">
             {actionError && (
@@ -111,102 +151,66 @@ export function SalaFornecedor({
               </Card>
             )}
 
-            {/* Painéis pós-disputa: cada um só aparece quando este licitante tem algo a fazer/ver */}
+            {/* Meus lotes por fase, Vencendo × Perdendo, e a classificação (troféu) — dono, 09/11/2026 */}
+            <SalaPorFases
+              sessaoId={sessaoId}
+              area="fornecedor"
+              itensAoVivo={itens}
+              selecionadoId={itemFoco?.id ?? null}
+              onSelecionar={setSelectedItemId}
+              atualizacao={boardVersao}
+              onLotes={aoCarregarLotes}
+            />
+
+            {/* O que vale para o licitante como um todo (não para um lote): só aparece quando há algo a fazer */}
             <DesempateMeEppFornecedorPanel sessaoId={sessaoId} />
-            <PropostaAdequadaPanel sessaoId={sessaoId} />
             <DisputaFinalPanel sessaoId={sessaoId} />
+            {contexto?.licitacaoId && <DiligenciasFornecedor licitacaoId={contexto.licitacaoId} atualizacao={diligenciaVersao} />}
             {contexto?.licitacaoId && <HabilitacaoFornecedorPanel licitacaoId={contexto.licitacaoId} />}
-            <NegociacaoFornecedorPanel sessaoId={sessaoId} versao={negociacaoVersao} />
+            {/* Comprovantes dos anexos enviados pela sala (habilitação) e da proposta */}
+            {contexto?.licitacaoId && (
+              <details className="rounded-xl border border-slate-200 bg-white">
+                <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Meus comprovantes (proposta e anexos)</summary>
+                <div className="border-t p-3">
+                  <ComprovantesFornecedor licitacaoId={contexto.licitacaoId} />
+                </div>
+              </details>
+            )}
             <RecursosFornecedorPanel sessaoId={sessaoId} />
 
-            <div className="grid gap-4 lg:grid-cols-4">
-              <div className="lg:col-span-3">
-                <PainelLancesFornecedor
-                  item={itemFoco}
-                  contexto={contexto}
-                  meusLances={meusLances}
-                  enviandoLance={sendingBid}
-                  enviandoCancelamento={sendingCancel}
-                  onLance={enviarLance}
-                  onCancelarDireto={cancelarLanceDireto}
-                  onSolicitarCancelamento={solicitarCancelamentoLance}
-                />
-              </div>
-
-              <div className="space-y-4 lg:col-span-1">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Meus itens</CardTitle>
-                    <CardDescription>Troque o foco e acompanhe sua posição.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[320px] pr-3">
-                      <div className="space-y-3">
-                        {itens.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setSelectedItemId(item.id)}
-                            className={`w-full rounded-xl border p-3 text-left transition ${
-                              selectedItemId === item.id ? 'border-emerald-500 bg-emerald-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'
-                            }`}
-                          >
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <div className="font-medium text-slate-900">{rotuloUnidade(item)}</div>
-                              {item.minhaPosicao === 1 && (
-                                <Badge className="bg-yellow-100 text-yellow-800">
-                                  <Trophy className="mr-1 h-3 w-3" />
-                                  Líder
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="line-clamp-2 text-xs text-slate-600">{item.descricao}</div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <Badge className={getItemStatusClass(item)}>{getItemStatusLabel(item)}</Badge>
-                              {item.minhaPosicao && <Badge variant="outline">{item.minhaPosicao}º lugar</Badge>}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-
-                <ChatSala
-                  mensagens={mensagens}
-                  onEnviar={enviarMensagem}
-                  enviando={sendingMessage}
-                  habilitado={!!contexto?.operacao.chatHabilitado}
-                  titulo="Mensagens"
-                  placeholder="Enviar mensagem ao pregoeiro..."
-                  altura="h-[220px]"
-                />
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Regras da disputa</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm text-slate-600">
-                    <div className="flex items-center gap-2">
-                      <Clock3 className="h-4 w-4 text-blue-600" />
-                      Etapa aberta: {contexto?.cronometria.etapaAbertaMinutos || '-'} min
+            {/* Detalhe do lote aberto na tabela (dono, 09/11/2026): só o que ele tem a fazer ali */}
+            {loteSel ? (
+              <section aria-label={`Lote ${loteSel.numero}`} className="min-w-0 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-emerald-950 px-4 py-3 text-white">
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase tracking-wide text-emerald-200">{loteSel.tipo === 'ITEM' ? 'Item' : 'Lote'} em foco</div>
+                    <div className="text-lg font-semibold">
+                      {loteSel.tipo === 'ITEM' ? 'Item' : 'Lote'} {loteSel.numero} — {loteSel.descricao}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Clock3 className="h-4 w-4 text-emerald-600" />
-                      Prorrogação: {contexto?.cronometria.duracaoProrrogacaoMinutos || '-'} min
-                    </div>
-                    {contexto?.cronometria.fases && (
-                      <ol className="list-decimal space-y-1 pl-5 pt-2 text-xs text-slate-600">
-                        {contexto.cronometria.fases.map((f) => (
-                          <li key={f}>{f}</li>
-                        ))}
-                      </ol>
-                    )}
-                    <p className="pt-2 text-xs text-slate-500">{contexto?.cronometria.observacao}</p>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <Badge className="border-0 bg-white/15 text-white">{loteSel.faseRotulo}</Badge>
+                    {loteSel.minhaPosicao && <span>Minha posição: <b>{loteSel.minhaPosicao}º</b></span>}
+                  </div>
+                </div>
+                {loteSel.fase === 'JULGAMENTO' && (
+                  <>
+                    <PropostaAdequadaPanel sessaoId={sessaoId} unidade={{ tipo: loteSel.tipo, numero: loteSel.numero }} />
+                    <NegociacaoFornecedorPanel sessaoId={sessaoId} versao={negociacaoVersao} unidade={{ tipo: loteSel.tipo, numero: loteSel.numero }} />
+                  </>
+                )}
+                {['AGUARDANDO', 'DISPUTA'].includes(loteSel.fase) ? (
+                  painelLances
+                ) : (
+                  <details className="rounded-xl border border-slate-200 bg-white">
+                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Lances deste lote (consulta)</summary>
+                    <div className="border-t p-3">{painelLances}</div>
+                  </details>
+                )}
+              </section>
+            ) : (
+              <div className="rounded-xl border bg-white px-4 py-6 text-sm text-slate-500">Abra um lote na tabela acima (›) para dar lances e acompanhar a fase dele.</div>
+            )}
 
             {rodape}
           </div>

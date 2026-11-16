@@ -9,7 +9,7 @@ import { API_URL, authFetch } from "@/lib/api"
  * a tela mostra só leitura e leva à licitação.
  */
 
-export type TipoProcesso = "CONTRATACAO" | "ADITIVO" | "RENOVACAO" | "PAGAMENTO" | "AVULSO"
+export type TipoProcesso = "CONTRATACAO" | "ADITIVO" | "RENOVACAO" | "PAGAMENTO" | "AVULSO" | "OFICIO"
 export type SituacaoProcesso = "ABERTO" | "ENCERRADO"
 
 export const ROTULO_TIPO: Record<string, string> = {
@@ -18,6 +18,7 @@ export const ROTULO_TIPO: Record<string, string> = {
   RENOVACAO: "Renovação de contrato",
   PAGAMENTO: "Pagamento",
   AVULSO: "Avulso",
+  OFICIO: "Ofício",
 }
 
 export function rotuloDoTipo(tipo: string | null | undefined): string {
@@ -26,7 +27,7 @@ export function rotuloDoTipo(tipo: string | null | undefined): string {
 
 /** Tipos com tramitação própria nesta API (os demais seguem pela licitação). */
 export function temTramitacaoPropria(tipo: string): boolean {
-  return tipo === "ADITIVO" || tipo === "RENOVACAO" || tipo === "AVULSO"
+  return tipo === "ADITIVO" || tipo === "RENOVACAO" || tipo === "AVULSO" || tipo === "OFICIO"
 }
 
 export interface ProcessoResumo {
@@ -47,6 +48,8 @@ export interface ProcessoResumo {
   motivo_encerramento: string | null
   /** Só na listagem: com quem o processo está (null = sem tramitação). */
   esta_com?: { setor_nome: string | null; usuario_nome: string | null; recebida: boolean } | null
+  /** Só na listagem: onde a licitação do processo está (fase/situação/contrato) e se há sala da sessão. */
+  etapa?: { rotulo: string; tom: "interna" | "externa" | "resultado" | "encerrada"; sala: boolean; licitacao_id: string } | null
 }
 
 export interface ConteudoContrato {
@@ -80,6 +83,8 @@ export interface ConteudoLicitacao {
   numero_controle_pncp?: string | null
   srp?: boolean | null
   data_publicacao_edital?: string | null
+  /** Falso: abriu "a definir" e a instrução termina na etapa Definição da modalidade. */
+  modalidade_definida?: boolean | null
 }
 
 /** Peça da licitação escrita no editor novo (AA, PJ, MCI): GET /processos/:id/pecas-licitacao/:tipo. */

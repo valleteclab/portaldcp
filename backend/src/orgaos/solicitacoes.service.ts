@@ -1,3 +1,5 @@
+import { hashSenha } from '../common/senha.util';
+import { randomInt } from 'crypto';
 import { Injectable, HttpException, HttpStatus, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -78,7 +80,7 @@ export class SolicitacoesService {
       } else {
         // Gerar senha temporária (ou usar a informada pelo admin)
         const senhaTemporaria = data.senha_temporaria || this.gerarSenhaTemporaria();
-        const senhaHash = createHash('sha256').update(senhaTemporaria).digest('hex');
+        const senhaHash = hashSenha(senhaTemporaria);
         
         // Criar novo órgão com campos obrigatórios preenchidos
         const novoOrgao = this.orgaoRepository.create({
@@ -163,7 +165,7 @@ export class SolicitacoesService {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     let senha = '';
     for (let i = 0; i < 12; i++) {
-      senha += chars.charAt(Math.floor(Math.random() * chars.length));
+      senha += chars.charAt(randomInt(chars.length));
     }
     return senha;
   }

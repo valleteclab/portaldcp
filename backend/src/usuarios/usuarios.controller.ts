@@ -1,3 +1,4 @@
+import { comLimiteDeLogin } from '../common/limite-login';
 import {
   Controller,
   Get,
@@ -118,7 +119,7 @@ export class UsuariosController {
   @Public()
   @Post('login')
   async login(@Body() body: { email: string; senha: string }) {
-    const usuario = await this.usuariosService.login(body.email, body.senha);
+    const usuario = await comLimiteDeLogin('usuario', body?.email, () => this.usuariosService.login(body.email, body.senha));
     const result = usuarioSemSegredos(usuario);
     
     // Gerar token JWT

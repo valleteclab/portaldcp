@@ -1,3 +1,4 @@
+import { fasePermiteJulgarUnidade } from './aceitacao.service';
 import {
   BadRequestException,
   ConflictException,
@@ -140,8 +141,8 @@ export class NegociacaoService implements OnModuleInit {
   /** Licitação ATIVA em JULGAMENTO + trava da unidade (a MESMA da aceitação: atos não se cruzam). */
   private async prepararAto(m: EntityManager, sessao: SessaoDisputa, unidadeId: string): Promise<void> {
     const lic = await exigirLicitacaoAtiva(m, sessao.licitacao_id, { bloquear: true });
-    if (lic.fase !== FaseLicitacao.JULGAMENTO) {
-      throw new ConflictException(`A negociação ocorre no julgamento (depois da etapa de lances); a licitação está em ${lic.fase}.`);
+    if (!fasePermiteJulgarUnidade(lic.fase)) {
+      throw new ConflictException(`A negociação ocorre depois da etapa de lances do item/lote; a licitação está em ${lic.fase}.`);
     }
     await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`aceitacao:${unidadeId}`]);
   }
@@ -379,7 +380,7 @@ export class NegociacaoService implements OnModuleInit {
         situacaoAtual: atual?.situacao ?? null,
         jaHaAtiva: !!ativa,
       });
-      const podeAbrir = !motivo && lic?.fase === FaseLicitacao.JULGAMENTO;
+      const podeAbrir = !motivo && fasePermiteJulgarUnidade(lic?.fase);
       return {
         tipo: u.tipo,
         id: u.id,

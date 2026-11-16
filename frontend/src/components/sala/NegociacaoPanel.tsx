@@ -1,5 +1,7 @@
 'use client'
 
+import { InputMoeda } from '@/components/ui/input-moeda'
+import { lerValorMonetario } from '@/lib/moeda'
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Ban, CheckCircle2, Eye, Handshake, MessageSquare, RefreshCw, Send } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
@@ -95,7 +97,8 @@ export function ConversaNegociacao({ mensagens, eu }: { mensagens: MensagemNegoc
       <div className="space-y-1.5">
         {mensagens.map((m) => {
           const minha = m.autor === eu
-          const sistema = m.autor === 'SISTEMA'
+          // Evento público da negociação (abertura, resultado) vem sem autor: é do sistema, não do licitante
+          const sistema = m.autor !== 'AGENTE' && m.autor !== 'LICITANTE'
           return (
             <div key={m.id} className={`flex ${sistema ? 'justify-center' : minha ? 'justify-end' : 'justify-start'}`}>
               <div
@@ -120,7 +123,7 @@ export function ConversaNegociacao({ mensagens, eu }: { mensagens: MensagemNegoc
 
 type Acao = { tipo: 'encerrar' | 'desclassificar'; negociacao: Negociacao; unidade: UnidadeNeg }
 
-export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; versao?: number }) {
+export function NegociacaoPanel({ sessaoId, versao = 0, unidadeId }: { sessaoId: string; versao?: number; /** Só esta unidade (detalhe do lote). */ unidadeId?: string }) {
   const [painel, setPainel] = useState<PainelNeg | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -180,7 +183,7 @@ export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; ve
   const enviarMensagem = (n: Negociacao) =>
     executar(`/${n.id}/mensagem`, { texto: mensagem[n.id] || '' }).then((ok) => ok && setMensagem((m) => ({ ...m, [n.id]: '' })))
   const enviarContraproposta = (n: Negociacao) =>
-    executar(`/${n.id}/contraproposta`, { valor: Number(String(contra[n.id] || '').replace(',', '.')), mensagem: mensagem[n.id] || undefined }).then(
+    executar(`/${n.id}/contraproposta`, { valor: lerValorMonetario(String(contra[n.id] || '')), mensagem: mensagem[n.id] || undefined }).then(
       (ok) => ok && (setContra((c) => ({ ...c, [n.id]: '' })), setMensagem((m) => ({ ...m, [n.id]: '' }))),
     )
   const confirmar = async () => {
@@ -192,7 +195,7 @@ export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; ve
     }
   }
 
-  const unidades = (painel?.unidades || []).filter((u) => u.encerrada)
+  const unidades = (painel?.unidades || []).filter((u) => u.encerrada && (!unidadeId || u.id === unidadeId))
 
   return (
     <Card>
@@ -308,10 +311,7 @@ export function NegociacaoPanel({ sessaoId, versao = 0 }: { sessaoId: string; ve
                       <div className="flex flex-wrap items-end gap-2">
                         <div className="w-40">
                           <label className="text-xs text-slate-500">Contraproposta ({rotuloBase(n.baseLance)})</label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min={0}
+                          <InputMoeda
                             value={contra[n.id] || ''}
                             onChange={(e) => setContra((c) => ({ ...c, [n.id]: e.target.value }))}
                           />

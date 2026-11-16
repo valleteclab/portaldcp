@@ -9,6 +9,8 @@ import { ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { licitacaoEhPublica, orcamentoSigiloso } from '../licitacoes/licitacao-visao.util';
 import { itemParaOrgao, itemParaPublico, itensParaPublico } from './item-visao.util';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * ITENS DA LICITAÇÃO — regras de acesso (E1a):
@@ -19,6 +21,7 @@ import { itemParaOrgao, itemParaPublico, itensParaPublico } from './item-visao.u
  *    sem a identidade do melhor lance e, com orçamento SIGILOSO, sem os
  *    valores estimados.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS)
 @Controller('itens')
 export class ItensController {
   constructor(
@@ -70,7 +73,7 @@ export class ItensController {
   ): Promise<ItemLicitacao[]> {
     const { visao, lic } = await this.visaoDaLicitacao(ator, licitacaoId);
     const itens = await this.itensService.findByLicitacao(licitacaoId);
-    return visao === 'ORGAO' ? itens : itensParaPublico(itens, lic);
+    return visao === 'ORGAO' ? itens.map((i) => itemParaOrgao(i)) : itensParaPublico(itens, lic);
   }
 
   @AutenticacaoOpcional()

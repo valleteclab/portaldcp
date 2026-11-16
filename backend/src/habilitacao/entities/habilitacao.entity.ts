@@ -110,6 +110,14 @@ export class HabilitacaoLicitante {
   @Column({ type: 'jsonb', nullable: true })
   pre_checagem: Array<{ exigenciaId: string; coberta: boolean; documentoId: string | null; motivo: string | null }> | null;
 
+  /**
+   * Inabilitações por UNIDADE (item/lote): os documentos são do licitante e
+   * valem para todas as unidades, mas a decisão pode atingir só algumas (ex.:
+   * atestado que não cobre o objeto de um lote). O licitante segue nas demais.
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  inabilitacoes_unidade: Array<{ unidade_id: string; rotulo: string; motivo: string; em: string; por_id: string | null }>;
+
   @Column({ type: 'timestamp', nullable: true })
   decidida_em: Date | null;
 

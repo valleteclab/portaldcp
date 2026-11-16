@@ -29,6 +29,7 @@ import {
 import { toast } from "sonner"
 import { confirmarAcao } from "@/components/DialogoGlobal"
 import { abrirArquivoAutenticado } from "@/lib/arquivo-autenticado"
+import { pendenciaDe } from "@/lib/salvamentos-pendentes"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,8 @@ interface DocumentoSeccionadoProps {
   onConteudoChange?: (conteudo: Record<string, string>) => void
   /** Esconde o botão de PDF do cabeçalho (a tela da etapa gera a peça pelo modelo). */
   ocultarPdf?: boolean
+  /** A página rola inteira (sem caixa de altura fixa com rolagem própria); o painel lateral acompanha, fixo no topo. */
+  alturaLivre?: boolean
   /** Somente leitura (fase interna encerrada ou peça "não se aplica"). */
   somenteLeitura?: boolean
 }
@@ -164,10 +167,11 @@ export function DocumentoSeccionado({
   sugestaoAceita,
   onConteudoChange,
   ocultarPdf = false,
+  alturaLivre = false,
   somenteLeitura = false,
 }: DocumentoSeccionadoProps) {
-  const secoes = getSecoes(tipo)
-  const template = getTemplate(tipo)
+  const secoes = getSecoes(tipo, licitacao?.modalidade)
+  const template = getTemplate(tipo, licitacao?.modalidade)
   const tituloDocumento = TITULOS_TIPO[tipo] || tipo
 
   // Estado do conteúdo por seção (HTML)
@@ -190,8 +194,11 @@ export function DocumentoSeccionado({
 
   // ─── Auto-save por seção ───────────────────────────────────────────────────
 
-  const salvarSecao = useCallback(
-    async (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA' = 'USUARIO') => {
+  const gravarSecao = useCallback(
+    async (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA') => {
+      // Somente leitura (processo com outro setor, fase encerrada): o editor não grava — a
+      // normalização do texto ao abrir disparava PATCH e voltava 403 (homologação 09/11/2026)
+      if (somenteLeitura) return
       setSaveStatus((prev) => ({ ...prev, [secaoId]: 'saving' }))
       try {
         const res = await authFetch(
@@ -218,7 +225,17 @@ export function DocumentoSeccionado({
         setSaveStatus((prev) => ({ ...prev, [secaoId]: 'error' }))
       }
     },
-    [licitacaoId, tipo],
+    [licitacaoId, tipo, somenteLeitura],
+  )
+
+  const salvarSecao = useCallback(
+    (secaoId: string, html: string, origem: 'USUARIO' | 'IA_ACEITA' = 'USUARIO') => {
+      const pend = pendenciaDe(licitacaoId, tipo)
+      const pr = gravarSecao(secaoId, html, origem).finally(() => pend.emCurso.delete(pr))
+      pend.emCurso.add(pr)
+      return pr
+    },
+    [licitacaoId, tipo, gravarSecao],
   )
 
   const handleSecaoChange = useCallback(
@@ -230,11 +247,15 @@ export function DocumentoSeccionado({
         clearTimeout(debounceTimers.current[secaoId])
       }
       setSaveStatus((prev) => ({ ...prev, [secaoId]: 'idle' }))
-      debounceTimers.current[secaoId] = setTimeout(() => {
-        salvarSecao(secaoId, html)
-      }, 700)
+      const pend = pendenciaDe(licitacaoId, tipo)
+      const salvar = () => {
+        pend.timers.delete(secaoId)
+        return salvarSecao(secaoId, html)
+      }
+      debounceTimers.current[secaoId] = setTimeout(salvar, 700)
+      pend.timers.set(secaoId, { t: debounceTimers.current[secaoId], salvar })
     },
-    [salvarSecao],
+    [salvarSecao, licitacaoId, tipo],
   )
 
   // ─── Inserir de IA ─────────────────────────────────────────────────────────
@@ -530,9 +551,9 @@ export function DocumentoSeccionado({
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className={alturaLivre ? "flex items-start" : "flex h-full overflow-hidden"}>
       {/* ── Coluna principal: seções ── */}
-      <div className="flex-1 overflow-y-auto bg-gray-50 min-w-0">
+      <div className={alturaLivre ? "flex-1 bg-gray-50 min-w-0" : "flex-1 overflow-y-auto bg-gray-50 min-w-0"}>
         {/* Cabeçalho de ações — o título/tipo já aparece na barra superior da
             página; aqui ficam só o progresso e as ações do documento */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 sticky top-0 z-10 shrink-0">
@@ -666,7 +687,7 @@ export function DocumentoSeccionado({
 
       {/* ── Painel lateral: o da tela (ex.: assistente do ETP) ou o chat Procura+ AI ── */}
       {painelLateral ? (
-        <div className="hidden lg:flex lg:flex-col w-80 shrink-0 border-l border-gray-200 overflow-y-auto bg-white">{painelLateral}</div>
+        <div className={`hidden lg:flex lg:flex-col w-80 shrink-0 border-l border-gray-200 overflow-y-auto bg-white ${alturaLivre ? "sticky top-2 max-h-[calc(100vh-1rem)]" : ""}`}>{painelLateral}</div>
       ) : (
       <div className="hidden lg:block w-80 shrink-0 border-l border-gray-200 overflow-hidden">
         <PainelIA

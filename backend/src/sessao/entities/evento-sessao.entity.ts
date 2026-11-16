@@ -139,6 +139,9 @@ export class EventoSessao {
   @Column({ nullable: true })
   ip_origem: string;
 
-  @CreateDateColumn()
+  // Com fuso: o horário das mensagens da sessão saía 3 h adiantado com o servidor em
+  // America/Sao_Paulo e a conexão em UTC (pregão 2026/00070, 09/11/2026). Os valores
+  // já gravados estão em UTC e a conversão (sessão do banco em UTC) os mantém.
+  @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 }

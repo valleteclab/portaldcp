@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { API_URL, authFetch } from "@/lib/api"
 import { fmtBrasilia } from "@/lib/publicacao"
 import { Button } from "@/components/ui/button"
+import { PosJulgamentoDispensa } from "./PosJulgamentoDispensa"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Gavel, Loader2, Lock } from "lucide-react"
@@ -327,6 +328,8 @@ export function EtapaDispensa({
           </table>
         </div>
       )}
+
+      {julgado && !l.data_homologacao && <PosJulgamentoDispensa licitacaoId={licitacaoId} onAtualizado={onAtualizado} />}
 
       {julgado && (
         <a href={`${API_URL}/api/licitacoes/${licitacaoId}/dispensa/ata`} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-800 hover:underline">

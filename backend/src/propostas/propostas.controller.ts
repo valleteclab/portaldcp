@@ -5,15 +5,20 @@ import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { Response } from 'express';
 import { createReadStream, existsSync, unlinkSync } from 'fs';
-import { PropostasService, DonoProposta, VisaoProposta } from './propostas.service';
+import { PropostasService, DonoProposta, VisaoProposta, fornecedorParaTerceiros } from './propostas.service';
 import { CreatePropostaDto, DesclassificarPropostaDto } from './dto/create-proposta.dto';
 import { Proposta } from './entities/proposta.entity';
 import { PropostaItem } from './entities/proposta-item.entity';
 import { Public } from '../auth/public.decorator';
+import { ComprovantesService } from '../comprovantes/comprovantes.service';
+import { planilhaModeloDaProposta } from './planilha-modelo';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
-import { AtorAtual, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
+import { AtorAtual, AutenticacaoOpcional, OrgaoOuFornecedor, SomenteFornecedor, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
+import { SigiloDisputaService } from '../disputa/sigilo-disputa.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * PROPOSTAS — regras de acesso (E1a):
@@ -25,11 +30,14 @@ import type { Ator } from '../auth/acesso/ator';
  *  - lista pública e ranking por item: rotas públicas com o sigilo das
  *    propostas (art. 55/63; art. 75 §3º) aplicado no service.
  */
+@RequireModule(ModuloSistema.LICITACOES)
 @Controller('propostas')
 export class PropostasController {
   constructor(
     private readonly propostasService: PropostasService,
     private readonly acesso: AcessoLicitacaoService,
+    private readonly comprovantes: ComprovantesService,
+    private readonly sigilo: SigiloDisputaService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -50,6 +58,11 @@ export class PropostasController {
   private async orgaoDono(ator: Ator, propostaId: string): Promise<DonoProposta> {
     const dono = await this.propostasService.donoDaProposta(propostaId);
     await this.acesso.assertOrgaoDaLicitacao(ator, dono.licitacao_id, 'escrita');
+    // Classificar, desclassificar ou marcar vencedora só depois do prazo de
+    // propostas (relógio do servidor): antes, o órgão nem conhece o conteúdo.
+    if (await this.propostasService.emSigiloDePropostas(dono.licitacao_id)) {
+      throw new ForbiddenException('As propostas estão sob sigilo até o fim do prazo de envio');
+    }
     return dono;
   }
 
@@ -81,10 +94,48 @@ export class PropostasController {
     return await this.propostasService.create(createDto, fornecedorId);
   }
 
+  /**
+   * Situação do próprio fornecedor na licitação quando está fora da disputa
+   * (desclassificado ou inabilitado): motivo e data. `null` = não é o caso.
+   */
+  @SomenteFornecedor()
+  @Get('licitacao/:licitacaoId/minha-situacao')
+  async minhaSituacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator) {
+    return { foraDaDisputa: await this.acesso.situacaoForaDaDisputa(this.acesso.fornecedorDoToken(ator), licitacaoId) };
+  }
+
+  /**
+   * Planilha-modelo da proposta (dono, 10/11/2026 — como a BLL): o fornecedor
+   * baixa, preenche o valor unitário, a marca e o modelo, e importa na tela da
+   * proposta. Só para licitação divulgada; valor de referência fora se o orçamento for sigiloso.
+   */
   @Public()
+  @Get('licitacao/:licitacaoId/planilha-modelo')
+  async planilhaModelo(@Param('licitacaoId') licitacaoId: string, @Res() res: Response) {
+    const { nome, conteudo } = await planilhaModeloDaProposta(this.propostasService.manager(), licitacaoId);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
+    res.send(conteudo);
+  }
+
+  /** Pública; o órgão dono (Bearer) recebe a visão dele, os demais só depois do fim dos lances. */
+  @AutenticacaoOpcional()
   @Get('licitacao/:licitacaoId')
-  async findByLicitacao(@Param('licitacaoId') licitacaoId: string): Promise<Proposta[]> {
-    return await this.propostasService.findByLicitacao(licitacaoId);
+  async findByLicitacao(@Param('licitacaoId') licitacaoId: string, @AtorAtual() ator: Ator | null): Promise<Proposta[]> {
+    const dono = await this.ehOrgaoDono(ator, licitacaoId);
+    const lista = await this.propostasService.findByLicitacao(licitacaoId, dono);
+    // Órgão dono: conteúdo depois do prazo de envio; quem é quem só depois dos lances
+    if (!dono) return lista;
+    if (await this.sigilo.orgaoVeIdentidades(licitacaoId)) return lista;
+    // Sem o cadastro do autor (endereço, contatos, representante): só o que vira código
+    const reduzida = (lista as any[]).map((p) => ({ ...p, fornecedor: fornecedorParaTerceiros(p.fornecedor) }));
+    return this.sigilo.anonimizar(reduzida as any, licitacaoId);
+  }
+
+  private async ehOrgaoDono(ator: Ator | null, licitacaoId: string | null | undefined): Promise<boolean> {
+    if (!ator || !licitacaoId) return false;
+    const relacao = await this.acesso.relacaoComLicitacao(ator, licitacaoId);
+    return relacao === 'ORGAO_DONO' || relacao === 'ADMIN';
   }
 
   /** Propostas do fornecedor autenticado. */
@@ -112,7 +163,9 @@ export class PropostasController {
   @OrgaoOuFornecedor()
   async findOne(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
     const visao = await this.visaoDeLeitura(ator, id);
-    return await this.propostasService.findOneVisao(id, visao);
+    const proposta = await this.propostasService.findOneVisao(id, visao);
+    if (visao === 'FORNECEDOR' || (await this.sigilo.orgaoVeIdentidades(proposta.licitacao_id))) return proposta;
+    return this.sigilo.anonimizar({ ...proposta, fornecedor: fornecedorParaTerceiros(proposta.fornecedor) }, proposta.licitacao_id);
   }
 
   @Get(':id/itens')
@@ -125,24 +178,31 @@ export class PropostasController {
     return await this.propostasService.getItens(id);
   }
 
-  @Public()
+  @AutenticacaoOpcional()
   @Get('ranking/item/:itemId')
-  async getRankingPorItem(@Param('itemId') itemId: string) {
-    return await this.propostasService.getRankingPorItem(itemId);
+  async getRankingPorItem(@Param('itemId') itemId: string, @AtorAtual() ator: Ator | null) {
+    const licitacaoId = await this.propostasService.licitacaoDoItem(itemId);
+    const dono = await this.ehOrgaoDono(ator, licitacaoId);
+    const ranking = await this.propostasService.getRankingPorItem(itemId, dono);
+    return dono ? this.sigilo.paraOrgao(ranking, licitacaoId) : ranking;
   }
 
   @Put(':id/enviar')
   @SomenteFornecedor()
   async enviar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
-    await this.fornecedorDono(ator, id);
-    return await this.propostasService.enviar(id);
+    const dono = await this.fornecedorDono(ator, id);
+    const proposta = await this.propostasService.enviar(id);
+    // Comprovante do que ficou gravado (dono, 10/11/2026): garantia para o fornecedor
+    await this.comprovantes.emitir({ licitacaoId: dono.licitacao_id, fornecedorId: dono.fornecedor_id, tipo: 'PROPOSTA_ENVIADA' });
+    return proposta;
   }
 
   @Put(':id/classificar')
   @SomenteOrgao()
   async classificar(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
     await this.orgaoDono(ator, id);
-    return await this.propostasService.classificar(id);
+    const dono = await this.propostasService.donoDaProposta(id);
+    return this.sigilo.paraOrgao(await this.propostasService.classificar(id), dono.licitacao_id);
   }
 
   @Put(':id/desclassificar')
@@ -203,7 +263,8 @@ export class PropostasController {
       dados.documento_tamanho = documento.size;
     }
 
-    return await this.propostasService.desclassificar(id, dados);
+    const donoP = await this.propostasService.donoDaProposta(id);
+    return this.sigilo.paraOrgao(await this.propostasService.desclassificar(id, dados), donoP.licitacao_id);
   }
 
   /** Documento da desclassificação: fornecedor dono ou órgão dono. */
@@ -238,7 +299,8 @@ export class PropostasController {
   @SomenteOrgao()
   async marcarVencedora(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<Proposta> {
     await this.orgaoDono(ator, id);
-    return await this.propostasService.marcarVencedora(id);
+    const dono = await this.propostasService.donoDaProposta(id);
+    return this.sigilo.paraOrgao(await this.propostasService.marcarVencedora(id), dono.licitacao_id);
   }
 
   @Put(':id/cancelar')
@@ -255,8 +317,11 @@ export class PropostasController {
     @Body() dados: { valor_total_proposta?: number },
     @AtorAtual() ator: Ator,
   ): Promise<Proposta> {
-    await this.fornecedorDono(ator, id);
-    return await this.propostasService.update(id, dados);
+    const dono = await this.fornecedorDono(ator, id);
+    const proposta = await this.propostasService.update(id, dados);
+    // A tela grava os itens e fecha com esta chamada: um comprovante por "Salvar"
+    await this.comprovantes.emitir({ licitacaoId: dono.licitacao_id, fornecedorId: dono.fornecedor_id, tipo: 'PROPOSTA_ALTERADA' });
+    return proposta;
   }
 
   @Put('item/:itemId')
@@ -278,7 +343,14 @@ export class PropostasController {
   @Delete(':id')
   @SomenteFornecedor()
   async remove(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<{ ok: true }> {
-    await this.propostasService.remove(id, this.acesso.fornecedorDoToken(ator));
+    const fornecedorId = this.acesso.fornecedorDoToken(ator);
+    // Retrato tirado ANTES de apagar: o comprovante mostra o que foi excluído
+    const dono = await this.propostasService.donoDaProposta(id).catch(() => null);
+    const retrato = dono && dono.fornecedor_id === fornecedorId ? await this.comprovantes.retrato(dono.licitacao_id, fornecedorId).catch(() => null) : null;
+    await this.propostasService.remove(id, fornecedorId);
+    if (dono && retrato) {
+      await this.comprovantes.emitir({ licitacaoId: dono.licitacao_id, fornecedorId, tipo: 'PROPOSTA_EXCLUIDA', retratoPronto: retrato });
+    }
     return { ok: true };
   }
 }

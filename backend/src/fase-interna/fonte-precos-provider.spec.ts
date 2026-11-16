@@ -208,3 +208,115 @@ describe('FontePrecosProvider helpers', () => {
     expect(get.mock.calls.map(([url]) => url)).not.toContain('https://fonte.example/login/login');
   });
 });
+
+describe('referências que exigem conferência', () => {
+  const {
+    avisoDeUnidadeDiferente,
+    ehPaginaDeListagem,
+    exigeConferencia,
+    tipoDeReferencia,
+    FLAG_REFERENCIA_COMPLEMENTAR,
+    ORIGEM_BUSCA_WEB,
+  } = require('./pesquisa-precos-providers.service');
+
+  it('unidade: resma lá e caixa aqui avisa; sinônimos e unidade desconhecida não', () => {
+    expect(avisoDeUnidadeDiferente('RESMA', 'CAIXA')).toMatch(/Unidade diferente \(RESMA lá, CAIXA aqui\)/);
+    expect(avisoDeUnidadeDiferente('Unidade', 'UN')).toBeNull();
+    expect(avisoDeUnidadeDiferente('cx', 'Caixa')).toBeNull();
+    expect(avisoDeUnidadeDiferente('Frasco 500 ml', 'UN')).toBeNull();
+    expect(avisoDeUnidadeDiferente('', 'UN')).toBeNull();
+  });
+
+  it('link de listagem ou busca não é página de produto', () => {
+    expect(ehPaginaDeListagem('https://www.kalunga.com.br/depto/papeis/15')).toBe(true);
+    expect(ehPaginaDeListagem('https://www.amazon.com.br/sandisk-64gb/s?k=sandisk+64gb')).toBe(true);
+    expect(ehPaginaDeListagem('https://loja.com.br/busca?q=pen+drive')).toBe(true);
+    expect(ehPaginaDeListagem('https://www.casadopapel.com.br/papel-a4-75g-chamex-caixa-com-10-pacotes-p10888')).toBe(false);
+  });
+
+  it('banco de preços: a impressora não entra sozinha na pesquisa do toner', () => {
+    const toner = { numero_item: 1, descricao_resumida: 'Toner compatível para impressora laser, preto', quantidade: 30, unidade_medida: 'UNIDADE' } as unknown as ItemLicitacao;
+    const base = { valor_unitario: '39,72', quant: '10', dt_homologacao: '18/09/2026', url_edital: 'https://example.gov.br/edital.pdf' };
+    const certo = mapearResultadoFontePrecos({ ...base, descricao: 'Toner compatível preto para impressora laser HP 105A' }, toner);
+    expect(certo).toBeTruthy();
+    expect(exigeConferencia(certo)).toBe(false);
+    const impressora = mapearResultadoFontePrecos({ ...base, valor_unitario: '5.300,00', descricao: 'IMPRESSORA LASER MULTIFUNCIONAL COLOR, compatível com toner preto' }, toner);
+    // pode até vir como referência, mas nunca sem alguém conferir
+    if (impressora) {
+      expect(impressora.flags.join(' ')).toMatch(/revisar/);
+      expect(exigeConferencia(impressora)).toBe(true);
+    }
+  });
+
+  it('banco de preços: item de descrição curta com referência idêntica não fica como parcial', () => {
+    const cabo = { numero_item: 10, descricao_resumida: 'Cabo HDMI 2 metros', quantidade: 20, unidade_medida: 'UNIDADE' } as unknown as ItemLicitacao;
+    const base = { valor_unitario: '11,99', quant: '20', unidade: 'UN', dt_homologacao: '18/09/2026', url_edital: 'https://example.gov.br/edital.pdf' };
+    const igual = mapearResultadoFontePrecos({ ...base, descricao: 'CABO HDMI 2 METROS CADA' }, cabo);
+    expect(igual.flags.join(' ')).not.toMatch(/parcial/);
+    expect(exigeConferencia(igual)).toBe(false);
+    // faltando palavra do item, continua parcial
+    const outro = mapearResultadoFontePrecos({ ...base, descricao: 'Cabo HDMI x VGA adaptador, 2 unidades' }, cabo);
+    if (outro) expect(exigeConferencia(outro)).toBe(true);
+  });
+
+  it('só o preço praticado e sem ressalva entra sozinho na cesta', () => {
+    const praticado = { flags: ['Mesmo estado (BA).'], evidencia: { origem: 'PNCP — valor homologado do item' } };
+    expect(tipoDeReferencia(praticado)).toBe('PRATICADO');
+    expect(exigeConferencia(praticado)).toBe(false);
+
+    const loja = { flags: [], evidencia: { origem: ORIGEM_BUSCA_WEB } };
+    expect(tipoDeReferencia(loja)).toBe('MERCADO');
+    expect(exigeConferencia(loja)).toBe(true);
+
+    const estimado = { flags: [FLAG_REFERENCIA_COMPLEMENTAR], evidencia: { origem: 'PNCP — valor estimado do item' } };
+    expect(tipoDeReferencia(estimado)).toBe('ESTIMADO');
+    expect(exigeConferencia(estimado)).toBe(true);
+
+    // banco de preços: aderência integral entra; parcial ou com unidade diferente espera
+    const banco = { flags: ['Fonte complementar Fonte de Precos: validar comprovante antes de aprovar como fonte oficial.'], evidencia: { origem: 'Fonte de Precos - Pesquisa Expressa autenticada' } };
+    expect(exigeConferencia(banco)).toBe(false);
+    expect(exigeConferencia({ ...banco, flags: [...banco.flags, 'Aderencia textual parcial: revisar antes de aprovar.'] })).toBe(true);
+    expect(exigeConferencia({ ...banco, flags: [avisoDeUnidadeDiferente('RESMA', 'CAIXA')] })).toBe(true);
+  });
+});
+
+describe('inciso do art. 23 de cada cotação', () => {
+  const { incisoDaCotacao } = require('./telas/pesquisa-regras');
+  it('banco "Fonte de Preços" conta como contratações similares (II), loja como mídia (III)', () => {
+    expect(incisoDaCotacao({ fonte: 'MIDIA_ESPECIALIZADA', descricao_fonte: 'Fonte de Precos - pncp - MUNICIPIO DE TIMBO' })).toBe('II');
+    expect(incisoDaCotacao({ fonte: 'MIDIA_ESPECIALIZADA', descricao_fonte: 'Relatório', observacao: 'Importada do CSV Fonte de Precos' })).toBe('II');
+    expect(incisoDaCotacao({ fonte: 'MIDIA_ESPECIALIZADA', descricao_fonte: 'Kalunga' })).toBe('III');
+    expect(incisoDaCotacao({ fonte: 'PNCP', descricao_fonte: 'PNCP item 1' })).toBe('II');
+    expect(incisoDaCotacao({ fonte: 'PAINEL_DE_PRECOS', descricao_fonte: 'Painel' })).toBe('I');
+  });
+});
+
+describe('teto de tempo por fonte na busca', () => {
+  const { PesquisaPrecosAgentService } = require('./pesquisa-precos-agent.service');
+  const servico = Object.create(PesquisaPrecosAgentService.prototype);
+  servico.logger = { warn: () => undefined };
+  const contexto = { itens: [{ numero_item: 7 }], scope: {}, licitacao: {} } as any;
+  afterEach(() => jest.useRealTimers());
+
+  it('fonte que responde a tempo entrega os preços e não vira falha', async () => {
+    const falhas: any[] = [];
+    const r = await servico.comLimiteDeTempo({ fonte: 'PNCP', buscar: async () => [{ item_numero: 7, valor_unitario: 10 }] }, contexto, falhas);
+    expect(r).toHaveLength(1);
+    expect(falhas).toEqual([]);
+  });
+
+  it('fonte que não responde é deixada de lado e relatada, sem segurar as outras', async () => {
+    jest.useFakeTimers();
+    const falhas: any[] = [];
+    const lenta = servico.comLimiteDeTempo({ fonte: 'PNCP', buscar: () => new Promise(() => undefined) }, contexto, falhas);
+    jest.advanceTimersByTime(20001);
+    expect(await lenta).toEqual([]);
+    expect(falhas).toEqual([{ fonte: 'PNCP', item_numero: 7, motivo: 'tempo esgotado' }]);
+  });
+
+  it('fonte que quebra não derruba a busca', async () => {
+    const falhas: any[] = [];
+    const r = await servico.comLimiteDeTempo({ fonte: 'PAINEL_DE_PRECOS', buscar: async () => { throw new Error('fora do ar'); } }, contexto, falhas);
+    expect(r).toEqual([]);
+  });
+});

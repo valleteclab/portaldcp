@@ -156,9 +156,11 @@ function definicoes(e: EntradaEtapas): DefEtapa[] {
         {
           chave: "habilitacao",
           titulo: "Habilitação",
-          fases: ["HABILITACAO", "RECURSO"],
-          feita: () => "Documentos do vencedor (IN 67)",
-          atual: () => "Documentos do vencedor",
+          // Dispensa: depois do julgamento (ADJUDICACAO) a agente confere a habilitação do vencedor
+          // antes de homologar (art. 72, V; IN 67 art. 17) — antes a etapa ficava verde sem conferência
+          fases: ["HABILITACAO", "RECURSO", "ADJUDICACAO"],
+          feita: () => "Vencedor habilitado (IN 67)",
+          atual: () => "Conferir os documentos do vencedor",
           futura: "Após o julgamento",
         },
         HOMOLOGACAO(),

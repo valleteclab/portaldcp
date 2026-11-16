@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { AlertTriangle, Pause, Play, RefreshCw, ShieldAlert } from 'lucide-react'
 import { useSalaDisputa } from '@/hooks/useSalaDisputa'
 import { Badge } from '@/components/ui/badge'
@@ -12,7 +12,15 @@ import { formatarMoeda, getStatusBadgeClass, getStatusLabel, rotuloModo } from '
 import { FilaOperacional } from './FilaOperacional'
 import { ItemEmFocoOrgao } from './ItemEmFocoOrgao'
 import { PainelEtapaOrgao } from './PainelEtapaOrgao'
-import { DialogoJustificativa, DialogoSuspender } from './DialogosSalaOrgao'
+import { SalaPorFases, type LoteVisao } from '../SalaPorFases'
+import { ChatLateral } from '../ChatLateral'
+import { DetalheLoteOrgao } from './DetalheLoteOrgao'
+import { BeneficioMeEppPanel } from '../BeneficioMeEppPanel'
+import { DesempatePanel } from '../DesempatePanel'
+import { RecursosPanel } from '../RecursosPanel'
+import { HabilitacaoPanel } from '../HabilitacaoPanel'
+import { FilaAutomaticaBarra } from './FilaAutomaticaBarra'
+import { DialogoJustificativa, DialogoReiniciar, DialogoSuspender } from './DialogosSalaOrgao'
 
 /**
  * SALA ÚNICA DO PREGOEIRO (plano E8 item 4): motor único (socket /disputa +
@@ -43,6 +51,8 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
     enviarMensagem,
     pregoeiroCancelarLance,
     negociacaoVersao,
+    boardVersao,
+    diligenciaVersao,
   } = useSalaDisputa({ area: 'orgao', sessaoIdParam: sessaoId })
 
   const [dialogo, setDialogo] = useState<null | 'suspender' | 'reiniciar' | 'reiniciarDemais'>(null)
@@ -54,6 +64,27 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
   const emDisputa = board?.colunas.emDisputa || []
   const encerrados = board?.colunas.encerrados || []
   const itemFoco = selectedItem || emDisputa[0] || aguardando[0] || encerrados[0] || null
+  // Sala por fases + detalhe do lote (dono, 09/11/2026): a fila de início fica ao lado só enquanto há lances
+  const emLances = emDisputa.length > 0 || aguardando.length > 0
+  const [lotes, setLotes] = useState<LoteVisao[]>([])
+  const aoCarregarLotes = useCallback((l: LoteVisao[]) => setLotes(l), [])
+  const loteSel = lotes.find((l) => l.id === (selectedItemId ?? itemFoco?.id)) ?? lotes[0] ?? null
+  // Anterior / próximo: percorre as unidades da MESMA fase (a fila de trabalho do agente); sozinha na fase, percorre todas
+  const navegacaoLote = (() => {
+    if (!loteSel) return null
+    const daFase = lotes.filter((l) => l.fase === loteSel.fase)
+    const lista = [...(daFase.length > 1 ? daFase : lotes)].sort((x, y) => x.numero - y.numero)
+    const i = lista.findIndex((l) => l.id === loteSel.id)
+    if (lista.length < 2 || i < 0) return null
+    return {
+      posicao: i + 1,
+      total: lista.length,
+      escopo: daFase.length > 1 ? loteSel.faseRotulo : null,
+      anterior: i > 0 ? () => setSelectedItemId(lista[i - 1].id) : null,
+      proximo: i < lista.length - 1 ? () => setSelectedItemId(lista[i + 1].id) : null,
+    }
+  })()
+  const itemDoLote = loteSel ? [...emDisputa, ...aguardando, ...encerrados].find((i) => i.id === loteSel.id) ?? null : null
   const suspensaPorDesconexao = !!contexto?.operacao.motivoSuspensao?.startsWith('DESCONEXAO_AGENTE')
 
   return (
@@ -82,6 +113,16 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {contexto?.criterioJulgamento !== 'MAIOR_LANCE' && (
+                <ChatLateral
+                  mensagens={mensagens}
+                  onEnviar={enviarMensagem}
+                  enviando={sendingMessage}
+                  habilitado={!!contexto?.operacao.chatHabilitado}
+                  descricao="Mensagens oficiais do pregoeiro — ficam registradas na ata da sessão."
+                  placeholder="Envie uma orientação oficial para a sala..."
+                />
+              )}
               {acoesCabecalho}
               {contexto?.operacao.suspensa ? (
                 <Button onClick={retomarSessao} className="bg-emerald-600 hover:bg-emerald-700">
@@ -179,32 +220,17 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               </Card>
             )}
 
-            <div className="grid gap-4 md:grid-cols-4">
-              <Card>
-                <CardHeader>
-                  <CardDescription>Aguardando</CardDescription>
-                  <CardTitle>{board?.metricas.totalAguardando || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Em disputa</CardDescription>
-                  <CardTitle>{board?.metricas.totalEmDisputa || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Encerrados</CardDescription>
-                  <CardTitle>{board?.metricas.totalEncerrados || 0}</CardTitle>
-                </CardHeader>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardDescription>Base legal da cronometria</CardDescription>
-                  <CardTitle className="text-base">{contexto?.cronometria.baseLegal || '-'}</CardTitle>
-                </CardHeader>
-              </Card>
-            </div>
+            {/* Lotes por fase (abas), 1º colocado, melhor lance e a classificação (troféu) — dono, 09/11/2026 */}
+            <SalaPorFases
+              sessaoId={sessaoId}
+              area="orgao"
+              itensAoVivo={[...emDisputa, ...aguardando, ...encerrados]}
+              selecionadoId={itemFoco?.id ?? null}
+              onSelecionar={setSelectedItemId}
+              atualizacao={boardVersao}
+              onLotes={aoCarregarLotes}
+            />
+            <FilaAutomaticaBarra sessaoId={sessaoId} atualizacao={boardVersao} />
 
             {board?.solicitacoesCancelamento && board.solicitacoesCancelamento.length > 0 && (
               <Card className="border-amber-200 bg-amber-50/50">
@@ -239,6 +265,8 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
               </Card>
             )}
 
+            {contexto?.criterioJulgamento === 'MAIOR_LANCE' ? (
+              // Leilão (arrematantes, sem aceitação/habilitação): mantém a sala em colunas
             <div className="grid gap-4 xl:grid-cols-12">
               <div className="space-y-4 xl:col-span-2">
                 <FilaOperacional
@@ -269,6 +297,52 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
                 />
               </div>
             </div>
+            ) : (
+              <>
+                {/* Inversão de fases (art. 17 §1º): habilitação de todos antes da disputa */}
+                {contexto?.licitacaoId && ['ABERTURA', 'ANALISE_PROPOSTAS'].includes(contexto?.etapa?.codigo || '') && (
+                  <>
+                    <HabilitacaoPanel licitacaoId={contexto.licitacaoId} somentePreviaInversao />
+                    {/* Inversão: prazo de intenção de recurso da habilitação, antes dos lances (IN 73 art. 8º §1º II) */}
+                    <RecursosPanel sessaoId={sessaoId} somentePreviaInversao />
+                  </>
+                )}
+                {/* Benefício ME/EPP e desempate: aparecem sozinhos quando há algo a decidir */}
+                <BeneficioMeEppPanel sessaoId={sessaoId} />
+                <DesempatePanel sessaoId={sessaoId} />
+                <div className={`grid gap-4 ${emLances ? 'xl:grid-cols-12' : ''}`}>
+                  {emLances && (
+                    <div className="space-y-4 xl:col-span-3">
+                      <FilaOperacional
+                        emDisputa={emDisputa}
+                        aguardando={aguardando}
+                        encerrados={encerrados}
+                        selectedItemId={selectedItemId}
+                        onSelecionar={setSelectedItemId}
+                        onIniciar={iniciarItens}
+                      />
+                    </div>
+                  )}
+                  <div className={`min-w-0 space-y-4 ${emLances ? 'xl:col-span-9' : ''}`}>
+                    {loteSel ? (
+                      <DetalheLoteOrgao
+                        sessaoId={sessaoId}
+                        contexto={contexto}
+                        lote={loteSel}
+                        item={itemDoLote}
+                        negociacaoVersao={negociacaoVersao}
+                  diligenciaVersao={diligenciaVersao}
+                        onEncerrar={encerrarItem}
+                        onReiniciarDemais={() => setDialogo('reiniciarDemais')}
+                        navegacao={navegacaoLote}
+                      />
+                    ) : (
+                      <div className="rounded-xl border bg-white px-4 py-6 text-sm text-slate-500">Abra um lote na tabela acima (›) para ver as ações da fase dele.</div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -282,15 +356,7 @@ export function SalaOrgao({ sessaoId, acoesCabecalho }: { sessaoId: string; acoe
         onFechar={() => setDialogo(null)}
         onConfirmar={(j) => (itemFoco ? reiniciarDemais(itemFoco.id, j) : false)}
       />
-      <DialogoJustificativa
-        aberto={dialogo === 'reiniciar'}
-        titulo="Reiniciar sessão"
-        texto="Use este ato apenas quando for necessário recomeçar a sessão. Os lances não são apagados: ficam no retrato congelado e cancelados logicamente."
-        rotuloConfirmar="Reiniciar sessão"
-        destrutivo
-        onFechar={() => setDialogo(null)}
-        onConfirmar={(j) => reiniciarSessao(j)}
-      />
+      <DialogoReiniciar aberto={dialogo === 'reiniciar'} sessaoId={sessaoId} onFechar={() => setDialogo(null)} onConfirmar={reiniciarSessao} />
       <DialogoJustificativa
         aberto={cancelarLance !== null}
         titulo="Cancelar lance (decisão do pregoeiro)"

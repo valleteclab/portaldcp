@@ -79,6 +79,9 @@ export default function DfdPage() {
   const justSujo = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const necessidadePendente = useRef<string | null>(null)
+  // Gravações em curso: "Gerar" espera todas (homologação 07/11/2026 — a gravação atrasada
+  // chegava depois do PDF e o cartão voltava para "Em elaboração")
+  const emCurso = useRef(new Set<Promise<void>>())
   // Respostas fora de ordem (autosave × seleção × recarga) não voltam a tela para um estado velho
   const ultima = useRef(criarUltimaCarga()).current
 
@@ -104,7 +107,7 @@ export default function DfdPage() {
     carregar()
   }, [carregar])
 
-  const salvar = useCallback(
+  const salvarAgora = useCallback(
     async (corpo: Record<string, unknown>) => {
       setSalvando("salvando")
       const vale = ultima()
@@ -127,6 +130,14 @@ export default function DfdPage() {
       }
     },
     [id, ultima, aplicar],
+  )
+  const salvar = useCallback(
+    (corpo: Record<string, unknown>) => {
+      const p = salvarAgora(corpo).finally(() => emCurso.current.delete(p))
+      emCurso.current.add(p)
+      return p
+    },
+    [salvarAgora],
   )
 
   const salvarNecessidade = (html: string) => {
@@ -156,6 +167,11 @@ export default function DfdPage() {
   const gerar = async () => {
     setGerando(true)
     try {
+      if (timer.current) clearTimeout(timer.current)
+      const pendente = necessidadePendente.current
+      necessidadePendente.current = null
+      if (pendente !== null) void salvar({ necessidade_html: pendente })
+      while (emCurso.current.size) await Promise.allSettled([...emCurso.current])
       const r = await authFetch(`${API_URL}/api/fase-interna/${id}/documentos/DFD/gerar`, { method: "POST" })
       if (!r.ok) throw new Error(await erroDaApi(r))
       toast.success("DFD gerado pelo modelo (PDF). Confira e, se for o caso, envie para assinatura.")

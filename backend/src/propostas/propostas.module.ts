@@ -6,6 +6,7 @@ import { PropostasService } from './propostas.service';
 import { PropostasController } from './propostas.controller';
 import { ItensModule } from '../itens/itens.module';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { SigiloDisputaService } from '../disputa/sigilo-disputa.service';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { Licitacao } from '../licitacoes/entities/licitacao.entity';
     ItensModule,
   ],
   controllers: [PropostasController],
-  providers: [PropostasService],
+  providers: [PropostasService, SigiloDisputaService],
   exports: [PropostasService, TypeOrmModule],
 })
 export class PropostasModule {}

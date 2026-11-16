@@ -97,3 +97,50 @@ export function textoDeAutuacao(p: { numero: string; objeto: string; aberto_por_
   const quem = [p.aberto_por_nome, p.setor_nome].filter(Boolean).join(' — ');
   return `Autue-se o Processo Administrativo nº ${p.numero}, cujo objeto é ${p.objeto.trim()}.${quem ? ` Autuação: ${quem}.` : ''}`;
 }
+
+/**
+ * ONDE A LICITAÇÃO ESTÁ, para a lista de processos (dono, 09/11/2026: o pregão
+ * homologado aparecia só "Em andamento" — a situação do processo é a da
+ * tramitação, não a da licitação). Rótulo curto + tom do chip + se a sala da
+ * sessão já faz sentido (fase externa com sessão).
+ */
+export type TomEtapa = 'interna' | 'externa' | 'resultado' | 'encerrada';
+export function etapaDaLicitacao(l: {
+  fase?: string | null;
+  situacao?: string | null;
+  modalidade?: string | null;
+  temSessao?: boolean;
+  contratos?: Array<{ status?: string | null }>;
+}): { rotulo: string; tom: TomEtapa; sala: boolean } {
+  const fase = String(l.fase ?? '');
+  const situacao = String(l.situacao ?? 'ATIVA');
+  const contratos = l.contratos ?? [];
+  const sala = !!l.temSessao;
+  const terminal: Record<string, string> = { REVOGADA: 'Revogada', ANULADA: 'Anulada', DESERTA: 'Deserta', FRACASSADA: 'Fracassada' };
+  if (terminal[situacao]) return { rotulo: terminal[situacao], tom: 'encerrada', sala };
+  if (situacao === 'SUSPENSA') return { rotulo: 'Suspensa', tom: 'encerrada', sala };
+  if (fase === 'HOMOLOGACAO' || situacao === 'CONCLUIDA') {
+    if (!contratos.length) return { rotulo: 'Homologada', tom: 'resultado', sala };
+    const aguardando = contratos.some((c) => /AGUARDANDO_ASSINATURA|RASCUNHO|EM_ELABORACAO/.test(String(c.status ?? '')));
+    return { rotulo: aguardando ? 'Homologada · contrato aguardando assinaturas' : 'Homologada · contrato assinado', tom: 'resultado', sala };
+  }
+  const rotulos: Record<string, [string, TomEtapa]> = {
+    PLANEJAMENTO: ['Fase interna · planejamento', 'interna'],
+    TERMO_REFERENCIA: ['Fase interna · termo de referência', 'interna'],
+    PESQUISA_PRECOS: ['Fase interna · pesquisa de preços', 'interna'],
+    ANALISE_JURIDICA: ['Fase interna · parecer jurídico', 'interna'],
+    APROVACAO_INTERNA: ['Fase interna · autorização', 'interna'],
+    AGUARDANDO_DIVULGACAO: ['Aguardando divulgação no PNCP', 'externa'],
+    PUBLICADO: ['Edital publicado', 'externa'],
+    IMPUGNACAO: ['Prazo de impugnação', 'externa'],
+    ACOLHIMENTO_PROPOSTAS: ['Recebendo propostas', 'externa'],
+    ANALISE_PROPOSTAS: ['Sessão · análise das propostas', 'externa'],
+    EM_DISPUTA: ['Sessão · em disputa', 'externa'],
+    JULGAMENTO: ['Sessão · aceitação das propostas', 'externa'],
+    HABILITACAO: ['Sessão · habilitação', 'externa'],
+    RECURSO: ['Sessão · recurso', 'externa'],
+    ADJUDICACAO: ['Adjudicada · aguardando homologação', 'resultado'],
+  };
+  const r = rotulos[fase];
+  return r ? { rotulo: r[0], tom: r[1], sala } : { rotulo: 'Em andamento', tom: 'externa', sala };
+}

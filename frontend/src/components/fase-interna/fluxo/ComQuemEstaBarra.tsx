@@ -7,9 +7,9 @@
  *
  *  - Recebi ............ PUT  /api/fase-interna/tramitacoes/:id/receber
  *  - Anexar feito fora . diálogo de anexar da peça pendente (AnexarPecaDialog)
- *  - Enviar para ▾ ..... POST /api/fase-interna/:id/tramitar — destinos e despacho
- *                        de GET …/tramitacao/sugestao-envio (F3a); sem ela (404),
- *                        lista de setores do órgão e despacho em branco
+ *  - Enviar para ▾ ..... POST /api/fase-interna/:id/tramitar — lista de setores do
+ *                        órgão e despacho em branco (a sugestão do motor antigo saiu
+ *                        em 11/2026: a próxima etapa é do fluxo do processo)
  *  - Devolver .......... PUT  /api/fase-interna/tramitacoes/:id/devolver (motivo)
  *
  * Quem pode agir é o servidor quem decide: o 403/400 volta com a razão e a
@@ -87,7 +87,7 @@ export function ComQuemEstaBarra({
   encerrada?: { publicadoEm: string | null } | null
 }) {
   const [cqe, setCqe] = useState<ComQuemEsta | null>(null)
-  const [sugestao, setSugestao] = useState<SugestaoEnvio | null>(null)
+  const sugestao = null as SugestaoEnvio | null
   const [erroCarga, setErroCarga] = useState<string | null>(null)
   const [erroAcao, setErroAcao] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState<string | null>(null)
@@ -96,7 +96,6 @@ export function ComQuemEstaBarra({
   const [receberData, setReceberData] = useState<string | null>(null)
   const [anexar, setAnexar] = useState<PecaParaAnexar | null>(null)
   const [ultima] = useState(criarUltimaCarga)
-  const [ultimaSugestao] = useState(criarUltimaCarga)
 
   /** Com quem está — leitura rápida, aplicada assim que chega. */
   const carregarPosse = useCallback(async () => {
@@ -119,20 +118,11 @@ export function ComQuemEstaBarra({
       })
   }, [licitacaoId, ultima])
 
-  /** Sugestão de envio — espera a sincronização do processo; chega depois, sem segurar a barra. */
-  const estaEncerrada = !!encerrada
-  const carregarSugestao = useCallback(async () => {
-    if (estaEncerrada) return
-    const vale = ultimaSugestao()
-    // F3a: se ainda não publicado (404) ou com erro, o envio cai no modo manual
-    const s = await authFetch(`${API_URL}/api/fase-interna/${licitacaoId}/tramitacao/sugestao-envio`, { cache: "no-store" }).catch(() => null)
-    const sug: SugestaoEnvio | null = s?.ok ? await s.json().catch(() => null) : null
-    if (vale()) setSugestao(sug && Array.isArray(sug.destinos) ? sug : null)
-  }, [licitacaoId, ultimaSugestao, estaEncerrada])
-
+  // Um motor só (11/2026): a sugestão de envio do motor antigo saiu — quem diz a próxima etapa é o
+  // fluxo do processo; o envio por aqui é manual (setor ou pessoa escolhidos por quem envia).
   const carregar = useCallback(async () => {
-    await Promise.all([carregarPosse(), carregarSugestao()])
-  }, [carregarPosse, carregarSugestao])
+    await carregarPosse()
+  }, [carregarPosse])
   useEffect(() => { carregar() }, [carregar, atualizacao])
 
   const depoisDaAcao = (msg: string) => {

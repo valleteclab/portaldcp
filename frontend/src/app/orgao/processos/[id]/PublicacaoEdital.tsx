@@ -206,6 +206,25 @@ export function PublicacaoEdital({
     }
   }
 
+  const [gerandoDaMinuta, setGerandoDaMinuta] = useState(false)
+  const gerarDaMinuta = async () => {
+    setGerandoDaMinuta(true)
+    setErroEdital(null)
+    try {
+      const res = await authFetch(`${API_URL}/api/publicacao/licitacao/${licitacaoId}/edital/gerar-da-minuta`, { method: "POST" })
+      if (!res.ok) {
+        setErroEdital(await lerErro(res, "Erro ao gerar o edital da minuta"))
+        return
+      }
+      await carregarEdital()
+      onAtualizado()
+    } catch (e) {
+      setErroEdital(erroDeExcecao(e))
+    } finally {
+      setGerandoDaMinuta(false)
+    }
+  }
+
   const abrirPdf = async (documentoId: string) => {
     try {
       await abrirArquivoEdital(licitacaoId, documentoId)
@@ -328,6 +347,10 @@ export function PublicacaoEdital({
             <Button size="sm" variant="outline" onClick={() => inputPdf.current?.click()} disabled={enviandoPdf}>
               {enviandoPdf ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Upload className="w-4 h-4 mr-1" />}
               {vigente ? "Substituir PDF" : "Anexar PDF do edital"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={gerarDaMinuta} disabled={gerandoDaMinuta || enviandoPdf} title="Monta o edital com a minuta do edital da fase interna e, como anexos, o termo de referência e a minuta do contrato">
+              {gerandoDaMinuta ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />}
+              {vigente ? "Gerar de novo da minuta" : "Gerar da minuta do edital"}
             </Button>
             <span className="text-[11px] text-gray-400">Pode ser trocado até a publicação; depois, só por retificação.</span>
           </div>

@@ -1,3 +1,5 @@
+import { hashSenha, segredosIguais } from '../common/senha.util';
+import { randomBytes } from 'crypto';
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -57,7 +59,10 @@ export class AuthService {
       throw new UnauthorizedException('Sistema não configurado para acesso administrativo');
     }
 
-    if (email !== adminEmail || senha !== adminSenha) {
+    // Tempo constante: a comparação direta deixava medir a senha pelo tempo de resposta
+    const emailOk = segredosIguais(email, adminEmail);
+    const senhaOk = segredosIguais(senha, adminSenha);
+    if (!emailOk || !senhaOk) {
       this.logger.warn(`Tentativa de login admin falhou: ${email}`);
       throw new UnauthorizedException('Email ou senha inválidos');
     }
@@ -334,6 +339,23 @@ export class AuthService {
       if (!fornecedor) {
         throw new UnauthorizedException('Fornecedor não encontrado');
       }
+    } else if (payload.type === UserType.USUARIO) {
+      // O token vale 7 dias: sem conferir aqui, usuário desativado ou rebaixado
+      // seguia com o acesso (e o papel) do dia do login até o token vencer.
+      const [u] = await this.usuarioRepository.manager.query(
+        `SELECT u.ativo, u.role::text AS role, u.orgao_id, o.ativo AS orgao_ativo
+           FROM usuarios u LEFT JOIN orgaos o ON o.id = u.orgao_id
+          WHERE u.id::text = $1`,
+        [String(payload.sub)],
+      );
+      if (!u || u.ativo === false) {
+        throw new UnauthorizedException('Usuário não encontrado ou inativo');
+      }
+      if (u.orgao_id && u.orgao_ativo === false) {
+        throw new UnauthorizedException('Órgão não encontrado ou inativo');
+      }
+      // Papel e órgão valem os do CADASTRO de agora, não os do token
+      return { ...payload, role: u.role ?? payload.role, orgaoId: u.orgao_id ?? payload.orgaoId };
     }
 
     return payload;
@@ -450,7 +472,7 @@ export class AuthService {
     const usuario = this.usuarioRepository.create({
       nome: decoded.nome,
       email: decoded.email,
-      senha_hash: createHash('sha256').update(Math.random().toString()).digest('hex'),
+      senha_hash: hashSenha(randomBytes(32).toString('hex')),
       google_id: decoded.googleId,
       google_login: true,
       foto_url: decoded.picture,

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname, useRouter } from "next/navigation"
+import { GuiaPrimeirosPassos } from "@/components/guia/GuiaPrimeirosPassos"
 import {
   Building2,
   FileText,
@@ -39,6 +40,7 @@ import {
   Menu,
   Tv,
   Activity,
+  Briefcase,
   GitBranch,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -184,10 +186,12 @@ export function Sidebar({ userType }: SidebarProps) {
     { href: "/orgao/pca", label: "PCA", icon: Calendar, modulo: ModuloSistema.PCA },
     // Licitação (E8): um caminho por ato — a sala da sessão abre do processo
     // "Tudo é processo": a lista de todos os tipos (licitação, aditivo, renovação, avulso) é a entrada
-    { href: "/orgao/processo", label: "Processos", icon: FileText, modulo: ModuloSistema.PROCESSOS },
-    { href: "/orgao/workflows", label: "Workflows", icon: GitBranch, modulo: ModuloSistema.PROCESSOS },
+    { href: "/orgao/processo", label: "Processos", icon: FileText, modulos: [ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES] },
+    { href: "/orgao/workflows", label: "Workflows", icon: GitBranch, modulos: [ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES] },
     // Painel do gestor: fila única (licitações, aditivos, renovações, avulsos e pedidos) com caminho, posse e gargalos
-    { href: "/orgao/andamento", label: "Andamento", icon: Activity, modulo: ModuloSistema.PROCESSOS },
+    { href: "/orgao/andamento", label: "Andamento", icon: Activity, modulos: [ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES] },
+    // Área de trabalho do agente/pregoeiro: processos em fase externa com a próxima ação de cada um
+    { href: "/orgao/area-de-trabalho", label: "Área de trabalho", icon: Briefcase, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/licitacoes", label: "Licitações", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     { href: "/orgao/fase-interna/processos/novo", label: "Novo processo", icon: Gavel, modulo: ModuloSistema.LICITACOES },
     // Fase interna (Entrega 2): a entrada da área é a caixa de tarefas do usuário
@@ -504,6 +508,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        {pathname.startsWith('/orgao') && <GuiaPrimeirosPassos />}
         {(pathname.startsWith('/orgao') || pathname.startsWith('/fornecedor')) && <NotificacoesBadge />}
 
         <div className="flex items-center gap-3">

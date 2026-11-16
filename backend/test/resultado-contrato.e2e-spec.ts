@@ -38,7 +38,7 @@ import { convocarAceitacao, decidirAceitacao, enviarPropostaAdequada } from './s
 import { habilitarLicitante } from './support/habilitacao';
 import { abrirJanelaIntencao, encerrarJanelaNoRelogio, manifestarIntencao } from './support/recursos';
 import { criarDispensaComPropostas, encerrarEtapaDeLances } from './support/dispensa';
-import { adjudicarResultado, gerarInstrumentos, homologarResultado, painelResultado } from './support/resultado';
+import { adjudicarResultado, gerarInstrumentos, habilitarVencedoresDispensa, homologarResultado, painelResultado } from './support/resultado';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 import { GERADOR_ATA_REGISTRO_PRECO } from '../src/resultado/gerador-ata';
@@ -277,6 +277,7 @@ describe('E6 — resultado único (adjudicação, homologação) e contrato', ()
     });
 
     test('homologar (mesmo método): valor calculado 1800; contrato com o prazo da proposta vencedora (20 dias)', async () => {
+      await habilitarVencedoresDispensa(ctx, lic.id, orgao.token);
       const r = await homologarResultado(ctx, lic.id, orgao.token);
       expect(r.status).toBe(200);
       expect(r.body.valorHomologado).toBe(1800);

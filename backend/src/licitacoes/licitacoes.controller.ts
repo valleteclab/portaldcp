@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { SigiloDisputaService } from '../disputa/sigilo-disputa.service';
 import { PncpService } from '../pncp/pncp.service';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ValidationPipe, Res, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
@@ -41,7 +42,33 @@ export class LicitacoesController {
     private readonly processoPdfService: ProcessoPdfService,
     private readonly acesso: AcessoLicitacaoService,
     private readonly pncpService: PncpService,
+    private readonly sigilo: SigiloDisputaService,
   ) {}
+
+  /**
+   * Retomar não pode ANTECIPAR o fim das propostas nem a abertura: o sigilo
+   * depende dessas datas, e uma data passada (ou anterior à publicada)
+   * derrubaria o sigilo na hora. Reabrir prazo é sempre para a frente.
+   */
+  private async validarDatasDaRetomada(id: string, novas: Record<string, any>): Promise<void> {
+    const atual: any = await this.licitacoesService.findOneParaLeitura(id);
+    const agora = Date.now();
+    for (const [campo, rotulo] of [
+      ['data_fim_acolhimento', 'O fim do recebimento de propostas'],
+      ['data_abertura_sessao', 'A abertura da sessão'],
+    ] as const) {
+      if (!novas?.[campo]) continue;
+      const nova = new Date(novas[campo]).getTime();
+      if (isNaN(nova)) throw new BadRequestException(`${rotulo}: data inválida`);
+      const publicada = atual?.[campo] ? new Date(atual[campo]).getTime() : null;
+      // Datas já vencidas antes da suspensão podem ser mantidas como estão
+      if (publicada != null && nova === publicada) continue;
+      if (nova < agora) throw new BadRequestException(`${rotulo} não pode ser retomado com data no passado`);
+      if (publicada != null && nova < publicada) {
+        throw new BadRequestException(`${rotulo} não pode ser antecipado na retomada — só mantido ou adiado`);
+      }
+    }
+  }
 
   /** Ato do órgão dono sobre a licitação (403 para outro órgão). */
   private dono(ator: Ator, id: string) {
@@ -211,6 +238,7 @@ export class LicitacoesController {
     if (!atoExiste(ato)) throw new BadRequestException(`Ato desconhecido: ${ato}`);
     // Revogar/anular (e a intenção — art. 71, §3º): quem conduz o processo ou a autoridade
     if (ATOS_DE_EXTINCAO.includes(ato)) await this.licitacoesService.exigirExtincao(ator, id);
+    if (String(ato).toUpperCase() === 'RETOMAR') await this.validarDatasDaRetomada(id, body?.dados || {});
     const r = await this.licitacoesService.executarAto(id, ato as AtoLicitacao, body || {}, atorTransicaoDe(ator), ator);
     return { ...r, licitacao: licitacaoParaOrgao(r.licitacao) };
   }
@@ -241,7 +269,8 @@ export class LicitacoesController {
   @SomenteOrgao()
   async classificacaoDispensa(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
     await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
-    return await this.licitacoesService.classificacaoDispensa(id);
+    // Na dispensa com lances, quem é quem só depois do fim da janela
+    return this.sigilo.paraOrgao(await this.licitacoesService.classificacaoDispensa(id), id);
   }
 
   /** Histórico de transições (quem fez qual ato, quando, de/para, motivo). Só o órgão dono. */
@@ -302,7 +331,10 @@ export class LicitacoesController {
   @SomenteOrgao()
   async processoCompleto(@Param('id') id: string, @AtorAtual() ator: Ator): Promise<any> {
     await this.acesso.assertOrgaoDaLicitacao(ator, id, 'leitura');
-    return await this.licitacoesService.processoCompleto(id, ator);
+    const pc: any = await this.licitacoesService.processoCompleto(id, ator);
+    // Propostas no cockpit: quem é quem só quando o órgão já pode saber
+    if (Array.isArray(pc?.propostas)) pc.propostas = await this.sigilo.paraOrgao(pc.propostas, id);
+    return pc;
   }
 
   /** Dispensa eletrônica: julga propostas por menor preço por item e adjudica (art. 75 §3º) */
@@ -561,6 +593,7 @@ export class LicitacoesController {
     // Retoma na MESMA fase da suspensão (`fase_destino` da API antiga é ignorado)
     const { motivo, dados, ...datas } = (body || {}) as any;
     delete datas.fase_destino;
+    await this.validarDatasDaRetomada(id, { ...datas, ...(dados || {}) });
     return await this.licitacoesService.retomar(id, { ...datas, ...(dados || {}) }, atorTransicaoDe(ator), motivo);
   }
 

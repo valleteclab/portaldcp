@@ -1,16 +1,25 @@
 name: Deploy to VPS Hostinger
 
+# Produção da Câmara: SÓ o branch `producao` e SÓ quando o dono mandar.
+# Antes este workflow rodava a cada push no `main` e fazia `git pull origin main`
+# na VPS — só não subia porque o segredo VPS_SSH_KEY estava vazio. Configurar a
+# chave levaria todo merge do `main` (homologação) direto para a Câmara, que é
+# exatamente o que a regra do `producao` proíbe (CLAUDE.md; incidente de
+# 04/10/2026). Agora: disparo manual, branch fixo e confirmação digitada.
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      confirmacao:
+        description: 'Digite PRODUCAO para confirmar o deploy do branch producao na VPS da Câmara'
+        required: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+    if: github.ref == 'refs/heads/producao' && github.event.inputs.confirmacao == 'PRODUCAO'
+
     steps:
-      - name: Deploy via SSH
+      - name: Deploy via SSH (deploy-vps.sh — mostra o que vai junto antes de subir)
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: 72.60.4.218
@@ -18,6 +27,4 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd /opt/portaldcp
-            git pull origin main
-            docker-compose -f docker-compose.coolify.yml up -d --build --force-recreate
-            docker-compose -f docker-compose.coolify.yml ps
+            BRANCH=producao bash deploy-vps.sh

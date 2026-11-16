@@ -1,3 +1,4 @@
+import { randomInt, timingSafeEqual } from 'crypto';
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -6,12 +7,15 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { EmailService } from '../email/email.service';
 import * as crypto from 'crypto';
 
+/** Erros permitidos por código de assinatura antes de ele ser descartado. */
+const MAX_ERROS_OTP = 5;
+
 @Injectable()
 export class AssinaturasService {
   private readonly logger = new Logger(AssinaturasService.name);
   
   // Cache OTP na memória (para produção seria ideal Redis)
-  private otpCache: Map<string, { codigo: string; expiracao: number; tentativas: number }> = new Map();
+  private otpCache: Map<string, { codigo: string; expiracao: number; tentativas: number; erros?: number }> = new Map();
 
   constructor(
     @InjectRepository(AssinaturaDigital)
@@ -39,7 +43,7 @@ export class AssinaturasService {
     }
 
     // Gera código 6 dígitos aleatório
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo = randomInt(100000, 1000000).toString();
     const expiracao = Date.now() + 5 * 60 * 1000; // 5 minutos
     
     this.otpCache.set(cacheKey, {
@@ -76,7 +80,7 @@ export class AssinaturasService {
       throw new BadRequestException('Muitas tentativas. Aguarde 5 minutos antes de solicitar novo código.');
     }
 
-    const codigoGerado = codigo || Math.floor(100000 + Math.random() * 900000).toString();
+    const codigoGerado = codigo || randomInt(100000, 1000000).toString();
     const expiracao = Date.now() + 5 * 60 * 1000;
 
     this.otpCache.set(cacheKey, {
@@ -111,6 +115,31 @@ export class AssinaturasService {
     return true;
   }
 
+  /**
+   * Compara o código informado. Cada erro conta; no 5º o código é descartado
+   * e é preciso pedir outro — sem isso, 6 dígitos caíam por tentativa e erro
+   * dentro dos 5 minutos de validade.
+   */
+  private conferirCodigo(cacheKey: string, otpData: { codigo: string; erros?: number }, informado: string): void {
+    const a = Buffer.from(String(otpData.codigo));
+    const b = Buffer.from(String(informado ?? ''));
+    if (a.length === b.length && timingSafeEqual(a, b)) return;
+    otpData.erros = (otpData.erros ?? 0) + 1;
+    if (otpData.erros >= MAX_ERROS_OTP) {
+      this.otpCache.delete(cacheKey);
+      throw new BadRequestException('Código incorreto. Limite de tentativas atingido — solicite um novo código.');
+    }
+    throw new BadRequestException(`Código incorreto. Restam ${MAX_ERROS_OTP - otpData.erros} tentativa(s).`);
+  }
+
+  /** Conta um erro de código conferido fora daqui (medições); descarta o código no limite. */
+  contarErroOtp(cacheKey: string): void {
+    const otpData = this.otpCache.get(cacheKey);
+    if (!otpData) return;
+    otpData.erros = (otpData.erros ?? 0) + 1;
+    if (otpData.erros >= MAX_ERROS_OTP) this.otpCache.delete(cacheKey);
+  }
+
   async validarOtpEmail(orgaoId: string, email: string, codigo: string): Promise<boolean> {
     const cacheKey = `otp_email_${orgaoId}_${email}`;
     const otpData = this.otpCache.get(cacheKey);
@@ -120,7 +149,7 @@ export class AssinaturasService {
       this.otpCache.delete(cacheKey);
       throw new BadRequestException('O código expirou. Solicite um novo código.');
     }
-    if (otpData.codigo !== codigo) throw new BadRequestException('Código incorreto.');
+    this.conferirCodigo(cacheKey, otpData, codigo);
 
     this.otpCache.delete(cacheKey);
     return true;
@@ -140,9 +169,7 @@ export class AssinaturasService {
       throw new BadRequestException('O código expirou. Solicite um novo código.');
     }
 
-    if (otpData.codigo !== codigo) {
-      throw new BadRequestException('Código incorreto.');
-    }
+    this.conferirCodigo(cacheKey, otpData, codigo);
 
     // Se validou com sucesso, limpa do cache para não ser reusado
     this.otpCache.delete(cacheKey);
@@ -158,7 +185,7 @@ export class AssinaturasService {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Sem O/0/1/I para evitar confusão
     let codigo = '';
     for (let i = 0; i < 16; i++) {
-      codigo += chars.charAt(Math.floor(Math.random() * chars.length));
+      codigo += chars.charAt(randomInt(chars.length));
     }
     return codigo;
   }

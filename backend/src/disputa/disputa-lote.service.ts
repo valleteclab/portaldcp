@@ -29,6 +29,7 @@ import type { ItemDisputa, LanceRegistrado, LancePainelCancelamento } from './di
 import { ModoDisputaService } from './modo-disputa.service';
 import { DirecaoLance, ordemSql } from './modos-disputa';
 import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
+import { fornecedoresForaDoRankingSql } from '../julgamento/regras-julgamento';
 
 /**
  * ============================================================================
@@ -416,6 +417,10 @@ export class DisputaLoteService {
       [licitacaoId],
     );
     await this.anonimizacao.atribuirCodigos(sessao.id, participantes.map((p) => String(p.fornecedor_id)));
+    // Um sorteio por lote: julgar um lote encerrado não revela quem é quem nos que seguem em disputa
+    for (const alvoLote of aIniciar) {
+      await this.anonimizacao.atribuirCodigosDaUnidade(sessao.id, alvoLote.id, participantes.map((p) => String(p.fornecedor_id)));
+    }
 
     let lotesIniciados = 0;
     let itensIniciados = 0;
@@ -510,7 +515,9 @@ export class DisputaLoteService {
         const meus = ativos
           .filter((l) => l.fornecedor_id === cmd.fornecedorId)
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        const melhor = ativos[0];
+        const fora = origem === OrigemLance.DESEMPATE_MPE ? await fornecedoresForaDoRankingSql(m, lote.id) : null;
+        const noRanking = fora?.size ? ativos.filter((l) => !fora.has(String(l.fornecedor_id))) : ativos;
+        const melhor = noRanking[0];
         const agora = new Date();
 
         validarLance({
@@ -521,7 +528,7 @@ export class DisputaLoteService {
           propostaNaBase: eleg.totalProposta,
           meuUltimo: meus[0] ? { valor: parseFloat(meus[0].valor), origem: meus[0].origem, criadoEm: new Date(meus[0].created_at) } : null,
           melhor: melhor ? { valor: parseFloat(melhor.valor), fornecedorId: melhor.fornecedor_id } : null,
-          valoresDeOutros: ativos.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
+          valoresDeOutros: noRanking.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
           diferencaMinima: params.diferencaMinima,
           intervaloProprioSegundos: params.intervaloProprioSegundos,
           agora,
@@ -718,7 +725,8 @@ export class DisputaLoteService {
         const nome = (await m.query(`SELECT razao_social FROM fornecedores WHERE id::text = $1`, [topo.fornecedor_id]))[0]?.razao_social;
         melhorLance = { ...melhorLance!, fornecedorNome: nome || 'Fornecedor' };
         if (anonimizar) {
-          const codigo = codigos.get(topo.fornecedor_id) ?? 'Licitante';
+          // Código do licitante NESTE lote (sorteio por unidade); o mapa da sessão fica como reserva
+          const codigo = await this.anonimizacao.obterCodigoNaUnidade(sessao.id, lote.id, String(topo.fornecedor_id)).catch(() => codigos.get(String(topo.fornecedor_id)) ?? 'Licitante');
           melhorLance = { valor: melhorLance.valor, fornecedorId: idAnonimo(codigo), fornecedorNome: codigo };
         }
       }

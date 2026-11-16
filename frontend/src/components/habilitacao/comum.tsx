@@ -79,6 +79,8 @@ export interface Habilitacao {
   enviadaEm?: string | null
   decididaEm?: string | null
   decisaoMotivo?: string | null
+  /** Inabilitações só em parte dos itens/lotes (o licitante segue nos demais). */
+  inabilitacoesUnidade?: Array<{ unidadeId: string; rotulo: string; motivo: string; em: string }>
   podeConcluirEnvio: boolean
   podeAnalisar: boolean
   podeHabilitar: boolean

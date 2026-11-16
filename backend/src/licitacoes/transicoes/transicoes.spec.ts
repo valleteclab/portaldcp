@@ -26,6 +26,7 @@ function lic(parcial: Partial<Licitacao>): Licitacao {
     situacao: S.ATIVA,
     fase_anterior: null,
     observacoes: null,
+    pregoeiro_id: 'u-agente', // publicar exige o agente designado (art. 8º)
     ...parcial,
   } as unknown as Licitacao;
 }

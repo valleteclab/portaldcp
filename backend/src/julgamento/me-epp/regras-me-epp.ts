@@ -541,10 +541,11 @@ export function pendenciasPublicacaoArt48(
   const semExclusividade = c.unidades.filter((u) => !u.exclusiva && Number(u.valorEstimado) <= Number(c.limite));
   if (!somenteAvaliacao && semExclusividade.length && String(justificativa ?? '').trim().length < JUSTIFICATIVA_ART49_MINIMO) {
     pend.push(
-      `Itens de até ${brl(c.limite)} sem participação exclusiva de ME/EPP (LC 123/2006, art. 48, I): ` +
-        `${semExclusividade.map((u) => u.rotulo).join(', ')}. Informe a justificativa da exceção (art. 49) em ` +
-        `"justificativa_nao_exclusividade_mpe" (mín. ${JUSTIFICATIVA_ART49_MINIMO} caracteres — no cockpit da licitação: aba Itens → ` +
-        '"Tratamento ME/EPP") ou marque-os como exclusivos.',
+      `${semExclusividade.map((u) => u.rotulo).join(', ')}: até ${brl(c.limite)} e sem participação exclusiva de ME/EPP. ` +
+        `A lei manda reservar esses itens a ME/EPP (LC 123/2006, art. 48, I). Para publicar, escolha um caminho: ` +
+        `(1) marque-os como exclusivos de ME/EPP na edição do processo; ou ` +
+        `(2) escreva a justificativa da exceção (art. 49) no cartão "Tratamento ME/EPP", na página do processo ` +
+        `(mínimo de ${JUSTIFICATIVA_ART49_MINIMO} caracteres), e publique de novo.`,
     );
   }
   return pend;

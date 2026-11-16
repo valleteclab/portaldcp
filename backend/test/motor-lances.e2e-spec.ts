@@ -193,6 +193,8 @@ describe('E2 — motor de lances único', () => {
       for (const t of tipos) expect(['PREGOEIRO', 'FORNECEDOR', 'SISTEMA']).toContain(t);
       expect(r.body.some((m: any) => /Lance de R\$/.test(m.conteudo))).toBe(false);
       expect(r.body.some((m: any) => m.conteudo === 'Dúvida do licitante' && m.tipo === 'FORNECEDOR')).toBe(true);
+      // Durante os lances, o histórico do órgão também vem com o código (antes devolvia o nome real)
+      expect(JSON.stringify(r.body)).not.toContain(F1.razao_social);
       const tabela = await ctx.dataSource.query(`SELECT to_regclass('chat_mensagens') AS t`);
       if (tabela[0].t) {
         const n = await ctx.dataSource.query(`SELECT COUNT(*)::int AS n FROM chat_mensagens WHERE conteudo = 'Dúvida do licitante'`).catch(() => [{ n: 0 }]);
@@ -214,7 +216,7 @@ describe('E2 — motor de lances único', () => {
       await http().put(`/api/disputa/sessao/${sessaoId}/configuracoes`).set(bearer(orgao.token)).send({ chat_desabilitado: false }).expect(200);
     });
 
-    test('item_encerrado com outro item em disputa: fornecedor recebe o vencedor ANÔNIMO; órgão recebe a identidade', async () => {
+    test('item_encerrado com outro item em disputa: fornecedor recebe o vencedor ANÔNIMO; órgão recebe a identidade só do item encerrado', async () => {
       const paraF1 = aguardarEvento<any>(s1, 'item_encerrado');
       const paraOrgao = aguardarEvento<any>(sp, 'item_encerrado');
       sp.emit('encerrar_item', { sessaoId, itemId: item1 });
@@ -225,7 +227,13 @@ describe('E2 — motor de lances único', () => {
       expect(f.vencedor.fornecedorId).toMatch(/^anonimo-/);
       expect(JSON.stringify(f)).not.toContain(F2.id);
       expect(JSON.stringify(f)).not.toContain(F2.razao_social);
+      // o órgão conhece o vencedor do item ENCERRADO (o julgamento dele já pode começar)...
       expect(o.vencedor.fornecedorId).toBe(F2.id);
+      // ...mas não quem é quem no item que segue em disputa: lá cada licitante tem outro código
+      const emDisputa = (o.itens?.emDisputa ?? []).map((i: any) => JSON.stringify(i)).join('');
+      expect(emDisputa).not.toContain(F1.id);
+      expect(emDisputa).not.toContain(F2.id);
+      expect(emDisputa).not.toContain(F3.id);
 
       // leituras REST do item encerrado também seguem sem identidade para não-donos
       const m = await http().get(`/api/disputa/item/${item1}/melhores`).set(bearer(F3.token)).expect(200);
@@ -313,6 +321,9 @@ describe('E2 — motor de lances único', () => {
         .send({ justificativa: 'Falha de conexão generalizada comprovada' })
         .expect(201);
       expect(r.body.lancesCancelados).toBe(ativosAntes);
+      // A sessão pública segue aberta (não volta à abertura): só os lances recomeçam
+      const [sess] = await ctx.dataSource.query(`SELECT status::text AS status, etapa::text AS etapa FROM sessoes_disputa WHERE id = $1`, [sessaoId]);
+      expect(sess).toEqual({ status: 'EM_ANDAMENTO', etapa: 'ANALISE_PROPOSTAS' });
 
       const depois = await ctx.dataSource.query(`SELECT id, cancelado, cancelado_por, cancelado_motivo FROM lances WHERE item_id = $1`, [itemId]);
       expect(depois).toHaveLength(antes.length);
@@ -331,7 +342,6 @@ describe('E2 — motor de lances único', () => {
     });
 
     test('reabrir o item recria uma proposta-lance ativa por fornecedor (índice único impede duplicata)', async () => {
-      await http().put(`/api/sessao/${sessaoId}/iniciar`).set(bearer(orgao.token));
       const ini = await http().post(`/api/disputa/sessao/${sessaoId}/iniciar-itens`).set(bearer(orgao.token)).send({ itensIds: [itemId] });
       expect(ini.status).toBe(201);
       expect(ini.body.itensIniciados).toBe(1);

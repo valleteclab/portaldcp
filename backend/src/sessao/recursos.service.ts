@@ -1,3 +1,6 @@
+import { orgaoComPrazosDeTeste } from '../common/prazos/prazos-de-teste';
+import { papelNoProcesso } from '../licitacoes/permissao-atos-processo';
+import { motivoOperadorInvalido } from '../resultado/formalizacao/regras-formalizacao';
 import {
   BadRequestException,
   ConflictException,
@@ -22,6 +25,7 @@ import { JanelaIntencaoRecurso } from './entities/janela-intencao-recurso.entity
 import { ContrarrazaoRecurso } from './entities/contrarrazao-recurso.entity';
 import { SessaoDisputa, EtapaSessao } from './entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from './entities/evento-sessao.entity';
+import { habilitacaoPreviaPendenteSql } from '../habilitacao/habilitacao.sql';
 import { FaseLicitacao } from '../licitacoes/entities/licitacao.entity';
 import { ParametrosLicitacaoService } from '../parametros-licitacao/parametros-licitacao.service';
 import { TransicoesService } from '../licitacoes/transicoes/transicoes.service';
@@ -49,6 +53,8 @@ import {
   atrasosDoRecurso,
   desfechoDaFaseRecursal,
   estadoJanela,
+  MOMENTO_JANELA,
+  motivoIntencaoPreviaEmEspera,
   evolucaoPorPrazo,
   minutosDaJanela,
   motivoMinutosInvalidos,
@@ -66,6 +72,9 @@ import {
 } from './regras-recursos';
 import { faseDaJanelaRecursal, resultadoDeclarado, situacoesDeResultado } from '../modalidades-especiais/perfil-modalidade';
 import { unidadesSemResultadoDeclaradoSql } from '../modalidades-especiais/resultado-declarado.sql';
+
+/** Ensaio na homologação: minutos para razões e para contrarrazões (órgãos de TESTE no Railway). */
+export const MINUTOS_RECURSO_DE_TESTE = 10;
 
 /** Arquivo das razões/contrarrazões (PDF/JPG/PNG, até 10 MB — mesmo padrão da proposta adequada). */
 export interface ArquivoRecurso {
@@ -163,6 +172,8 @@ export class RecursosService {
     return {
       // Calendário de feriados do órgão da licitação (art. 183, III — E7a)
       cal: calendarioDoOrgao(l?.orgao_id ?? null),
+      // Ensaio na homologação (órgão de TESTE no Railway): razões e contrarrazões em minutos
+      minutosDeTeste: orgaoComPrazosDeTeste(l?.orgao_id) ? MINUTOS_RECURSO_DE_TESTE : null,
       minutosIntencao: minutosDaJanela(p?.prazo_intencao_recurso_minutos),
       diasRazoes: Number(p?.prazo_recursal_dias_uteis) > 0 ? Number(p.prazo_recursal_dias_uteis) : DIAS_UTEIS_RAZOES_PADRAO,
       diasContrarrazoes:
@@ -347,7 +358,7 @@ export class RecursosService {
     const licitacaoId = sessao.licitacao_id;
     if (visao.tipo !== 'PUBLICO') await this.atualizarPorPrazo(licitacaoId, agora).catch(() => 0);
     const m = this.dataSource.manager;
-    const [lic] = await m.query(`SELECT fase::text AS fase, situacao::text AS situacao FROM licitacoes WHERE id = $1`, [licitacaoId]);
+    const [lic] = await m.query(`SELECT fase::text AS fase, situacao::text AS situacao, COALESCE(inversao_fases, false) AS inversao FROM licitacoes WHERE id = $1`, [licitacaoId]);
     const janelas = await m.find(JanelaIntencaoRecurso, { where: { sessao_id: sessaoId }, order: { aberta_em: 'ASC' } });
     const janelaAtual = [...janelas].reverse().find((j) => !j.superada_em) ?? null;
     let recursos = await m.find(RecursoAdministrativo, { where: { sessao_id: sessaoId }, order: { created_at: 'ASC' } });
@@ -362,6 +373,7 @@ export class RecursosService {
     ]);
     const prazos = await this.prazosDoOrgao(licitacaoId);
 
+    const finalEncerrada = janelas.some((j) => j.momento !== MOMENTO_JANELA.HABILITACAO_PREVIA && estadoJanela(j, agora) === 'ENCERRADA');
     const visaoRecurso = (r: RecursoAdministrativo) => {
       const u = r.item_id ? unidades.find((x) => x.id === r.item_id) : null;
       const cs = contrarrazoes.filter((c) => c.recurso_id === r.id);
@@ -410,12 +422,17 @@ export class RecursosService {
         decisao: r.decisao,
         decididoPor: r.decidido_por,
         decididoPorCargo: r.decidido_por_cargo,
+        decisaoRegistradaPor: r.decisao_registrada_por_nome ?? null,
+        decisaoArquivo: r.decisao_arquivo_nome ? { nome: r.decisao_arquivo_nome, sha256: r.decisao_arquivo_sha256 } : null,
         instanciaDecisao: r.instancia_decisao,
         dataDecisao: r.data_decisao,
         efeitos: r.efeitos,
         reconsideracaoAtrasada: atrasos.reconsideracaoAtrasada,
         autoridadeAtrasada: atrasos.autoridadeAtrasada,
       };
+      // Inversão de fases: intenção da habilitação prévia em espera até o julgamento (órgão e licitantes veem)
+      base.emEsperaDoJulgamento =
+        r.status === StatusRecurso.INTENCAO ? motivoIntencaoPreviaEmEspera(janelas.find((j) => j.id === r.janela_id)?.momento, finalEncerrada) : null;
       if (visao.tipo === 'FORNECEDOR') {
         base.souRecorrente = r.fornecedor_id === visao.fornecedorId;
         base.podeApresentarRazoes = !motivoNaoApresentaRazoes(r, visao.fornecedorId, agora);
@@ -424,7 +441,12 @@ export class RecursosService {
         base.minhaContrarrazao = cs.find((c) => c.fornecedor_id === visao.fornecedorId)?.id ?? null;
       }
       if (visao.tipo === 'ORGAO') {
-        base.podeAdmitir = r.status === StatusRecurso.INTENCAO;
+        // Admissibilidade só depois de encerrada a janela de intenção: o prazo das razões de todos
+        // os recorrentes conta do mesmo momento (ensaio do pregão 002/2026, 09/11/2026)
+        const janelaDoRecurso = janelas.find((j) => j.id === r.janela_id);
+        const janelaAberta = !!janelaDoRecurso && estadoJanela(janelaDoRecurso, agora) === 'ABERTA';
+        base.podeAdmitir = r.status === StatusRecurso.INTENCAO && !janelaAberta && !base.emEsperaDoJulgamento;
+        base.aguardaFimDaJanela = r.status === StatusRecurso.INTENCAO && janelaAberta ? janelaDoRecurso!.fecha_em : null;
         base.podeReconsiderar = r.status === StatusRecurso.EM_ANALISE;
         base.podeDecidirAutoridade = r.status === StatusRecurso.AGUARDANDO_AUTORIDADE;
       }
@@ -436,6 +458,7 @@ export class RecursosService {
       abertaEm: j.aberta_em,
       fechaEm: j.fecha_em,
       minutos: j.minutos,
+      momento: j.momento ?? MOMENTO_JANELA.FINAL,
       estado: estadoJanela(j, agora),
       segundosRestantes: Math.max(0, Math.floor((new Date(j.fecha_em).getTime() - agora.getTime()) / 1000)),
       abertaPor: visao.tipo === 'ORGAO' ? j.aberta_por_nome : undefined,
@@ -453,12 +476,20 @@ export class RecursosService {
       janela: janelaAtual ? janelaVisao(janelaAtual) : null,
       janelas: visao.tipo === 'PUBLICO' ? undefined : janelas.map(janelaVisao),
       pendentes: recursos.filter((r) => STATUS_RECURSO_PENDENTES.includes(r.status)).length,
+      // Inversão de fases, antes dos lances: a janela que se abre agora é a da habilitação prévia
+      previaInversao: this.ehPreviaDaInversao({ inversao: lic?.inversao, fase: lic?.fase }),
       recursos: recursos.map(visaoRecurso),
     };
     if (visao.tipo === 'ORGAO') {
       const bloqueio = await this.motivoNaoAbreJanela(licitacaoId, sessaoId, agora).catch((e) => e?.message ?? 'Indisponível');
       saida.podeAbrirJanela = !bloqueio;
       saida.motivoNaoAbreJanela = bloqueio;
+      // Para o agente registrar a decisão da autoridade superior (cadastro de autoridades do órgão)
+      saida.autoridades = await this.dataSource.query(
+        `SELECT a.id::text AS id, a.nome, a.cargo, a.padrao FROM autoridades_orgao a JOIN licitacoes l ON l.orgao_id::text = a.orgao_id::text
+          WHERE l.id::text = $1 AND a.ativo = true ORDER BY a.padrao DESC, a.nome`,
+        [licitacaoId],
+      );
     }
     if (visao.tipo === 'FORNECEDOR') {
       saida.podeManifestarIntencao = !motivoNaoRegistraIntencao(janelaAtual, agora);
@@ -479,7 +510,11 @@ export class RecursosService {
     );
     const unidades = await this.ranking.unidades(licitacaoId, m);
     const rot = (id: string) => this.rotuloUnidade(unidades.find((u) => u.id === id));
-    const nomes = await this.nomes(m, rows.map((r) => r.fornecedor_id));
+    // Habilitação julgada ANTES dos lances (inversão de fases): ainda não há linha por unidade —
+    // o ato recorrível vem da própria habilitação do licitante
+    const habs: any[] = await m.query(`SELECT fornecedor_id::text AS fornecedor_id, status::text AS status FROM habilitacoes_licitante WHERE licitacao_id = $1`, [licitacaoId]);
+    // Nomes também dos habilitados na habilitação prévia (antes saía o id no rótulo — pregão 2026/00074)
+    const nomes = await this.nomes(m, [...rows.map((r) => r.fornecedor_id), ...habs.map((h) => h.fornecedor_id)]);
     const atos: Array<{ ato: string; rotulo: string; unidadeId: string | null; fornecedorAlvoId: string | null }> = [];
     const meus = rows.filter((r) => r.fornecedor_id === fornecedorId);
     if (meus.some((r) => r.situacao === SituacaoLicitante.INABILITADO)) {
@@ -491,8 +526,14 @@ export class RecursosService {
     for (const r of meus.filter((x) => x.situacao === SituacaoLicitante.DESCLASSIFICADO)) {
       atos.push({ ato: AtoRecorrido.DESCLASSIFICACAO, rotulo: `Desclassificação da minha proposta — ${rot(r.unidade_id)}`, unidadeId: r.unidade_id, fornecedorAlvoId: null });
     }
+    if (!atos.some((a) => a.ato === AtoRecorrido.INABILITACAO) && habs.some((h) => h.fornecedor_id === fornecedorId && h.status === 'INABILITADO')) {
+      atos.push({ ato: AtoRecorrido.INABILITACAO, rotulo: 'Minha inabilitação', unidadeId: null, fornecedorAlvoId: null });
+    }
     const outros = rows.filter((r) => r.fornecedor_id !== fornecedorId);
     const habilitados = [...new Set(outros.filter((r) => situacoesDoAlvo(AtoRecorrido.HABILITACAO_TERCEIRO).includes(r.situacao)).map((r) => r.fornecedor_id))];
+    for (const h of habs) {
+      if (h.status === 'HABILITADO' && h.fornecedor_id !== fornecedorId && !habilitados.includes(h.fornecedor_id)) habilitados.push(h.fornecedor_id);
+    }
     for (const f of habilitados) {
       atos.push({ ato: AtoRecorrido.HABILITACAO_TERCEIRO, rotulo: `Habilitação de ${nomes.get(f) ?? f}`, unidadeId: null, fornecedorAlvoId: f });
     }
@@ -522,10 +563,30 @@ export class RecursosService {
   // ==========================================================================
 
   /** Por que a janela não pode ser aberta agora (null = pode). */
+  /** Inversão de fases, antes dos lances: é o momento da janela de intenção da habilitação prévia. */
+  private ehPreviaDaInversao(lic: { inversao?: unknown; fase?: string | null } | null | undefined): boolean {
+    return !!lic?.inversao && lic.fase === FaseLicitacao.ANALISE_PROPOSTAS;
+  }
+
   async motivoNaoAbreJanela(licitacaoId: string, sessaoId: string, agora = new Date()): Promise<string | null> {
     const m = this.dataSource.manager;
-    const [lic] = await m.query(`SELECT fase::text AS fase, situacao::text AS situacao, modalidade::text AS modalidade FROM licitacoes WHERE id = $1`, [licitacaoId]);
+    const [lic] = await m.query(
+      `SELECT fase::text AS fase, situacao::text AS situacao, modalidade::text AS modalidade, COALESCE(inversao_fases, false) AS inversao FROM licitacoes WHERE id = $1`,
+      [licitacaoId],
+    );
     if (!lic) return 'Licitação não encontrada';
+    // INVERSÃO DE FASES: janela da habilitação prévia, antes dos lances (IN 73 art. 8º §1º II)
+    if (this.ehPreviaDaInversao(lic)) {
+      const pendentes = await habilitacaoPreviaPendenteSql(m, licitacaoId);
+      if (pendentes.length) return `Julgue antes a habilitação de todos os licitantes — pendente(s): ${pendentes.join(', ')}.`;
+      const previa = (await m.find(JanelaIntencaoRecurso, { where: { sessao_id: sessaoId } })).find((j) => !j.superada_em && j.momento === MOMENTO_JANELA.HABILITACAO_PREVIA);
+      if (previa) {
+        return estadoJanela(previa, agora) === 'ABERTA'
+          ? `Já há janela de intenção aberta até ${dataHora(previa.fecha_em)}.`
+          : `O prazo de intenção de recurso da habilitação já foi dado (encerrado em ${dataHora(previa.fecha_em)}): os lances podem começar.`;
+      }
+      return null;
+    }
     // Leilão/concurso (E7c): sem habilitação — a fase recursal vem logo após o resultado declarado no JULGAMENTO
     const faseEsperada = faseDaJanelaRecursal(lic.modalidade);
     if (lic.fase !== faseEsperada) {
@@ -536,7 +597,10 @@ export class RecursosService {
     const situacoesOk = situacoesDeResultado(lic.modalidade);
     const aberta = (await m.find(JanelaIntencaoRecurso, { where: { sessao_id: sessaoId } })).find((j) => estadoJanela(j, agora) === 'ABERTA');
     if (aberta) return `Já há janela de intenção aberta até ${dataHora(aberta.fecha_em)}.`;
-    const pend = await m.count(RecursoAdministrativo, { where: { licitacao_id: licitacaoId, status: In([...STATUS_RECURSO_PENDENTES]) } });
+    // Intenções da habilitação prévia (inversão) ficam em espera até o julgamento: não impedem a janela final
+    const idsPrevias = (await m.find(JanelaIntencaoRecurso, { where: { sessao_id: sessaoId } })).filter((j) => j.momento === MOMENTO_JANELA.HABILITACAO_PREVIA).map((j) => j.id);
+    const pendentes = await m.find(RecursoAdministrativo, { where: { licitacao_id: licitacaoId, status: In([...STATUS_RECURSO_PENDENTES]) } });
+    const pend = pendentes.filter((r) => !(r.status === StatusRecurso.INTENCAO && r.janela_id && idsPrevias.includes(r.janela_id))).length;
     if (pend) return 'Há recursos/intenções pendentes de decisão nesta licitação.';
     const semResultado: string[] = [];
     for (const u of await this.ranking.unidades(licitacaoId)) {
@@ -570,6 +634,8 @@ export class RecursosService {
       await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`recursos:${sessao.licitacao_id}`]);
       const bloqueio = await this.motivoNaoAbreJanela(sessao.licitacao_id, sessaoId, agora);
       if (bloqueio) throw new ConflictException(bloqueio);
+      const [licJ] = await m.query(`SELECT fase::text AS fase, COALESCE(inversao_fases, false) AS inversao FROM licitacoes WHERE id = $1`, [sessao.licitacao_id]);
+      const previa = this.ehPreviaDaInversao(licJ);
       const j = await m.save(
         m.create(JanelaIntencaoRecurso, {
           sessao_id: sessaoId,
@@ -581,23 +647,28 @@ export class RecursosService {
           aberta_por_id: ator.id,
           aberta_por_nome: ator.nome ?? null,
           origem: 'SALA',
+          momento: previa ? MOMENTO_JANELA.HABILITACAO_PREVIA : MOMENTO_JANELA.FINAL,
         }),
       );
-      await this.atualizarEtapa(m, sessaoId, EtapaSessao.INTENCAO_RECURSO);
+      // Na habilitação prévia a sala continua na análise: os lances vêm depois do prazo
+      if (!previa) await this.atualizarEtapa(m, sessaoId, EtapaSessao.INTENCAO_RECURSO);
       await this.evento(m, {
         sessaoId,
         tipo: TipoEvento.PRAZO_RECURSAL_INICIADO,
-        descricao:
-          `Aberto o prazo de ${minutos} minutos, até ${dataHora(j.fecha_em)}, para os licitantes manifestarem, ` +
-          `motivadamente, a intenção de recorrer do julgamento e da habilitação, sob pena de preclusão ` +
-          `(Lei 14.133/2021, art. 165 §1º I; IN SEGES 73/2022, art. 40).`,
+        descricao: previa
+          ? `Inversão de fases: aberto o prazo de ${minutos} minutos, até ${dataHora(j.fecha_em)}, para os licitantes manifestarem a intenção de ` +
+            `recorrer do resultado da HABILITAÇÃO, sob pena de preclusão. As razões serão apresentadas depois do julgamento das propostas, ` +
+            `e os lances começam depois deste prazo (IN SEGES 73/2022, art. 8º §1º II e art. 40).`
+          : `Aberto o prazo de ${minutos} minutos, até ${dataHora(j.fecha_em)}, para os licitantes manifestarem, ` +
+            `motivadamente, a intenção de recorrer do julgamento e da habilitação, sob pena de preclusão ` +
+            `(Lei 14.133/2021, art. 165 §1º I; IN SEGES 73/2022, art. 40).`,
         usuario: ator.nome ?? 'Agente de contratação',
         sistema: false,
-        dados: { janela_id: j.id, fecha_em: j.fecha_em, minutos, visibilidade: 'PUBLICA' },
+        dados: { janela_id: j.id, fecha_em: j.fecha_em, minutos, momento: j.momento, visibilidade: 'PUBLICA' },
       });
       return j;
     });
-    return { id: janela.id, abertaEm: janela.aberta_em, fechaEm: janela.fecha_em, minutos: janela.minutos, estado: 'ABERTA' };
+    return { id: janela.id, abertaEm: janela.aberta_em, fechaEm: janela.fecha_em, minutos: janela.minutos, momento: janela.momento, estado: 'ABERTA' };
   }
 
   /** Licitante manifesta a intenção de recurso (próprio token), dentro da janela. */
@@ -701,12 +772,15 @@ export class RecursosService {
       await exigirLicitacaoAtiva(m, pre.licitacao_id, { bloquear: true });
       const r = await this.recursoTravado(m, recursoId);
       if (r.status !== StatusRecurso.INTENCAO) throw new ConflictException('A intenção deste recurso já foi apreciada.');
+      await this.exigirJanelaEncerrada(m, r, agora);
       r.status = StatusRecurso.AGUARDANDO_RAZOES;
       r.intencao_aceita = true;
       r.intencao_decidida_em = agora;
       r.intencao_decidida_por_tipo = ator.tipo;
       r.intencao_decidida_por_id = ator.id;
-      r.prazo_razoes = prazoRazoes(agora, prazos.diasRazoes, prazos.cal);
+      r.prazo_razoes = prazos.minutosDeTeste
+        ? new Date(agora.getTime() + prazos.minutosDeTeste * 60_000)
+        : prazoRazoes(agora, prazos.diasRazoes, prazos.cal);
       await m.save(r);
       // Prazo recursal: licitação → RECURSO (idempotente para a 2ª intenção admitida)
       await this.transicoes.executar(r.licitacao_id, AtoLicitacao.ABRIR_PRAZO_RECURSAL, {
@@ -721,7 +795,9 @@ export class RecursosService {
         tipo: TipoEvento.INTENCAO_RECURSO_ACEITA,
         descricao:
           `Intenção de recurso de ${r.fornecedor_nome ?? r.fornecedor_id} ADMITIDA. Razões até ${dataHora(r.prazo_razoes)} ` +
-          `(${prazos.diasRazoes} dias úteis — art. 165 I); contrarrazões dos demais licitantes nos ${prazos.diasContrarrazoes} dias úteis seguintes (IN SEGES 73/2022, art. 40 §2º).`,
+          (prazos.minutosDeTeste
+            ? `(PRAZO DE TESTE da homologação: ${prazos.minutosDeTeste} min; contrarrazões nos ${prazos.minutosDeTeste} min seguintes — na produção, 3 + 3 dias úteis).`
+            : `(${prazos.diasRazoes} dias úteis — art. 165 I); contrarrazões dos demais licitantes nos ${prazos.diasContrarrazoes} dias úteis seguintes (IN SEGES 73/2022, art. 40 §2º).`),
         fornecedorId: r.fornecedor_id,
         usuario: ator.nome ?? 'Agente de contratação',
         sistema: false,
@@ -730,6 +806,26 @@ export class RecursosService {
       return r;
     });
     return { id: r.id, status: r.status, prazoRazoes: r.prazo_razoes };
+  }
+
+  /** A admissibilidade é decidida depois do fim da janela de intenção (todas as intenções conhecidas). */
+  private async exigirJanelaEncerrada(m: EntityManager, r: RecursoAdministrativo, agora: Date): Promise<void> {
+    if (!r.janela_id) return;
+    const j = await m.findOne(JanelaIntencaoRecurso, { where: { id: r.janela_id } });
+    if (j && estadoJanela(j, agora) === 'ABERTA') {
+      throw new ConflictException(
+        `A janela de intenção de recurso está aberta até ${dataHora(j.fecha_em)}: a admissibilidade é decidida depois dela, ` +
+          'com todas as intenções conhecidas (o prazo das razões conta do mesmo momento para todos).',
+      );
+    }
+    // Inversão de fases: intenção da habilitação prévia só é apreciada depois do julgamento
+    const espera = motivoIntencaoPreviaEmEspera(j?.momento, await this.haJanelaFinalEncerrada(m, r.sessao_id, agora));
+    if (espera) throw new ConflictException(espera);
+  }
+
+  private async haJanelaFinalEncerrada(m: EntityManager, sessaoId: string, agora: Date): Promise<boolean> {
+    const js = await m.find(JanelaIntencaoRecurso, { where: { sessao_id: sessaoId } });
+    return js.some((x) => x.momento !== MOMENTO_JANELA.HABILITACAO_PREVIA && estadoJanela(x, agora) === 'ENCERRADA');
   }
 
   /** Não admite a intenção — só por falta EVIDENTE de pressuposto, com motivo. */
@@ -747,6 +843,7 @@ export class RecursosService {
       await exigirLicitacaoAtiva(m, pre.licitacao_id, { bloquear: true });
       const r = await this.recursoTravado(m, recursoId);
       if (r.status !== StatusRecurso.INTENCAO) throw new ConflictException('A intenção deste recurso já foi apreciada.');
+      await this.exigirJanelaEncerrada(m, r, new Date());
       r.status = StatusRecurso.NAO_CONHECIDO;
       r.intencao_aceita = false;
       r.motivo_recusa_intencao = motivo;
@@ -795,7 +892,9 @@ export class RecursosService {
       r.data_razoes = agora;
       r.status = StatusRecurso.CONTRARRAZOES;
       // Contrarrazões: 3 dias úteis do FIM do prazo das razões (IN 73 art. 40 §2º)
-      r.prazo_contrarrazoes = prazoContrarrazoes(new Date(r.prazo_razoes), prazos.diasContrarrazoes, prazos.cal);
+      r.prazo_contrarrazoes = prazos.minutosDeTeste
+        ? new Date(new Date(r.prazo_razoes).getTime() + prazos.minutosDeTeste * 60_000)
+        : prazoContrarrazoes(new Date(r.prazo_razoes), prazos.diasContrarrazoes, prazos.cal);
       if (dados.arquivo?.buffer?.length) {
         const a = this.metaArquivo(dados.arquivo, 'razoes');
         r.razoes_arquivo_nome = a.nome;
@@ -881,6 +980,16 @@ export class RecursosService {
       .getOne();
     if (!r?.razoes_arquivo_conteudo) throw new NotFoundException('Arquivo das razões não encontrado');
     return { nome: r.razoes_arquivo_nome || 'razoes', mime: r.razoes_arquivo_mime || 'application/octet-stream', conteudo: r.razoes_arquivo_conteudo };
+  }
+
+  async arquivoDecisao(recursoId: string): Promise<{ nome: string; mime: string; conteudo: Buffer }> {
+    const r = await this.dataSource.manager
+      .createQueryBuilder(RecursoAdministrativo, 'r')
+      .addSelect('r.decisao_arquivo_conteudo')
+      .where('r.id = :id', { id: recursoId })
+      .getOne();
+    if (!r?.decisao_arquivo_conteudo) throw new NotFoundException('Arquivo da decisão não encontrado');
+    return { nome: r.decisao_arquivo_nome || 'decisao', mime: r.decisao_arquivo_mime || 'application/octet-stream', conteudo: r.decisao_arquivo_conteudo };
   }
 
   async arquivoContrarrazao(recursoId: string, contrarrazaoId: string): Promise<{ nome: string; mime: string; conteudo: Buffer }> {
@@ -974,15 +1083,49 @@ export class RecursosService {
 
   /**
    * Autoridade superior: conta do ÓRGÃO (ato próprio, com nome e cargo da
-   * autoridade) ou usuário ADMIN do órgão — nunca o mesmo usuário que
-   * praticou a reconsideração (segregação de funções, art. 7º §1º).
+   * autoridade), usuário ADMIN do órgão ou o usuário que o órgão designou
+   * como AUTORIDADE (papel funcional ou signatário da autorização, na
+   * configuração da fase interna) — nunca o mesmo usuário que praticou a
+   * reconsideração (segregação de funções, art. 7º §1º). O presidente da
+   * Câmara, cadastrado como Autoridade, era recusado (ensaio de 09/11/2026).
    */
+  /** O usuário é autoridade superior do órgão da licitação (admin, papel Autoridade ou signatário)? */
+  private async ehAutoridadeSuperior(recurso: RecursoAdministrativo, ator: AtorTransicao, m: EntityManager = this.dataSource.manager): Promise<boolean> {
+    if (ator.tipo !== 'USUARIO') return false;
+    const [u] = await m.query(
+      `SELECT u.role::text AS role, u.papeis_fase_interna AS papeis,
+              (SELECT c.signatarios_autorizacao FROM configuracoes_fase_interna c WHERE c.orgao_id::text = l.orgao_id::text) AS signatarios
+         FROM usuarios u JOIN licitacoes l ON l.id::text = $2 AND l.orgao_id::text = u.orgao_id::text
+        WHERE u.id::text = $1 AND u.ativo = true`,
+      [ator.id, recurso.licitacao_id],
+    );
+    const papeis: string[] = Array.isArray(u?.papeis) ? u.papeis.map((p: unknown) => String(p).toUpperCase()) : [];
+    const signatarios: Array<{ usuario_id?: string }> = Array.isArray(u?.signatarios) ? u.signatarios : [];
+    return !!u && (u.role === 'ADMIN' || papeis.includes('AUTORIDADE') || signatarios.some((s) => s?.usuario_id === ator.id));
+  }
+
+  /**
+   * Registro da decisão da autoridade: o mesmo critério do registro da adjudicação/homologação
+   * (`motivoOperadorInvalido`) — agente de contratação/pregoeiro, ADMIN do órgão — ou quem conduz o processo.
+   */
+  private async exigirQuemRegistra(recurso: RecursoAdministrativo, ator: AtorTransicao & { role?: string | null; admin?: boolean }) {
+    const [u] = await this.dataSource.query(`SELECT role::text AS role, papeis_fase_interna AS papeis FROM usuarios WHERE id::text = $1 AND ativo = true`, [ator.id]);
+    const papeis: string[] = Array.isArray(u?.papeis) ? u.papeis : [];
+    if (u && !motivoOperadorInvalido({ tipo: 'USUARIO', role: u.role }, papeis)) return;
+    if ((await papelNoProcesso(this.dataSource, { tipo: 'USUARIO', usuarioId: ator.id } as any, recurso.licitacao_id)).conduz) return;
+    throw new ForbiddenException(
+      'Registrar a decisão da autoridade superior é do agente de contratação/pregoeiro (ou de um administrador do órgão); a própria autoridade também pode decidir pela conta dela.',
+    );
+  }
+
   async exigirAutoridade(recurso: RecursoAdministrativo, ator: AtorTransicao & { role?: string | null; admin?: boolean }, m: EntityManager = this.dataSource.manager) {
     if (ator.admin || ator.tipo === 'ADMIN') throw new ForbiddenException('A decisão do recurso é da autoridade superior do órgão.');
     if (ator.tipo === 'USUARIO') {
-      const [u] = await m.query(`SELECT role::text AS role FROM usuarios WHERE id::text = $1`, [ator.id]);
-      if (u?.role !== 'ADMIN') {
-        throw new ForbiddenException('Apenas a autoridade superior (conta do órgão ou usuário administrador do órgão) decide o recurso mantido pelo agente.');
+      if (!(await this.ehAutoridadeSuperior(recurso, ator, m))) {
+        throw new ForbiddenException(
+          'Apenas a autoridade superior (conta do órgão, administrador do órgão ou usuário com o papel de Autoridade) decide o recurso mantido pelo agente — ' +
+            'ou o agente de contratação registra a decisão dela, escolhendo a autoridade no cadastro.',
+        );
       }
       if (recurso.reconsideracao_por_tipo === 'USUARIO' && recurso.reconsideracao_por_id === ator.id) {
         throw new ForbiddenException('Quem manteve a decisão (agente de contratação) não pode decidir o recurso como autoridade superior (art. 165 §2º).');
@@ -990,48 +1133,88 @@ export class RecursosService {
     }
   }
 
+  /**
+   * Decisão da autoridade superior (art. 165 §2º). Dois jeitos:
+   *  - a própria autoridade decide pela conta dela (ou a conta do órgão);
+   *  - REGISTRO: quem conduz o processo (o agente de contratação, que opera a
+   *    fase externa) registra a decisão da autoridade escolhida no cadastro de
+   *    autoridades do órgão (`autoridadeId`), com a decisão assinada anexada
+   *    quando houver. A decisão é da autoridade; o registro, do agente.
+   */
   async decidirAutoridade(
     recursoId: string,
-    dados: { provido?: boolean; fundamentacao?: string; nome?: string; cargo?: string },
+    dados: { provido?: boolean | string; fundamentacao?: string; nome?: string; cargo?: string; autoridadeId?: string; arquivo?: ArquivoRecurso | null },
     ator: AtorRecurso & { role?: string | null; admin?: boolean },
   ) {
     const fundamentacao = (dados.fundamentacao ?? '').trim();
-    if (typeof dados.provido !== 'boolean') throw new BadRequestException('Informe se o recurso é provido (true) ou improvido (false).');
+    // multipart traz texto: "true"/"false"
+    const provido = typeof dados.provido === 'string' ? (dados.provido === 'true' ? true : dados.provido === 'false' ? false : undefined) : dados.provido;
+    if (typeof provido !== 'boolean') throw new BadRequestException('Informe se o recurso é provido (true) ou improvido (false).');
     if (fundamentacao.length < TAMANHO_MINIMO_FUNDAMENTACAO) {
       throw new BadRequestException(`A fundamentação da decisão é obrigatória (mín. ${TAMANHO_MINIMO_FUNDAMENTACAO} caracteres).`);
     }
-    const nome = (dados.nome ?? '').trim() || (ator.tipo === 'USUARIO' ? ator.nome ?? '' : '');
-    const cargo = (dados.cargo ?? '').trim();
-    if (!nome || !cargo) throw new BadRequestException('Informe o nome e o cargo da autoridade superior que decide o recurso.');
+    this.validarArquivo(dados.arquivo);
     const pre = await this.buscar(recursoId);
-    await this.exigirAutoridade(pre, ator);
+    let nome = (dados.nome ?? '').trim();
+    let cargo = (dados.cargo ?? '').trim();
+    let registro: { autoridadeId: string } | null = null;
+    if (dados.autoridadeId) {
+      const [a] = await this.dataSource.query(
+        `SELECT a.id::text AS id, a.nome, a.cargo FROM autoridades_orgao a JOIN licitacoes l ON l.orgao_id::text = a.orgao_id::text
+          WHERE a.id::text = $1 AND l.id::text = $2 AND a.ativo = true`,
+        [dados.autoridadeId, pre.licitacao_id],
+      );
+      if (!a) throw new BadRequestException('Autoridade não encontrada no cadastro de autoridades do órgão.');
+      nome = a.nome;
+      cargo = a.cargo;
+      registro = { autoridadeId: a.id };
+    }
+    if (!nome && ator.tipo === 'USUARIO') nome = ator.nome ?? '';
+    if (!nome || !cargo) throw new BadRequestException('Informe o nome e o cargo da autoridade superior que decide o recurso.');
+    // Quem decide pela própria conta é a autoridade; quem conduz o processo REGISTRA a decisão dela
+    const registrando = !!registro && ator.tipo === 'USUARIO' && !(await this.ehAutoridadeSuperior(pre, ator));
+    if (registrando) await this.exigirQuemRegistra(pre, ator);
+    else await this.exigirAutoridade(pre, ator);
+    const arq = dados.arquivo?.buffer?.length ? this.metaArquivo(dados.arquivo, 'decisao-autoridade') : null;
     const agora = new Date();
     const r = await this.dataSource.transaction(async (m) => {
       await exigirLicitacaoAtiva(m, pre.licitacao_id, { bloquear: true });
       await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`recursos:${pre.licitacao_id}`]);
       const r = await this.recursoTravado(m, recursoId);
       if (r.status !== StatusRecurso.AGUARDANDO_AUTORIDADE) throw new ConflictException('Este recurso não está aguardando a decisão da autoridade superior.');
-      r.status = dados.provido ? StatusRecurso.PROVIDO : StatusRecurso.IMPROVIDO;
+      r.status = provido ? StatusRecurso.PROVIDO : StatusRecurso.IMPROVIDO;
       r.decisao = fundamentacao;
       r.decidido_por = nome;
       r.decidido_por_cargo = cargo;
-      r.decidido_por_tipo = ator.tipo;
-      r.decidido_por_id = ator.id;
+      r.decidido_por_tipo = registrando ? 'AUTORIDADE_CADASTRO' : ator.tipo;
+      r.decidido_por_id = registrando ? registro!.autoridadeId : ator.id;
+      r.decisao_registrada_por_id = registrando ? ator.id : null;
+      r.decisao_registrada_por_nome = registrando ? (ator.nome ?? null) : null;
+      if (arq) {
+        r.decisao_arquivo_nome = arq.nome;
+        r.decisao_arquivo_mime = arq.mime;
+        r.decisao_arquivo_tamanho = arq.tamanho;
+        r.decisao_arquivo_sha256 = arq.sha256;
+        r.decisao_arquivo_conteudo = arq.conteudo;
+      }
       r.instancia_decisao = 'AUTORIDADE';
       r.data_decisao = agora;
-      if (dados.provido) r.efeitos = await this.aplicarEfeito(m, r, ator);
+      if (provido) r.efeitos = await this.aplicarEfeito(m, r, ator);
       await m.save(r);
       await this.evento(m, {
         sessaoId: r.sessao_id,
-        tipo: dados.provido ? TipoEvento.RECURSO_PROVIDO : TipoEvento.RECURSO_IMPROVIDO,
+        tipo: provido ? TipoEvento.RECURSO_PROVIDO : TipoEvento.RECURSO_IMPROVIDO,
         descricao:
-          `Recurso de ${r.fornecedor_nome ?? r.fornecedor_id} ${dados.provido ? 'PROVIDO' : 'IMPROVIDO'} pela autoridade superior ` +
-          `(${nome}, ${cargo} — art. 165 §2º). Fundamentação: ${fundamentacao}.` +
-          (dados.provido ? ` ${this.resumoEfeitos(r.efeitos)}` : ''),
+          `Recurso de ${r.fornecedor_nome ?? r.fornecedor_id} ${provido ? 'PROVIDO' : 'IMPROVIDO'} pela autoridade superior ` +
+          `(${nome}, ${cargo} — art. 165 §2º)` +
+          (registrando ? `, decisão registrada por ${ator.nome ?? 'agente de contratação'}` : '') +
+          (arq ? ` (decisão assinada: ${arq.nome}, SHA-256 ${arq.sha256.slice(0, 12)}…)` : '') +
+          `. Fundamentação: ${fundamentacao}.` +
+          (provido ? ` ${this.resumoEfeitos(r.efeitos)}` : ''),
         fornecedorId: r.fornecedor_id,
-        usuario: nome,
+        usuario: registrando ? (ator.nome ?? nome) : nome,
         sistema: false,
-        dados: { recurso_id: r.id, provido: dados.provido, instancia: 'AUTORIDADE', efeitos: r.efeitos ?? null },
+        dados: { recurso_id: r.id, provido, instancia: 'AUTORIDADE', registrada_por: registrando ? ator.id : null, efeitos: r.efeitos ?? null },
       });
       return r;
     });
@@ -1135,7 +1318,15 @@ export class RecursosService {
         for (const inv of planejarInvalidacoes(novoRanking, r.fornecedor_id)) {
           await this.ranking.definirSituacao(m, u, inv.fornecedorId, SituacaoLicitante.CLASSIFICADO, { motivo: motivoInvalidacao, ator });
           efeitos.aceitacoes_canceladas.push(...(await this.invalidarAceitacoes(m, unidadeId, inv.fornecedorId, motivoInvalidacao)));
-          efeitos.alteracoes.push({ fornecedor_id: inv.fornecedorId, unidade_id: unidadeId, rotulo, de: inv.de, para: SituacaoLicitante.CLASSIFICADO, tipo: 'INVALIDADO' });
+          efeitos.alteracoes.push({
+            fornecedor_id: inv.fornecedorId,
+            fornecedor_nome: await this.nomeFornecedor(m, inv.fornecedorId),
+            unidade_id: unidadeId,
+            rotulo,
+            de: inv.de,
+            para: SituacaoLicitante.CLASSIFICADO,
+            tipo: 'INVALIDADO',
+          });
         }
       } else {
         const nova = situacaoDoAlvoProvido(ato)!;

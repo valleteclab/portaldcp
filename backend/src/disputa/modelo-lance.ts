@@ -168,7 +168,11 @@ export interface ContextoValidacaoLance {
   direcao?: 'MENOR' | 'MAIOR';
 }
 
-const brl = (v: number) => `R$ ${centavos(v).toFixed(2)}`;
+/** Valor em reais no padrão brasileiro (R$ 55.600,00) — vai na mensagem que o licitante lê. */
+const brl = (v: number) => {
+  const [inteiro, dec] = Math.abs(centavos(v)).toFixed(2).split('.');
+  return `${v < 0 ? '-' : ''}R$ ${inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${dec}`;
+};
 const igual = (a: number, b: number) => Math.abs(a - b) < 0.00005;
 
 /** Redução mínima exigida a partir de `referencia` (valor ou % do edital). */

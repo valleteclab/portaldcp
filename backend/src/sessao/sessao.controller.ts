@@ -24,6 +24,8 @@ import { licitacaoParaPublico } from '../licitacoes/licitacao-visao.util';
 import { StatusSessao } from './entities/sessao-disputa.entity';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
 import { filtrarEventosVisiveis, VisaoEvento } from '../julgamento/regras-negociacao';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * SESSÃO PÚBLICA (legado da sala /sessao + etapas pós-disputa).
@@ -43,6 +45,7 @@ import { filtrarEventosVisiveis, VisaoEvento } from '../julgamento/regras-negoci
  *  - as leituras da antiga sala /sessao (sala-disputa) foram removidas na E2
  *    (as telas usam disputa (REST /api/disputa)).
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('sessao')
 export class SessaoController {
   constructor(
@@ -171,7 +174,9 @@ export class SessaoController {
       }
     }
     // A negociação (IN 73 art. 30 §§2º–3º) entra inteira na ata: registro público depois de concluída
-    return this.sessaoService.gerarAtaSessao(id);
+    const ata = await this.sessaoService.gerarAtaSessao(id);
+    // Antes do fim dos lances o órgão lê a ata sem saber quem é quem
+    return visao.tipo === 'ORGAO' ? this.sigilo.paraOrgao(ata, licitacaoId, id) : ata;
   }
 
   // ROTAS GENÉRICAS - DEVEM FICAR POR ÚLTIMO para não conflitar com rotas específicas

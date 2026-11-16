@@ -1,3 +1,5 @@
+import { UseGuards } from '@nestjs/common';
+import { ProprioOrgaoGuard } from '../auth/acesso/proprio-orgao.guard';
 import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { RequireModule } from '../auth/require-module.decorator';
@@ -12,6 +14,7 @@ const flag = (v: string | undefined, padrao: boolean) => (v === undefined || v =
  * o SIGA Captura) e inventário anual para o e-TCM.
  */
 @Controller('orgaos/:orgaoId/patrimonio/siga')
+@UseGuards(ProprioOrgaoGuard)
 @RequireModule(ModuloSistema.PATRIMONIO)
 export class PatrimonioSigaController {
   constructor(private readonly service: PatrimonioSigaService) {}

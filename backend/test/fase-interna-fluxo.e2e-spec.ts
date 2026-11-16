@@ -214,12 +214,9 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       expect(passo(et, 'DFD')).toMatchObject({ situacao: 'EM_ANDAMENTO', aguardando_aprovacao: true });
       expect(passo(et, 'ETP').situacao).toBe('AGUARDANDO');
       expect(et.modelo).toMatchObject({ nome: 'Câmara — Portaria 089', tipo_processo: 'DISPENSA', legado: false });
-      // F3: além da tarefa da DFD, a tarefa "Aprovar a demanda" para quem aprova
-      expect((await abertas(lic)).map((t: any) => [t.passo, t.origem])).toEqual([
-        ['DFD', 'ETAPA'],
-        ['DFD', 'APROVACAO'],
-      ]);
-      expect((await abertas(lic)).find((t: any) => t.origem === 'APROVACAO')).toMatchObject({ titulo: 'Aprovar a demanda', responsavel_usuario_id: aprovador.id });
+      // Um motor só (11/2026): o motor antigo não cria mais tarefa de etapa nem "Aprovar a demanda"
+      // (o fluxo do processo conduz) — aqui fica só o cálculo da etapa
+      expect(await abertas(lic)).toEqual([]);
       expect((await etapas(lic, requisitante.token)).aprovacao_demanda.pode_aprovar).toBe(false);
     });
 
@@ -237,7 +234,9 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       expect(r.status).toBe(201);
       expect(r.body.aprovacao_demanda).toMatchObject({ aprovada: true, registro: { origem: 'MANUAL', por_nome: 'Paula Presidente' } });
       expect(passo(r.body, 'DFD').situacao).toBe('CONCLUIDO');
-      expect((await abertas(lic)).map((t: any) => t.passo).sort()).toEqual(['ETP', 'PESQUISA', 'TR']);
+      // a aprovação libera estudo, TR e pesquisa (sem tarefa de etapa — um motor só, 11/2026)
+      for (const c of ['ETP', 'PESQUISA', 'TR']) expect([c, passo(r.body, c).situacao]).toEqual([c, 'DISPONIVEL']);
+      expect(await abertas(lic)).toEqual([]);
       expect((await aprovar(aprovador.token)).status).toBe(409);
       const [log] = await sql(`SELECT descricao FROM logs_fase_interna WHERE licitacao_id = $1 AND acao::text = 'DEMANDA_APROVADA'`, [lic.id]);
       expect(log.descricao).toMatch(/Paula Presidente/);
@@ -298,9 +297,8 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       expect(passo(r.body, 'RESERVA')).toMatchObject({ situacao: 'A_REVISAR', pode_iniciar: false });
       const [pp] = await sql(`SELECT COUNT(*)::int AS n FROM documentos_fase_interna WHERE licitacao_id = $1 AND tipo::text = 'PP' AND versao_atual = true`, [lic.id]);
       expect(pp.n).toBe(1);
-      const ab = await abertas(lic);
-      expect(ab.find((t: any) => t.passo === 'PESQUISA')).toMatchObject({ titulo: expect.stringMatching(/^Refazer \(etapa reaberta\)/) });
-      expect(ab.some((t: any) => t.passo === 'RESERVA')).toBe(false); // revisão da reserva espera a pesquisa voltar a concluir
+      // um motor só (11/2026): reabrir não cria mais a tarefa "Refazer" nem a de revisão — só muda a situação
+      expect(await abertas(lic)).toEqual([]);
       const resumo = (await http().get(`/api/fase-interna/${lic.id}/conformidade/resumo`).set(bearer(agenteA.token)).expect(200)).body;
       expect(resumo.achados.some((a: any) => a.regra === 'FLUXO-01')).toBe(true);
       const [log] = await sql(`SELECT descricao FROM logs_fase_interna WHERE licitacao_id = $1 AND acao::text = 'ETAPA_REABERTA'`, [lic.id]);
@@ -312,7 +310,7 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       const et = await etapas(lic, agenteA.token);
       expect(passo(et, 'PESQUISA').situacao).toBe('CONCLUIDO');
       expect(passo(et, 'RESERVA').situacao).toBe('A_REVISAR');
-      expect((await abertas(lic)).find((t: any) => t.passo === 'RESERVA')).toMatchObject({ titulo: expect.stringMatching(/^Revisar:/) });
+      expect(await abertas(lic)).toEqual([]); // sem a tarefa "Revisar:" do motor antigo (11/2026)
       const concluir = (token: string, codigo: string, texto?: string) =>
         http().post(`/api/fase-interna/${lic.id}/etapas/${codigo}/concluir`).set(bearer(token)).send(texto ? { texto } : {});
       expect((await concluir(agenteA.token, 'RESERVA')).status).toBe(400);
@@ -380,7 +378,7 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       expect(passo(et, 'AUTORIZACAO_INICIO')).toMatchObject({ situacao: 'DISPONIVEL', conclusao: 'REGISTRO', opcional: true });
       expect(passo(et, 'ETP')).toMatchObject({ situacao: 'AGUARDANDO', pendencias: ['AUTORIZACAO_INICIO'] });
       expect(passo(et, 'TR').depende_de).toEqual(['DFD', 'AUTORIZACAO_INICIO', 'ETP']);
-      expect((await abertas(novo)).map((t: any) => t.passo)).toEqual(['AUTORIZACAO_INICIO']);
+      expect(await abertas(novo)).toEqual([]); // um motor só (11/2026): sem tarefa de etapa
       const r = await http().post(`/api/fase-interna/${novo.id}/etapas/AUTORIZACAO_INICIO/concluir`).set(bearer(D.token)).send({ texto: 'Autorizo o início do processo de contratação.' });
       expect(r.status).toBe(201);
       et = r.body;
@@ -457,7 +455,8 @@ describe('Fase interna — F1: modelo de fluxo em dados', () => {
       const et = await etapas(lic, G.token);
       expect(et.modelo.legado).toBe(true);
       expect(passo(et, 'DFD').situacao).toBe('CONCLUIDO');
-      expect((await abertas(lic)).map((t: any) => t.passo).sort()).toEqual(['ETP', 'PESQUISA', 'TR']);
+      for (const c of ['ETP', 'PESQUISA', 'TR']) expect([c, passo(et, c).situacao]).toEqual([c, 'DISPONIVEL']);
+      expect(await abertas(lic)).toEqual([]); // um motor só (11/2026): sem tarefa de etapa
       // idempotente
       const r2 = await ctx.app.get(ModeloFluxoService).migrar();
       expect(r2.processos).toBe(0);

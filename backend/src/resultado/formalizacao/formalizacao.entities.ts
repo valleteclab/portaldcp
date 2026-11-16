@@ -43,10 +43,12 @@ export class AutoridadeOrgao {
   @Column({ type: 'boolean', default: true })
   ativo: boolean;
 
-  @CreateDateColumn()
+  // Com fuso (como os eventos da sessão, 09/11/2026): sem ele, com o servidor em America/Sao_Paulo
+  // e a conexão em UTC, o registro da adjudicação saía 3 h adiantado no painel.
+  @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
 }
 
@@ -140,9 +142,11 @@ export class FormalizacaoResultado {
   @Column({ type: 'timestamptz', nullable: true })
   efetivado_em: Date | null;
 
-  @CreateDateColumn()
+  // Com fuso (como os eventos da sessão, 09/11/2026): sem ele, com o servidor em America/Sao_Paulo
+  // e a conexão em UTC, o registro da adjudicação saía 3 h adiantado no painel.
+  @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
 }

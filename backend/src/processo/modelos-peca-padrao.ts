@@ -13,6 +13,22 @@ const secao = (titulo: string, texto_padrao: string) => [{ id: 'texto', titulo, 
 
 export const MODELOS_PADRAO_PROCESSO: ModeloPadraoDef[] = [
   {
+    tipo: TipoDocumentoFaseInterna.OFICIO,
+    nome: 'Ofício',
+    fundamento_legal: '',
+    intro: 'Comunicação oficial entre setores ou para fora do órgão. O número sai na sequência do setor ao assinar.',
+    secoes: secao(
+      'Texto do ofício',
+      '<h3 style="text-align:center">OFÍCIO Nº [número do ofício]</h3>' +
+        '<p>{{setor.nome}}</p>' +
+        '<p>Ao(À) <mark>setor ou autoridade de destino</mark></p>' +
+        '<p><strong>Assunto:</strong> {{processo.objeto}}</p>' +
+        '<p>Senhor(a),</p>' +
+        '<p><mark>texto do ofício: o que se comunica ou solicita, e por quê</mark>.</p>' +
+        '<p>Atenciosamente,</p>',
+    ),
+  },
+  {
     tipo: TipoDocumentoFaseInterna.PEDIDO_ADITIVO,
     nome: 'Pedido de termo aditivo',
     fundamento_legal: 'Arts. 124 e 125 · Lei 14.133/2021',

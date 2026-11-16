@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Headers, Ip, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Ip, NotFoundException, Param, Post, Put, Query } from '@nestjs/common';
 import { PecasLicitacaoService } from './pecas-licitacao.service';
 import { PainelGestorService } from './painel-gestor.service';
+import { AndamentoProcessoService } from './andamento-processo.service';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { ProcessoConteudoService } from './processo-conteudo.service';
@@ -11,6 +12,7 @@ import { validarAberturaDireta } from './processo-regras';
 import { temTramitacaoPropria } from './processo-tramitacao-regras';
 import { RequireModule } from '../auth/require-module.decorator';
 import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { WorkflowService } from '../workflow/workflow.service';
 
 /**
  * PROCESSO ELETRÔNICO — API genérica (`/api/processos`).
@@ -24,7 +26,8 @@ import { ModuloSistema } from '../orgaos/enums/modulos.enum';
  */
 @Controller('processos')
 @SomenteOrgao()
-@RequireModule(ModuloSistema.PROCESSOS)
+// Fluxo da contratação (08/11/2026): também para quem tem só Licitações
+@RequireModule(ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES)
 export class ProcessosController {
   constructor(
     private readonly processos: ProcessoService,
@@ -33,6 +36,8 @@ export class ProcessosController {
     private readonly tramite: ProcessoTramitacaoService,
     private readonly pecasLicitacao: PecasLicitacaoService,
     private readonly painelGestor: PainelGestorService,
+    private readonly andamentoProcesso: AndamentoProcessoService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   /** Tipos de processo (registro em dados + catálogo de documentos e campos de condição de cada um). */
@@ -64,6 +69,12 @@ export class ProcessosController {
     if (r.dados.contrato_id && !(await this.processos.contratoEhDoOrgao(orgaoId, r.dados.contrato_id))) {
       throw new NotFoundException('Contrato não encontrado');
     }
+    // Processo avulso que segue um fluxo do órgão (fluxo de trabalho): conferido ANTES de abrir
+    const fluxoId = body?.fluxo_id ? String(body.fluxo_id) : null;
+    if (fluxoId) {
+      if (String(r.dados.tipo) !== 'AVULSO') throw new BadRequestException('Só o processo avulso escolhe o fluxo na abertura.');
+      await this.workflow.exigirFluxoDeTrabalho(orgaoId, fluxoId);
+    }
     const p = await this.processos.abrir({
       orgaoId,
       tipo: r.dados.tipo,
@@ -75,6 +86,8 @@ export class ProcessosController {
       origem: r.dados.contrato_id ? 'CONTRATO' : 'AVULSO',
     });
     await this.tramite.iniciarPosse(p, ator);
+    // O processo nasce no fluxo: a primeira etapa já vai para o responsável (com número e autos do processo)
+    if (fluxoId) await this.workflow.iniciar(orgaoId, fluxoId, ator.usuarioId ?? ator.id, { processo_id: p.id, titulo: p.objeto });
     return this.conteudo.visao(p);
   }
 
@@ -118,6 +131,12 @@ export class ProcessosController {
   @Get(':id/tramitacao')
   async tramitacao(@AtorAtual() ator: Ator, @Param('id') id: string) {
     return this.conteudo.tramitacao(await this.processos.obter(ator, id), ator);
+  }
+
+  /** Andamento para a tela de acompanhamento: nós concluídos, em andamento e a realizar (fluxo desenhado ou tramitação livre). */
+  @Get(':id/andamento')
+  async andamento(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.andamentoProcesso.andamento(await this.processos.obter(ator, id), ator);
   }
 
   /** Fluxo: retrato (modelo, versão, marcas) e etapas calculadas — o mesmo de `/fase-interna/:id/etapas`. */
@@ -224,6 +243,23 @@ export class ProcessosController {
   }
 
   /** Encerra um processo sem conteúdo. Corpo: { motivo? }. Só quem está com ele (ou o administrador do órgão). */
+  /** "Trazido das etapas anteriores": DFD consolidado (demandas, valor) e documentos das etapas já juntados. */
+  @Get(':id/trazido')
+  async trazido(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.andamentoProcesso.trazido(await this.processos.obter(ator, id));
+  }
+
+  /** Rascunho da peça em elaboração (ofício): ler e salvar. */
+  @Get(':id/rascunho')
+  rascunho(@AtorAtual() ator: Ator, @Param('id') id: string) {
+    return this.tramite.rascunho(ator, id);
+  }
+
+  @Put(':id/rascunho')
+  salvarRascunho(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
+    return this.tramite.salvarRascunho(ator, id, body);
+  }
+
   @Post(':id/encerrar')
   async encerrar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) {
     return this.conteudo.visao(await this.tramite.encerrar(ator, id, body?.motivo ?? null));

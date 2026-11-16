@@ -94,20 +94,25 @@ export default function ProcessoPage() {
 
   // Na fase interna, a tela de trabalho é a do processo eletrônico (decisão do dono, 02/10/2026).
   // Esta tela fica como "Detalhes da licitação", aberta só com ?detalhes=1 (atalho da tela nova).
+  // Enquanto descobre para onde ir, não desenha esta tela (antes ela aparecia e "piscava" antes do redirecionamento)
+  const [destinoResolvido, setDestinoResolvido] = useState(false)
+  const pedeDetalhes = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("detalhes") === "1"
   useEffect(() => {
     if (!id || !faseInterna) return
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("detalhes") === "1") return
+    if (pedeDetalhes) return
     let vivo = true
     authFetch(`${API_URL}/api/processos/referencia/LICITACAO/${id}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((p) => {
-        if (vivo && p?.id) router.replace(`/orgao/processo/${p.id}`)
+        if (!vivo) return
+        if (p?.id) router.replace(`/orgao/processo/${p.id}`)
+        else setDestinoResolvido(true)
       })
-      .catch(() => undefined)
+      .catch(() => vivo && setDestinoResolvido(true))
     return () => {
       vivo = false
     }
-  }, [id, faseInterna, router])
+  }, [id, faseInterna, router, pedeDetalhes])
 
   // Checklist de pré-publicação (backend) — na fase interna e enquanto aguarda o PNCP
   const [conferencia, setConferencia] = useState<ConferenciaPrePublicacao | null>(null)
@@ -222,6 +227,14 @@ export default function ProcessoPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 animate-spin text-gray-500" aria-label="Carregando o processo" />
+      </div>
+    )
+  }
+  if (faseInterna && !pedeDetalhes && !destinoResolvido && !erro) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center gap-2 text-sm text-gray-600" role="status">
+        <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+        Abrindo o processo…
       </div>
     )
   }

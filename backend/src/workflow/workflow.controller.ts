@@ -1,20 +1,76 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { AtorAtual } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
 import { WorkflowService } from './workflow.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
+import { CATALOGO_NOS } from './nos/catalogo-nos';
+import { TeamsService } from './avisos/teams.service';
+import { DesenhoFluxoService } from './desenho/desenho-fluxo.service';
+import { ChecklistEtapaService } from './checklist/checklist-etapa.service';
+import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { TempoEtapasService } from './tempo/tempo-etapas.service';
 
 const orgaoDo = (ator: Ator) => { if (!ator?.orgaoId) throw new BadRequestException('Acesso exclusivo do órgão'); return ator.orgaoId; };
+/** Canal do Teams é configuração do órgão: só o login do órgão ou o usuário ADMIN dele cadastra, remove ou testa. */
+const ehAdminDoOrgao = (ator: Ator) => ator.tipo === 'ORGAO' || !!ator.admin || String(ator.role ?? '').toUpperCase() === 'ADMIN';
+const adminDoOrgao = (ator: Ator) => { const orgaoId = orgaoDo(ator); if (ehAdminDoOrgao(ator)) return orgaoId; throw new ForbiddenException('Só o administrador do órgão altera esta configuração'); };
 
+/** Fluxos de processo: desenho e execução. Parte do Processo Eletrônico — desliga junto com ele. */
 @Controller('workflows')
+// Fluxo da contratação (08/11/2026): também para quem tem só Licitações
+@RequireModule(ModuloSistema.PROCESSOS, ModuloSistema.LICITACOES)
 export class WorkflowController {
-  constructor(private readonly service: WorkflowService) {}
+  constructor(private readonly service: WorkflowService, private readonly teams: TeamsService, private readonly whatsapp: WhatsAppService, private readonly desenhos: DesenhoFluxoService, private readonly checklist: ChecklistEtapaService, private readonly tempo: TempoEtapasService) {}
+  /** Etapas que podem ser arrastadas para o desenho (paleta), com a trava legal de cada uma. */
+  @Get('catalogo-nos') catalogo() { return CATALOGO_NOS; }
+  /** "Canais de aviso do órgão" da tela de desenho: o que já está conectado. */
+  @Get('canais-aviso') async canaisAviso(@AtorAtual() ator: Ator) {
+    const orgaoId = orgaoDo(ator);
+    const [whatsappConectado, teamsCanais] = await Promise.all([this.whatsapp.isConfigurado(orgaoId), this.teams.listar(orgaoId)]);
+    return { whatsapp: whatsappConectado, teams: teamsCanais };
+  }
+  @Get('teams-canais') teamsCanais(@AtorAtual() ator: Ator) { return this.teams.listar(orgaoDo(ator)); }
+  @Post('teams-canais') criarTeamsCanal(@AtorAtual() ator: Ator, @Body() body: any) { return this.teams.criar(adminDoOrgao(ator), ator.usuarioId ?? ator.id, body); }
+  @Delete('teams-canais/:canalId') removerTeamsCanal(@AtorAtual() ator: Ator, @Param('canalId') canalId: string) { return this.teams.remover(adminDoOrgao(ator), canalId); }
+  @Post('teams-canais/:canalId/testar') testarTeamsCanal(@AtorAtual() ator: Ator, @Param('canalId') canalId: string) { return this.teams.testar(adminDoOrgao(ator), canalId); }
+  // --- Desenho do fluxo (tela "Desenhar o fluxo"): ler é para todos do órgão; criar, alterar e ativar só o administrador ---
+  /** Andamento › Tempo por etapa (antes de ':id'): versões com o que medir, visão geral e detalhe de uma etapa. Média por pessoa só para o administrador. */
+  @Get('tempo-etapas/opcoes') opcoesTempo(@AtorAtual() ator: Ator) { return this.tempo.opcoes(orgaoDo(ator)); }
+  @Get('tempo-etapas/etapa') detalheTempo(@AtorAtual() ator: Ator, @Query('fluxo') fluxo: string, @Query('etapa') etapa: string, @Query('dias') dias: string) { return this.tempo.detalhe(orgaoDo(ator), String(fluxo ?? ''), String(etapa ?? ''), dias, ehAdminDoOrgao(ator)); }
+  @Get('tempo-etapas') resumoTempo(@AtorAtual() ator: Ator, @Query('fluxo') fluxo: string, @Query('dias') dias: string) { return this.tempo.resumo(orgaoDo(ator), String(fluxo ?? ''), dias); }
+  // Contratação por modalidade: tabela de cobertura, opções de "Onde este fluxo vale" e prévia ao abrir o processo
+  @Get('contratacao/cobertura') coberturaContratacao(@AtorAtual() ator: Ator) { return this.desenhos.coberturaDaContratacao(orgaoDo(ator)); }
+  @Get('contratacao/opcoes') opcoesContratacao(@AtorAtual() ator: Ator, @Query('fluxo') fluxo?: string) { return this.desenhos.opcoesAplicacao(orgaoDo(ator), fluxo || null); }
+  @Get('contratacao/previa') previaContratacao(@AtorAtual() ator: Ator, @Query('modalidade') modalidade: string, @Query('fundamento') fundamento?: string) { return this.desenhos.previaDaContratacao(orgaoDo(ator), String(modalidade ?? '').toUpperCase(), fundamento ? String(fundamento).toUpperCase() : null); }
+  @Put(':id/aplicacao') salvarAplicacao(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.desenhos.salvarAplicacao(adminDoOrgao(ator), id, body); }
+  @Get('desenhos/modelos') modelosDesenho(@AtorAtual() ator: Ator, @Query('tipo') tipo: string) { return this.desenhos.modelos(orgaoDo(ator), String(tipo ?? '').toUpperCase()); }
+  @Get('desenhos/opcoes') opcoesDesenho(@AtorAtual() ator: Ator) { return this.desenhos.opcoes(orgaoDo(ator)); }
+  @Get('desenhos') listarDesenhos(@AtorAtual() ator: Ator) { return this.desenhos.listar(orgaoDo(ator)); }
+  @Post('desenhos') criarDesenho(@AtorAtual() ator: Ator, @Body() body: any) { return this.desenhos.criar(adminDoOrgao(ator), ator.usuarioId ?? ator.id, body); }
+  @Get(':id/desenho') desenho(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.desenhos.desenho(orgaoDo(ator), id); }
+  @Put(':id/desenho') salvarDesenho(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.desenhos.salvar(adminDoOrgao(ator), id, body); }
+  @Post(':id/nova-versao') novaVersao(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.desenhos.novaVersao(adminDoOrgao(ator), id, ator.usuarioId ?? ator.id); }
+  @Post(':id/ativar') ativar(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.desenhos.ativar(adminDoOrgao(ator), id); }
+  @Post(':id/desativar') desativar(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.desenhos.desativar(adminDoOrgao(ator), id); }
   @Get() listar(@AtorAtual() ator: Ator) { return this.service.listar(orgaoDo(ator)); }
   @Post() criar(@AtorAtual() ator: Ator, @Body() body: any) { return this.service.criar(orgaoDo(ator), ator.usuarioId ?? ator.id, body); }
   @Post('modelos-prontos/aditivo') modeloAditivo(@AtorAtual() ator: Ator) { return this.service.criarModeloAditivo(orgaoDo(ator), ator.usuarioId ?? ator.id); }
+  @Post('modelos-prontos/demanda-dfd') modeloDemandaDfd(@AtorAtual() ator: Ator) { return this.service.criarModeloDemandaDfd(orgaoDo(ator), ator.usuarioId ?? ator.id); }
+  /** Modelos prontos tirados dos autos da Câmara: ver o catálogo e criar um rascunho a partir de um deles (administrador). */
+  @Get('modelos-prontos') modelosProntos() { return this.desenhos.listarModelosProntos(); }
+  @Post('modelos-prontos/:chave') criarDeModelo(@AtorAtual() ator: Ator, @Param('chave') chave: string) { return this.desenhos.criarDeModelo(adminDoOrgao(ator), ator.usuarioId ?? ator.id, chave); }
+  /** Etapas abertas do fluxo que dependem de quem está logado (?tipo=APROVACAO para a Central de Aprovações). */
+  @Get('minhas-etapas') minhasEtapas(@AtorAtual() ator: Ator, @Query('tipo') tipo?: string) { return this.service.minhasEtapas(orgaoDo(ator), ator, tipo ?? null); }
   @Get('execucoes/listar') execucoes(@AtorAtual() ator: Ator) { return this.service.listarInstancias(orgaoDo(ator)); }
   @Get('execucoes/:instanciaId') execucao(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string) { return this.service.obterInstancia(orgaoDo(ator), instanciaId); }
   @Post('execucoes/:instanciaId/tarefas/:tarefaId/concluir') concluir(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.concluirTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
   @Post('execucoes/:instanciaId/tarefas/:tarefaId/devolver') devolver(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.devolverTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
+  // Checklist do documento da etapa (ETP: art. 18, § 1º): ver, marcar e pedir a leitura do documento pela IA
+  @Get('execucoes/:instanciaId/tarefas/:tarefaId/checklist') verChecklist(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string) { return this.checklist.obter(orgaoDo(ator), instanciaId, tarefaId); }
+  @Put('execucoes/:instanciaId/tarefas/:tarefaId/checklist') marcarChecklist(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.checklist.marcar(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
+  @Post('execucoes/:instanciaId/tarefas/:tarefaId/checklist/analisar') analisarChecklist(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string) { return this.checklist.analisar(orgaoDo(ator), instanciaId, tarefaId, ator); }
+  @Post('execucoes/:instanciaId/tarefas/:tarefaId/indeferir') indeferir(@AtorAtual() ator: Ator, @Param('instanciaId') instanciaId: string, @Param('tarefaId') tarefaId: string, @Body() body: any) { return this.service.indeferirTarefa(orgaoDo(ator), instanciaId, tarefaId, ator, body); }
   @Get(':id') obter(@AtorAtual() ator: Ator, @Param('id') id: string) { return this.service.obter(orgaoDo(ator), id); }
   @Patch(':id') atualizar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.atualizar(orgaoDo(ator), id, body); }
   @Post(':id/iniciar') iniciar(@AtorAtual() ator: Ator, @Param('id') id: string, @Body() body: any) { return this.service.iniciar(orgaoDo(ator), id, ator.usuarioId ?? ator.id, body); }

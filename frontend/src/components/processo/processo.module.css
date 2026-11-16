@@ -223,6 +223,27 @@
   background: var(--ok-fundo);
   color: var(--ok);
 }
+/* Etapa da licitação na lista de processos */
+.chipInterna {
+  background: #eef2ff;
+  color: #3730a3;
+}
+.chipExterna {
+  background: #e0f2fe;
+  color: #075985;
+}
+.chipEncerrada {
+  background: #f1f5f9;
+  color: #475569;
+}
+.linkSala {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  text-decoration: underline;
+}
 .acoes {
   display: flex;
   flex-wrap: wrap;

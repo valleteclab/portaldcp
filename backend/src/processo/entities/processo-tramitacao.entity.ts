@@ -122,6 +122,14 @@ export class ProcessoPeca {
   @Column({ type: 'int' })
   folha_final: number;
 
+  /** Setor de quem juntou/assinou (lotação no momento): base da numeração do ofício. */
+  @Column({ type: 'uuid', nullable: true })
+  setor_autor_id: string | null;
+
+  /** Número próprio do documento, quando tem (ofício: "014/2026"). */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  numero_documento: string | null;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   criado_por_id: string | null;
 

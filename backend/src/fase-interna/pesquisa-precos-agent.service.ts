@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -20,6 +21,8 @@ import {
 } from './entities/pesquisa-preco-execucao.entity';
 import { FaseInternaService } from './fase-interna.service';
 import {
+  FalhaDeConsulta,
+  PesquisaPrecoAgentContext,
   PesquisaPrecoAgentScope,
   PesquisaPrecoCandidateInput,
   PesquisaPrecoProvider,
@@ -27,7 +30,10 @@ import {
 import { PesquisaPrecosComplianceService } from './pesquisa-precos-compliance.service';
 import {
   BrowserFallbackProvider,
+  avisoDeUnidadeDiferente,
   ContratosVigentesProvider,
+  ehReferenciaComplementar,
+  tipoDeReferencia,
   FontePrecosProvider,
   FornecedorDiretoProvider,
   NfeProvider,
@@ -41,6 +47,9 @@ import {
 } from './types/pesquisa-precos.type';
 
 const PDFDocument = require('pdfkit');
+
+/** Teto por fonte e por item: a tela espera cerca de 30 s por item. */
+const LIMITE_POR_FONTE_MS = 20000;
 
 const FONTES_PADRAO: FontePesquisaTipo[] = [
   'PNCP',
@@ -56,6 +65,8 @@ export class PesquisaPrecosAgentService {
   private readonly providers: PesquisaPrecoProvider[];
   private readonly uploadDir =
     process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+
+  private readonly logger = new Logger(PesquisaPrecosAgentService.name);
 
   constructor(
     @InjectRepository(PesquisaPrecoExecucao)
@@ -90,10 +101,12 @@ export class PesquisaPrecosAgentService {
   }
 
   async executar(licitacaoId: string, scope: PesquisaPrecoAgentScope) {
-    const licitacao = await this.licitacaoRepository.findOneBy({
-      id: licitacaoId,
+    const licitacao = await this.licitacaoRepository.findOne({
+      where: { id: licitacaoId },
+      relations: ['orgao'],
     });
     if (!licitacao) throw new NotFoundException('Licitacao nao encontrada');
+    const ufOrgao = String((licitacao as any).orgao?.uf || '').trim();
 
     const documento =
       await this.faseInternaService.getOuCriarDocPP(licitacaoId);
@@ -126,34 +139,85 @@ export class PesquisaPrecosAgentService {
       );
       if (scope.usarBrowserFallback) fontes.add('OUTRA');
 
+      const falhas: FalhaDeConsulta[] = [];
       const providerResults = await Promise.allSettled(
         this.providers
           .filter((provider) => fontes.has(provider.fonte))
           .map((provider) =>
-            provider.buscar({
-              licitacao,
-              itens,
-              scope: { ...scope, maxPorFonte: scope.maxPorFonte || 5 },
-            }),
+            this.comLimiteDeTempo(
+              provider,
+              {
+                licitacao,
+                itens,
+                scope: { ...scope, maxPorFonte: scope.maxPorFonte || 5 },
+                ufOrgao,
+                falhas,
+              },
+              falhas,
+            ),
           ),
       );
 
       const coletados = providerResults.flatMap((result) =>
         result.status === 'fulfilled' ? result.value : [],
       );
-      const preparados = this.compliance
-        .deduplicar(
-          coletados
-            .map((candidato) => this.compliance.prepararCandidato(candidato))
-            .filter((candidato): candidato is PesquisaPrecoCandidateInput =>
-              Boolean(candidato),
-            ),
-        )
-        .slice(
-          0,
-          Math.max(1, itens.length) *
-            Math.max(5, (scope.maxPorFonte || 5) * fontes.size),
-        );
+      const unidadeDoItem = new Map(
+        itens.map((i) => [Number(i.numero_item), i.unidade_medida]),
+      );
+      const deduplicados = this.compliance.deduplicar(
+        coletados
+          .map((candidato) => {
+            // Resma lá e caixa aqui: o preço não é comparável sem conversão
+            const aviso = avisoDeUnidadeDiferente(
+              candidato.unidade,
+              unidadeDoItem.get(Number(candidato.item_numero)),
+            );
+            return aviso
+              ? {
+                  ...candidato,
+                  score: (candidato.score ?? 70) - 8,
+                  flags: [...(candidato.flags || []), aviso],
+                }
+              : candidato;
+          })
+          .map((candidato) => this.compliance.prepararCandidato(candidato))
+          .filter((candidato): candidato is PesquisaPrecoCandidateInput =>
+            Boolean(candidato),
+          ),
+      );
+      // Preço muito longe dos demais do mesmo item quase sempre é outra
+      // embalagem (resma em vez de caixa) ou outro produto (a impressora em
+      // vez do toner). Não some: fica marcado e espera conferência.
+      const porItem = new Map<number, number[]>();
+      for (const c of deduplicados) {
+        const lista = porItem.get(Number(c.item_numero)) || [];
+        lista.push(Number(c.valor_unitario));
+        porItem.set(Number(c.item_numero), lista);
+      }
+      for (const c of deduplicados) {
+        const valores = [...(porItem.get(Number(c.item_numero)) || [])].sort((x, y) => x - y);
+        if (valores.length < 4) continue;
+        const meio = Math.floor(valores.length / 2);
+        const mediana = valores.length % 2 ? valores[meio] : (valores[meio - 1] + valores[meio]) / 2;
+        const v = Number(c.valor_unitario);
+        if (mediana > 0 && (v < mediana / 3 || v > mediana * 3)) {
+          c.flags = [
+            ...(c.flags || []),
+            `Preço muito ${v < mediana ? 'abaixo' : 'acima'} dos demais deste item (mediana R$ ${mediana.toFixed(2).replace('.', ',')}): revisar se é o mesmo produto e a mesma embalagem.`,
+          ];
+          c.score = Number(c.score ?? 70) - 10;
+        }
+      }
+      // Cota por item E por origem. Com um teto só para tudo, a origem que
+      // devolvia mais (banco de preços) expulsava as outras (lojas na web).
+      const porOrigem = new Map<string, number>();
+      const preparados = deduplicados.filter((candidato) => {
+        const chave = `${candidato.item_numero}|${candidato.fonte_tipo}|${candidato.evidencia?.origem || ''}`;
+        const usados = porOrigem.get(chave) || 0;
+        if (usados >= (scope.maxPorFonte || 5)) return false;
+        porOrigem.set(chave, usados + 1);
+        return true;
+      });
 
       const candidatos = await this.candidatoRepository.save(
         preparados.map((candidato) =>
@@ -169,7 +233,7 @@ export class PesquisaPrecosAgentService {
       execucao.resumo = this.compliance.resumir(candidatos);
       await this.execucaoRepository.save(execucao);
 
-      return this.obterExecucao(licitacaoId, execucao.id);
+      return { ...(await this.obterExecucao(licitacaoId, execucao.id)), falhas };
     } catch (error) {
       execucao.status = StatusExecucaoPesquisaPreco.FALHOU;
       execucao.finalizado_em = new Date();
@@ -203,6 +267,49 @@ export class PesquisaPrecosAgentService {
       where: { licitacao_id: licitacaoId },
       order: { created_at: 'DESC' },
       take: 10,
+    });
+  }
+
+  /**
+   * Cada fonte tem um teto de tempo. Sem ele, um portal lento segurava a busca
+   * por minutos: a tela desistia aos 30 s, a execução ficava "rodando" e as
+   * referências das outras fontes não apareciam (gravação de 15/11/2026, com o
+   * PNCP derrubando conexões). Fonte que estoura o teto vira falha relatada.
+   */
+  private comLimiteDeTempo(
+    provider: PesquisaPrecoProvider,
+    context: PesquisaPrecoAgentContext,
+    falhas: FalhaDeConsulta[],
+  ): Promise<PesquisaPrecoCandidateInput[]> {
+    const limiteMs = Math.min(120000, LIMITE_POR_FONTE_MS * Math.max(1, context.itens.length));
+    return new Promise((resolve) => {
+      let encerrado = false;
+      const relogio = setTimeout(() => {
+        if (encerrado) return;
+        encerrado = true;
+        for (const item of context.itens) {
+          if (!falhas.some((f) => f.fonte === provider.fonte && f.item_numero === item.numero_item)) {
+            falhas.push({ fonte: provider.fonte, item_numero: item.numero_item, motivo: 'tempo esgotado' });
+          }
+        }
+        this.logger.warn(`Fonte ${provider.fonte} passou de ${Math.round(limiteMs / 1000)} s e foi deixada de lado nesta busca.`);
+        resolve([]);
+      }, limiteMs);
+      provider
+        .buscar(context)
+        .then((candidatos) => {
+          if (encerrado) return;
+          encerrado = true;
+          clearTimeout(relogio);
+          resolve(candidatos);
+        })
+        .catch((error) => {
+          if (encerrado) return;
+          encerrado = true;
+          clearTimeout(relogio);
+          this.logger.warn(`Fonte ${provider.fonte} falhou: ${(error as Error).message}`);
+          resolve([]);
+        });
     });
   }
 
@@ -271,6 +378,76 @@ export class PesquisaPrecosAgentService {
     await this.candidatoRepository.save(candidato);
 
     return { dados, candidato };
+  }
+
+  /**
+   * Candidatos que o agente achou e ninguém decidiu ainda — de cada item, só os
+   * da busca mais recente (as antigas ficam no histórico das execuções).
+   */
+  async listarCandidatosPendentes(licitacaoId: string) {
+    const execucoes = await this.execucaoRepository.find({
+      // só as que terminaram: uma busca ainda rodando (ou que morreu no meio)
+      // não pode esconder as referências da busca anterior
+      where: { licitacao_id: licitacaoId, status: StatusExecucaoPesquisaPreco.CONCLUIDA },
+      relations: ['candidatos'],
+      order: { created_at: 'DESC' },
+      take: 30,
+    });
+    const itensVistos = new Set<number>();
+    const pendentes: PesquisaPrecoCandidato[] = [];
+    for (const execucao of execucoes) {
+      const candidatos = execucao.candidatos || [];
+      const itensDaExecucao = new Set(
+        [
+          ...((execucao.escopo as any)?.itemNumeros || []),
+          ...candidatos.map((c) => c.item_numero),
+        ].map(Number),
+      );
+      for (const candidato of candidatos) {
+        if (itensVistos.has(Number(candidato.item_numero))) continue;
+        if (candidato.status !== StatusCandidatoPesquisaPreco.CANDIDATO) continue;
+        pendentes.push(candidato);
+      }
+      itensDaExecucao.forEach((n) => itensVistos.add(n));
+    }
+    return pendentes
+      .sort((a, b) => Number(b.score) - Number(a.score))
+      .map((c) => ({
+        id: c.id,
+        item_numero: c.item_numero,
+        fonte_tipo: c.fonte_tipo,
+        descricao_fonte: c.descricao_fonte,
+        url_referencia: c.url_referencia,
+        data_pesquisa: c.data_pesquisa,
+        valor_unitario: Number(c.valor_unitario),
+        quantidade_base: c.quantidade_base,
+        unidade: c.unidade,
+        origem: c.evidencia?.origem || '',
+        titulo: c.evidencia?.titulo || '',
+        flags: c.flags || [],
+        complementar: ehReferenciaComplementar(c),
+        tipo: tipoDeReferencia(c),
+      }));
+  }
+
+  /** Descarta de uma vez as referências do item que ainda esperam decisão. */
+  async rejeitarPendentesDoItem(
+    licitacaoId: string,
+    itemNumero: number,
+    decisor?: { id?: string; nome?: string },
+  ) {
+    const pendentes = (await this.listarCandidatosPendentes(licitacaoId)).filter(
+      (c) => Number(c.item_numero) === Number(itemNumero),
+    );
+    for (const c of pendentes) {
+      await this.rejeitarCandidato(
+        licitacaoId,
+        c.id,
+        'Descartada em conjunto por quem fez a pesquisa',
+        decisor,
+      );
+    }
+    return { descartadas: pendentes.length };
   }
 
   async rejeitarCandidato(

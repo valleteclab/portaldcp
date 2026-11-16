@@ -382,10 +382,10 @@ describe('F4a — IA em toda etapa: rascunho ao chegar e revisão humana', () =>
       } finally {
         falharIa = false;
       }
-      const tarefas = await sql(`SELECT passo, status FROM tarefas WHERE licitacao_id = $1`, [lic!.id]);
-      expect(tarefas.some((t: any) => t.passo === 'DFD' && t.status === 'ABERTA')).toBe(true);
-      const tramit = await sql(`SELECT posse_inicial FROM tramitacoes_processo WHERE licitacao_id = $1`, [lic!.id]);
-      expect(tramit).toHaveLength(1); // a integração da tramitação também rodou
+      // a sincronização terminou mesmo com a IA fora do ar: as etapas foram calculadas. Um motor só (11/2026):
+      // a tarefa de etapa e a posse inicial da tramitação, que antes provavam isso, saíram com o motor antigo
+      const et = (await http().get(`/api/fase-interna/${lic!.id}/etapas`).set(bearer(agente.token)).expect(200)).body;
+      expect(et.etapas.flatMap((e: any) => e.passos).find((p: any) => p.passo === 'DFD').situacao).toBe('DISPONIVEL');
       const t = await tela(lic!, 'DFD', agente.token);
       expect(t.rascunho).toMatchObject({ status: 'FALHOU' });
       expect((await logs(lic!, 'IA_INVOCADA')).some((l: any) => /não foi gerado/.test(l.descricao))).toBe(true);

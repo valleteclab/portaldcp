@@ -71,7 +71,7 @@ import {
   vincularOrgaoPncp,
 } from './support/dispensa';
 import { FaseLicitacao, ModalidadeLicitacao } from '../src/licitacoes/entities/licitacao.entity';
-import { homologarResultado } from './support/resultado';
+import { habilitarVencedoresDispensa, homologarResultado } from './support/resultado';
 import { assinarContrato } from './support/contratos';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
 
@@ -373,14 +373,20 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
       expect(r.body.message).toMatch(/após o julgamento/);
     });
 
-    it('encerrado o acolhimento, os valores ficam visíveis e ordenados por menor preço', async () => {
+    it('encerrado o acolhimento, o órgão vê os valores ordenados por menor preço; terceiros só depois dos lances', async () => {
       await abrirSessaoAgora(ctx, lic);
 
-      const rk = await ctx.http().get(`/api/propostas/ranking/item/${item1}`).expect(200);
+      // Dispensa com etapa de lances: para quem não é o órgão dono, as
+      // propostas identificadas seguem sigilosas até o fim da janela.
+      expect((await ctx.http().get(`/api/propostas/ranking/item/${item1}`).expect(200)).body).toEqual([]);
+      const publica = await ctx.http().get(`/api/propostas/licitacao/${lic.id}`).expect(200);
+      expect(publica.body.every((p: any) => p.sigilo === true && p.fornecedor === null)).toBe(true);
+
+      const rk = await ctx.http().get(`/api/propostas/ranking/item/${item1}`).set(bearer(orgao.token)).expect(200);
       expect(rk.body.map((x: any) => Number(x.valor_unitario))).toEqual([90, 92, 95]);
       expect(rk.body.map((x: any) => x.posicao)).toEqual([1, 2, 3]);
 
-      const lista = await ctx.http().get(`/api/propostas/licitacao/${lic.id}`).expect(200);
+      const lista = await ctx.http().get(`/api/propostas/licitacao/${lic.id}`).set(bearer(orgao.token)).expect(200);
       expect(lista.body.every((p: any) => p.sigilo === undefined)).toBe(true);
       expect(lista.body.map((p: any) => Number(p.valor_total_proposta))).toEqual([1840, 1900, 1910]);
 
@@ -640,6 +646,7 @@ describe('Dispensa eletrônica — fluxo em produção (caracterização)', () =
     it('homologa e gera 1 contrato por fornecedor vencedor', async () => {
       pncpMock.limpar();
       // E6: homologação pelo resultado único — valor CALCULADO dos itens adjudicados
+      await habilitarVencedoresDispensa(ctx, lic.id, orgao.token);
       const r = await homologarResultado(ctx, lic.id, orgao.token).expect(200);
       expect(r.body.fase).toBe(FaseLicitacao.HOMOLOGACAO);
       expect(r.body.valorHomologado).toBe(1800);
@@ -899,6 +906,7 @@ describe('Dispensa eletrônica — defeitos conhecidos', () => {
       .set(bearer(orgao.token))
       .send({ valor_homologado: 999_999 });
     expect(antiga.status).toBe(404);
+    await habilitarVencedoresDispensa(ctx, lic.id, orgao.token);
     await ctx
       .http()
       .post(`/api/resultado/licitacao/${lic.id}/homologar`)

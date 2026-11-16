@@ -5,6 +5,8 @@ import { NotificacoesModule } from '../../notificacoes/notificacoes.module';
 import { DfdConsolidado, DfdConsolidadoDemanda } from './dfd-consolidado.entity';
 import { DfdConsolidadoService } from './dfd-consolidado.service';
 import { MigracaoDfdBootService } from './migracao-dfd-boot.service';
+import { ProcessoModule } from '../../processo/processo.module';
+import { WorkflowModule } from '../../workflow/workflow.module';
 
 /**
  * DFD CONSOLIDADO — domínio (entidades, consolidação, aprovação, PDF, vínculo
@@ -13,7 +15,7 @@ import { MigracaoDfdBootService } from './migracao-dfd-boot.service';
  * fica no DemandasModule (que importa os dois).
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([DfdConsolidado, DfdConsolidadoDemanda]), FaseInternaModule, NotificacoesModule],
+  imports: [TypeOrmModule.forFeature([DfdConsolidado, DfdConsolidadoDemanda]), FaseInternaModule, NotificacoesModule, ProcessoModule, WorkflowModule],
   providers: [DfdConsolidadoService, MigracaoDfdBootService],
   exports: [DfdConsolidadoService],
 })

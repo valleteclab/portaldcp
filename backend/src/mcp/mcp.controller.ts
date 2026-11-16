@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import {
   Controller,
   All,
@@ -380,7 +381,7 @@ export class McpController {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let codigoValidacao = '';
     for (let i = 0; i < 16; i++) {
-      codigoValidacao += chars.charAt(Math.floor(Math.random() * chars.length));
+      codigoValidacao += chars.charAt(randomInt(chars.length));
     }
 
     const apiKeyPrefix = apiKey?.slice(0, 8) || 'API';

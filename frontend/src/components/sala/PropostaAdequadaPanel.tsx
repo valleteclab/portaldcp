@@ -1,5 +1,7 @@
 'use client'
 
+import { lerValorMonetario, moedaDeNumero } from '@/lib/moeda'
+import { InputMoeda } from '@/components/ui/input-moeda'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, FileUp, RefreshCw, Send, XCircle } from 'lucide-react'
 import { API_URL, authFetch } from '@/lib/api'
@@ -54,8 +56,11 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
     const iniciais: Record<string, string> = {}
     for (const i of c.limites.itens) {
       const anterior = c.valoresItens?.find((v) => v.itemId === i.itemId)?.valorUnitario
-      const teto = i.valorMaximoTotal != null ? Math.floor((i.valorMaximoTotal / (i.quantidade || 1)) * 10000) / 10000 : ''
-      iniciais[i.itemId] = String(anterior ?? teto)
+      // Já no formato da máscara (R$ 1.146,58), com centavos: o número cru ("1146.5827") virava
+      // outro valor ao editar um dígito (ensaio do pregão 002/2026, 09/11/2026)
+      const teto = i.valorMaximoTotal != null ? Math.floor((i.valorMaximoTotal / (i.quantidade || 1)) * 100) / 100 : null
+      const inicial = anterior != null ? Math.floor(Number(anterior) * 100) / 100 : teto
+      iniciais[i.itemId] = moedaDeNumero(inicial)
     }
     return iniciais
   })
@@ -65,7 +70,7 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
   const [erro, setErro] = useState<string | null>(null)
 
   const linhas = c.limites.itens.map((i) => {
-    const unit = Number(String(valores[i.itemId] ?? '').replace(',', '.'))
+    const unit = lerValorMonetario(String(valores[i.itemId] ?? ''))
     const total = Number.isFinite(unit) ? arred(arred(unit, 4) * (i.quantidade || 1), 2) : 0
     const acima = i.valorMaximoTotal != null && total > i.valorMaximoTotal + 0.005
     return { ...i, unit, total, acima }
@@ -121,9 +126,8 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
                 </td>
                 <td className="py-1 text-right">{l.quantidade}</td>
                 <td className="py-1 text-right">
-                  <Input
+                  <InputMoeda
                     className="ml-auto w-32 text-right"
-                    inputMode="decimal"
                     value={valores[l.itemId] ?? ''}
                     onChange={(e) => setValores((v) => ({ ...v, [l.itemId]: e.target.value }))}
                   />
@@ -153,7 +157,7 @@ function FormularioProposta({ sessaoId, c, onEnviado }: { sessaoId: string; c: C
   )
 }
 
-export function PropostaAdequadaPanel({ sessaoId }: { sessaoId: string }) {
+export function PropostaAdequadaPanel({ sessaoId, unidade }: { sessaoId: string; /** Só esta unidade (detalhe do lote). */ unidade?: { tipo: 'ITEM' | 'LOTE'; numero: number } }) {
   const [convocacoes, setConvocacoes] = useState<Convocacao[]>([])
   const [carregando, setCarregando] = useState(true)
   const [agora, setAgora] = useState(() => Date.now())
@@ -187,7 +191,10 @@ export function PropostaAdequadaPanel({ sessaoId }: { sessaoId: string }) {
     return () => clearInterval(t)
   }, [])
 
-  const visiveis = useMemo(() => convocacoes.filter((c) => c.status !== 'CANCELADA'), [convocacoes])
+  const visiveis = useMemo(
+    () => convocacoes.filter((c) => c.status !== 'CANCELADA' && (!unidade || (c.unidade?.tipo === unidade.tipo && c.unidade?.numero === unidade.numero))),
+    [convocacoes, unidade],
+  )
 
   const pedirProrrogacao = async () => {
     if (!pedido) return

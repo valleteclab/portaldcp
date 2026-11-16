@@ -262,7 +262,7 @@ function DemandasPageContent() {
               ))}
             </SelectContent>
           </Select>
-          <Button onClick={() => setShowNovaDemanda(true)}>
+          <Button onClick={() => setShowNovaDemanda(true)} data-guia="nova-demanda">
             <Plus className="h-4 w-4 mr-2" />
             Nova Demanda
           </Button>

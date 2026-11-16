@@ -32,6 +32,11 @@ import {
   TemaProcesso,
   estilos as s,
 } from "@/components/processo/BlocosProcesso"
+import { AndamentoFluxo } from "@/components/fluxo/AndamentoFluxo"
+import { BlocoOficio, BlocoProvidenciaOficio } from "@/components/processo/BlocoOficio"
+import { PainelEtapaFluxo } from "@/components/fluxo/PainelEtapaFluxo"
+import { ProcessoContratacaoFluxo } from "@/components/processo/ProcessoContratacaoFluxo"
+import { haQuantoTempo, type Andamento } from "@/lib/fluxo/andamento"
 
 /**
  * Tela do processo (genérica): mostra ONDE o processo está e o PRÓXIMO PASSO.
@@ -47,9 +52,12 @@ export default function TelaDoProcessoPage() {
   const [posse, setPosse] = useState<ComQuemEsta | null>(null)
   const [fluxo, setFluxo] = useState<Fluxo | null>(null)
   const [autos, setAutos] = useState<Autos | null>(null)
+  const [andamento, setAndamento] = useState<Andamento | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [recebendo, setRecebendo] = useState(false)
+  // Posse (tramitação) já foi lida nesta carga: só então a tela mostra os botões da etapa (evita "Abrir" virar "Receber")
+  const [posseLida, setPosseLida] = useState(false)
   const [erroReceber, setErroReceber] = useState<string | null>(null)
   const tentativasPosse = useRef(0)
 
@@ -57,9 +65,12 @@ export default function TelaDoProcessoPage() {
     async (silencioso = false) => {
       if (!silencioso) setCarregando(true)
       setErro(null)
+      if (!silencioso) setPosseLida(false)
       try {
         const p = await chamarProcessos<ProcessoVisao>(`/${id}`, { padrao: "Não foi possível abrir o processo." })
         setProcesso(p)
+        // Andamento é complemento: se falhar, a tela segue sem ele
+        chamarProcessos<Andamento>(`/${id}/andamento`).then(setAndamento).catch(() => setAndamento(null))
         if (temTramitacaoPropria(p.tipo)) {
           const [t, f, a] = await Promise.all([
             chamarProcessos<Tramitacao>(`/${id}/tramitacao`),
@@ -70,6 +81,7 @@ export default function TelaDoProcessoPage() {
           setPosse(t.com_quem_esta ? normalizarPosse(t.com_quem_esta) : null)
           setFluxo(f)
           setAutos(a)
+          setPosseLida(true)
         } else if (p.tipo === "CONTRATACAO" && p.referencia_id) {
           // Licitação: tramitação e etapas pelo motor da fase interna (adaptadores); os autos ficam na tela da licitação
           const [t, f] = await Promise.all([
@@ -80,6 +92,7 @@ export default function TelaDoProcessoPage() {
           setPosse(normalizarPosse(t?.com_quem_esta))
           setFluxo(f)
           setAutos(null)
+          setPosseLida(true)
           // Processo recém-aberto: a autuação automática leva alguns segundos; relê até aparecer a posse
           if (!normalizarPosse(t?.com_quem_esta) && tentativasPosse.current < 4) {
             tentativasPosse.current += 1
@@ -91,6 +104,7 @@ export default function TelaDoProcessoPage() {
           setPosse(normalizarPosse(t?.com_quem_esta))
           setFluxo(null)
           setAutos(null)
+          setPosseLida(true)
         }
       } catch (e) {
         setErro(textoDoErro(e, "Não foi possível abrir o processo."))
@@ -155,7 +169,19 @@ export default function TelaDoProcessoPage() {
 
   const encerrado = processo.situacao === "ENCERRADO"
   const propria = temTramitacaoPropria(processo.tipo)
-  const ehAvulso = processo.tipo === "AVULSO"
+  // Ofício segue como avulso depois de assinado (receber, responder, encaminhar, arquivar)
+  const ehOficio = processo.tipo === "OFICIO"
+  const oficioPendente = ehOficio && !!autos && !autos.juntadas.some((j) => j.tipo_peca === "OFICIO")
+  const ehAvulso = processo.tipo === "AVULSO" || ehOficio
+  const oficioJaEnviado = ehOficio && !!tram?.movimentacoes?.some((m) => m.tipo !== "ABERTURA")
+  // Com fluxo em andamento o processo anda pelas etapas: sem envio, devolução ou encerramento à mão
+  const fluxoEmAndamento = andamento?.modo === "FLUXO" && !andamento.encerrado
+  // Selo do cabeçalho (mockup): onde está e há quanto tempo — "ETP · Setor de Compras · há 3 dias" / "No Setor de Patrimônio · há 2 dias"
+  const ondeEsta = !encerrado && andamento?.atual
+    ? andamento.modo === "FLUXO"
+      ? [andamento.atual.titulo, andamento.atual.responsavel, haQuantoTempo(andamento.atual.desde)].filter(Boolean).join(" · ")
+      : [andamento.atual.titulo === "Aguardando recebimento" ? `Aguardando recebimento em ${andamento.atual.responsavel ?? ""}`.trim() : `No ${andamento.atual.responsavel ?? "órgão"}`, haQuantoTempo(andamento.atual.desde)].filter(Boolean).join(" · ")
+    : null
   const ehLicitacao = processo.tipo === "CONTRATACAO" && !!processo.referencia_id
   const temFluxo = !!fluxo?.disponivel && !!fluxo.tem_fluxo && !!fluxo.etapas?.length
   const etapaAtual = temFluxo ? fluxo?.etapa_atual ?? null : null
@@ -168,6 +194,28 @@ export default function TelaDoProcessoPage() {
   const contrato = processo.conteudo?.contrato ?? null
   const licitacao = ehLicitacao && processo.conteudo && "modalidade" in processo.conteudo ? (processo.conteudo as ConteudoLicitacao) : null
 
+  // Contratação que segue o fluxo (mockup "Processo enxuto", 10/10/2026): onde está, com quem e uma ação
+  if (ehLicitacao && andamento?.modo === "FLUXO" && andamento.licitacao_id) {
+    return (
+      <TemaProcesso>
+        <ProcessoContratacaoFluxo
+          processo={processo}
+          licitacao={licitacao}
+          andamento={andamento}
+          posse={posse}
+          podeReceber={podeReceber}
+          posseLida={posseLida}
+          onReceber={receber}
+          recebendo={recebendo}
+          erroReceber={erroReceber}
+          linhaDoTempo={(tram?.linha_do_tempo as unknown[] | undefined) ?? []}
+          tramitacao={tram ? { pode_agir: tram.pode_agir, atual: tram.atual } : null}
+          onAtualizar={() => carregar(true)}
+        />
+      </TemaProcesso>
+    )
+  }
+
   return (
     <TemaProcesso>
       <header className={s.cabecalho}>
@@ -179,6 +227,7 @@ export default function TelaDoProcessoPage() {
           <span className={s.tipo}>{rotuloDoTipo(processo.tipo)}</span>
           <span>Processo nº {processo.numero}</span>
           <span className={`${s.chip} ${encerrado ? s.chipOk : s.chipEspera}`}>{encerrado ? "Encerrado" : "Em andamento"}</span>
+          {ondeEsta ? <span className={s.chip}>{ondeEsta}</span> : null}
           {processo.contrato_id ? (
             <Link className={s.link} href={`/orgao/contratos/${processo.contrato_id}`}>
               Contrato {contrato?.numero_contrato ?? "vinculado"}
@@ -187,6 +236,10 @@ export default function TelaDoProcessoPage() {
           ) : null}
         </div>
       </header>
+
+      <AndamentoFluxo andamento={andamento} />
+
+      {andamento?.modo === "FLUXO" ? <PainelEtapaFluxo processoId={processo.id} andamento={andamento} onAtualizar={() => carregar(true)} /> : null}
 
       <BlocoEstaCom
         posse={posse}
@@ -198,7 +251,7 @@ export default function TelaDoProcessoPage() {
       />
 
       {ehLicitacao ? (
-        encerrado ? (
+        fluxoEmAndamento ? null : encerrado ? (
           <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
         ) : podeAgir ? (
           <>
@@ -224,9 +277,31 @@ export default function TelaDoProcessoPage() {
         </section>
       ) : encerrado ? (
         <BlocoAguardando posse={posse} encerrado motivo={processo.motivo_encerramento} />
+      ) : fluxoEmAndamento ? (
+        podeAgir ? (
+          <BlocoEnviar
+            processoId={processo.id}
+            etapaChave={null}
+            posse={posse}
+            ehAvulso={ehAvulso}
+            foraDoFluxo
+            recebidoForaDoFluxo={String(tram?.atual?.despacho ?? "").startsWith("Envio fora do fluxo.")}
+            onTramitou={() => carregar(true)}
+            onEncerrou={() => carregar(true)}
+          />
+        ) : null
+      ) : podeAgir && oficioPendente ? (
+        <BlocoOficio processoId={processo.id} onEnviado={() => carregar(true)} />
+      ) : podeAgir && ehOficio && oficioJaEnviado ? (
+        <BlocoProvidenciaOficio
+          processoId={processo.id}
+          remetente={tram?.atual ? { setor_id: tram.atual.de_setor_id, setor_nome: tram.atual.de_setor_nome } : null}
+          posse={posse}
+          onFeito={() => carregar(true)}
+        />
       ) : podeAgir ? (
         <>
-          {temFluxo && etapaAtual ? (
+          {andamento?.modo === "FLUXO" ? null : temFluxo && etapaAtual ? (
             <BlocoSuaVez key={etapaAtual.chave} processoId={processo.id} etapa={etapaAtual} posse={posse} linkTermo={linkTermo} onJuntada={() => carregar(true)} />
           ) : ehAvulso ? (
             <BlocoPecaAvulsa processoId={processo.id} onJuntada={() => carregar(true)} />
@@ -244,7 +319,7 @@ export default function TelaDoProcessoPage() {
         <BlocoAguardando posse={posse} encerrado={false} motivo={null} />
       )}
 
-      {propria || ehLicitacao ? <BlocoEtapas fluxo={fluxo} /> : null}
+      {(propria || ehLicitacao) && andamento?.modo !== "FLUXO" ? <BlocoEtapas fluxo={fluxo} /> : null}
       {ehLicitacao && !encerrado ? <BlocoPublicacaoLicitacao licitacaoId={processo.referencia_id!} modalidade={licitacao?.modalidade ?? null} /> : null}
       {ehLicitacao ? <BlocoDadosLicitacao licitacaoId={processo.referencia_id!} lic={licitacao} /> : null}
 

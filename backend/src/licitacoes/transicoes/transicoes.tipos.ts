@@ -168,6 +168,8 @@ export interface ConsultasTransicao {
    * Opcional: ausente = sem checagem.
    */
   unidadesSemHabilitado?(): Promise<string[]>;
+  /** Dispensa eletrônica: vencedores sem habilitação registrada como HABILITADO (art. 72, V). */
+  vencedoresDispensaSemHabilitacao?(): Promise<string[]>;
   /**
    * Estado recursal (plano E5 — Lei 14.133 arts. 165 e 168): janela de
    * intenção aberta/encerrada, recursos pendentes (efeito suspensivo),
@@ -227,6 +229,8 @@ export interface EstadoRecursal {
   janelaAberta: boolean;
   /** Há janela de intenção ENCERRADA e não superada (o direito de recorrer foi dado sobre o resultado atual). */
   janelaEncerrada: boolean;
+  /** Inversão de fases: janela de intenção da habilitação prévia (antes dos lances). Ausente em mocks = sem checagem. */
+  janelaPrevia?: 'AUSENTE' | 'ABERTA' | 'ENCERRADA';
   /** Rótulos dos recursos/intenções sem decisão final. */
   pendentes: string[];
   intencoesAdmitidas: number;

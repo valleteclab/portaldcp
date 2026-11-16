@@ -38,6 +38,21 @@ describe('mesmoTextoDaSecao — salvar o mesmo texto não é edição', () => {
     expect(mesmoTextoDaSecao(undefined, '<p>Objeto</p>')).toBe(false);
   });
 
+  it('reformatação do editor (<p> dentro do item de lista, parágrafo vazio no fim) não é edição — homologação 08/11/2026', () => {
+    const gerado = '<p>A execução será fiscalizada (art. 117).</p><ul><li>Responsável: Carlos — DIRETORIA</li></ul>';
+    const editor = '<p>A execução será fiscalizada (art. 117).</p><ul><li><p>Responsável: Carlos — DIRETORIA</p></li></ul><p></p>';
+    expect(mesmoTextoDaSecao(gerado, editor)).toBe(true);
+    expect(mesmoTextoDaSecao(gerado, editor.replace('Carlos', 'Paulo'))).toBe(false);
+    // espaço não separável do valor (Intl) e entidades que o editor grava
+    expect(mesmoTextoDaSecao('<ul><li>2026: R$\u00a017.500,00 (reservado)</li></ul>', '<ul><li><p>2026: R$&nbsp;17.500,00 (reservado)</p></li></ul><p></p>')).toBe(true);
+    expect(mesmoTextoDaSecao('<p>Lei "A" & B</p>', '<p>Lei &quot;A&quot; &amp; B</p>')).toBe(true);
+    expect(mesmoTextoDaSecao('<p>R$ 17.500,00</p>', '<p>R$&nbsp;18.500,00</p>')).toBe(false);
+    // parágrafos juntados ou separados continuam sendo edição
+    expect(mesmoTextoDaSecao('<p>Um.</p><p>Dois.</p>', '<p>Um. Dois.</p>')).toBe(false);
+    // item de lista novo é edição
+    expect(mesmoTextoDaSecao('<ul><li>A</li></ul>', '<ul><li><p>A</p></li><li><p>B</p></li></ul>')).toBe(false);
+  });
+
   it('a peça emitida continua pronta quando nada mudou de fato', () => {
     const doc = { tipo: 'TR', status: 'EM_ELABORACAO', descricao: '<p>Objeto</p>', dados_estruturados: { objeto: '<p>Objeto</p>' } as any };
     doc.dados_estruturados._emitido = registroDeEmissao(doc);

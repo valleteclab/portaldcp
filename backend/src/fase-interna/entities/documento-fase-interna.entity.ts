@@ -60,6 +60,7 @@ export enum TipoDocumentoFaseInterna {
   RESERVA_DOTACAO_PROCESSO = 'RESERVA_DOTACAO',
   PARECER_PROCESSO = 'PARECER_PROCESSO',
   AUTORIZACAO_PROCESSO = 'AUTORIZACAO_PROCESSO',
+  OFICIO = 'OFICIO',
 }
 
 /** Tipos cujo modelo é uma peça do processo eletrônico (uma seção de texto, variáveis do processo/contrato). */
@@ -69,6 +70,7 @@ export const TIPOS_PECA_PROCESSO: readonly TipoDocumentoFaseInterna[] = [
   TipoDocumentoFaseInterna.RESERVA_DOTACAO_PROCESSO,
   TipoDocumentoFaseInterna.PARECER_PROCESSO,
   TipoDocumentoFaseInterna.AUTORIZACAO_PROCESSO,
+  TipoDocumentoFaseInterna.OFICIO,
 ];
 
 export enum StatusDocumento {

@@ -40,7 +40,7 @@ interface MinhaNegociacao {
   mensagens: MensagemNegociacao[]
 }
 
-export function NegociacaoFornecedorPanel({ sessaoId, versao = 0 }: { sessaoId: string; versao?: number }) {
+export function NegociacaoFornecedorPanel({ sessaoId, versao = 0, unidade }: { sessaoId: string; versao?: number; /** Só esta unidade (detalhe do lote). */ unidade?: { tipo: 'ITEM' | 'LOTE'; numero: number } }) {
   const [lista, setLista] = useState<MinhaNegociacao[]>([])
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
@@ -88,10 +88,11 @@ export function NegociacaoFornecedorPanel({ sessaoId, versao = 0 }: { sessaoId: 
     }
   }
 
-  if (!lista.length) return null
+  const daUnidade = unidade ? lista.filter((n) => n.unidade?.tipo === unidade.tipo && n.unidade?.numero === unidade.numero) : lista
+  if (!daUnidade.length) return null
 
   const rotulo = (n: MinhaNegociacao) => (n.unidade ? `${n.unidade.tipo === 'LOTE' ? 'Lote' : 'Item'} ${n.unidade.numero}` : 'Unidade')
-  const ordenadas = [...lista].sort(
+  const ordenadas = [...daUnidade].sort(
     (a, b) => Number(b.minha) - Number(a.minha) || Number(b.status === 'EM_ANDAMENTO') - Number(a.status === 'EM_ANDAMENTO'),
   )
 

@@ -2,7 +2,7 @@ import { etapasDaFaseInterna, EstadoFluxoParaEtapas, passosDasEtapas } from '../
 import { PAPEIS_FASE_INTERNA } from './codigos';
 import { GrafoFluxo, grafoDeEtapas, normalizarGrafo, projetarGrafo } from './grafo-fluxo';
 import { ModeloFluxo, TipoProcessoFluxo } from './modelo-fluxo';
-import { comAprovacaoDeFinancas, MODELOS_PRONTOS } from './modelos-prontos-fluxo';
+import { comAprovacaoDeFinancas, MODELOS_PRONTOS } from './modelos-prontos-fluxo.fixture';
 import { AcaoSimulacao, DadosCondicao, EstadoSimulacao, alvosDaDevolucao, avaliarCondicao, conferirGrafo, etapasVivas, simular } from './motor-grafo';
 import { REQUISITOS_SEMENTE, etapasSemente, modeloSemente } from './semente-fluxo';
 

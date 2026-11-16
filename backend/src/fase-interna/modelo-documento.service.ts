@@ -17,10 +17,12 @@ import {
   TipoDocumentoFaseInterna,
 } from './entities/documento-fase-interna.entity';
 import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { SQL_PORTARIA_JUNTADA_NO_PROCESSO, ehLicitacaoCompetitiva, numeroDaPortariaJuntada } from './telas/minutas-regras';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { FaseInternaService } from './fase-interna.service';
 import {
   MODELOS_PADRAO,
+  MODELO_JC_LICITACAO,
   CABECALHO_PADRAO_HTML,
   RODAPE_PADRAO_HTML,
   AUTORIZACAO_TEXTO_E1,
@@ -149,7 +151,20 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
   async resolverModelo(
     orgaoId: string | null,
     tipo: TipoDocumentoFaseInterna,
+    modalidade?: string | null,
   ): Promise<ModeloDocumento | null> {
+    // Justificativa da contratação na licitação: o modelo do art. 18, IX (o do banco é o aviso da dispensa)
+    if (tipo === TipoDocumentoFaseInterna.JUSTIFICATIVA_CONTRATACAO && ehLicitacaoCompetitiva(modalidade)) {
+      return this.modeloRepo.create({
+        ...MODELO_JC_LICITACAO,
+        orgao_id: null as any,
+        padrao_sistema: true,
+        ativo: true,
+        versao: 1,
+        cabecalho_html: CABECALHO_PADRAO_HTML,
+        rodape_html: RODAPE_PADRAO_HTML,
+      } as any) as ModeloDocumento;
+    }
     if (orgaoId) {
       const doOrgao = await this.modeloRepo.findOne({
         where: { orgao_id: orgaoId, tipo, ativo: true },
@@ -359,7 +374,9 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
           [licitacao.orgao_id, exercicio],
         ).catch(() => [])
       : [];
-    const numeroPortaria = dp?.numero_peca || portaria?.numero || null;
+    // ...ou a portaria juntada por uma etapa do fluxo do processo (pregão: "Portarias do agente e dos fiscais")
+    const [juntada] = !dp && !portaria ? await q(SQL_PORTARIA_JUNTADA_NO_PROCESSO, [licitacao.id]).catch(() => []) : [];
+    const numeroPortaria = dp?.numero_peca || portaria?.numero || numeroDaPortariaJuntada(juntada) || null;
     const designacao = numeroPortaria ? `designado pela ${numeroPortaria}` : 'designado por portaria do órgão';
     // Limite do inciso do fundamento (art. 75, I/II) no exercício — o do INCISO CERTO (PA 139/2025)
     const inciso = incisoLimiteDoFundamento(fundamentoEfetivo(licitacao));
@@ -413,7 +430,7 @@ export class ModeloDocumentoService implements OnApplicationBootstrap {
 
     const modelo = opcoes?.modeloId
       ? await this.obter(opcoes.modeloId)
-      : await this.resolverModelo(licitacao.orgao_id, tipo);
+      : await this.resolverModelo(licitacao.orgao_id, tipo, licitacao.modalidade);
     if (!modelo) {
       throw new NotFoundException(`Nenhum modelo disponível para o tipo ${tipo}`);
     }

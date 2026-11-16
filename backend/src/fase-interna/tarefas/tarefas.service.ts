@@ -1,3 +1,4 @@
+import { licitacaoConduzidaPeloFluxo } from '../../workflow/ponte/ponte-fase-interna';
 import {
   BadRequestException,
   ConflictException,
@@ -78,11 +79,13 @@ const SINCRONIZACAO_ORGAO_PARALELA = 3;
 export type PosseVigente = Posse & { tramitacao_id: string; posse_inicial: boolean };
 
 /**
- * F3: o que a sincronização acabou de calcular e aplicar — para quem integra
- * a tramitação (posse inicial, envio automático, "Enviar o processo",
- * "Aprovar a demanda"). Roda na MESMA fila do processo, depois das tarefas
- * de etapa e antes dos avisos das tarefas criadas (assim o aviso da
- * tramitação vem primeiro e o da tarefa não se repete).
+ * O que a sincronização acabou de calcular — para as rotinas que rodam depois
+ * dela, na MESMA fila do processo (`registrarDepoisDeSincronizar`): a
+ * reconciliação das tarefas "Assinar <peça>" e o rascunho da IA ao chegar.
+ *
+ * Um motor só (11/2026): a integração com a tramitação (posse inicial, envio
+ * automático, "Enviar o processo") saiu; por isso não há mais posse, destinos
+ * nem tarefas de etapa concluídas aqui.
  */
 export interface ResultadoSincronizacao {
   lic: { id: string; orgao_id: string; numero_processo: string; objeto: string | null; fase: string; situacao: string | null; pregoeiro_id: string | null };
@@ -92,13 +95,10 @@ export interface ResultadoSincronizacao {
   modelo: ModeloFluxo;
   estado: EstadoFluxoParaEtapas;
   ctx: ContextoFluxoProcesso | null;
-  /** Passos cujas tarefas foram concluídas NESTA sincronização (e quem cumpriu). */
-  concluidas: Array<{ passo: string; autor: { id: string | null; nome: string | null } }>;
-  /** false na migração de boot: nada avisa nem se move sozinho (só a posse inicial, que não avisa). */
+  /** false na migração de boot: nada avisa nem se move sozinho. */
   notificar: boolean;
-  condutor_id: string | null;
-  posse: PosseVigente | null;
-  destinos: Record<string, DestinoEtapa | null>;
+  /** O processo é conduzido pelo fluxo novo (workflow)? */
+  conduzido_pelo_fluxo: boolean;
 }
 
 /** F1: responsável de cada etapa do modelo de fluxo (o que `responsavelDoPasso` lê). */
@@ -155,7 +155,7 @@ export class TarefasService {
     (opcoes.porUltimo ? this.antesDeSincronizarPorUltimo : this.antesDeSincronizar).push(fn);
   }
 
-  /** F3: rotinas depois de aplicar o plano (integração com a tramitação). */
+  /** Rotinas depois da sincronização (reconciliação das assinaturas, rascunho da IA ao chegar). */
   private readonly depoisDeSincronizar: Array<(r: ResultadoSincronizacao) => Promise<unknown>> = [];
 
   registrarDepoisDeSincronizar(fn: (r: ResultadoSincronizacao) => Promise<unknown>) {
@@ -493,90 +493,34 @@ export class TarefasService {
     // Construtor de fluxo: a resposta que o sistema acabou de dar a uma condição fica gravada (não muda
     // mais se o dado mudar); a devolução termina quando quem devolveu conclui
     if (fluxo.ctx && FASES_INTERNAS.includes(lic.fase)) await this.gravarDecisoesEDevolucoes(fluxo.ctx, passos);
-    const abertas = await this.tarefaRepo.find({ where: { licitacao_id: licitacaoId, status: 'ABERTA' } });
-
-    const prazos = prazosDoModelo(fluxo.modelo);
-    // F3: posse única — a tarefa da etapa de quem recebeu o processo passa ao destino do envio
-    const condutor = agente ?? criador;
-    const posse = await this.posseAtual(licitacaoId);
-    const destinos = await this.destinosDoProcesso(lic.orgao_id, fluxo.modelo, config.modo, condutor);
-    const responsavelCom = (posseAgora: Posse | null) => (p: PassoFaseInterna | string) =>
-      responsavelNaPosse(
-        responsavelDoPasso(p, { modo: config.modo, responsaveis: responsaveisDoModelo(fluxo.modelo) }, { agente_id: agente, criador_usuario_id: criador }),
-        p,
-        destinos[p],
-        posseAgora,
-        config.modo,
-      );
-    const responsavelDe = responsavelCom(posse);
-
-    const plano = planejarSincronizacao(passos, abertas, responsavelDe, {
-      processo_encerrado: SITUACOES_ENCERRAM_TUDO.includes(lic.situacao) && FASES_INTERNAS.includes(lic.fase),
-    });
-
-    const agora = new Date();
-    const cal = calendarioDoOrgao(lic.orgao_id);
-    let criadas = 0;
-    const avisos: Tarefa[] = [];
-    const concluidas: ResultadoSincronizacao['concluidas'] = [];
-
-    for (const { passo, responsavel } of plano.criar) {
-      const valores = this.valoresDaTarefaDoPasso(lic, passo, responsavel, prazos, agora, cal);
-      const r = await this.tarefaRepo.createQueryBuilder().insert().into(Tarefa).values(valores).orIgnore().returning(['id']).execute();
-      const id = r.raw?.[0]?.id;
-      if (!id) continue; // já existia uma aberta (outra instância) — idempotente
-      criadas++;
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CRIADA, `Tarefa criada: ${passo.titulo}`, null, {
-        tarefa_id: id,
-        etapa: passo.etapa,
-        passo: passo.passo,
-        responsavel,
-        prazo: valores.prazo,
-      });
-      // o aviso sai no fim (depois da tramitação — sem aviso repetido)
-      if (opcoes.notificar !== false) avisos.push({ ...valores, id } as Tarefa);
-    }
-
-    for (const { tarefa_id, passo } of plano.concluir) {
-      const autor = await this.quemCumpriuPasso(licitacaoId, passo);
-      const r = await this.ds.query(
-        `UPDATE tarefas SET status = 'CONCLUIDA', concluida_em = now(), concluida_por_id = $2, concluida_por_nome = $3, updated_at = now()
-          WHERE id::text = $1 AND status = 'ABERTA' RETURNING id`,
-        [tarefa_id, autor.id, autor.nome],
-      );
-      if (!Number(r?.[1])) continue; // outra sincronização já concluiu
-      concluidas.push({ passo: passo.passo, autor });
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CONCLUIDA, `Tarefa concluída: ${passo.titulo}`, null, {
-        tarefa_id,
-        passo: passo.passo,
-        concluida_por: autor,
-      }, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
-    }
-
-    for (const { tarefa_id, motivo } of plano.cancelar) {
-      await this.ds.query(
+    // Processo revogado ou anulado na fase interna: TODAS as abertas são canceladas — inclusive as do
+    // sistema (assinatura, diligência, devolução da autorização, renovar dotação), que a sincronização
+    // não mexe enquanto o processo está vivo. Antes do motor único, o plano da sincronização fazia isso.
+    if (SITUACOES_ENCERRAM_TUDO.includes(lic.situacao) && FASES_INTERNAS.includes(lic.fase)) {
+      const motivo = 'Processo revogado ou anulado.';
+      const [canceladas] = await this.ds.query(
         `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $2, updated_at = now()
-          WHERE id::text = $1 AND status = 'ABERTA'`,
-        [tarefa_id, motivo],
+          WHERE licitacao_id::text = $1 AND status = 'ABERTA' RETURNING id::text AS id`,
+        [licitacaoId, motivo],
       );
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CANCELADA, `Tarefa cancelada: ${motivo}`, null, { tarefa_id, motivo });
+      for (const t of (canceladas ?? []) as Array<{ id: string }>) {
+        await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_CANCELADA, `Tarefa cancelada: ${motivo}`, null, { tarefa_id: t.id, motivo });
+      }
     }
+    // UM MOTOR SÓ (08/11/2026): as etapas da contratação são conduzidas pelo fluxo novo — aqui só se calcula.
+    // As tarefas do motor antigo que ainda estejam abertas (etapa, "Enviar o processo", "Aprovar a demanda")
+    // são canceladas. As tarefas do sistema (diligência do parecer, devolução da autorização, assinatura,
+    // reserva) ficam: antes eram canceladas junto, a cada sincronização.
+    await this.ds.query(
+      `UPDATE tarefas SET status = 'CANCELADA', cancelada_em = now(), motivo_cancelamento = $2, updated_at = now()
+        WHERE licitacao_id::text = $1 AND status = 'ABERTA'
+          AND (origem IN ('ETAPA', 'TRAMITACAO') OR chave LIKE 'demanda:aprovar%')`,
+      [licitacaoId, 'O processo segue o fluxo: as etapas são conduzidas por ele.'],
+    );
 
-    for (const { tarefa_id, de, para } of plano.reatribuir) {
-      await this.ds.query(
-        `UPDATE tarefas SET responsavel_usuario_id = $2, responsavel_papel = $3, responsavel_setor_id = $4, updated_at = now()
-          WHERE id::text = $1 AND status = 'ABERTA' AND atribuicao_manual = false`,
-        [tarefa_id, para.usuario_id, para.papel, para.setor_id],
-      );
-      await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_REATRIBUIDA, 'Responsável recalculado pela configuração do órgão', { responsavel: de }, {
-        tarefa_id,
-        responsavel: para,
-      });
-    }
-
-    await this.registrarMudancasDeEtapa(licitacaoId, etapas);
-
-    // F3: integração com a tramitação (posse inicial, envio automático, "Enviar o processo", "Aprovar a demanda")
+    // As rotinas registradas para depois da sincronização continuam valendo: sem elas, a tarefa
+    // "Assinar <peça>" da versão substituída (ou assinada pelo link do portal) ficava aberta para sempre
+    // — a tarefa do sistema agora sobrevive à sincronização, e quem a reconcilia é esta rodada.
     const resultado: ResultadoSincronizacao = {
       lic,
       etapas,
@@ -585,43 +529,17 @@ export class TarefasService {
       modelo: fluxo.modelo,
       estado: fluxo.estado,
       ctx: fluxo.ctx,
-      concluidas,
       notificar: opcoes.notificar !== false,
-      condutor_id: condutor,
-      posse,
-      destinos,
+      conduzido_pelo_fluxo: await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId),
     };
     for (const fn of this.depoisDeSincronizar) {
       try {
         await fn(resultado);
       } catch (e: any) {
-        this.logger.warn(`Integração do processo ${licitacaoId} com a tramitação falhou: ${e?.message ?? e}`);
+        this.logger.warn(`Rotina depois da sincronização do processo ${licitacaoId} falhou: ${e?.message ?? e}`);
       }
     }
-    // A posse mudou agora (envio automático): as tarefas que acabaram de nascer já vão para o
-    // destino — e o aviso sai para ele uma vez só (quem já foi avisado pela tramitação não repete)
-    if (avisos.length) {
-      const posseDepois = await this.posseAtual(licitacaoId);
-      if ((posseDepois?.tramitacao_id ?? null) !== (posse?.tramitacao_id ?? null)) {
-        const novoDe = responsavelCom(posseDepois);
-        for (const t of avisos) {
-          if (t.origem !== 'ETAPA' || !t.passo) continue;
-          const para = novoDe(t.passo);
-          const de: Responsavel = { usuario_id: t.responsavel_usuario_id, papel: t.responsavel_papel, setor_id: t.responsavel_setor_id };
-          if (mesmoResponsavel(de, para)) continue;
-          const r = await this.ds.query(
-            `UPDATE tarefas SET responsavel_usuario_id = $2, responsavel_papel = $3, responsavel_setor_id = $4, updated_at = now()
-              WHERE id::text = $1 AND status = 'ABERTA' AND atribuicao_manual = false RETURNING id`,
-            [t.id, para.usuario_id, para.papel, para.setor_id],
-          );
-          if (!Number(r?.[1])) continue;
-          Object.assign(t, { responsavel_usuario_id: para.usuario_id, responsavel_papel: para.papel, responsavel_setor_id: para.setor_id });
-          await this.log(licitacaoId, AcaoLogFaseInterna.TAREFA_REATRIBUIDA, 'Responsável recalculado: o processo chegou ao destino da etapa', { responsavel: de }, { tarefa_id: t.id, responsavel: para });
-        }
-      }
-    }
-    for (const t of avisos) await this.notificar(lic, t, 'nova');
-    return { etapas, config, criadas };
+    return { etapas, config, criadas: 0 };
   }
 
   // ==========================================================================
@@ -690,6 +608,9 @@ export class TarefasService {
   async etapasPendentesParaPublicar(licitacaoId: string): Promise<string[]> {
     const [lic] = await this.ds.query(`SELECT orgao_id::text AS orgao_id, fase::text AS fase, situacao::text AS situacao FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
     if (!lic?.orgao_id || !FASES_INTERNAS.includes(lic.fase)) return [];
+    // Um motor só (11/2026): conduzida pelo fluxo, quem diz se as etapas acabaram é o fluxo —
+    // o modelo antigo fica parado (sem tarefas nem posse) e nunca concluiria as etapas dele
+    if (await licitacaoConduzidaPeloFluxo((sql, p) => this.ds.query(sql, p), licitacaoId)) return this.etapasDoFluxoAntesDaPublicacao(licitacaoId);
     const passos = passosDasEtapas(await this.etapasCalculadas(licitacaoId, lic));
     const pub = passos.find((p) => p.passo === PassoFaseInterna.PUBLICACAO);
     const exigidas = new Set<string>(pub?.pendencias ?? []);
@@ -708,6 +629,27 @@ export class TarefasService {
       saida.push(`${p.titulo}${p.fundamento ? ` (${p.fundamento})` : ''} — ${motivo}`);
     }
     return saida;
+  }
+
+  /**
+   * Publicar com o fluxo desenhado: liberado quando o fluxo chegou à etapa de
+   * Publicação (as anteriores concluídas, na ordem do desenho); antes disso, a
+   * pendência diz em que etapa o processo está. Ainda na instrução, a
+   * publicação vem no fluxo da modalidade.
+   */
+  private async etapasDoFluxoAntesDaPublicacao(licitacaoId: string): Promise<string[]> {
+    const [atual] = await this.ds.query(
+      `SELECT a.nome, a.tipo
+         FROM workflow_instancias i
+         JOIN processos p ON p.id = i.vinculo_id AND p.orgao_id = i.orgao_id
+         LEFT JOIN workflow_acoes a ON a.id = i.acao_atual_id
+        WHERE i.vinculo_tipo = 'PROCESSO' AND i.status = 'EM_ANDAMENTO'
+          AND p.referencia_tipo = 'LICITACAO' AND p.referencia_id::text = $1
+        ORDER BY i.created_at DESC LIMIT 1`,
+      [licitacaoId],
+    );
+    if (!atual || String(atual.tipo ?? '').toUpperCase() === 'PUBLICACAO') return [];
+    return [`${atual.nome ?? 'Etapa atual'} — etapa atual do fluxo (a publicação é a última etapa)`];
   }
 
   /**

@@ -1,3 +1,7 @@
+import { ModuleRef } from '@nestjs/core';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import { JANELA_MINIMA_DE_TESTE_MIN, orgaoComPrazosDeTeste } from '../common/prazos/prazos-de-teste';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from '../sessao/entities/sessao-disputa.entity';
@@ -81,6 +85,8 @@ export interface EstadoJanela {
   numeroProcesso: string | null;
   dataHomologacao: Date | null;
   corteSigilo: Date | null;
+  /** Dispensa com etapa de lances (o anonimato vai até o fim da janela). */
+  comLances: boolean;
   inicio: Date | null;
   fim: Date | null;
   prorrogacaoMinutos: number;
@@ -101,7 +107,41 @@ export class JanelaDispensaService {
     private readonly disputa: DisputaService,
     private readonly anonimizacao: AnonimizacaoService,
     private readonly gateway: DisputaGateway,
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * Aviso do órgão (prazo de propostas) → notificação no sino de cada fornecedor com
+   * proposta válida; contraproposta/negociação → só o vencedor (homologação 08/11/2026:
+   * o aviso ficava só no chat da sala, quem não abria a sala não sabia).
+   */
+  private async notificarFornecedores(licitacaoId: string, fornecedores: string[], titulo: string, mensagem: string) {
+    if (!fornecedores.length) return;
+    let notif: NotificacoesService | null = null;
+    try {
+      notif = this.moduleRef.get(NotificacoesService, { strict: false });
+    } catch {
+      return;
+    }
+    const [l] = await this.dataSource.query(`SELECT orgao_id::text AS orgao_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    const dest: Array<{ id: string; email?: string }> = await this.dataSource.query(
+      `SELECT id::text AS id, email FROM fornecedores WHERE id::text = ANY($1::text[])`,
+      [fornecedores],
+    );
+    await notif?.criarParaMultiplos(
+      dest.map((d) => ({ id: d.id, email: d.email || undefined })),
+      {
+        orgao_id: l?.orgao_id,
+        tipo: TipoNotificacao.SISTEMA,
+        titulo: titulo.slice(0, 200),
+        mensagem: mensagem.slice(0, 1000),
+        prioridade: PrioridadeNotificacao.ALTA,
+        entidade_tipo: 'licitacao',
+        entidade_id: licitacaoId,
+        link: `/fornecedor/licitacoes/${licitacaoId}/sala`,
+      } as any,
+    );
+  }
 
   // ==========================================================================
   // ESTADO DA JANELA E SALA
@@ -111,7 +151,7 @@ export class JanelaDispensaService {
     const [l] = await m.query(
       `SELECT id, modalidade::text AS modalidade, numero_processo, data_homologacao,
               COALESCE(data_fim_acolhimento, data_abertura_sessao) AS corte,
-              dispensa_lances_inicio, dispensa_lances_fim, dispensa_lances_prorrogacao_min
+              dispensa_lances_inicio, dispensa_lances_fim, dispensa_lances_prorrogacao_min, dispensa_com_lances
          FROM licitacoes WHERE id = $1${travar ? ' FOR UPDATE' : ''}`,
       [licitacaoId],
     );
@@ -122,10 +162,23 @@ export class JanelaDispensaService {
       numeroProcesso: l.numero_processo ?? null,
       dataHomologacao: l.data_homologacao ? new Date(l.data_homologacao) : null,
       corteSigilo: l.corte ? new Date(l.corte) : null,
+      comLances: l.dispensa_com_lances === true,
       inicio: l.dispensa_lances_inicio ? new Date(l.dispensa_lances_inicio) : null,
       fim: l.dispensa_lances_fim ? new Date(l.dispensa_lances_fim) : null,
       prorrogacaoMinutos: Number(l.dispensa_lances_prorrogacao_min) || 0,
     };
+  }
+
+  /**
+   * A autoria do fornecedor no chat ainda é anônima? Durante o prazo de
+   * propostas, durante a janela de lances e — na dispensa com lances — também
+   * no intervalo entre as duas (senão quem escreveu no prazo seria identificado
+   * logo antes de disputar).
+   */
+  autoriaAnonima(e: EstadoJanela, agora = new Date()): boolean {
+    if (this.janelaAberta(e, agora.getTime())) return true;
+    if (e.corteSigilo && agora < e.corteSigilo) return true;
+    return e.comLances && !e.fim;
   }
 
   /** A janela está aberta agora? (relógio único) */
@@ -172,7 +225,10 @@ export class JanelaDispensaService {
   async abrir(licitacaoId: string, duracaoMinutos: number, prorrogacaoMinutos?: number) {
     // IN SEGES 67/2021, art. 11: a etapa de lances dura de 6 a 10 horas
     const informada = duracaoMinutos === undefined || duracaoMinutos === null || (duracaoMinutos as any) === '' ? null : Number(duracaoMinutos);
-    if (informada !== null && !(informada >= DURACAO_MINIMA_JANELA_MIN && informada <= DURACAO_MAXIMA_JANELA_MIN)) {
+    // Ensaio na homologação (Railway): órgão de teste abre a janela a partir de 5 min (common/prazos/prazos-de-teste.ts)
+    const [{ orgao_id: orgaoDaLicitacao } = { orgao_id: null }] = await this.dataSource.query(`SELECT orgao_id::text AS orgao_id FROM licitacoes WHERE id::text = $1`, [licitacaoId]);
+    const minimaJanela = orgaoComPrazosDeTeste(orgaoDaLicitacao) ? JANELA_MINIMA_DE_TESTE_MIN : DURACAO_MINIMA_JANELA_MIN;
+    if (informada !== null && !(informada >= minimaJanela && informada <= DURACAO_MAXIMA_JANELA_MIN)) {
       throw new BadRequestException(
         `A etapa de lances da dispensa eletrônica dura de 6 a 10 horas (IN SEGES 67/2021, art. 11) — informe entre ${DURACAO_MINIMA_JANELA_MIN} e ${DURACAO_MAXIMA_JANELA_MIN} minutos.`,
       );
@@ -341,11 +397,23 @@ export class JanelaDispensaService {
     const agora = new Date();
     const emSigilo = !!e.corteSigilo && agora < e.corteSigilo;
     const itens: any[] = await this.dataSource.query(
-      `SELECT id, numero_item, descricao_resumida, descricao_detalhada, quantidade
+      `SELECT id, numero_item, descricao_resumida, descricao_detalhada, quantidade, status::text AS status,
+              valor_unitario_homologado, fornecedor_vencedor_id::text AS fornecedor_vencedor_id
          FROM itens_licitacao WHERE licitacao_id = $1 ORDER BY numero_item ASC`,
       [licitacaoId],
     );
     const menores = new Map((await this.agregadoPorItem(licitacaoId)).map((r) => [String(r.item_licitacao_id), r]));
+    // Saída por item (proposta desclassificada ou inabilitação só naquele item): o próprio fornecedor vê onde saiu e por quê
+    const minhasExclusoes = new Map<string, { tipo: string; motivo: string }>();
+    if (fornecedorId) {
+      const ex: any[] = await this.dataSource
+        .query(`SELECT item_licitacao_id::text AS item_id, tipo, motivo FROM exclusoes_item_dispensa WHERE licitacao_id::text = $1::text AND fornecedor_id::text = $2 ORDER BY created_at`, [
+          licitacaoId,
+          fornecedorId,
+        ])
+        .catch(() => []);
+      for (const x of ex) minhasExclusoes.set(x.item_id, { tipo: x.tipo, motivo: x.motivo });
+    }
     const meus = new Map<string, number>();
     if (fornecedorId) {
       const rows = await this.dataSource.query(
@@ -377,7 +445,16 @@ export class JanelaDispensaService {
           numero_item: i.numero_item,
           descricao: i.descricao_resumida || i.descricao_detalhada,
           quantidade: i.quantidade,
-          menor_valor: !emSigilo && g?.menor != null ? Number(g.menor) : null,
+          // Julgado: vale o valor adjudicado (lance desclassificado no item não é mais o menor; negociação reduz)
+          menor_valor:
+            ['ADJUDICADO', 'HOMOLOGADO'].includes(i.status) && i.valor_unitario_homologado != null
+              ? Number(i.valor_unitario_homologado)
+              : !emSigilo && g?.menor != null
+                ? Number(g.menor)
+                : null,
+          julgado: ['ADJUDICADO', 'HOMOLOGADO'].includes(i.status),
+          sou_vencedor: !!fornecedorId && i.fornecedor_vencedor_id === String(fornecedorId),
+          minha_exclusao: minhasExclusoes.get(String(i.id)) ?? null,
           total_lances: emSigilo ? 0 : Number(g?.n_lances || 0),
           meu_valor: meus.get(String(i.id)),
         };
@@ -530,7 +607,7 @@ export class JanelaDispensaService {
    */
   async listarMensagens(licitacaoId: string, leitor: LeitorChat = null): Promise<any[]> {
     const e = await this.estado(licitacaoId);
-    const anonimo = this.janelaAberta(e) || (!!e.corteSigilo && new Date() < e.corteSigilo);
+    const anonimo = this.autoriaAnonima(e);
     const eventos: EventoSessao[] = await this.dataSource.manager
       .createQueryBuilder(EventoSessao, 'e')
       .innerJoin(SessaoDisputa, 's', 's.id = e.sessao_id')
@@ -629,12 +706,32 @@ export class JanelaDispensaService {
     // Negociação é privada (sem acompanhamento dos demais — IN 67 art. 16):
     // não vai para a sala pública; órgão e vencedor leem pela lista.
     if (!canal) {
-      const anonimo = this.janelaAberta(e) || (!!e.corteSigilo && new Date() < e.corteSigilo);
+      const anonimo = this.autoriaAnonima(e);
       const codigo =
         dto.autor_tipo === 'FORNECEDOR' && anonimo ? await this.disputa.codigoAnonimoSeguro(sessao.id, dto.fornecedor_id!) : null;
       const publico = this.mensagemParaTela(evento, codigo, !anonimo);
       delete (publico as any).fornecedor_id;
       this.gateway.emitirChatDispensa(licitacaoId, publico);
+    }
+    if (dto.autor_tipo === 'ORGAO') {
+      const destinos: string[] = canal
+        ? [String((canal as any).fornecedor_id)]
+        : regras.exige_assunto
+          ? (
+              await this.dataSource.query(
+                `SELECT DISTINCT fornecedor_id::text AS id FROM propostas WHERE licitacao_id = $1 AND status::text <> ALL($2::text[])`,
+                [licitacaoId, STATUS_PROPOSTA_INVALIDA],
+              )
+            ).map((r: any) => r.id)
+          : [];
+      const [lic] = await this.dataSource.query(`SELECT numero_edital, numero_processo FROM licitacoes WHERE id = $1`, [licitacaoId]);
+      const ref = lic?.numero_edital || lic?.numero_processo || 'dispensa';
+      this.notificarFornecedores(
+        licitacaoId,
+        destinos,
+        canal ? `Negociação na dispensa ${ref}` : `Aviso do órgão — dispensa ${ref}`,
+        texto,
+      ).catch((err) => this.logger?.warn?.(`Notificação do aviso da dispensa ${licitacaoId}: ${err?.message ?? err}`));
     }
     return { ok: true, id: evento.id, modo: regras.modo };
   }

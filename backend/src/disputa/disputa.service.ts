@@ -13,7 +13,7 @@ import { Repository, In, DataSource, EntityManager } from 'typeorm';
 import { createHash } from 'crypto';
 import { SessaoDisputa, StatusSessao, EtapaSessao } from '../sessao/entities/sessao-disputa.entity';
 import { EventoSessao, TipoEvento } from '../sessao/entities/evento-sessao.entity';
-import { Licitacao } from '../licitacoes/entities/licitacao.entity';
+import { FaseLicitacao, Licitacao } from '../licitacoes/entities/licitacao.entity';
 import { ItemLicitacao, StatusDisputaItem } from '../itens/entities/item-licitacao.entity';
 import { Lance } from './entities/lance.entity';
 import { AtaSessaoSnapshot } from './entities/ata-sessao-snapshot.entity';
@@ -34,6 +34,7 @@ import {
   valorPropostaNaBase,
 } from './modelo-lance';
 import { calcularRelogio, calcularRelogioJanela, prorrogacaoDaJanela } from './relogio-disputa';
+import { itemEmFaseComAnonimizacaoObrigatoria } from './disputa-anonimizacao-helpers';
 import { idAnonimo } from './sigilo-disputa.service';
 import { ModoDisputaService, CamposModoItem } from './modo-disputa.service';
 import { melhorQue, ordemSql } from './modos-disputa';
@@ -45,8 +46,10 @@ import { AtoLicitacao, AtorTransicao } from '../licitacoes/transicoes/transicoes
 import { exigirLicitacaoAtiva, licitacaoEstaAtiva } from '../sessao/licitacao-ativa';
 import { pedirEncerramentoDisputa } from '../sessao/transicoes-sessao';
 import { registrarLicitantesDaUnidade, reiniciarJulgamentoDaLicitacao } from '../julgamento/licitantes-unidade.sql';
+import { motivoReinicioRecusado, situacaoReinicio, SituacaoReinicio } from './regras-reinicio';
 import { motivoForaDoBeneficioMpe } from '../julgamento/me-epp/beneficio-mpe.sql';
 import { pendenciaJulgamentoTecnico } from '../julgamento/julgamento-tecnico.sql';
+import { fornecedoresForaDoRankingSql } from '../julgamento/regras-julgamento';
 
 /**
  * ============================================================================
@@ -390,8 +393,10 @@ export class DisputaService {
   }
 
   /** Código anônimo do fornecedor na sessão ("Fornecedor B"); nunca lança. */
-  async codigoAnonimoSeguro(sessaoId: string, fornecedorId: string): Promise<string> {
+  async codigoAnonimoSeguro(sessaoId: string, fornecedorId: string, unidadeId?: string | null): Promise<string> {
     try {
+      // Com unidade (item/lote): o código é o DAQUELA unidade — ver AnonimizacaoService
+      if (unidadeId) return await this.anonimizacaoService.obterCodigoNaUnidade(sessaoId, unidadeId, fornecedorId);
       return await this.anonimizacaoService.obterCodigoAnonimo(sessaoId, fornecedorId);
     } catch (e: any) {
       this.logger.warn(`Código anônimo indisponível (sessão ${sessaoId}): ${e?.message ?? e}`);
@@ -420,7 +425,7 @@ export class DisputaService {
   // ELEGIBILIDADE
   // ============================================================================
 
-  /** Fornecedor com proposta CLASSIFICADA/RECEBIDA na licitação pode entrar na sala. */
+  /** Fornecedor com proposta enviada e não desclassificada/cancelada pode entrar na sala. */
   async verificarElegibilidadeFornecedor(sessaoId: string, fornecedorId: string): Promise<{
     elegivel: boolean;
     motivo?: string;
@@ -429,8 +434,12 @@ export class DisputaService {
     const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId } });
     if (!sessao) return { elegivel: false, motivo: 'Sessão não encontrada', propostasClassificadas: 0 };
 
+    // ENVIADA/EM_ANALISE também entram: logo depois da abertura a pregoeira ainda não classificou
+    // ninguém. Antes, quem entrava nesse intervalo recebia "não possui proposta classificada", era
+    // desconectado e ficava preso nessa tela mesmo depois de classificado (ensaio do 2026/00078).
+    // Entrar na sala não é dar lance: o lance tem a própria conferência (modelo-lance).
     const propostasClassificadas = await this.propostaRepo.count({
-      where: { licitacao_id: sessao.licitacao_id, fornecedor_id: fornecedorId, status: In(['CLASSIFICADA', 'RECEBIDA']) },
+      where: { licitacao_id: sessao.licitacao_id, fornecedor_id: fornecedorId, status: In(['CLASSIFICADA', 'RECEBIDA', 'ENVIADA', 'EM_ANALISE']) },
     });
     if (propostasClassificadas === 0) {
       return {
@@ -570,7 +579,9 @@ export class DisputaService {
     const emDisputa: ItemDisputa[] = [];
     const encerrados: ItemDisputa[] = [];
     for (const item of itens) {
-      const itemDisputa = await this.mapearItemParaDisputa(item, sessao, params, anonimizar, codigos, {
+      // Órgão: o item já encerrado aparece identificado (é nele que o julgamento começa)
+      const anonimizarItem = anonimizar && !(opts.visaoOrgao && !itemEmFaseComAnonimizacaoObrigatoria(item.status_disputa));
+      const itemDisputa = await this.mapearItemParaDisputa(item, sessao, params, anonimizarItem, codigos, {
         lances: porItem.get(String(item.id)) ?? [],
         totalPropostas: contagemPropostas.get(String(item.id)) ?? 0,
         minhaProposta: minhasPropostas.get(String(item.id)),
@@ -685,7 +696,7 @@ export class DisputaService {
         }
       : undefined;
     if (melhor && anonimizar && melhor.fornecedorId) {
-      const codigo = codigos.get(melhor.fornecedorId) ?? (await this.codigoAnonimoSeguro(sessao.id, melhor.fornecedorId));
+      const codigo = await this.codigoAnonimoSeguro(sessao.id, melhor.fornecedorId, item.id);
       melhor = { ...melhor, fornecedorId: idAnonimo(codigo), fornecedorNome: codigo };
     }
 
@@ -783,6 +794,18 @@ export class DisputaService {
     // Critérios técnicos: a etapa de preços só abre com as notas técnicas publicadas (Lei 14.133 art. 36 §2º)
     const pendenciaTecnica = await pendenciaJulgamentoTecnico(this.dataSource.manager, sessao.licitacao_id);
     if (pendenciaTecnica) throw new ConflictException(pendenciaTecnica);
+    // Proposta enviada e ainda não analisada ficaria FORA dos lances sem que
+    // ninguém percebesse (ensaio do pregão 2026/00094: 5 propostas, 4
+    // classificadas, e a quinta só descobriu ao tentar dar lance).
+    const [semAnalise] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS n FROM propostas WHERE licitacao_id = $1 AND status::text = 'ENVIADA'`,
+      [sessao.licitacao_id],
+    );
+    if (Number(semAnalise?.n) > 0) {
+      throw new ConflictException(
+        `Há ${semAnalise.n} proposta(s) aguardando análise. Classifique ou desclassifique todas antes de abrir os lances — proposta sem análise fica fora da disputa.`,
+      );
+    }
     if (params.baseLance === BaseLance.TOTAL_LOTE) {
       // Disputa por LOTE: ids de lote (ou de itens → seus lotes) — disputa-lote.service.ts
       const r = await this.lotes.iniciar(sessao, itensIds, ator);
@@ -815,6 +838,10 @@ export class DisputaService {
       [sessao.licitacao_id],
     );
     await this.anonimizacaoService.atribuirCodigos(sessaoId, participantes.map((p) => String(p.fornecedor_id)));
+    // Um sorteio por item: julgar um item encerrado não revela quem é quem nos que seguem em disputa
+    for (const alvo of aIniciar) {
+      await this.anonimizacaoService.atribuirCodigosDaUnidade(sessaoId, alvo.id, participantes.map((p) => String(p.fornecedor_id)));
+    }
 
     let itensIniciados = 0;
     for (const alvo of aIniciar) {
@@ -988,7 +1015,10 @@ export class DisputaService {
         const meus = ativos
           .filter((l) => l.fornecedor_id === cmd.fornecedorId)
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        const melhor = ativos[0];
+        // Desempate ME/EPP: cobre a melhor oferta de quem ainda está no ranking
+        const fora = origem === OrigemLance.DESEMPATE_MPE ? await fornecedoresForaDoRankingSql(m, item.id) : null;
+        const noRanking = fora?.size ? ativos.filter((l) => !fora.has(String(l.fornecedor_id))) : ativos;
+        const melhor = noRanking[0];
         const agora = new Date();
 
         validarLance({
@@ -1007,7 +1037,7 @@ export class DisputaService {
               }
             : null,
           melhor: melhor ? { valor: parseFloat(melhor.valor), fornecedorId: melhor.fornecedor_id } : null,
-          valoresDeOutros: ativos.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
+          valoresDeOutros: noRanking.filter((l) => l.fornecedor_id !== cmd.fornecedorId).map((l) => parseFloat(l.valor)),
           diferencaMinima: params.diferencaMinima,
           intervaloProprioSegundos: params.intervaloProprioSegundos,
           agora,
@@ -1288,7 +1318,8 @@ export class DisputaService {
     sessaoId: string,
     justificativa: string,
     ator?: AtorTransicao,
-  ): Promise<{ itensReiniciados: number; lancesCancelados: number; snapshotId: string; hash: string }> {
+    opts: { confirmaVicio?: boolean } = {},
+  ): Promise<{ itensReiniciados: number; lancesCancelados: number; snapshotId: string; hash: string; anulacao: boolean }> {
     const motivo = typeof justificativa === 'string' ? justificativa.trim() : '';
     await this.sessaoParaAto(sessaoId);
     if (!motivo) throw new BadRequestException('Justificativa do reinício é obrigatória');
@@ -1296,7 +1327,15 @@ export class DisputaService {
     return this.dataSource.transaction(async (m) => {
       const sessao = await m.findOne(SessaoDisputa, { where: { id: sessaoId }, lock: { mode: 'pessimistic_write' } });
       if (!sessao) throw new NotFoundException('Sessão não encontrada');
-      await exigirLicitacaoAtiva(m, sessao.licitacao_id, { bloquear: true });
+      const lic = await exigirLicitacaoAtiva(m, sessao.licitacao_id, { bloquear: true });
+      // Travas do reinício (regras-reinicio): bloqueado da fase recursal em diante; depois
+      // do fim dos lances, só como anulação da etapa por vício, confirmada e fundamentada
+      const situacao = await this.situacaoReinicioDe(m, sessao.licitacao_id, lic.fase);
+      const recusa = motivoReinicioRecusado(situacao, { justificativa: motivo, confirmaVicio: opts.confirmaVicio });
+      if (recusa) {
+        throw situacao.modo === 'BLOQUEADO' ? new ConflictException(recusa) : new BadRequestException(recusa);
+      }
+      const anulacao = situacao.modo === 'REFORCADO';
 
       const conteudo = await this.montarRetratoSessao(m, sessao);
       const hash = hashCanonico(conteudo);
@@ -1341,10 +1380,24 @@ export class DisputaService {
         },
       );
 
-      await m.update(SessaoDisputa, sessaoId, { status: StatusSessao.AGUARDANDO_INICIO, etapa: EtapaSessao.ANALISE_PROPOSTAS });
+      // A sessão pública CONTINUA aberta: só a etapa de lances recomeça. Antes voltava a
+      // AGUARDANDO_INICIO e a tela da pregoeira caía na abertura da sessão, com conferências
+      // que já não passam (licitação em julgamento, propostas classificadas) — sessão travada
+      // (ensaio do pregão 002/2026, 09/11/2026)
+      await m.update(SessaoDisputa, sessaoId, { status: StatusSessao.EM_ANDAMENTO, etapa: EtapaSessao.ANALISE_PROPOSTAS });
       await this.lotes.reiniciarLotes(m, sessao.licitacao_id);
       // Julgamento (E3) recomeça: convocações de aceitação canceladas, situações descartadas
       await reiniciarJulgamentoDaLicitacao(m, sessao.licitacao_id, motivo);
+      // Reinício depois de iniciada a habilitação: a licitação volta ao julgamento — sem isso
+      // os lances reabriam com a fase em HABILITACAO e a aceitação (que exige JULGAMENTO) travava
+      if (lic.fase === FaseLicitacao.HABILITACAO) {
+        await this.transicoes.executar(sessao.licitacao_id, AtoLicitacao.RETORNAR_JULGAMENTO, {
+          ator: ator ?? { tipo: 'SISTEMA', id: 'disputa' },
+          manager: m,
+          motivo: `Etapa de lances anulada por vício e reiniciada: ${motivo}`,
+          registro: { origem: 'disputa', sessao_id: sessaoId, snapshot_id: snapshot.id },
+        });
+      }
       const lancesCancelados = cancelados.affected || 0;
       const itensReiniciados = itens.affected || 0;
       await m.save(
@@ -1352,15 +1405,39 @@ export class DisputaService {
           sessao_id: sessaoId,
           tipo: TipoEvento.SESSAO_RETOMADA,
           descricao:
-            `Sessão reiniciada pelo pregoeiro. Justificativa: ${motivo}. ${lancesCancelados} lances cancelados (sem exclusão), ` +
+            (anulacao
+              ? `ANULAÇÃO DA ETAPA DE LANCES POR VÍCIO (Súmula 473 do STF; Lei 14.133/2021, art. 71, III) — ato do pregoeiro, ` +
+                `praticado depois do encerramento dos lances. Vício declarado: ${motivo}. A etapa de lances recomeça; a aceitação ` +
+                `das propostas e as convocações em curso ficam sem efeito. `
+              : `Sessão reiniciada pelo pregoeiro. Justificativa: ${motivo}. `) +
+            `${lancesCancelados} lances cancelados (sem exclusão), ` +
             `${itensReiniciados} itens reiniciados. Retrato congelado ${snapshot.id} (SHA-256 ${hash}).`,
-          dados_adicionais: { snapshot_id: snapshot.id, hash, lancesCancelados, itensReiniciados },
+          dados_adicionais: { snapshot_id: snapshot.id, hash, lancesCancelados, itensReiniciados, anulacao_por_vicio: anulacao, fase_no_ato: lic.fase },
           usuario_nome: 'PREGOEIRO',
           is_sistema: false,
         }),
       );
-      return { itensReiniciados, lancesCancelados, snapshotId: snapshot.id, hash };
+      return { itensReiniciados, lancesCancelados, snapshotId: snapshot.id, hash, anulacao };
     });
+  }
+
+  /** Como o "Reiniciar" se apresenta agora (simples, reforçado ou bloqueado) — a sala consulta antes de abrir o diálogo. */
+  async consultarReinicio(sessaoId: string): Promise<SituacaoReinicio> {
+    const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId }, select: { id: true, licitacao_id: true } });
+    if (!sessao) throw new NotFoundException('Sessão não encontrada');
+    const [lic] = await this.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [sessao.licitacao_id]);
+    return this.situacaoReinicioDe(this.dataSource.manager, sessao.licitacao_id, lic?.fase);
+  }
+
+  private async situacaoReinicioDe(m: EntityManager, licitacaoId: string, fase: string | null | undefined): Promise<SituacaoReinicio> {
+    // Prazo FINAL de intenção de recurso já aberto (correndo ou encerrado) = fase recursal iniciada.
+    // A janela da habilitação prévia (inversão de fases) vem antes dos lances e não conta.
+    const [j] = await m.query(
+      `SELECT 1 FROM janelas_intencao_recurso
+        WHERE licitacao_id = $1 AND superada_em IS NULL AND COALESCE(momento, 'FINAL') = 'FINAL' LIMIT 1`,
+      [licitacaoId],
+    );
+    return situacaoReinicio({ fase, janelaFinalDeRecursoAberta: !!j });
   }
 
   /** Conteúdo do retrato congelado: tudo o que a ata da etapa de lances precisa. */
@@ -1472,7 +1549,7 @@ export class DisputaService {
     sessaoId: string | undefined,
     opts: OpcoesVisaoDisputa,
   ): Promise<{ sessaoId?: string; anonimizar: boolean; base: BaseLance; quantidade: number }> {
-    const item = await this.itemRepo.findOne({ where: { id: itemId }, select: ['id', 'licitacao_id', 'quantidade'] });
+    const item = await this.itemRepo.findOne({ where: { id: itemId }, select: ['id', 'licitacao_id', 'quantidade', 'status_disputa'] });
     let sid = sessaoId;
     if (!sid && item) {
       const s = await this.sessaoRepo.findOne({ where: { licitacao_id: item.licitacao_id }, order: { created_at: 'DESC' }, select: ['id'] });
@@ -1480,8 +1557,10 @@ export class DisputaService {
     }
     if (!item || !sid) return { sessaoId: sid, anonimizar: true, base: BaseLance.TOTAL_ITEM, quantidade: 1 };
     const params = await this.parametros.daSessao(sid);
+    // Órgão: identidades do item assim que ELE encerra (julgamento item a item); os
+    // demais leitores, só no fim da etapa de lances da licitação inteira.
     const anonimizar = opts.visaoOrgao
-      ? await this.anonimizacaoService.isAnonimizacaoAtiva(sid)
+      ? (await this.anonimizacaoService.isAnonimizacaoAtiva(sid)) && itemEmFaseComAnonimizacaoObrigatoria(item.status_disputa)
       : !(await this.etapaDeLancesEncerrada(item.licitacao_id));
     return { sessaoId: sid, anonimizar, base: params.baseLance, quantidade: Number(item.quantidade) || 1 };
   }
@@ -1498,27 +1577,38 @@ export class DisputaService {
       (await this.sessaoRepo.findOne({ where: { licitacao_id: lote.licitacao_id }, order: { created_at: 'DESC' }, select: ['id'] }))?.id;
     if (!sid) return false;
     const anonimizar = opts.visaoOrgao
-      ? await this.anonimizacaoService.isAnonimizacaoAtiva(sid)
+      ? (await this.anonimizacaoService.isAnonimizacaoAtiva(sid)) && itemEmFaseComAnonimizacaoObrigatoria(lote.status_disputa as any)
       : !(await this.etapaDeLancesEncerrada(lote.licitacao_id));
-    return { sessaoId: sid, anonimizar, anonimo: (f: string) => this.anonimo(sid, f) };
+    return { sessaoId: sid, anonimizar, anonimo: (f: string) => this.anonimo(sid, f, id) };
   }
 
-  private async anonimo(sessaoId: string, fornecedorId: string) {
-    const codigo = await this.codigoAnonimoSeguro(sessaoId, fornecedorId);
+  private async anonimo(sessaoId: string, fornecedorId: string, unidadeId?: string | null) {
+    const codigo = await this.codigoAnonimoSeguro(sessaoId, fornecedorId, unidadeId);
     return { fornecedorId: idAnonimo(codigo), fornecedorNome: codigo };
   }
 
   /** Propostas iniciais do item (na base do lance). Sem sessão aberta: sigilo (nada). */
   async getPropostasIniciais(itemId: string, sessaoId?: string, opts: OpcoesVisaoDisputa = {}): Promise<any[]> {
+    // Existir sessão não basta (ela pode nascer antes da hora — chat da
+    // dispensa, sessão criada e não iniciada): as propostas só aparecem
+    // depois do fim do prazo de envio, pelo relógio do servidor.
+    if (await this.propostasAindaSigilosas(itemId)) return [];
     const lote = await this.contextoLeituraLote(itemId, sessaoId, opts);
-    if (lote !== null) return lote ? this.lotes.propostasIniciais(itemId, lote) : [];
+    if (lote !== null) {
+      if (!lote) return [];
+      const doLote = await this.lotes.propostasIniciais(itemId, lote);
+      return opts.visaoOrgao ? doLote : doLote.map((l: any) => ({ ...l, marca: null, modelo: null }));
+    }
     const ctx = await this.contextoLeituraItem(itemId, sessaoId, opts);
     if (!ctx.sessaoId) return [];
 
-    const itensProposta = await this.propostaItemRepo.find({
+    const itensProposta = (await this.propostaItemRepo.find({
       where: { item_licitacao_id: itemId },
       relations: ['proposta', 'proposta.fornecedor'],
-    });
+    })).filter((ip) => !['RASCUNHO', 'CANCELADA'].includes(String(ip.proposta?.status)));
+    // Marca e modelo identificam o licitante (marca própria): fora do órgão,
+    // só aparecem junto com a identidade.
+    const semMarca = !opts.visaoOrgao && ctx.anonimizar;
     const linhas = itensProposta
       .map((ip) => ({ ip, valor: valorPropostaNaBase(ip, ctx.base, ctx.quantidade) }))
       .sort((a, b) => a.valor - b.valor);
@@ -1527,7 +1617,7 @@ export class DisputaService {
       linhas.map(async ({ ip, valor }, index) => {
         let fornecedorNome = ip.proposta?.fornecedor?.razao_social || `Fornecedor ${index + 1}`;
         let fornecedorId = ip.proposta?.fornecedor_id || '';
-        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId));
+        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId, itemId));
         return {
           posicao: index + 1,
           fornecedorId,
@@ -1535,12 +1625,26 @@ export class DisputaService {
           valor,
           valorUnitario: Number(ip.valor_unitario),
           valorTotal: Number(ip.valor_total),
-          marca: ip.marca,
-          modelo: ip.modelo,
+          marca: semMarca ? null : ip.marca,
+          modelo: semMarca ? null : ip.modelo,
           dataEnvio: ip.proposta?.data_envio,
         };
       }),
     );
+  }
+
+  /** O prazo de envio de propostas da licitação da unidade (item ou lote) ainda corre? Desconhecida = sigilo. */
+  private async propostasAindaSigilosas(unidadeId: string): Promise<boolean> {
+    const r = await this.itemRepo.manager.query(
+      `SELECT l.data_fim_acolhimento, l.data_abertura_sessao
+         FROM licitacoes l
+        WHERE l.id = COALESCE((SELECT licitacao_id FROM itens_licitacao WHERE id = $1),
+                              (SELECT licitacao_id FROM lotes_licitacao WHERE id = $1))`,
+      [unidadeId],
+    ).catch(() => []);
+    if (!r[0]) return true;
+    const corte = r[0].data_fim_acolhimento || r[0].data_abertura_sessao;
+    return !!corte && new Date() < new Date(corte);
   }
 
   /** Ranking (melhor valor de cada fornecedor). */
@@ -1553,7 +1657,7 @@ export class DisputaService {
     return Promise.all(
       ranking.map(async (r, index) => {
         let { fornecedorId, fornecedorNome } = r;
-        if (ctx.anonimizar) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, r.fornecedorId));
+        if (ctx.anonimizar) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, r.fornecedorId, itemId));
         return { posicao: index + 1, fornecedorId, fornecedorNome, melhorValor: r.melhorValor, totalLances: r.totalLances };
       }),
     );
@@ -1574,7 +1678,7 @@ export class DisputaService {
       lances.map(async (l) => {
         let fornecedorId = l.fornecedor_id || ''; // E9: fornecedor_identificador (legado) não é mais lido
         let fornecedorNome = l.fornecedor_nome || 'Fornecedor';
-        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId));
+        if (ctx.anonimizar && fornecedorId) ({ fornecedorId, fornecedorNome } = await this.anonimo(ctx.sessaoId!, fornecedorId, itemId));
         return {
           id: l.id,
           valor: parseFloat(String(l.valor)),
@@ -1608,12 +1712,14 @@ export class DisputaService {
   // ============================================================================
 
   /** Só mensagens de chat (pregoeiro, fornecedores, sistema) — lances e atos ficam na trilha de eventos. */
-  async getMensagens(sessaoId: string, limite: number = 50): Promise<MensagemChat[]> {
-    const eventos = await this.eventoRepo.find({
+  async getMensagens(sessaoId: string, limite: number = 50, visivel?: (e: EventoSessao) => boolean): Promise<MensagemChat[]> {
+    let eventos = await this.eventoRepo.find({
       where: { sessao_id: sessaoId, tipo: In(TIPOS_CHAT) },
       order: { created_at: 'DESC' },
-      take: limite,
+      take: visivel ? Math.max(limite * 4, 200) : limite,
     });
+    // Mensagens privadas (negociação) só para quem pode lê-las
+    if (visivel) eventos = eventos.filter(visivel).slice(0, limite);
     return eventos.map((e) => ({
       id: e.id,
       tipo:

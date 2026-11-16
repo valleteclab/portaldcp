@@ -16,7 +16,7 @@ const A = AtoLicitacao;
 const M = ModalidadeLicitacao;
 
 function lic(p: Partial<Licitacao>): Licitacao {
-  return { id: 'l1', numero_processo: 'P-1', modalidade: M.DISPENSA_ELETRONICA, fase: F.PLANEJAMENTO, situacao: SituacaoLicitacao.ATIVA, observacoes: null, ...p } as unknown as Licitacao;
+  return { id: 'l1', numero_processo: 'P-1', modalidade: M.DISPENSA_ELETRONICA, fase: F.PLANEJAMENTO, situacao: SituacaoLicitacao.ATIVA, observacoes: null, pregoeiro_id: 'u-agente', ...p } as unknown as Licitacao;
 }
 
 function consultas(p: Partial<Record<keyof ConsultasTransicao, any>> = {}): ConsultasTransicao {

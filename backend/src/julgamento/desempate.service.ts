@@ -1,3 +1,4 @@
+import { fasePermiteJulgarUnidade } from './aceitacao.service';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -189,8 +190,8 @@ export class DesempateService implements OnModuleInit {
   /** Ato do agente: licitação ATIVA (FOR SHARE) em JULGAMENTO + trava da unidade. */
   private async prepararAto(m: EntityManager, licitacaoId: string, unidadeId: string) {
     const lic = await exigirLicitacaoAtiva(m, licitacaoId, { bloquear: true });
-    if (lic.fase !== FaseLicitacao.JULGAMENTO) {
-      throw new ConflictException(`O desempate ocorre no julgamento (depois da etapa de lances); a licitação está em ${lic.fase}.`);
+    if (!fasePermiteJulgarUnidade(lic.fase)) {
+      throw new ConflictException(`O desempate ocorre depois da etapa de lances do item/lote; a licitação está em ${lic.fase}.`);
     }
     await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`desempate:${unidadeId}`]);
   }

@@ -1,5 +1,6 @@
 "use client"
 
+import { rotuloFase } from '@/lib/licitacao-rotulos'
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/table"
 
 import { API_URL, authFetch } from '@/lib/api'
+import { ComprovantesFornecedor } from '@/components/fornecedor/ComprovantesFornecedor'
 import { PropostaTecnicaPanel } from '@/components/julgamento/PropostaTecnicaPanel'
 import { HabilitacaoFornecedorPanel } from '@/components/sala/HabilitacaoFornecedorPanel'
 import { useDialogoConfirmacao } from '@/components/licitacao/useDialogoConfirmacao'
@@ -373,7 +375,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
         <Card>
           <CardContent className="pt-4">
             <p className="text-sm text-muted-foreground">Fase da Licitação</p>
-            <p className="text-lg font-medium">{proposta.licitacao?.fase?.replace(/_/g, ' ')}</p>
+            <p className="text-lg font-medium">{rotuloFase(proposta.licitacao?.fase)}</p>
           </CardContent>
         </Card>
       </div>
@@ -387,55 +389,32 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {/* As MESMAS declarações do formulário da proposta (homologação 08/11/2026: faltavam custos trabalhistas e
+              responsabilidade, e aparecia "Reserva de cargos", que o formulário não pergunta). Opcional não marcada = "—". */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_termos ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Termo de Aceitação</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_mpe ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <span className="h-4 w-4 text-gray-400">-</span>
-              )}
-              <span>ME/EPP</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_integridade ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Programa de Integridade</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_inexistencia_fatos ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Inexistência de Fatos Impeditivos</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_menor ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <AlertCircle className="h-4 w-4 text-red-600" />
-              )}
-              <span>Trabalho de Menor</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {proposta.declaracao_reserva_cargos ? (
-                <Check className="h-4 w-4 text-green-600" />
-              ) : (
-                <span className="h-4 w-4 text-gray-400">-</span>
-              )}
-              <span>Reserva de Cargos</span>
-            </div>
+            {([
+              ['declaracao_termos', 'Termo de Aceitação', true],
+              ['declaracao_mpe', 'ME/EPP (LC 123/2006)', false],
+              ['declaracao_integridade', 'Programa de Integridade (art. 60)', false],
+              ['declaracao_inexistencia_fatos', 'Inexistência de Fatos Impeditivos', true],
+              ['declaracao_menor', 'Trabalho de Menor', true],
+              ['declaracao_custos_trabalhistas', 'Custos Trabalhistas', true],
+              ['declaracao_responsabilidade', 'Responsabilidade pela Proposta', true],
+            ] as const).map(([campo, rotulo, obrigatoria]) => {
+              const marcada = !!(proposta as unknown as Record<string, unknown>)[campo]
+              return (
+                <div key={campo} className="flex items-center gap-2">
+                  {marcada ? (
+                    <Check className="h-4 w-4 text-green-600" />
+                  ) : obrigatoria ? (
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                  ) : (
+                    <span className="h-4 w-4 text-gray-400">—</span>
+                  )}
+                  <span>{rotulo}</span>
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
@@ -462,6 +441,9 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
           resumoComLinkSala={`/fornecedor/licitacoes/${proposta.licitacao.id}/sessao`}
         />
       )}
+
+      {/* Comprovantes de cada envio, alteração e anexo (o `proposta` muda a cada gravação desta tela) */}
+      {proposta.licitacao?.id && <ComprovantesFornecedor licitacaoId={proposta.licitacao.id} atualizacao={proposta} />}
 
       {/* Itens da Proposta */}
       <Card>
@@ -499,7 +481,7 @@ export default function DetalhePropostaPage({ params }: { params: Promise<{ id: 
                     </p>
                   </TableCell>
                   <TableCell className="text-center">
-                    {item.item_licitacao?.quantidade} {item.item_licitacao?.unidade_medida}
+                    {Number(item.item_licitacao?.quantidade ?? 0).toLocaleString('pt-BR')} {item.item_licitacao?.unidade_medida}
                   </TableCell>
                   {proposta?.licitacao?.sigilo_orcamento !== 'SIGILOSO' && (
                     <TableCell className="text-right text-muted-foreground">

@@ -8,6 +8,7 @@ import { LicitacoesService } from '../../licitacoes/licitacoes.service';
 import { licitacaoParaOrgao } from '../../licitacoes/licitacao-visao.util';
 import { CriterioJulgamento, ModalidadeLicitacao, TipoContratacao } from '../../licitacoes/entities/licitacao.entity';
 import { atorTransicaoDe } from '../../licitacoes/transicoes/transicoes.tipos';
+import { motivoFundamentoInvalido } from '../../licitacoes/fundamento-legal';
 import { DemandasService } from '../demandas.service';
 import { DfdConsolidadoService } from './dfd-consolidado.service';
 import { PendenciaDfdService } from '../../fase-interna/fluxo/pendencia-dfd.service';
@@ -99,6 +100,12 @@ export class DfdConsolidadoController {
     return this.dfds.previa(orgaoId, ids, body?.ajustes ?? {});
   }
 
+  /** DFDs que ainda podem ser juntados a um processo eletrônico (etapa DFD do fluxo). */
+  @Get('disponiveis-para-processo')
+  disponiveisParaProcesso(@AtorAtual() ator: Ator) {
+    return this.dfds.disponiveisParaProcesso(this.orgao(ator));
+  }
+
   @Get(':id')
   async obter(@Param('id') id: string, @AtorAtual() ator: Ator) {
     await this.exigirDfd(ator, id, 'leitura');
@@ -185,6 +192,18 @@ export class DfdConsolidadoController {
    * alerta de parecidos (atenção). "Fase interna feita fora": a tela usa
    * `POST /api/fase-interna/externa/processo` com `dfd_id`.
    */
+  /**
+   * Junta o DFD ao processo eletrônico, como documento da etapa DFD em andamento
+   * no fluxo. Corpo: { processo_id }. Só a unidade de planejamento; e quem junta
+   * precisa ser o responsável pela etapa (conferido na juntada).
+   */
+  @Post(':id/juntar-ao-processo')
+  async juntarAoProcesso(@Param('id') id: string, @AtorAtual() ator: Ator, @Body() body: any) {
+    const orgaoId = await this.exigirDfd(ator, id);
+    await this.dfds.exigirMontar(ator, orgaoId);
+    return this.dfds.juntarAoProcessoEletronico(id, String(body?.processo_id ?? ''), ator);
+  }
+
   @Post(':id/abrir-processo')
   async abrirProcesso(@Param('id') id: string, @AtorAtual() ator: Ator, @Body() body: any) {
     const orgaoId = await this.exigirDfd(ator, id);
@@ -195,6 +214,10 @@ export class DfdConsolidadoController {
     enumOk(body?.modalidade, ModalidadeLicitacao, 'Modalidade');
     enumOk(body?.tipo_contratacao, TipoContratacao, 'Natureza do objeto');
     enumOk(body?.criterio_julgamento, CriterioJulgamento, 'Critério de julgamento');
+    // Enquadramento (opcional): escolhe o fluxo da contratação junto com a modalidade
+    const fundamento = body?.fundamento_legal ? String(body.fundamento_legal).toUpperCase() : null;
+    const recusa = fundamento ? motivoFundamentoInvalido(body?.modalidade ?? null, fundamento) : null;
+    if (recusa) throw new BadRequestException(recusa);
     const r = await this.licitacoes.criarAPartirDeDfd(
       id,
       {
@@ -203,6 +226,9 @@ export class DfdConsolidadoController {
         modalidade: body?.modalidade || undefined,
         tipo_contratacao: body?.tipo_contratacao || undefined,
         criterio_julgamento: body?.criterio_julgamento || undefined,
+        fundamento_legal: fundamento,
+        // Modalidade provisória: a instrução termina na etapa Definição da modalidade
+        modalidade_a_definir: body?.modalidade_a_definir === true,
       },
       orgaoId,
       atorTransicaoDe(ator),

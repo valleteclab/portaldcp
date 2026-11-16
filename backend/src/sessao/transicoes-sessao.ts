@@ -25,6 +25,17 @@ export async function pedirEncerramentoDisputa(
       ignorarSeJaAplicado: true,
       registro: { origem: 'sessao', motivo: 'todos os itens encerrados' },
     });
+    // Julgamento item a item: se a aceitação de algum item já começou antes do
+    // fim dos lances, a sala entra agora na etapa de aceitação (antes era a
+    // primeira convocação que fazia isso; ela pode ter acontecido mais cedo).
+    await ((transicoes as any).dataSource as { query: (sql: string, p: any[]) => Promise<any> })
+      ?.query(
+        `UPDATE sessoes_disputa SET etapa = 'ACEITACAO_PROPOSTA'
+          WHERE licitacao_id = $1 AND etapa::text IN ('DISPUTA_LANCES','RANDOM_ENCERRAMENTO','BENEFICIO_MPE')
+            AND EXISTS (SELECT 1 FROM aceitacoes_proposta a WHERE a.licitacao_id = $1)`,
+        [licitacaoId],
+      )
+      .catch((e: any) => logger.warn(`Etapa da sessão após o fim dos lances (${licitacaoId}): ${e?.message ?? e}`));
     return true;
   } catch (e: any) {
     if (e instanceof ConflictException) {

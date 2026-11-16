@@ -260,6 +260,14 @@ describe('E6 — formalização do resultado (operador × autoridade)', () => {
       expect(t.dados).toMatchObject({ autoridade: { nome: 'Joao Secretario' }, operador: { id: pregoeira.id }, formalizacao_id: fAdj.id, modo: 'REGISTRO_DIRETO' });
     });
 
+    test('já adjudicado: o painel não oferece adjudicar de novo e um 2º pedido → 409, sem outro termo (ensaio 09/11/2026)', async () => {
+      const p = await http().get(`/api/resultado/licitacao/${licId}`).set(bearer(pregoeira.token));
+      expect(p.body.atos.adjudicar).toMatchObject({ disponivel: false, pendencias: expect.arrayContaining([expect.stringMatching(/já estão adjudicadas/)]) });
+      const r = await adjudicarResultado(ctx, licId, pregoeira.token, { autoridade_id: secretarioId });
+      expect(r.status).toBe(409);
+      expect((await formalizacoes(licId)).filter((f: any) => f.tipo === 'ADJUDICACAO')).toHaveLength(1);
+    });
+
     test('termo: órgão baixa (autoridade, delegação e "registrado no sistema por"); órgão B/fornecedor não; público só depois da homologação', async () => {
       const r = await baixar(`/api/resultado/formalizacao/${fAdj.id}/arquivo`, pregoeira.token);
       expect(r.status).toBe(200);

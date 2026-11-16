@@ -35,6 +35,7 @@ import { toast } from 'sonner'
 import { confirmarAcao, pedirTextoAcao } from '@/components/DialogoGlobal'
 import { type ModoFaseInterna, lembrarEscolhaModo, rotaFaseInternaFeitaFora, ultimaEscolhaModo } from '@/lib/fase-interna/criacao'
 import { OpcoesModoFaseInterna } from '@/components/fase-interna/externa/EscolhaModoFaseInterna'
+import { PreviaFluxoContratacao } from '@/components/fluxo/PreviaFluxoContratacao'
 import { AlertaParecidos, COR_STATUS_DFD, GuiaDfd, ROTULO_STATUS_DFD, formatarMoeda, type Parecido } from '@/components/demandas/dfd-comum'
 import { passoDoDfd, proximoPassoNoDfd, rotaDaTelaDoProcesso, type ProximoPassoNoDfd } from '@/lib/demandas/proxima-acao-dfd'
 
@@ -80,6 +81,7 @@ interface Dfd {
   historico: Array<{ em: string; por_nome: string | null; acao: string; texto: string }>
   demandas: Array<{ id: string; unidade_requisitante: string; descricao_sucinta_objeto: string | null; status: string; data_aprovacao: string | null; aprovado_por: string | null; n_itens: number; valor: number }>
   processo: { id: string; numero_processo: string; fase: string } | null
+  processo_eletronico: { id: string; numero: string; objeto: string } | null
   alertas: Parecido[]
   permissoes: {
     pode_montar: boolean
@@ -138,6 +140,9 @@ function DfdDetalhe() {
   const router = useRouter()
   const pathname = usePathname()
   const busca = useSearchParams()
+  // Processo eletrônico que espera este DFD na etapa DFD do fluxo — guardado antes de a URL ser limpa
+  const [processoDestino] = useState<string | null>(() => busca.get('processo'))
+  const [juntando, setJuntando] = useState(false)
   const [dfd, setDfd] = useState<Dfd | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -147,6 +152,12 @@ function DfdDetalhe() {
   const [paraIncluir, setParaIncluir] = useState('')
   const [modalAbrir, setModalAbrir] = useState(false)
   const [modalidade, setModalidade] = useState('DISPENSA_ELETRONICA')
+  // Enquadramento (dispensa e inexigibilidade): escolhe o fluxo junto com a modalidade; vazio = o padrão do sistema
+  const [fundamento, setFundamento] = useState('')
+  // Com instrução ativa a modalidade é opcional ao abrir: "a definir" (padrão) ou "já sei a modalidade"
+  const [temInstrucao, setTemInstrucao] = useState(false)
+  const [jaSeiModalidade, setJaSeiModalidade] = useState(false)
+  const aDefinir = temInstrucao && !jaSeiModalidade
   const [limiteDispensa, setLimiteDispensa] = useState<number | null>(null)
   const [modo, setModo] = useState<ModoFaseInterna | null>(null)
   const [abrindo, setAbrindo] = useState(false)
@@ -308,7 +319,7 @@ function DfdDetalhe() {
       const r = await authFetch(`${API_URL}/api/dfds-consolidados/${id}/abrir-processo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modalidade }),
+        body: JSON.stringify({ modalidade, ...(fundamento && !aDefinir ? { fundamento_legal: fundamento } : {}), ...(aDefinir ? { modalidade_a_definir: true } : {}) }),
       })
       const j = await r.json().catch(() => null)
       if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
@@ -321,25 +332,46 @@ function DfdDetalhe() {
     }
   }
 
+  async function juntarAoProcesso() {
+    if (!dfd || !processoDestino) return
+    if (!(await confirmarAcao({ titulo: 'Juntar ao processo', mensagem: `Juntar o ${dfd.rotulo} aos autos do processo, como documento da etapa DFD? As demandas ficam travadas neste DFD.`, confirmarRotulo: 'Juntar' }))) return
+    if (!(await salvarSeSujo())) return
+    setJuntando(true)
+    try {
+      const r = await authFetch(`${API_URL}/api/dfds-consolidados/${dfd.id}/juntar-ao-processo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processo_id: processoDestino }),
+      })
+      const j = await r.json().catch(() => null)
+      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
+      toast.success(`${dfd.rotulo} juntado ao processo ${j.numero_processo}.`)
+      router.push(`/orgao/processo/${processoDestino}`)
+    } catch (e: unknown) {
+      toast.error(`Não foi possível juntar: ${e instanceof Error ? e.message : String(e)}`)
+      setJuntando(false)
+    }
+  }
+
   /** Botão da ação do próximo passo (cartão do topo e resumo lateral). */
   const botaoDoPasso = (tamanho: 'default' | 'lg' = 'default', largo = false) => {
     const cls = largo ? 'w-full' : ''
     switch (passo.acao) {
       case 'ABRIR_PROCESSO':
         return (
-          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={abrirDialogoProcesso} disabled={salvando}>
+          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={abrirDialogoProcesso} disabled={salvando} data-guia="dfd-proximo-passo">
             <Rocket className="h-4 w-4 mr-2" aria-hidden="true" />Abrir processo
           </Button>
         )
       case 'ENVIAR_APROVACAO':
         return (
-          <Button size={tamanho} className={cls} onClick={() => enviarParaAprovacao(false)} disabled={salvando}>
+          <Button size={tamanho} className={cls} onClick={() => enviarParaAprovacao(false)} disabled={salvando} data-guia="dfd-proximo-passo">
             <Send className="h-4 w-4 mr-2" aria-hidden="true" />Enviar para aprovação
           </Button>
         )
       case 'APROVAR':
         return (
-          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={aprovar} disabled={salvando}>
+          <Button size={tamanho} className={`bg-green-700 hover:bg-green-800 ${cls}`} onClick={aprovar} disabled={salvando} data-guia="dfd-proximo-passo">
             <CheckCircle className="h-4 w-4 mr-2" aria-hidden="true" />Aprovar
           </Button>
         )
@@ -379,6 +411,9 @@ function DfdDetalhe() {
             {dfd.processo && (
               <> · processo <Link href={`/orgao/processos/${dfd.processo.id}`} className="text-blue-800 underline">{dfd.processo.numero_processo}</Link></>
             )}
+            {dfd.processo_eletronico && (
+              <> · processo <Link href={`/orgao/processo/${dfd.processo_eletronico.id}`} className="text-blue-800 underline">{dfd.processo_eletronico.numero}</Link></>
+            )}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -390,6 +425,18 @@ function DfdDetalhe() {
       </header>
 
       <GuiaDfd atual={guia.atual} concluidos={guia.concluidos} links={{ 1: '/orgao/demandas/consolidacao' }} />
+
+      {/* Veio da etapa DFD de um processo: o próximo passo é juntar o DFD aos autos dele */}
+      {processoDestino && !dfd.processo && !dfd.processo_eletronico && dfd.status !== 'CANCELADO' && (
+        <div className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-950 flex items-center gap-3 flex-wrap">
+          <p className="flex-1 min-w-[240px]">
+            <b>DFD para a etapa DFD de um processo.</b> Confira os itens e junte o DFD aos autos — ele vira o documento da etapa, com as demandas reunidas (art. 12, VII).
+          </p>
+          <Button onClick={juntarAoProcesso} disabled={juntando || salvando}>
+            {juntando ? 'Juntando…' : 'Juntar ao processo'}
+          </Button>
+        </div>
+      )}
 
       {/* Depois de "Montar DFD": faixa de sucesso */}
       {montado && (
@@ -669,14 +716,24 @@ function DfdDetalhe() {
             </DialogDescription>
           </DialogHeader>
           <AlertaParecidos alertas={dfd.alertas} />
-          <fieldset className="space-y-2">
+          <fieldset className="space-y-2 min-w-0">
             <legend className="text-sm font-semibold mb-1">1. Modalidade da contratação</legend>
+            {temInstrucao ? (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" className="h-4 w-4" checked={jaSeiModalidade} onChange={(e) => setJaSeiModalidade(e.target.checked)} />
+                Já sei a modalidade (opcional)
+              </label>
+            ) : null}
+            {aDefinir ? null : (<>
             {MODALIDADES.map((m) => (
               <button
                 key={m.valor}
                 type="button"
                 aria-pressed={modalidade === m.valor}
-                onClick={() => setModalidade(m.valor)}
+                onClick={() => {
+                  setModalidade(m.valor)
+                  setFundamento('')
+                }}
                 className={`w-full text-left border rounded-md px-3 py-2 hover:bg-gray-50 ${modalidade === m.valor ? 'border-blue-600 bg-blue-50' : ''}`}
               >
                 <span className="flex items-center justify-between gap-2 flex-wrap">
@@ -696,6 +753,8 @@ function DfdDetalhe() {
                 ? <>Sugestão pelo valor: {formatarMoeda(dfd.valor_total_estimado)} {dfd.valor_total_estimado > limiteDispensa ? 'passa' : 'cabe dentro'} do limite da dispensa no exercício ({formatarMoeda(limiteDispensa)} — art. 75, II). A escolha é sua.</>
                 : 'A escolha da modalidade é sua (o limite da dispensa do exercício não pôde ser consultado agora).'}
             </p>
+            </>)}
+            <PreviaFluxoContratacao modalidade={modalidade} fundamento={fundamento} onFundamento={setFundamento} aDefinir={aDefinir} onInstrucao={setTemInstrucao} />
           </fieldset>
           <div className="space-y-1">
             <p className="text-sm font-semibold">2. Fase interna</p>

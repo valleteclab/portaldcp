@@ -31,6 +31,7 @@ export interface Contrarrazao {
 
 export interface AlteracaoEfeito {
   fornecedor_id: string;
+  fornecedor_nome?: string | null;
   unidade_id: string;
   rotulo: string;
   de: string | null;
@@ -64,6 +65,9 @@ export interface Recurso {
   decisao: string | null;
   decididoPor: string | null;
   decididoPorCargo: string | null;
+  /** Agente de contratação que registrou a decisão da autoridade (quando registrada por ele). */
+  decisaoRegistradaPor?: string | null;
+  decisaoArquivo?: { nome: string; sha256: string | null } | null;
   instanciaDecisao: string | null;
   dataDecisao: string | null;
   efeitos: {
@@ -83,8 +87,12 @@ export interface Recurso {
   minhaContrarrazao?: string | null;
   // visão do órgão
   podeAdmitir?: boolean;
+  /** Intenção à espera do fim da janela para a admissibilidade (fim da janela). */
+  aguardaFimDaJanela?: string | null;
   podeReconsiderar?: boolean;
   podeDecidirAutoridade?: boolean;
+  /** Inversão de fases: intenção da habilitação prévia, em espera até o julgamento (texto explicativo). */
+  emEsperaDoJulgamento?: string | null;
 }
 
 export interface Janela {
@@ -94,6 +102,8 @@ export interface Janela {
   minutos: number;
   estado: "ABERTA" | "ENCERRADA" | "SUPERADA";
   segundosRestantes: number;
+  /** FINAL (padrão) ou HABILITACAO_PREVIA (inversão de fases, antes dos lances). */
+  momento?: string;
 }
 
 export interface PainelRecursos {
@@ -106,6 +116,10 @@ export interface PainelRecursos {
   pendentes: number;
   recursos: Recurso[];
   podeAbrirJanela?: boolean;
+  /** Inversão de fases, antes dos lances: a janela que se abre agora é a da habilitação prévia. */
+  previaInversao?: boolean;
+  /** Cadastro de autoridades do órgão (para o agente registrar a decisão da autoridade superior). */
+  autoridades?: Array<{ id: string; nome: string; cargo: string; padrao?: boolean }>;
   motivoNaoAbreJanela?: string | null;
   podeManifestarIntencao?: boolean;
   atosRecorriveis?: Array<{ ato: string; rotulo: string; unidadeId: string | null; fornecedorAlvoId: string | null }>;
@@ -264,6 +278,12 @@ export function DetalheRecurso({ r }: { r: Recurso }) {
             {r.decididoPorCargo ? `, ${r.decididoPorCargo}` : ""} ({dataHoraBr(r.dataDecisao)})
           </div>
           <div className="whitespace-pre-wrap">{r.decisao}</div>
+          {r.decisaoRegistradaPor && <div className="mt-1 text-[11px] text-slate-500">Decisão registrada por {r.decisaoRegistradaPor}.</div>}
+          {r.decisaoArquivo && (
+            <div className="mt-1">
+              <LinkArquivo url={`${API_URL}/api/recursos/${r.id}/decisao/arquivo`} arquivo={{ nome: r.decisaoArquivo.nome } as ArquivoMeta} />
+            </div>
+          )}
         </div>
       )}
       {r.decisao && r.instanciaDecisao === "LEGADO" && (
@@ -282,7 +302,7 @@ export function DetalheRecurso({ r }: { r: Recurso }) {
               {(r.efeitos.alteracoes ?? []).map((a, i) => (
                 <li key={i}>
                   {a.rotulo}: {a.tipo === "RESTAURADO" ? "restaurado" : a.tipo === "INVALIDADO" ? "ato invalidado" : "excluído"} —{" "}
-                  {a.fornecedor_id === r.recorrente.id ? r.recorrente.nome : a.fornecedor_id === r.alvo?.id ? r.alvo?.nome : "licitante"} (
+                  {a.fornecedor_id === r.recorrente.id ? r.recorrente.nome : a.fornecedor_id === r.alvo?.id ? r.alvo?.nome : a.fornecedor_nome || "outro licitante"} (
                   {a.de ?? "—"} → {a.para})
                 </li>
               ))}

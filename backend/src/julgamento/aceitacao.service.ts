@@ -127,6 +127,16 @@ const dataHora = (d: Date) =>
  * (INICIAR_HABILITACAO) só começa com TODAS as unidades resolvidas
  * (pré-condição da máquina de estados). Cada ato vira evento da sessão (ata).
  */
+/**
+ * O julgamento de uma unidade (aceitação, desempate, negociação) pode começar
+ * com a licitação ainda EM_DISPUTA, desde que a unidade esteja encerrada —
+ * decisão do dono em 13/11/2026 (como as plataformas privadas; a habilitação,
+ * que é do licitante, segue depois do fim de todos os lances).
+ */
+export function fasePermiteJulgarUnidade(fase: string | null | undefined): boolean {
+  return fase === FaseLicitacao.JULGAMENTO || fase === FaseLicitacao.EM_DISPUTA;
+}
+
 @Injectable()
 export class AceitacaoService {
   private readonly logger = new Logger(AceitacaoService.name);
@@ -250,7 +260,7 @@ export class AceitacaoService {
         statusResultado: comResultado ? null : unidade.itens.map((i) => i.status)[0],
         resolvida,
         podeConvocar:
-          unidade.encerrada && comResultado && !ativa && !!atual && !ehPropostaAceita(atual.situacao) && lic?.fase === FaseLicitacao.JULGAMENTO &&
+          unidade.encerrada && comResultado && !ativa && !!atual && !ehPropostaAceita(atual.situacao) && fasePermiteJulgarUnidade(lic?.fase) &&
           !atual.desempate?.pendente,
         ranking: ranking.map((e) => ({
           posicao: e.posicao,
@@ -322,9 +332,12 @@ export class AceitacaoService {
    */
   private async prepararAto(m: EntityManager, sessao: SessaoDisputa, unidadeId: string): Promise<void> {
     const lic = await exigirLicitacaoAtiva(m, sessao.licitacao_id, { bloquear: true });
-    if (lic.fase !== FaseLicitacao.JULGAMENTO) {
+    // Julgamento item a item: basta a etapa de lances DAQUELA unidade ter
+    // terminado (conferido em convocarNaTransacao e nos demais atos); as outras
+    // podem seguir em disputa.
+    if (!fasePermiteJulgarUnidade(lic.fase)) {
       throw new ConflictException(
-        `A aceitação de propostas ocorre no julgamento (depois da etapa de lances); a licitação está em ${lic.fase}.`,
+        `A aceitação de propostas ocorre depois da etapa de lances do item/lote; a licitação está em ${lic.fase}.`,
       );
     }
     await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`aceitacao:${unidadeId}`]);
@@ -508,11 +521,16 @@ export class AceitacaoService {
       dados: { aceitacao_id: a.id, unidade_id: u.id, tipo_unidade: u.tipo, prazo_ate: a.prazo_ate, prazo_horas: horas },
     });
     // Sala na etapa de aceitação (a partir da etapa pós-lances)
-    await m.query(`UPDATE sessoes_disputa SET etapa = $2 WHERE id = $1 AND etapa::text = ANY($3)`, [
-      sessao.id,
-      EtapaSessao.ACEITACAO_PROPOSTA,
-      ETAPAS_QUE_VAO_A_ACEITACAO,
-    ]);
+    // ...mas só quando NENHUMA unidade segue em disputa: a etapa da sessão é o
+    // que libera as identidades para os licitantes e o público.
+    await m.query(
+      `UPDATE sessoes_disputa SET etapa = $2 WHERE id = $1 AND etapa::text = ANY($3)
+          AND NOT EXISTS (
+            SELECT 1 FROM itens_licitacao i
+             WHERE i.licitacao_id = $4
+               AND (i.status_disputa IS NULL OR i.status_disputa::text IN ('AGUARDANDO','EM_DISPUTA','TEMPO_ALEATORIO')))`,
+      [sessao.id, EtapaSessao.ACEITACAO_PROPOSTA, ETAPAS_QUE_VAO_A_ACEITACAO, sessao.licitacao_id],
+    );
     return a;
   }
 
@@ -879,20 +897,23 @@ export class AceitacaoService {
     motivo: string,
     ator: AtorTransicao,
     usuarioNome?: string,
+    /** Inabilitação só nestas unidades (decisão por item/lote); omitido = todas. */
+    somenteUnidades?: string[],
   ): Promise<{ reconvocadas: number; fracassadas: number; restantesComAceite: number }> {
     const sessao = await this.sessao(sessaoId);
     const licitacaoId = sessao.licitacao_id;
+    const alcance = somenteUnidades?.length ? new Set(somenteUnidades.map(String)) : null;
     const naVez = new Set(
-      await this.ranking.unidadesDoLicitante(
-        licitacaoId,
-        fornecedorId,
-        [...SITUACOES_PROPOSTA_ACEITA, SituacaoLicitante.CONVOCADO_ACEITACAO],
-      ),
+      (
+        await this.ranking.unidadesDoLicitante(licitacaoId, fornecedorId, [...SITUACOES_PROPOSTA_ACEITA, SituacaoLicitante.CONVOCADO_ACEITACAO])
+      ).filter((id) => !alcance || alcance.has(String(id))),
     );
-    const todas: any[] = await this.dataSource.query(
-      `SELECT unidade_id FROM licitantes_unidade WHERE licitacao_id = $1 AND fornecedor_id = $2 AND NOT (situacao = ANY($3))`,
-      [licitacaoId, fornecedorId, [...SITUACOES_EXCLUIDAS]],
-    );
+    const todas: any[] = (
+      await this.dataSource.query(
+        `SELECT unidade_id FROM licitantes_unidade WHERE licitacao_id = $1 AND fornecedor_id = $2 AND NOT (situacao = ANY($3))`,
+        [licitacaoId, fornecedorId, [...SITUACOES_EXCLUIDAS]],
+      )
+    ).filter((row: any) => !alcance || alcance.has(String(row.unidade_id)));
     await this.dataSource.transaction(async (m) => {
       for (const row of todas) {
         const u = await this.ranking.unidade(String(row.unidade_id), m);
@@ -900,8 +921,8 @@ export class AceitacaoService {
       }
       await m.query(
         `UPDATE aceitacoes_proposta SET status = $3, decidida_em = now(), decisao_motivo = $4, updated_at = now()
-          WHERE licitacao_id = $1 AND fornecedor_id = $2 AND status = ANY($5)`,
-        [licitacaoId, fornecedorId, StatusAceitacao.CANCELADA, `Licitante inabilitado: ${motivo}`, STATUS_ACEITACAO_ATIVOS],
+          WHERE licitacao_id = $1 AND fornecedor_id = $2 AND status = ANY($5) AND ($6::text[] IS NULL OR unidade_id::text = ANY($6))`,
+        [licitacaoId, fornecedorId, StatusAceitacao.CANCELADA, `Licitante inabilitado: ${motivo}`, STATUS_ACEITACAO_ATIVOS, alcance ? [...alcance] : null],
       );
     });
 

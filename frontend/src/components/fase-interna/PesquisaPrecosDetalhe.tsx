@@ -25,7 +25,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {
   Select,
   SelectContent,
@@ -37,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { API_URL, authFetch } from "@/lib/api"
 import { CatalogoBusca } from "@/components/catalogo"
+import { AvisoCestaNoPiso, ReferenciasPendentes, soPrecosPraticados, type CandidatoPendente } from "@/components/fase-interna/PrecosDoItem"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -293,6 +293,8 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
   const [statusImportacaoCsv, setStatusImportacaoCsv] = useState<string | null>(null)
   const [buscandoAuto, setBuscandoAuto] = useState<Record<number, boolean>>({})
   const [statusBuscaAuto, setStatusBuscaAuto] = useState<Record<number, string>>({})
+  const [pendentes, setPendentes] = useState<CandidatoPendente[]>([])
+  const [decidindo, setDecidindo] = useState<string | null>(null)
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const csvFontePrecosInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -341,9 +343,44 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
     }
   }, [id])
 
+  const carregarPendentes = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API_URL}/api/fase-interna/${id}/precos/agente/candidatos`)
+      if (res.ok) {
+        const lista = await res.json()
+        setPendentes(Array.isArray(lista) ? lista : [])
+      }
+    } catch {
+      // a lista de referências é complementar: a tela segue sem ela
+    }
+  }, [id])
+
   useEffect(() => {
     carregarDados()
-  }, [carregarDados])
+    carregarPendentes()
+  }, [carregarDados, carregarPendentes])
+
+  const decidirPendente = async (candidato: CandidatoPendente, acao: "aprovar" | "rejeitar") => {
+    setDecidindo(candidato.id)
+    try {
+      const res = await authFetch(
+        `${API_URL}/api/fase-interna/${id}/precos/agente/candidatos/${candidato.id}/${acao}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(acao === "rejeitar" ? { motivo: "Descartada por quem fez a pesquisa" } : {}),
+        },
+      )
+      if (res.ok) {
+        setPendentes((prev) => prev.filter((c) => c.id !== candidato.id))
+        if (acao === "aprovar") await carregarDados()
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setDecidindo(null)
+    }
+  }
 
   const itens = dados?.itens ?? []
 
@@ -492,6 +529,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
         setDados(d)
         if (d.responsavel) setResponsavel(d.responsavel)
         if (d.metodologia_global) setMetodologia(d.metodologia_global)
+        await carregarPendentes()
       }
     } catch (e) {
       console.error(e)
@@ -649,10 +687,12 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
 
   const minFontes = itens.every((i) => i.cotacoes.length >= 3)
   const todasStats = itens.map((i) => statsItem(i, outliersDescartados))
-  const cvOk = todasStats.every((s) => s.cv <= 25) || justCv.trim().length > 0
+  // Sem cotação não há o que conferir: item vazio não conta como cumprido
+  const temCotacao = itens.some((i) => i.cotacoes.length > 0)
+  const cvOk = temCotacao && (todasStats.every((s) => s.cv <= 25) || justCv.trim().length > 0)
   const metOk = !!metodologia
   const respOk = !!(responsavel.nome && responsavel.cargo)
-  const urlOuComprovante = itens.every((item) =>
+  const urlOuComprovante = temCotacao && itens.every((item) =>
     item.cotacoes.every((c) => c.url_referencia || c.documento_comprobatorio_path)
   )
 
@@ -701,7 +741,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
         <div>
           {!embutido && <h1 className="text-xl font-bold text-gray-900">Pesquisa de Preços</h1>}
           <p className="text-sm text-gray-500 mt-0.5">
-            {embutido ? "Cotações por item e fonte, agentes de pesquisa (PNCP, Painel de Preços, Fonte de Preços), estatísticas e metodologia por item" : "Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME nº 65/2021"}
+            {embutido ? "Para incluir preço à mão, importar o relatório da Fonte de Preços e ver a dispersão dos preços. O método e o documento são os da tela acima." : "Estimativa do valor da contratação · Art. 23 da Lei 14.133/2021 · IN SEGES/ME nº 65/2021"}
           </p>
         </div>
         {doAssistente && (
@@ -726,13 +766,14 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue="itens">
+      <Tabs defaultValue={embutido ? "cotacoes" : "itens"}>
         <TabsList className="mb-6 bg-gray-100">
           <TabsTrigger value="itens">Itens</TabsTrigger>
           <TabsTrigger value="cotacoes">Cotações</TabsTrigger>
           <TabsTrigger value="estatisticas">Estatísticas</TabsTrigger>
-          <TabsTrigger value="responsavel">Responsável</TabsTrigger>
-          <TabsTrigger value="documento">Documento PP</TabsTrigger>
+          {/* Na tela da pesquisa, método e documento são os da própria tela (mapa e certidão) */}
+          {!embutido && <TabsTrigger value="responsavel">Responsável</TabsTrigger>}
+          {!embutido && <TabsTrigger value="documento">Documento PP</TabsTrigger>}
         </TabsList>
 
         {/* ═══════════════════════════════════════════════════════════════════
@@ -976,6 +1017,8 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
               const expandido = expandidosCards[item.item_numero] ?? true
               const buscando = buscandoAuto[item.item_numero] ?? false
               const statusBusca = statusBuscaAuto[item.item_numero]
+              const pendentesDoItem = pendentes.filter((c) => c.item_numero === item.item_numero)
+              const referenciaNoPiso = soPrecosPraticados(item.cotacoes)
 
               return (
                 <Card key={item.item_numero} className="border border-gray-100 shadow-sm">
@@ -1020,6 +1063,16 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
                       {statusBusca && (
                         <div className="mb-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
                           {statusBusca}
+                        </div>
+                      )}
+                      {referenciaNoPiso && (
+                        <div className="mb-3">
+                          <AvisoCestaNoPiso itemNumero={item.item_numero} temEstimada={pendentesDoItem.some((c) => c.tipo !== "PRATICADO")} />
+                        </div>
+                      )}
+                      {pendentesDoItem.length > 0 && (
+                        <div className="mb-4">
+                          <ReferenciasPendentes itemNumero={item.item_numero} pendentes={pendentesDoItem} decidindo={decidindo} onDecidir={decidirPendente} />
                         </div>
                       )}
                       {/* Tabela de cotações */}
@@ -1528,6 +1581,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
               })}
 
               {/* Metodologia */}
+              {!embutido && (
               <Card className="border border-gray-100 shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-semibold">Metodologia</CardTitle>
@@ -1575,6 +1629,7 @@ export function PesquisaPrecosDetalhe({ licitacaoId, embutido = false, onAtualiz
                   </Button>
                 </CardContent>
               </Card>
+              )}
             </div>
           )}
         </TabsContent>

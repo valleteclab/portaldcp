@@ -2,18 +2,18 @@ import { DisputaV3Contexto, DisputaV3Etapa, DisputaV3ItemBoard, DisputaV3Status 
 
 export const ETAPAS_V3: Array<{ codigo: DisputaV3Etapa; label: string }> = [
   { codigo: 'ABERTURA', label: 'Abertura' },
-  { codigo: 'ANALISE_PROPOSTAS', label: 'Analise' },
+  { codigo: 'ANALISE_PROPOSTAS', label: 'Análise' },
   { codigo: 'DISPUTA', label: 'Lances' },
   // LC 123/2006, Arts. 44-45 - desempate ME/EPP logo apos os lances, antes da aceitacao
   { codigo: 'BENEFICIO_MPE', label: 'Benef. ME/EPP' },
   // IN SEGES 73/2022, Art. 29 - proposta adequada ao ultimo lance, aceite/recusa
-  { codigo: 'ACEITACAO', label: 'Aceitacao' },
-  { codigo: 'NEGOCIACAO', label: 'Negociacao' },
-  { codigo: 'HABILITACAO', label: 'Habilitacao' },
+  { codigo: 'ACEITACAO', label: 'Aceitação' },
+  { codigo: 'NEGOCIACAO', label: 'Negociação' },
+  { codigo: 'HABILITACAO', label: 'Habilitação' },
   { codigo: 'RECURSOS', label: 'Recursos' },
-  { codigo: 'ADJUDICACAO', label: 'Adjudicacao' },
+  { codigo: 'ADJUDICACAO', label: 'Adjudicação' },
   // Lei 14.133/2021, Art. 71 - homologacao obrigatoria antes do encerramento
-  { codigo: 'HOMOLOGACAO', label: 'Homologacao' },
+  { codigo: 'HOMOLOGACAO', label: 'Homologação' },
   { codigo: 'ENCERRAMENTO', label: 'Encerramento' },
 ]
 
@@ -46,7 +46,7 @@ export function getStatusBadgeClass(status: DisputaV3Status) {
 export function getStatusLabel(status: DisputaV3Status) {
   switch (status) {
     case 'EM_SESSAO':
-      return 'Em sessao'
+      return 'Em sessão'
     case 'SUSPENSA':
       return 'Suspensa'
     case 'ENCERRADA':
@@ -172,4 +172,25 @@ export function calcularLanceSugerido(
     : 0
   const decremento = Math.max(0.01, Math.ceil(minima * 100) / 100)
   return Math.max(0, Number((referencia - decremento).toFixed(2)))
+}
+
+/**
+ * Lance com redução grande em relação ao próprio último lance (pregão 2026/00070:
+ * R$ 1.220,00 — o preço de UM aparelho — foi aceito como valor total, 98% abaixo).
+ * Devolve o percentual de redução quando passa do limite (para pedir confirmação); senão null.
+ */
+/**
+ * Indício de inexequibilidade (IN SEGES 73/2022, arts. 33 e 34; o Compras.gov.br alerta o mesmo):
+ * lance abaixo de 50% do valor estimado. Devolve o percentual do estimado (ex.: 42) ou null.
+ * Sem estimado visível (orçamento sigiloso), não alerta.
+ */
+export function abaixoDoEstimado(novo: number, estimado: number | null | undefined, limite = 0.5): number | null {
+  if (!Number.isFinite(novo) || !estimado || !Number.isFinite(estimado) || estimado <= 0) return null
+  return novo < estimado * limite ? Math.round((novo / estimado) * 100) : null
+}
+
+export function reducaoSuspeita(novo: number, referencia: number | null | undefined, limite = 0.3): number | null {
+  if (!Number.isFinite(novo) || !referencia || !Number.isFinite(referencia) || referencia <= 0) return null
+  const reducao = (referencia - novo) / referencia
+  return reducao > limite ? Math.round(reducao * 100) : null
 }

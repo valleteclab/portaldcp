@@ -12,6 +12,7 @@
  *    aprovada(s) aguardando" para quem monta o DFD (some quando todas entram num DFD).
  * Fonte: GET /api/tarefas?aba=…; POST /api/tarefas/:id/assumir | /reatribuir.
  */
+import { CaixaEtapasFluxo } from "@/components/fluxo/CaixaEtapasFluxo"
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { toast } from "sonner"
@@ -98,7 +99,7 @@ export function CaixaTarefas() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Minhas tarefas</h1>
           <p className="text-sm text-slate-600">
-            Processos que estão com você (aditivos, renovações, avulsos) e o que você tem para fazer na fase interna, pelo prazo. Cada tarefa abre a peça dentro do processo: faça aqui, anexe o PDF feito fora ou marque &quot;não se aplica&quot;.
+            Os processos e as etapas do fluxo que estão com você, e o que você tem para fazer na fase interna, pelo prazo. Cada tarefa abre a peça dentro do processo: faça aqui, anexe o PDF feito fora ou marque &quot;não se aplica&quot;.
           </p>
         </div>
         <div className="flex gap-2">
@@ -112,6 +113,12 @@ export function CaixaTarefas() {
       </div>
 
       <ProcessosComigo />
+
+      {/* Um motor só (11/2026): as etapas do fluxo que estão comigo — ETP, pesquisa, parecer… — ficam aqui,
+          junto das tarefas; antes só as aprovações apareciam, e só na Central de Aprovações */}
+      <section aria-label="Etapas dos processos com você" className="mb-6">
+        <CaixaEtapasFluxo todas />
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
         <section aria-label="Tarefas">

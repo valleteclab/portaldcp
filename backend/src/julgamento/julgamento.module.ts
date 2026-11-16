@@ -9,6 +9,7 @@ import { ItemLicitacao } from '../itens/entities/item-licitacao.entity';
 import { LicitanteUnidade } from './entities/licitante-unidade.entity';
 import { AceitacaoProposta } from './entities/aceitacao-proposta.entity';
 import { RankingService } from './ranking.service';
+import { VisaoLotesService } from './visao-lotes.service';
 import { AceitacaoService } from './aceitacao.service';
 import { JulgamentoController } from './julgamento.controller';
 import { NegociacaoUnidade } from './entities/negociacao-unidade.entity';
@@ -61,7 +62,7 @@ const ENTIDADES_DESEMPATE_E_TECNICA = [
     ParametrosLicitacaoModule,
   ],
   controllers: [JulgamentoController, NegociacaoController, MeEppController, DesempateController, JulgamentoTecnicoController],
-  providers: [RankingService, AceitacaoService, NegociacaoService, MigracaoJulgamentoBootService, MeEppService, MigracaoMeEppBootService, DesempateService, JulgamentoTecnicoService],
+  providers: [RankingService, VisaoLotesService, AceitacaoService, NegociacaoService, MigracaoJulgamentoBootService, MeEppService, MigracaoMeEppBootService, DesempateService, JulgamentoTecnicoService],
   exports: [RankingService, AceitacaoService, NegociacaoService, MeEppService, DesempateService, JulgamentoTecnicoService],
 })
 export class JulgamentoModule {}

@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import {
   Injectable,
   NotFoundException,
@@ -9604,7 +9605,7 @@ export class MedicaoService {
       fornecedor.razao_social || fornecedor.nome_fantasia || '';
 
     // Gerar código OTP único para ambos os canais
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo = randomInt(100000, 1000000).toString();
 
     const canaisEnviados: string[] = [];
     let telefoneMascarado: string | undefined;
@@ -9868,7 +9869,7 @@ export class MedicaoService {
       throw new BadRequestException('Número de WhatsApp inválido.');
     }
 
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo = randomInt(100000, 1000000).toString();
     const cacheKey = `otp_fiscal_${medicaoId}`;
 
     (this.assinaturasService as any).otpCache?.set(cacheKey, {
@@ -9957,7 +9958,7 @@ export class MedicaoService {
     }
 
     const orgaoId = contrato.orgao_id || '';
-    const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+    const codigo = randomInt(100000, 1000000).toString();
     const cacheKey = `otp_fornecedor_${medicaoId}`;
 
     (this.assinaturasService as any).otpCache?.set(cacheKey, {
@@ -10048,6 +10049,8 @@ export class MedicaoService {
       otpEntry.expiracao <= Date.now() ||
       otpEntry.codigo !== codigoOtp
     ) {
+      // Cada erro conta; no 5º o código é descartado (sem isso caía por tentativa e erro)
+      if (otpEntry && otpEntry.expiracao > Date.now()) this.assinaturasService.contarErroOtp(cacheKey);
       throw new BadRequestException(
         'Código incorreto ou expirado. Solicite um novo código.',
       );
@@ -10140,6 +10143,8 @@ export class MedicaoService {
       otpEntry.expiracao <= Date.now() ||
       otpEntry.codigo !== codigoOtp
     ) {
+      // Cada erro conta; no 5º o código é descartado (sem isso caía por tentativa e erro)
+      if (otpEntry && otpEntry.expiracao > Date.now()) this.assinaturasService.contarErroOtp(cacheKey);
       throw new BadRequestException(
         'Código incorreto ou expirado. Solicite um novo código.',
       );
@@ -10681,7 +10686,7 @@ export class MedicaoService {
     });
     const orgaoId = contrato?.orgao_id || '';
 
-    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    const codigo = String(randomInt(100000, 1000000));
     const cacheKey = `otp_link_${token}`;
     (this.assinaturasService as any).otpCache?.set(cacheKey, {
       codigo,
@@ -10786,6 +10791,8 @@ export class MedicaoService {
       otpEntry.expiracao <= Date.now() ||
       otpEntry.codigo !== codigoOtp
     ) {
+      // Cada erro conta; no 5º o código é descartado (sem isso caía por tentativa e erro)
+      if (otpEntry && otpEntry.expiracao > Date.now()) this.assinaturasService.contarErroOtp(cacheKey);
       throw new BadRequestException(
         'Código incorreto ou expirado. Solicite um novo código.',
       );

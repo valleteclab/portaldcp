@@ -5,6 +5,38 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { chamarProcessos, dataHora, rotuloDoTipo, textoDoErro, type ProcessoResumo } from "@/lib/processo/processo"
 import { TemaProcesso, estilos as s } from "@/components/processo/BlocosProcesso"
+import { ModuloSistema, useModulosOrgao } from "@/hooks/useModulosOrgao"
+import { API_URL, authFetch } from "@/lib/api"
+
+type TipoNovo = "OFICIO" | "CONTRATACAO" | "ADITIVO" | "RENOVACAO" | "AVULSO"
+
+/**
+ * Tipos do "Novo processo" (mockup aprovado em 06/10/2026). Livre = a pessoa
+ * escolhe para quem enviar a cada passo; Com fluxo = o caminho já vem do órgão.
+ * Cada tipo só aparece se o órgão tem o módulo dele.
+ */
+const OPCOES_NOVO: Array<{ valor: TipoNovo; nome: string; selo: "Livre" | "Com fluxo" | "Livre ou com fluxo"; texto: string; modulo?: ModuloSistema }> = [
+  { valor: "OFICIO", nome: "Ofício", selo: "Livre", texto: "Escreve, assina e envia para outro setor. O número sai na sequência do seu setor." },
+  { valor: "CONTRATACAO", nome: "Contratação", selo: "Com fluxo", texto: "Da demanda à publicação: licitação, dispensa ou inexigibilidade.", modulo: ModuloSistema.LICITACOES },
+  { valor: "ADITIVO", nome: "Aditivo de contrato", selo: "Com fluxo", texto: "Prazo, valor ou quantidade de um contrato vigente.", modulo: ModuloSistema.CONTRATOS },
+  { valor: "RENOVACAO", nome: "Renovação de contrato", selo: "Com fluxo", texto: "Prorrogação de um contrato por novo período.", modulo: ModuloSistema.CONTRATOS },
+  { valor: "AVULSO", nome: "Processo avulso", selo: "Livre ou com fluxo", texto: "Qualquer outro assunto que precise de autos e tramitação — livre ou seguindo um fluxo do órgão." },
+]
+
+/** Fluxo de trabalho ativo do órgão (sem tipo definido ou de processo avulso). */
+interface FluxoOpcao {
+  id: string
+  nome: string
+  status: string
+  tipo_processo?: string | null
+}
+
+interface ContratoOpcao {
+  id: string
+  numero_contrato: string
+  objeto?: string | null
+  status?: string | null
+}
 
 function textoEstaCom(p: ProcessoResumo): string {
   if (p.situacao === "ENCERRADO") return "—"
@@ -14,7 +46,20 @@ function textoEstaCom(p: ProcessoResumo): string {
   return c.recebida ? quem : `${quem} (a receber)`
 }
 
-/** Lista de processos do órgão (módulo Processo eletrônico) + abertura de processo avulso. */
+/** Situação para a lista: a etapa da licitação, quando houver (antes: só "Em andamento"/"Encerrado"). */
+function textoSituacao(p: ProcessoResumo): string {
+  if (p.etapa) return p.etapa.rotulo
+  return p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"
+}
+
+function ChipSituacao({ p }: { p: ProcessoResumo }) {
+  const tom = p.etapa?.tom
+  const cls =
+    tom === "interna" ? s.chipInterna : tom === "externa" ? s.chipExterna : tom === "resultado" ? s.chipOk : tom === "encerrada" ? s.chipEncerrada : p.situacao === "ENCERRADO" ? s.chipOk : s.chipEspera
+  return <span className={`${s.chip} ${cls}`}>{textoSituacao(p)}</span>
+}
+
+/** Lista de processos do órgão (módulo Processo eletrônico) + "Novo processo" com todos os tipos. */
 export default function ListaProcessosPage() {
   const router = useRouter()
   const [resultado, setResultado] = useState<{ chave: string; itens: ProcessoResumo[]; erro: string | null } | null>(null)
@@ -24,7 +69,16 @@ export default function ListaProcessosPage() {
   const [buscaAplicada, setBuscaAplicada] = useState("")
 
   const [novo, setNovo] = useState(false)
+  const [tipoNovo, setTipoNovo] = useState<TipoNovo>("OFICIO")
+  const [contratos, setContratos] = useState<ContratoOpcao[] | null>(null)
+  const [contratoId, setContratoId] = useState("")
+  const { temAcesso, loading: carregandoModulos } = useModulosOrgao()
+  const opcoes = OPCOES_NOVO.filter((o) => !o.modulo || carregandoModulos || temAcesso(o.modulo))
+  const ehDeContrato = tipoNovo === "ADITIVO" || tipoNovo === "RENOVACAO"
   const [objeto, setObjeto] = useState("")
+  // Processo avulso pode seguir um fluxo de trabalho do órgão (08/11/2026)
+  const [fluxos, setFluxos] = useState<FluxoOpcao[] | null>(null)
+  const [fluxoId, setFluxoId] = useState("")
   const [criando, setCriando] = useState(false)
   const [erroNovo, setErroNovo] = useState<string | null>(null)
 
@@ -48,15 +102,55 @@ export default function ListaProcessosPage() {
     }
   }, [chave, tipo, situacao, buscaAplicada])
 
+  // Aditivo e renovação nascem de um contrato: a lista só é buscada quando o tipo é escolhido
+  useEffect(() => {
+    if (!ehDeContrato || contratos !== null) return
+    let vivo = true
+    authFetch(`${API_URL}/api/contratos?limit=500`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((j) => {
+        if (!vivo) return
+        const lista: ContratoOpcao[] = Array.isArray(j) ? j : j?.data || []
+        setContratos(lista.slice().sort((a, b) => String(b.numero_contrato).localeCompare(String(a.numero_contrato), "pt-BR", { numeric: true })))
+      })
+      .catch(() => vivo && setContratos([]))
+    return () => {
+      vivo = false
+    }
+  }, [ehDeContrato, contratos])
+
+  useEffect(() => {
+    if (tipoNovo !== "AVULSO" || fluxos !== null) return
+    let vivo = true
+    authFetch(`${API_URL}/api/workflows`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((j: FluxoOpcao[]) => {
+        if (!vivo) return
+        const lista = (Array.isArray(j) ? j : []).filter((f) => f.status === "PUBLICADO" && (!f.tipo_processo || f.tipo_processo === "AVULSO"))
+        setFluxos(lista.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")))
+      })
+      .catch(() => vivo && setFluxos([]))
+    return () => {
+      vivo = false
+    }
+  }, [tipoNovo, fluxos])
+
   async function criar() {
     setErroNovo(null)
-    if (objeto.trim().length < 5) return setErroNovo("Descreva o assunto do processo (pelo menos 5 letras).")
+    // Contratação: segue para o assistente que já existe (DFD, pesquisa, ETP, TR… e a licitação)
+    if (tipoNovo === "CONTRATACAO") return router.push("/orgao/fase-interna/processos/novo")
+    const contrato = ehDeContrato ? contratos?.find((c) => c.id === contratoId) ?? null : null
+    if (ehDeContrato && !contrato) return setErroNovo("Escolha o contrato.")
+    const assunto =
+      objeto.trim() ||
+      (contrato ? (tipoNovo === "ADITIVO" ? `Termo aditivo ao contrato nº ${contrato.numero_contrato}` : `Renovação do contrato nº ${contrato.numero_contrato}`) : "")
+    if (assunto.length < 5) return setErroNovo("Descreva o assunto do processo (pelo menos 5 letras).")
     setCriando(true)
     try {
       const p = await chamarProcessos<ProcessoResumo>("", {
         metodo: "POST",
         padrao: "Não foi possível abrir o processo.",
-        corpo: { tipo: "AVULSO", objeto: objeto.trim() },
+        corpo: { tipo: tipoNovo, objeto: assunto, contrato_id: contrato?.id, fluxo_id: tipoNovo === "AVULSO" && fluxoId ? fluxoId : undefined },
       })
       router.push(`/orgao/processo/${p.id}`)
     } catch (e) {
@@ -77,23 +171,109 @@ export default function ListaProcessosPage() {
       {novo ? (
         <section className={s.bloco} aria-labelledby="novo-processo">
           <div className={s.eyebrow} id="novo-processo">
-            Novo processo avulso
+            Novo processo
           </div>
           <div className={s.formulario} style={{ marginTop: 8 }}>
-            <p className={s.texto}>
-              Para um assunto que não é licitação nem contrato (ofício, solicitação, consulta). Depois de aberto, você envia para o setor que deve tratar.
+            <fieldset style={{ border: 0, padding: 0, margin: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              <legend className={s.rotulo} style={{ marginBottom: 6 }}>
+                O que você vai abrir?
+              </legend>
+              {opcoes.map((op) => (
+                <label
+                  key={op.valor}
+                  htmlFor={`novo-tipo-${op.valor}`}
+                  className={s.bloco}
+                  style={{ margin: 0, cursor: "pointer", borderWidth: tipoNovo === op.valor ? 2 : 1, borderColor: tipoNovo === op.valor ? "var(--azul)" : undefined }}
+                >
+                  <input
+                    id={`novo-tipo-${op.valor}`}
+                    type="radio"
+                    name="novo-tipo"
+                    value={op.valor}
+                    checked={tipoNovo === op.valor}
+                    onChange={() => setTipoNovo(op.valor)}
+                    style={{ marginRight: 8 }}
+                  />
+                  <b>{op.nome}</b>
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      background: op.selo === "Com fluxo" ? "var(--azul-fundo)" : "var(--linha2)",
+                      color: op.selo === "Com fluxo" ? "var(--azul-tinta)" : "var(--tinta2)",
+                    }}
+                  >
+                    {op.selo}
+                  </span>
+                  <span className={s.texto} style={{ display: "block", marginTop: 4 }}>
+                    {op.texto}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <p className={s.texto} style={{ margin: 0 }}>
+              <b>Livre</b> — você escolhe para quem enviar a cada passo. <b>Com fluxo</b> — o caminho já vem definido pelo órgão.
             </p>
-            <label className={s.rotulo} htmlFor="novo-objeto">
-              Assunto
-            </label>
-            <textarea
-              id="novo-objeto"
-              className={s.campo}
-              value={objeto}
-              maxLength={500}
-              onChange={(e) => setObjeto(e.target.value)}
-              placeholder="Ex.: Solicitação de manutenção do ar-condicionado da sala 3"
-            />
+            {tipoNovo === "CONTRATACAO" ? (
+              <p className={s.texto}>A contratação abre no assistente da fase interna: demanda, DFD, pesquisa de preço, ETP, TR e a escolha da modalidade.</p>
+            ) : (
+              <>
+                {ehDeContrato ? (
+                  <>
+                    <label className={s.rotulo} htmlFor="novo-contrato">
+                      Contrato
+                    </label>
+                    <select id="novo-contrato" className={s.campo} value={contratoId} onChange={(e) => setContratoId(e.target.value)} disabled={contratos === null}>
+                      <option value="">{contratos === null ? "Carregando contratos..." : contratos.length ? "Escolha o contrato" : "Nenhum contrato encontrado"}</option>
+                      {(contratos ?? []).map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.numero_contrato}
+                          {c.objeto ? ` — ${c.objeto.slice(0, 80)}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : null}
+                {tipoNovo === "AVULSO" ? (
+                  <>
+                    <label className={s.rotulo} htmlFor="novo-fluxo">
+                      Caminho do processo
+                    </label>
+                    <select id="novo-fluxo" className={s.campo} value={fluxoId} onChange={(e) => setFluxoId(e.target.value)} disabled={fluxos === null}>
+                      <option value="">Livre — você escolhe para quem enviar a cada passo</option>
+                      {(fluxos ?? []).map((f) => (
+                        <option key={f.id} value={f.id}>
+                          Seguir o fluxo: {f.nome}
+                        </option>
+                      ))}
+                    </select>
+                    {fluxoId ? <p className={s.texto} style={{ margin: 0 }}>O processo nasce no fluxo: cada etapa vai sozinha para o responsável, com prazo e aviso.</p> : null}
+                  </>
+                ) : null}
+                <label className={s.rotulo} htmlFor="novo-objeto">
+                  {ehDeContrato ? "Assunto (opcional)" : "Assunto"}
+                </label>
+                <textarea
+                  id="novo-objeto"
+                  className={s.campo}
+                  value={objeto}
+                  maxLength={500}
+                  onChange={(e) => setObjeto(e.target.value)}
+                  placeholder={
+                    tipoNovo === "OFICIO"
+                      ? "Ex.: Remanejamento de mobiliário para a sala das comissões"
+                      : ehDeContrato
+                        ? "Em branco: “Termo aditivo ao contrato nº …” ou “Renovação do contrato nº …”"
+                        : "Ex.: Solicitação de manutenção do ar-condicionado da sala 3"
+                  }
+                />
+              </>
+            )}
             {erroNovo ? (
               <div className={s.erro} role="alert">
                 {erroNovo}
@@ -101,7 +281,7 @@ export default function ListaProcessosPage() {
             ) : null}
             <div className={s.acoes}>
               <button type="button" className={`${s.botao} ${s.primario}`} onClick={criar} disabled={criando}>
-                {criando ? "Abrindo..." : "Abrir processo"}
+                {criando ? "Abrindo..." : tipoNovo === "OFICIO" ? "Escrever ofício" : tipoNovo === "CONTRATACAO" ? "Continuar para a contratação" : "Abrir processo"}
               </button>
               <button type="button" className={`${s.botao} ${s.secundario}`} onClick={() => setNovo(false)} disabled={criando}>
                 Cancelar
@@ -133,6 +313,7 @@ export default function ListaProcessosPage() {
             <option value="ADITIVO">Termo aditivo</option>
             <option value="RENOVACAO">Renovação de contrato</option>
             <option value="AVULSO">Avulso</option>
+            <option value="OFICIO">Ofício</option>
           </select>
           <select className={s.campo} value={situacao} onChange={(e) => setSituacao(e.target.value)} aria-label="Situação">
             <option value="ABERTO">Em andamento</option>
@@ -179,9 +360,14 @@ export default function ListaProcessosPage() {
                       <td className={s.celulaObjeto}>{p.objeto}</td>
                       <td>{rotuloDoTipo(p.tipo)}</td>
                       <td>
-                        <span className={`${s.chip} ${p.situacao === "ENCERRADO" ? s.chipOk : s.chipEspera}`}>
-                          {p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"}
-                        </span>
+                        <ChipSituacao p={p} />
+                        {p.etapa?.sala && (
+                          <div>
+                            <Link className={s.linkSala} href={`/orgao/processos/${p.etapa.licitacao_id}/sessao`}>
+                              Sala da sessão
+                            </Link>
+                          </div>
+                        )}
                       </td>
                       <td>{textoEstaCom(p)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{dataHora(p.aberto_em).slice(0, 10)}</td>
@@ -196,7 +382,7 @@ export default function ListaProcessosPage() {
                   <strong>{p.numero}</strong>
                   <span>{p.objeto}</span>
                   <span className={s.pecaMeta}>
-                    {rotuloDoTipo(p.tipo)} · {p.situacao === "ENCERRADO" ? "Encerrado" : "Em andamento"}
+                    {rotuloDoTipo(p.tipo)} · {textoSituacao(p)}
                     {p.situacao !== "ENCERRADO" && p.esta_com ? ` · com ${textoEstaCom(p)}` : ""}
                   </span>
                 </Link>

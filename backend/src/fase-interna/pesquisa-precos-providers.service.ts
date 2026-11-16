@@ -13,6 +13,8 @@ const REQUEST_TIMEOUT_MS = 15000;
 const MAX_IDADE_PRECO_DIAS = 365;
 const PNCP_CONSULTA_BASE = 'https://pncp.gov.br/api/consulta/v1';
 const PNCP_API_BASE = 'https://pncp.gov.br/api/pncp/v1';
+/** Busca textual do portal do PNCP (a mesma de pncp.gov.br/app/editais?q=...). */
+const PNCP_SEARCH_URL = 'https://pncp.gov.br/api/search/';
 const DADOS_ABERTOS_COMPRAS_BASE = 'https://dadosabertos.compras.gov.br';
 const PESQUISA_PRECOS_COMPRAS_GOV_INFO_URL = 'https://www.gov.br/compras/pt-br/sistemas/conheca-o-compras/pesquisa-de-precos';
 const PESQUISA_PRECOS_DADOS_ABERTOS_URL = 'https://suportedadoslivres.streamlit.app/';
@@ -39,6 +41,22 @@ function termoItem(item: ItemLicitacao): string {
     .filter(Boolean)
     .join(' ')
     .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Termo da busca textual no PNCP: a descrição resumida do item, sem códigos
+ * nem pontuação, limitada às primeiras palavras significativas — a busca do
+ * portal casa por palavras e frases longas demais não retornam nada.
+ */
+export function termoBuscaPncp(item: Pick<ItemLicitacao, 'descricao_resumida' | 'descricao_detalhada'>): string {
+  const base = String(item.descricao_resumida || item.descricao_detalhada || '');
+  return base
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter((palavra) => palavra.length > 1)
+    .slice(0, 6)
+    .join(' ')
     .trim();
 }
 
@@ -134,10 +152,39 @@ function textoRegistroPncp(registro: any): string {
     .join(' ');
 }
 
+const PALAVRAS_VAZIAS = new Set(['para', 'com', 'sem', 'tipo', 'cor', 'por', 'dos', 'das', 'uma', 'caixa', 'pacote', 'unidade', 'unidades', 'embalagem', 'material', 'aquisicao', 'item', 'conforme']);
+
+/** Palavras significativas (sem acento, sem pontuação), na ordem em que aparecem. */
+function palavrasSignificativas(valor: unknown): string[] {
+  return normalizarBusca(valor)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((p) => p.length > 2 && !PALAVRAS_VAZIAS.has(p) && !/^\d+$/.test(p));
+}
+
+/**
+ * Aderência de um item do PNCP ao item pesquisado, por PALAVRA INTEIRA
+ * ("papelao" não casa com "papel"): o núcleo do objeto (a primeira palavra
+ * significativa da descrição resumida) tem de estar no começo da descrição do
+ * item do PNCP, e mais uma das palavras seguintes tem de aparecer. Sem isso,
+ * "papel sulfite" trazia bloco de anotações e caixa de papelão (teste no
+ * Railway, 14/11/2026).
+ */
+export function itemPncpAderente(descricaoPncp: unknown, item: Pick<ItemLicitacao, 'descricao_resumida' | 'descricao_detalhada'>): boolean {
+  const doItem = palavrasSignificativas(item.descricao_resumida || item.descricao_detalhada).slice(0, 4);
+  if (!doItem.length) return false;
+  const doPncp = palavrasSignificativas(descricaoPncp);
+  if (!doPncp.slice(0, 5).includes(doItem[0])) return false;
+  if (doItem.length === 1) return true;
+  const conjunto = new Set(doPncp);
+  return doItem.slice(1).some((p) => conjunto.has(p));
+}
+
 function registroPncpAderente(registro: any, item: ItemLicitacao): boolean {
   const texto = normalizarBusca(textoRegistroPncp(registro));
   const codigo = codigoCatalogoItem(item);
   if (codigo && texto.includes(codigo)) return true;
+  if (registro?._porBuscaTextual) return itemPncpAderente(registro?.descricao || registro?.descricaoItem, item);
 
   const descricao = normalizarBusca(especificacaoObrigatoria(item) || termoItem(item));
   const termosEssenciais = [
@@ -280,6 +327,112 @@ function dadosContratacaoPncp(registro: any): { cnpj: string; ano: string; seque
   return { cnpj, ano, sequencial: String(Number(sequencial)) };
 }
 
+/**
+ * GET no PNCP com nova tentativa. O portal derruba conexão (ECONNRESET) e
+ * estoura o tempo com frequência quando recebe consultas seguidas — validação
+ * de 14/11/2026: duas de três buscas voltaram vazias só por isso.
+ */
+async function getPncp(url: string, config: Record<string, any> = {}, tentativas = 2): Promise<any> {
+  let ultimoErro: any;
+  for (let n = 0; n < tentativas; n++) {
+    try {
+      // 8 s por pedido: com 15 s e três tentativas, um portal lento custava minutos
+      return await axios.get(url, { timeout: 8000, headers: HTTP_HEADERS, ...config });
+    } catch (error: any) {
+      ultimoErro = error;
+      const status = Number(error?.response?.status) || 0;
+      // 4xx (fora 429) é resposta do portal, não instabilidade: não adianta repetir
+      if (status >= 400 && status < 500 && status !== 429) break;
+      if (n < tentativas - 1 && process.env.NODE_ENV !== 'test') {
+        await new Promise((r) => setTimeout(r, 800));
+      }
+    }
+  }
+  throw ultimoErro;
+}
+
+/**
+ * Valor ESTIMADO por outro órgão (contratação ainda sem resultado): serve de
+ * referência complementar, mas não é preço praticado. Nunca entra na cesta
+ * sozinho — quem pesquisa decide se inclui.
+ */
+export const FLAG_REFERENCIA_COMPLEMENTAR =
+  'Referência complementar: valor ESTIMADO por outro órgão, ainda sem resultado. Só entra na cesta se você aprovar.';
+
+export function ehReferenciaComplementar(candidato: { flags?: string[] | null }): boolean {
+  return (candidato?.flags || []).includes(FLAG_REFERENCIA_COMPLEMENTAR);
+}
+
+export const ORIGEM_BUSCA_WEB = 'Busca web via Perplexity Sonar/OpenRouter';
+
+/** De onde vem o preço, para a tela dizer com que cuidado tratá-lo. */
+export function tipoDeReferencia(candidato: { flags?: string[] | null; evidencia?: { origem?: string } | null }): 'ESTIMADO' | 'MERCADO' | 'PRATICADO' {
+  if (ehReferenciaComplementar(candidato)) return 'ESTIMADO';
+  if (/busca web/i.test(candidato?.evidencia?.origem || '')) return 'MERCADO';
+  return 'PRATICADO';
+}
+
+/**
+ * Referência que não entra na cesta sem alguém conferir: valor estimado, preço
+ * de loja ou site achado na web, aderência só parcial e unidade diferente da
+ * do item. A busca automática só inclui sozinha o que não cai aqui.
+ */
+export function exigeConferencia(candidato: { flags?: string[] | null; evidencia?: { origem?: string } | null }): boolean {
+  if (tipoDeReferencia(candidato) !== 'PRATICADO') return true;
+  return (candidato?.flags || []).some((f) => /revisar|unidade diferente/i.test(f));
+}
+
+const UNIDADES_EQUIVALENTES: Record<string, string> = {
+  UN: 'UN', UND: 'UN', UNID: 'UN', UNIDADE: 'UN', UNIDADES: 'UN', PC: 'UN', PECA: 'UN',
+  CX: 'CX', CAIXA: 'CX', CAIXAS: 'CX',
+  RESMA: 'RESMA', RESMAS: 'RESMA', RSM: 'RESMA', RM: 'RESMA',
+  PCT: 'PCT', PACOTE: 'PCT', PACOTES: 'PCT', PT: 'PCT',
+  KG: 'KG', QUILO: 'KG', QUILOGRAMA: 'KG',
+  L: 'L', LT: 'L', LITRO: 'L', LITROS: 'L',
+  M: 'M', METRO: 'M', METROS: 'M',
+  FD: 'FD', FARDO: 'FD', GL: 'GL', GALAO: 'GL', FR: 'FR', FRASCO: 'FR', RL: 'RL', ROLO: 'RL',
+};
+
+function unidadeCanonica(unidade: unknown): string | null {
+  const texto = String(unidade || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
+  return UNIDADES_EQUIVALENTES[texto] || null;
+}
+
+/**
+ * Aviso quando a fonte vende noutra embalagem (resma lá, caixa aqui): o preço
+ * não é comparável sem conversão. Só fala quando reconhece as duas unidades.
+ */
+export function avisoDeUnidadeDiferente(unidadeFonte: unknown, unidadeItem: unknown): string | null {
+  const a = unidadeCanonica(unidadeFonte);
+  const b = unidadeCanonica(unidadeItem);
+  if (!a || !b || a === b) return null;
+  return `Unidade diferente (${String(unidadeFonte).trim()} lá, ${String(unidadeItem).trim()} aqui): confira se o preço é da mesma embalagem antes de incluir.`;
+}
+
+/** Página de busca, categoria ou listagem: mostra vários produtos, não comprova o preço de um. */
+export function ehPaginaDeListagem(url: string): boolean {
+  return /[?&](q|k|s|busca|search|query|termo)=|\/(busca|search|s|depto|departamento|categoria|categorias|c|collections?)(\/|\?|$)/i.test(String(url || ''));
+}
+
+function dominioDaUrl(url?: string): string {
+  try {
+    return new URL(String(url)).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Quanto a quantidade contratada lá se parece com a daqui (0 a 1). Escala muda
+ * preço: 10 resmas e 10 mil resmas não custam o mesmo por unidade.
+ */
+export function proximidadeDeQuantidade(quantidadeFonte: number, quantidadeItem: number): number | null {
+  const a = Number(quantidadeFonte);
+  const b = Number(quantidadeItem);
+  if (!(a > 0) || !(b > 0)) return null;
+  return Math.min(a, b) / Math.max(a, b);
+}
+
 function itemPncpComContexto(itemPncp: any, contratacao: any): any {
   return {
     ...itemPncp,
@@ -294,6 +447,8 @@ function itemPncpComContexto(itemPncp: any, contratacao: any): any {
     dataHomologacao: contratacao.dataHomologacao,
     linkSistemaOrigem: contratacao.linkSistemaOrigem,
     linkProcessoEletronico: contratacao.linkProcessoEletronico,
+    _porBuscaTextual: contratacao._porBuscaTextual,
+    uf: contratacao.uf,
   };
 }
 
@@ -310,63 +465,101 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
 
   async buscar(context: PesquisaPrecoAgentContext): Promise<PesquisaPrecoCandidateInput[]> {
     const candidatos: PesquisaPrecoCandidateInput[] = [];
-    if (!context.scope.usarBrowserFallback) return candidatos;
+    const orgaoEPreco = new Set<string>();
 
     for (const item of context.itens) {
       const termo = termoItem(item);
       if (!termo) continue;
 
       try {
-        const registros = await this.consultarPncp(termo, Math.max(5, context.scope.maxPorFonte || 5));
-        for (const registro of registros.slice(0, Math.max(5, context.scope.maxPorFonte || 5))) {
+        const estado: { textoFalhou?: string } = {};
+        const antes = candidatos.length;
+        const registros = await this.consultarPncp(termoBuscaPncp(item) || termo, Math.max(5, context.scope.maxPorFonte || 5), context.ufOrgao, estado);
+        // Até 15 contratações por item: cada uma custa uma chamada para listar os itens
+        for (const registro of registros.slice(0, Math.max(15, (context.scope.maxPorFonte || 5) * 2))) {
           const itensPncp = await this.consultarItensContratacao(registro);
           if (!itensPncp.length) {
             this.logger.debug(`PNCP sem itens detalhados para item ${item.numero_item}: ${montarUrlPncp(registro)}`);
             continue;
           }
 
+          // Uma contratação conta como UMA fonte: vários itens parecidos do mesmo
+          // edital (modelos de toner, por exemplo) não são preços independentes.
+          const daContratacao: Array<{ candidato: PesquisaPrecoCandidateInput; homologado: boolean; proximidade: number }> = [];
           for (const itemPncp of itensPncp) {
+            if (daContratacao.length >= 4) break;
             const registroItem = itemPncpComContexto(itemPncp, registro);
             if (!registroPncpAderente(registroItem, item)) {
               this.logger.debug(`Item PNCP descartado por baixa aderencia ao item ${item.numero_item}: ${String(itemPncp.descricao || registro.objetoCompra || '').slice(0, 120)}`);
               continue;
             }
-            const valorUnitario = valorUnitarioPncp(registroItem);
+            // Preço praticado (homologado) vale mais que o estimado pelo outro órgão
+            const resultado = itemPncp.temResultado ? await this.consultarResultadoHomologado(registro, itemPncp.numeroItem) : null;
+            // o homologado vem do resultado do item ou, em algumas respostas, no próprio item
+            const homologado = (resultado?.valor ?? 0) || Number(itemPncp.valorUnitarioHomologado || itemPncp.valorUnitarioResultado || 0);
+            const valorUnitario = homologado > 0 ? homologado : valorUnitarioPncp(registroItem);
             const quantidade = Number(itemPncp.quantidade) || Number(item.quantidade) || 1;
+            const flags: string[] = [];
+            let ajuste = 0;
+            if (!(homologado > 0)) flags.push(FLAG_REFERENCIA_COMPLEMENTAR);
+            const mesmaUf = !!context.ufOrgao && String(registro.uf || '').toUpperCase() === String(context.ufOrgao).toUpperCase();
+            if (mesmaUf) {
+              flags.push(`Mesmo estado (${String(context.ufOrgao).toUpperCase()}).`);
+              ajuste += 3;
+            }
+            const proximidade = proximidadeDeQuantidade(Number(itemPncp.quantidade), Number(item.quantidade));
+            if (proximidade !== null) {
+              if (proximidade >= 0.5) ajuste += 2;
+              else if (proximidade < 0.1) {
+                flags.push(`Quantidade muito diferente (${Number(itemPncp.quantidade)} lá, ${Number(item.quantidade)} aqui): o preço pode refletir outra escala.`);
+                ajuste -= 6;
+              }
+            }
             if (valorUnitario <= 0) {
               this.logger.debug(`Item PNCP descartado sem valor unitario para item ${item.numero_item}: ${String(itemPncp.descricao || '').slice(0, 120)}`);
               continue;
             }
 
-            candidatos.push({
+            daContratacao.push({ homologado: homologado > 0, proximidade: proximidade ?? 0, candidato: {
               item_numero: item.numero_item,
               fonte_tipo: 'PNCP',
-              descricao_fonte: `PNCP item ${itemPncp.numeroItem || ''} - ${registro.orgaoEntidade?.razaoSocial || registro.nomeOrgao || 'Contratacao publica'}`.trim(),
+              descricao_fonte: `PNCP item ${itemPncp.numeroItem || ''} - ${registro.orgaoEntidade?.razaoSocial || registro.nomeOrgao || 'Contratacao publica'}${resultado?.fornecedor ? ` (fornecedor: ${resultado.fornecedor})` : ''}`.trim(),
               url_referencia: montarUrlPncp(registro),
-              data_pesquisa: (itemPncp.dataAtualizacao || itemPncp.dataInclusao || registro.dataResultado || registro.dataHomologacao || registro.dataPublicacaoPncp || hojeISO()).toString().split('T')[0],
+              data_pesquisa: (resultado?.data || itemPncp.dataAtualizacao || itemPncp.dataInclusao || registro.dataResultado || registro.dataHomologacao || registro.dataPublicacaoPncp || hojeISO()).toString().split('T')[0],
               valor_unitario: Number(valorUnitario.toFixed(4)),
               quantidade_base: quantidade,
               unidade: String(itemPncp.unidadeMedida || item.unidade_medida || 'UN'),
               evidencia: {
                 tipo: 'api',
-                origem: 'PNCP item da contratacao',
+                origem: homologado > 0 ? 'PNCP — valor homologado do item' : 'PNCP — valor estimado do item (contratação sem resultado)',
                 coletado_em: new Date().toISOString(),
                 titulo: itemPncp.descricao || registro.objetoCompra || termo,
               },
-              score: 92,
-            });
-
-            if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
-              break;
-            }
+              score: (homologado > 0 ? 92 : 70) + ajuste,
+              flags,
+            } });
+          }
+          // Fica o preço praticado e, entre iguais, a quantidade mais parecida com a daqui
+          const escolhido = daContratacao.sort((x, y) => Number(y.homologado) - Number(x.homologado) || y.proximidade - x.proximidade)[0];
+          // O mesmo órgão com o mesmo preço em duas publicações (ata e contratação,
+          // edital republicado) é uma fonte só — validação de 14/11/2026.
+          const chaveOrgao = `${item.numero_item}|${String(registro.orgaoEntidade?.cnpj || registro.cnpj || '').replace(/\D/g, '')}|${escolhido?.candidato.valor_unitario}`;
+          if (escolhido && !orgaoEPreco.has(chaveOrgao)) {
+            orgaoEPreco.add(chaveOrgao);
+            candidatos.push(escolhido.candidato);
           }
 
           if (candidatos.filter((c) => c.item_numero === item.numero_item && c.fonte_tipo === 'PNCP').length >= (context.scope.maxPorFonte || 5)) {
             break;
           }
         }
+        // A busca por texto caiu e nada veio do caminho reserva: o portal não respondeu
+        if (estado.textoFalhou && candidatos.length === antes) {
+          context.falhas?.push({ fonte: 'PNCP', item_numero: item.numero_item, motivo: estado.textoFalhou });
+        }
       } catch (error) {
-        this.logger.debug(`Consulta direta PNCP indisponível para item ${item.numero_item}: ${(error as Error).message}`);
+        this.logger.warn(`Consulta ao PNCP falhou para o item ${item.numero_item}: ${(error as Error).message}`);
+        context.falhas?.push({ fonte: 'PNCP', item_numero: item.numero_item, motivo: (error as Error).message });
       }
     }
 
@@ -378,10 +571,11 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
     if (!dados) return [];
 
     try {
-      const res = await axios.get(`${PNCP_API_BASE}/orgaos/${dados.cnpj}/compras/${dados.ano}/${dados.sequencial}/itens`, {
-        timeout: REQUEST_TIMEOUT_MS,
-        headers: HTTP_HEADERS,
-      });
+      const url = `${PNCP_API_BASE}/orgaos/${dados.cnpj}/compras/${dados.ano}/${dados.sequencial}/itens`;
+      // Página grande: em registro de preços o item procurado raramente está entre os primeiros
+      const res = await axios
+        .get(url, { params: { pagina: 1, tamanhoPagina: 500 }, timeout: REQUEST_TIMEOUT_MS, headers: HTTP_HEADERS })
+        .catch(() => axios.get(url, { timeout: REQUEST_TIMEOUT_MS, headers: HTTP_HEADERS }));
       return asArray(res.data);
     } catch (error) {
       this.logger.debug(`PNCP itens falhou em ${montarUrlPncp(registro)}: ${(error as Error).message}`);
@@ -389,7 +583,106 @@ export class PncpPriceProvider implements PesquisaPrecoProvider {
     }
   }
 
-  private async consultarPncp(termo: string, limite: number): Promise<any[]> {
+  /** Resultado homologado do item (menor valor unitário, fornecedor e data); null se não houver. */
+  private async consultarResultadoHomologado(registro: any, numeroItem: unknown): Promise<{ valor: number; fornecedor: string; data: string } | null> {
+    const dados = dadosContratacaoPncp(registro);
+    if (!dados || !numeroItem) return null;
+    try {
+      const res = await getPncp(`${PNCP_API_BASE}/orgaos/${dados.cnpj}/compras/${dados.ano}/${dados.sequencial}/itens/${numeroItem}/resultados`);
+      const validos = asArray(res.data)
+        .filter((r: any) => !r?.dataCancelamento && Number(r?.valorUnitarioHomologado) > 0)
+        .sort((x: any, y: any) => Number(x.valorUnitarioHomologado) - Number(y.valorUnitarioHomologado));
+      if (!validos.length) return null;
+      const r = validos[0];
+      return { valor: Number(r.valorUnitarioHomologado), fornecedor: String(r.nomeRazaoSocialFornecedor || ''), data: String(r.dataResultado || '').split('T')[0] };
+    } catch (error) {
+      this.logger.debug(`PNCP resultados falhou em ${montarUrlPncp(registro)} item ${numeroItem}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Contratações do PNCP para o termo. A API de consulta (/contratacoes/publicacao)
+   * NÃO filtra por texto: devolvia a página mais recente de pregões do país
+   * inteiro e praticamente nada tinha relação com o item (teste de 14/11/2026:
+   * papel sulfite → banners, lonas e mesas, tudo descartado). A busca textual
+   * do portal devolve as contratações do objeto; as que já têm resultado vêm
+   * primeiro, porque trazem o preço homologado.
+   */
+  private async buscarPorTexto(termo: string, limite: number, uf?: string): Promise<any[]> {
+    // Por RELEVÂNCIA: "-data" traz o que acabou de ser publicado, quase sempre sem
+    // resultado e pouco ligado ao termo; a relevância traz o objeto certo.
+    const pagina = async (ufs?: string): Promise<any[]> => {
+      const res = await getPncp(PNCP_SEARCH_URL, {
+        params: {
+          q: termo,
+          tipos_documento: 'edital',
+          ordenacao: 'relevancia',
+          pagina: 1,
+          tam_pagina: Math.min(50, Math.max(30, limite * 5)),
+          status: 'todos',
+          ...(ufs ? { ufs } : {}),
+        },
+      });
+      return Array.isArray(res.data?.items) ? res.data.items : [];
+    };
+    // Mercado local primeiro: o preço do mesmo estado é o mais comparável
+    // (frete, tributo, fornecedores). O país inteiro completa a lista.
+    const ufOrgao = String(uf || '').trim().toUpperCase();
+    let doEstado: any[] = [];
+    if (/^[A-Z]{2}$/.test(ufOrgao)) {
+      try {
+        doEstado = await pagina(ufOrgao);
+      } catch (error) {
+        this.logger.warn(`Busca do PNCP no estado ${ufOrgao} falhou para "${termo}": ${(error as Error).message}`);
+      }
+    }
+    const doPais = await pagina();
+    const vistos = new Set<string>();
+    const itens = [...doEstado, ...doPais].filter((r) => {
+      const chave = `${r?.orgao_cnpj}/${r?.ano}/${r?.numero_sequencial}`;
+      if (vistos.has(chave)) return false;
+      vistos.add(chave);
+      return true;
+    });
+    // Pesquisa de preços vale para contratações do último ano (IN SEGES 65/2021, art. 5º, II)
+    const limiteData = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    const doMesmoEstado = (r: any) => !!ufOrgao && String(r?.uf || '').toUpperCase() === ufOrgao;
+    return itens
+      .filter((r) => r?.orgao_cnpj && r?.ano && r?.numero_sequencial)
+      .filter((r) => {
+        const d = new Date(String(r.data_publicacao_pncp || ''));
+        return Number.isNaN(d.getTime()) || d.getTime() >= limiteData;
+      })
+      // sort estável: com resultado primeiro; dentro disso, o mesmo estado; depois a relevância
+      .sort(
+        (x, y) =>
+          Number(!!y.tem_resultado) - Number(!!x.tem_resultado) ||
+          Number(doMesmoEstado(y)) - Number(doMesmoEstado(x)),
+      )
+      .map((r) => ({
+        orgaoEntidade: { cnpj: String(r.orgao_cnpj), razaoSocial: r.orgao_nome },
+        nomeOrgao: r.orgao_nome,
+        anoCompra: String(r.ano),
+        sequencialCompra: String(r.numero_sequencial),
+        numeroControlePNCP: r.numero_controle_pncp,
+        objetoCompra: r.description || r.title,
+        dataPublicacaoPncp: r.data_publicacao_pncp,
+        linkSistemaOrigem: r.link_sistema_origem,
+        temResultado: !!r.tem_resultado,
+        uf: r.uf,
+        _porBuscaTextual: true,
+      }));
+  }
+
+  private async consultarPncp(termo: string, limite: number, uf?: string, estado?: { textoFalhou?: string }): Promise<any[]> {
+    try {
+      const porTexto = await this.buscarPorTexto(termo, limite, uf);
+      if (porTexto.length) return porTexto;
+    } catch (error) {
+      this.logger.warn(`Busca textual do PNCP falhou para "${termo}": ${(error as Error).message}`);
+      if (estado) estado.textoFalhou = (error as Error).message;
+    }
     const consultas = [
       {
         url: `${PNCP_CONSULTA_BASE}/contratacoes/publicacao`,
@@ -636,10 +929,15 @@ export function fontePrecosAderenteAoItem(registro: any, item: Pick<ItemLicitaca
     .slice(0, 10);
   const encontrados = tokens.filter((token) => texto.includes(token)).length;
   const minimo = Math.min(3, tokens.length);
+  // Aderência integral = todas as palavras do item, até cinco. Com o corte fixo
+  // em cinco, item de descrição curta ("Cabo HDMI 2 metros") nunca passava de
+  // parcial, mesmo com a referência idêntica (teste de 14/11/2026: 52 de 121
+  // referências esperando conferência só por isso).
+  const integral = encontrados >= Math.min(5, tokens.length);
   return {
     aderente: tokens.length > 0 && encontrados >= minimo,
-    score: encontrados >= 5 ? 82 : 66,
-    flags: encontrados < 5 ? ['Aderencia textual parcial: revisar antes de aprovar.'] : flags,
+    score: integral ? 82 : 66,
+    flags: integral ? flags : ['Aderencia textual parcial: revisar antes de aprovar.'],
   };
 }
 
@@ -675,6 +973,13 @@ export function mapearResultadoFontePrecos(registro: any, item: ItemLicitacao): 
   );
   const fonte = textoFontePrecosFonte(registro);
   const descricao = [registro?.descricao, registro?.descricao_comp, registro?.objeto].filter(Boolean).join(' - ').replace(/\s+/g, ' ').trim();
+  // O banco casa por palavras soltas: "toner para impressora laser" trazia a
+  // própria impressora, a R$ 5 mil (teste de 14/11/2026). Se a descricao do
+  // registro não começa pelo objeto do item, a referência espera conferência.
+  const objetoConfere = itemPncpAderente(registro?.descricao || registro?.descricao_comp || descricao, item);
+  const flagsAderencia = objetoConfere || aderencia.flags.some((f) => /revisar/i.test(f))
+    ? aderencia.flags
+    : [...aderencia.flags, 'O objeto principal desta referência pode não ser o do item: revisar antes de aprovar.'];
 
   return {
     item_numero: item.numero_item,
@@ -693,10 +998,10 @@ export function mapearResultadoFontePrecos(registro: any, item: ItemLicitacao): 
       coletado_em: new Date().toISOString(),
       titulo: descricao || termoItem(item),
     },
-    score: aderencia.score,
+    score: objetoConfere ? aderencia.score : Math.min(aderencia.score, 60),
     flags: [
       'Fonte complementar Fonte de Precos: validar comprovante antes de aprovar como fonte oficial.',
-      ...aderencia.flags,
+      ...flagsAderencia,
     ],
   };
 }
@@ -1043,6 +1348,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
         let descartadosInvalidos = 0;
         let sinalizadosSemUrl = 0;
         let sinalizadosUrlIndisponivel = 0;
+        const lojasVistas = new Set<string>();
         for (const produto of results) {
           const valor = normalizarValorPreco(produto.valor_unitario || produto.valorUnitario || produto.preco || produto.valor);
           const url = urlValida(produto.url || produto.url_referencia || produto.urlReferencia);
@@ -1050,6 +1356,10 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             descartadosInvalidos += 1;
             continue;
           }
+          // Uma loja é uma fonte só, por mais produtos e páginas que tenha
+          const chaveLoja = dominioDaUrl(url || '') || String(produto.descricao_fonte || produto.fonte || '').toLowerCase();
+          if (lojasVistas.has(chaveLoja)) continue;
+          lojasVistas.add(chaveLoja);
           let urlReferencia: string | undefined = url || undefined;
           let alertaUrl: string | null = null;
           if (url) {
@@ -1083,7 +1393,7 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             unidade: String(item.unidade_medida || 'UN'),
             evidencia: {
               tipo: 'api',
-              origem: 'Busca web via Perplexity Sonar/OpenRouter',
+              origem: ORIGEM_BUSCA_WEB,
               coletado_em: new Date().toISOString(),
               titulo: produto.observacao || termo,
             },
@@ -1091,6 +1401,9 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
             flags: [
               'Fonte encontrada por busca web: validar aderencia tecnica antes de aprovar.',
               ...(alertaUrl ? [alertaUrl] : []),
+              ...(urlReferencia && ehPaginaDeListagem(urlReferencia)
+                ? ['O link é de uma página de listagem ou busca, não do produto: abra, confira o preço e guarde o comprovante.']
+                : []),
               ...(aderenciaNaoComprovada ? ['A IA nao comprovou aderencia integral a especificacao; revisar antes de usar como referencia.'] : []),
               ...(Array.isArray(produto.criterios_confirmados) && produto.criterios_confirmados.length
                 ? [`Criterios confirmados: ${produto.criterios_confirmados.join('; ')}`]
@@ -1158,12 +1471,18 @@ export class WebEspecializadaProvider implements PesquisaPrecoProvider {
     const dataMinimaIso = dataMinima.toISOString().split('T')[0];
 
     const codigoCatalogo = codigoCatalogoItem(item);
+    // O roteiro nasceu num teste com notebook e ficou preso a ele: papel sulfite
+    // era pesquisado com "garantia on site". Agora só fala de notebook se o item for um.
+    const ehNotebook = /notebook|laptop|computador portatil/i.test(termo.normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+    const nomeCurto = String(item.descricao_resumida || termo).trim();
     const consultasSugeridas = [
-      codigoCatalogo ? `"${codigoCatalogo}" "precoUnitario" notebook` : '',
-      codigoCatalogo ? `"codigoItemCatalogo" "${codigoCatalogo}"` : '',
+      `${nomeCurto} preço`,
+      `${nomeCurto} comprar`,
       `"${especificacao}"`,
-      `"Notebook" "garantia on site" "superior a 36" "480 a 1.000"`,
-      `"Notebook" "núcleos por processador" "superior a 8" "PNCP"`,
+      codigoCatalogo ? `"${codigoCatalogo}" ${nomeCurto} preço unitário` : '',
+      ...(ehNotebook
+        ? [`"Notebook" "garantia on site" "superior a 36" "480 a 1.000"`, `"Notebook" "núcleos por processador" "superior a 8"`]
+        : []),
     ].filter(Boolean);
 
     const prompt = `Use busca web em tempo real. Pesquise no mínimo ${limite} preços reais atuais no Brasil para pesquisa de preços de contratação pública brasileira.
@@ -1179,19 +1498,17 @@ Período obrigatório: somente preços publicados ou vigentes entre ${dataMinima
 Pesquise explicitamente estas consultas, além de variações equivalentes:
 ${consultasSugeridas.map((consulta, index) => `${index + 1}. ${consulta}`).join('\n')}
 
-Priorize fontes verificáveis:
-1. PNCP em pncp.gov.br
-2. Pesquisa de Precos Compras.gov.br por CATMAT/CATSER
-3. portais oficiais .gov.br com editais, atas, termos de referência, adjudicações ou homologações
-4. diários oficiais, câmaras, prefeituras, universidades e conselhos profissionais
-5. fornecedores/distribuidores com página pública de preço
+O PNCP e o Painel de Preços já são consultados por outro caminho. Aqui interessa o preço de MERCADO (art. 23, §1º, III da Lei 14.133/2021). Priorize, nesta ordem:
+1. lojas, distribuidores e fornecedores brasileiros com página pública de preço do produto
+2. tabelas de referência e mídia especializada
+3. atas, contratos e homologações em portais oficiais fora do PNCP
 
 Critério de aderência:
 - Retorne apenas produtos/serviços que atendam integralmente à especificação técnica obrigatória.
-- Para notebook, confira explicitamente tela, interatividade da tela, memória RAM, núcleos do processador, ausência de HDD quando exigida, faixa do SSD, bateria, alimentação, sistema operacional e garantia on site.
-- Se a fonte pública usa o mesmo código CATMAT/CATSER ou reproduz a mesma descrição técnica do item, considere aderente mesmo que a página esteja em edital, ata, homologação, termo de referência ou PDF.
+- Confira a embalagem: o preço tem de ser da MESMA unidade do item (${item.unidade_medida || 'UN'}). Caixa com 10 não é o preço de 1.
+${ehNotebook ? '- Para notebook, confira explicitamente tela, memória RAM, núcleos do processador, faixa do SSD, sistema operacional e garantia on site.\n' : ''}- Se a fonte pública usa o mesmo código CATMAT/CATSER ou reproduz a mesma descrição técnica do item, considere aderente mesmo que a página esteja em edital, ata, homologação, termo de referência ou PDF.
 - Se a fonte não comprovar o código ou as características obrigatórias, descarte o resultado.
-- Não substitua por item parecido, inferior ou sem garantia/SSD/memória/processador compatíveis.
+- Não substitua por item parecido ou inferior.
 
 Retorne somente JSON array válido, sem markdown:
 [
@@ -1214,7 +1531,8 @@ Regras:
 - Não retorne preços internacionais, em dólar, ou indisponíveis no mercado brasileiro.
 - Pode retornar atas, contratos, homologações, adjudicações, editais e PDFs, desde que tragam preço unitário real e data dentro do período obrigatório.
 - Não retorne páginas ou tabelas com data anterior a ${dataMinimaIso}.
-- Inclua apenas itens com URL real começando com http.
+- Inclua apenas itens com URL real começando com http. A URL tem de ser a página do PRODUTO, não página de busca, categoria ou listagem.
+- No máximo um resultado por loja ou site.
 - A data deve estar sempre no formato completo YYYY-MM-DD; se só souber o ano, use YYYY-01-01.
 - Se não encontrar preço brasileiro verificável e tecnicamente aderente dos últimos ${MAX_IDADE_PRECO_DIAS} dias, retorne [].`;
 
@@ -1268,8 +1586,8 @@ Código CATMAT/CATSER: ${codigoCatalogo || 'não informado'}
 Período: entre ${dataMinimaIso} e ${hojeISO()}.
 
 Busque em lojas, marketplaces e distribuidores brasileiros conhecidos, além de páginas oficiais de fornecedores.
-Para notebook, priorize produtos com tela superior a 14, RAM superior a 8GB, SSD entre 480GB e 1TB, Windows ou sistema proprietário, processador com mais de 8 núcleos e garantia informada.
-Se não conseguir comprovar garantia on site superior a 36 meses ou outro requisito, ainda retorne o preço, mas marque "aderente": false e explique o que falta na observação.
+A URL tem de ser a página do PRODUTO (não busca, categoria ou listagem), com no máximo um resultado por loja, e o preço tem de ser da mesma unidade do item (${item.unidade_medida || 'UN'}).
+Se não conseguir comprovar algum requisito da especificação, ainda retorne o preço, mas marque "aderente": false e explique o que falta na observação.
 
 Retorne somente JSON array válido, sem markdown:
 [
@@ -1289,7 +1607,7 @@ Regras:
 - Nunca retorne valor_unitario 0.
 - Não retorne páginas sem preço visível.
 - Não invente preço.
-- Não retorne produto claramente incompatível, como desktop, monitor, tablet, veículo ou acessório.
+- Não retorne produto claramente diferente do item pedido.
 - Retorne até ${limite} resultados com preço real em reais brasileiros.`;
 
     const responseComplementar = await fetch(OPENROUTER_URL, {

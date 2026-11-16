@@ -8,15 +8,22 @@
  * público e ANÔNIMO. Tempo real pelo canal único (socket /disputa).
  */
 
+import { InputMoeda } from '@/components/ui/input-moeda'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { Loader2, MessageSquare, TimerReset, TrendingDown, Trophy, Wifi, WifiOff } from 'lucide-react'
 import { API_URL, authFetch, getAuthToken, hasValidSession } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ContrapropostaDispensa } from './ContrapropostaDispensa'
+import { DiligenciasFornecedor } from '../Diligencias'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { lerValorMonetario } from './PainelLancesFornecedor'
+
+/** Abaixo de 50% do próprio valor atual o lance só segue depois de confirmado (lance não se cancela). */
+const LIMITE_REDUCAO_SEM_CONFIRMAR = 0.5
 
 interface ItemPainel {
   item_licitacao_id: string
@@ -24,6 +31,9 @@ interface ItemPainel {
   descricao?: string
   quantidade?: number
   menor_valor: number | null
+  julgado?: boolean
+  sou_vencedor?: boolean
+  minha_exclusao?: { tipo: string; motivo: string } | null
   total_lances: number
   meu_valor?: number
 }
@@ -56,6 +66,8 @@ function fmtRestante(ms: number) {
 export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string }) {
   const [painel, setPainel] = useState<Painel | null>(null)
   const [valores, setValores] = useState<Record<string, string>>({})
+  // Lance com queda grande (erro de digitação típico: R$ 1,60 no lugar de R$ 160,00) pede confirmação
+  const [confirmar, setConfirmar] = useState<{ item: ItemPainel; valor: number; reducao: number } | null>(null)
   const [erros, setErros] = useState<Record<string, string>>({})
   const [enviando, setEnviando] = useState<string | null>(null)
   const [agora, setAgora] = useState(Date.now())
@@ -171,7 +183,7 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
     }
   }
 
-  const enviarLance = async (item: ItemPainel) => {
+  const enviarLance = async (item: ItemPainel, confirmado = false) => {
     const id = item.item_licitacao_id
     const erro = (m: string) => setErros((p) => ({ ...p, [id]: m }))
     if (!logado.current) return erro('Entre como fornecedor para dar lances.')
@@ -180,6 +192,11 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
     if (item.meu_valor != null && valor >= item.meu_valor) {
       return erro(`O lance deve ser MENOR que o seu valor atual (${fmtMoeda(item.meu_valor)}).`)
     }
+    if (!confirmado && item.meu_valor != null && valor < item.meu_valor * LIMITE_REDUCAO_SEM_CONFIRMAR) {
+      setConfirmar({ item, valor, reducao: Math.round((1 - valor / item.meu_valor) * 100) })
+      return
+    }
+    setConfirmar(null)
     setErros((p) => ({ ...p, [id]: '' }))
     setEnviando(id)
     try {
@@ -242,7 +259,7 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
         </CardHeader>
         <CardContent className="space-y-3">
           {painel.itens.map((it) => {
-            const souMenor = it.meu_valor != null && it.menor_valor != null && it.meu_valor <= it.menor_valor
+            const souMenor = !it.minha_exclusao && (it.julgado ? !!it.sou_vencedor : it.meu_valor != null && it.menor_valor != null && it.meu_valor <= it.menor_valor)
             return (
               <div key={it.item_licitacao_id} className="rounded-md border p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -274,8 +291,7 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
                 </div>
                 {painel.aberta && it.meu_valor != null && (
                   <div className="mt-3 flex items-center gap-2">
-                    <Input
-                      inputMode="decimal"
+                    <InputMoeda
                       placeholder="Novo valor unitário (menor que o seu)"
                       value={valores[it.item_licitacao_id] || ''}
                       onChange={(e) => setValores((p) => ({ ...p, [it.item_licitacao_id]: e.target.value }))}
@@ -285,6 +301,15 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
                       {enviando === it.item_licitacao_id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Dar lance'}
                     </Button>
                   </div>
+                )}
+                {it.minha_exclusao && (
+                  <p className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
+                    {it.minha_exclusao.tipo === 'PROPOSTA' ? 'Sua proposta foi desclassificada neste item' : 'Você foi inabilitado(a) neste item'} (você
+                    segue nos demais). Motivo: {it.minha_exclusao.motivo}
+                  </p>
+                )}
+                {it.julgado && it.sou_vencedor && !it.minha_exclusao && (
+                  <p className="mt-2 text-xs font-semibold text-green-700">Você é o vencedor deste item pelo valor de {fmtMoeda(it.menor_valor)}.</p>
                 )}
                 {erros[it.item_licitacao_id] && <p className="mt-2 text-xs text-red-700">{erros[it.item_licitacao_id]}</p>}
                 {painel.aberta && it.meu_valor == null && (
@@ -296,6 +321,10 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
           {painel.itens.length === 0 && <p className="text-sm text-gray-500">Nenhum item encontrado.</p>}
         </CardContent>
       </Card>
+
+      <ContrapropostaDispensa licitacaoId={licitacaoId} atualizacao={mensagens.length} />
+      {/* Diligência do agente de contratação (art. 64): pedido de documento ou esclarecimento, com prazo */}
+      <DiligenciasFornecedor licitacaoId={licitacaoId} atualizacao={mensagens.length} />
 
       {/* Chat da sessão — registrado nos autos; autoria anônima durante os lances */}
       <Card>
@@ -341,6 +370,34 @@ export function SalaDispensaFornecedor({ licitacaoId }: { licitacaoId: string })
           {erroMsg && <p className="mt-2 text-xs text-red-700">{erroMsg}</p>}
         </CardContent>
       </Card>
+
+      <Dialog open={confirmar !== null} onOpenChange={(o) => !o && setConfirmar(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar lance com redução grande</DialogTitle>
+          </DialogHeader>
+          {confirmar && (
+            <div className="space-y-2 text-sm text-slate-700">
+              <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                O lance de <strong>{fmtMoeda(confirmar.valor)}</strong> por unidade é {confirmar.reducao}% menor que o seu valor atual (
+                {fmtMoeda(confirmar.item.meu_valor ?? null)}) no item {confirmar.item.numero_item}.
+              </p>
+              <p>
+                O lance é pelo valor UNITÁRIO e não pode ser cancelado depois de enviado. Preço muito abaixo do estimado pode levar à
+                desclassificação por inexequibilidade (Lei 14.133/2021, art. 59). Confira antes de enviar.
+              </p>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setConfirmar(null)}>
+              Corrigir o valor
+            </Button>
+            <Button type="button" disabled={enviando !== null} onClick={() => confirmar && enviarLance(confirmar.item, true)}>
+              Enviar mesmo assim
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

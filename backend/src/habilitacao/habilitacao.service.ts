@@ -55,6 +55,7 @@ import {
   StatusDiligencia,
   StatusHabilitacao,
   dataIso,
+  diligenciaRecebe,
   diligenciaVigente,
   hojeBrasilia,
   motivoDocumentoCadastroInvalido,
@@ -120,6 +121,9 @@ type Papel = 'ORGAO' | 'FORNECEDOR';
  *     proposta; a habilitação de todos é julgada antes da disputa
  *     (pré-condição do INICIAR_DISPUTA); inabilitado → proposta desclassificada.
  */
+/** Fases da licitação em que a habilitação de um licitante convocado pode ser decidida (sem inversão). */
+const FASES_DECISAO_HABILITACAO: string[] = [FaseLicitacao.HABILITACAO, FaseLicitacao.JULGAMENTO];
+
 @Injectable()
 export class HabilitacaoService {
   private readonly logger = new Logger(HabilitacaoService.name);
@@ -463,7 +467,7 @@ export class HabilitacaoService {
   // LEITURAS
   // ==========================================================================
 
-  private visaoDocumento(d: DocumentoHabilitacao, papel: Papel, h: HabilitacaoLicitante, agora: Date) {
+  private visaoDocumento(d: DocumentoHabilitacao, papel: Papel, h: HabilitacaoLicitante, agora: Date, estadoDils: EstadoDiligencia[] = []) {
     return {
       id: d.id,
       exigenciaId: d.exigencia_id,
@@ -487,7 +491,7 @@ export class HabilitacaoService {
       analise: d.analise,
       analiseMotivo: d.analise_motivo,
       analisadoEm: d.analisado_em,
-      podeRemover: papel === 'FORNECEDOR' && !motivoNaoRemove(h, d, agora),
+      podeRemover: papel === 'FORNECEDOR' && !motivoNaoRemove(h, d, agora, estadoDils),
     };
   }
 
@@ -504,7 +508,10 @@ export class HabilitacaoService {
     const status = statusEfetivo(h, estadoDils, agora);
     const pendencias = pendenciasParaHabilitar(exigencias, docs, estadoDils, agora);
     const cobertura = new Map((h.pre_checagem ?? []).map((c) => [c.exigenciaId, c]));
-    const vigente = dils.find((d) => diligenciaVigente({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids }, agora));
+    // Para o licitante, a diligência segue "aberta" enquanto o prazo corre, mesmo já respondida
+    const vigente = dils.find((d) =>
+      (papel === 'FORNECEDOR' ? diligenciaRecebe : diligenciaVigente)({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids }, agora),
+    );
     return {
       id: h.id,
       licitacaoId: h.licitacao_id,
@@ -524,6 +531,7 @@ export class HabilitacaoService {
       enviadaEm: h.enviada_em,
       decididaEm: h.decidida_em,
       decisaoMotivo: h.decisao_motivo,
+      inabilitacoesUnidade: (h.inabilitacoes_unidade ?? []).map((i) => ({ unidadeId: i.unidade_id, rotulo: i.rotulo, motivo: i.motivo, em: i.em })),
       podeConcluirEnvio: papel === 'FORNECEDOR' && !motivoNaoConcluiEnvio(h, agora),
       podeAnalisar: papel === 'ORGAO' && !motivoNaoAnalisa(status),
       podeHabilitar: papel === 'ORGAO' && !STATUS_HABILITACAO_FINAIS.includes(status) && status !== StatusHabilitacao.AGUARDANDO_ENVIO && pendencias.length === 0,
@@ -538,7 +546,7 @@ export class HabilitacaoService {
           situacao: situacaoDaExigencia(doE),
           cobertaPeloCadastro: !!c?.coberta,
           motivoCadastro: c && !c.coberta ? c.motivo : null,
-          documentos: doE.map((d) => this.visaoDocumento(d, papel, h, agora)),
+          documentos: doE.map((d) => this.visaoDocumento(d, papel, h, agora, estadoDils)),
           podeEnviar: !!envio && !('erro' in envio),
           envioComo: envio && !('erro' in envio) ? envio.origem : null,
         };
@@ -658,10 +666,14 @@ export class HabilitacaoService {
         const cad = await this.nomes(m, [fornecedorId]);
         minha = this.visaoHabilitacao(h, exigencias, await this.documentos(m, h.id), dils, 'FORNECEDOR', cad.get(fornecedorId), agora);
       }
-      // Inversão, antes do primeiro envio: o que o cadastro já cobre (sem gravar nada)
-      const envioInversaoAberto = !!lic.inversao_fases && FASES_ENVIO_INVERSAO.includes(lic.fase) && !h;
+      // Inversão: o envio com a proposta fica aberto durante todo o recebimento — também DEPOIS do
+      // primeiro documento. Antes, o 1º anexo fechava o painel na página da proposta e o licitante
+      // ficava sem onde anexar o resto (pregão 2026/00073, 09/11/2026).
+      const envioInversaoAberto =
+        !!lic.inversao_fases && FASES_ENVIO_INVERSAO.includes(lic.fase) && (!h || h.status === StatusHabilitacao.AGUARDANDO_ENVIO);
       let previa: any = null;
-      if (envioInversaoAberto) {
+      // Antes do primeiro envio: o que o cadastro já cobre (sem gravar nada)
+      if (envioInversaoAberto && !h) {
         const { documentos, statusCadastro } = await documentosCadastroSql(m, fornecedorId);
         previa = preChecagemCadastro(exigencias, documentos, hojeBrasilia(agora), statusCadastro).map((c) => ({
           exigenciaId: c.exigenciaId,
@@ -718,14 +730,17 @@ export class HabilitacaoService {
       if (l?.fase === FaseLicitacao.EM_DISPUTA) {
         await this.transicoes.executar(licitacaoId, AtoLicitacao.ENCERRAR_DISPUTA, { ator, manager: m, ignorarSeJaAplicado: true, registro: { origem: 'habilitacao' } });
       }
-      await this.transicoes.executar(licitacaoId, AtoLicitacao.INICIAR_HABILITACAO, { ator, manager: m, ignorarSeJaAplicado: true, registro: { origem: 'habilitacao' } });
     });
+    // Por item/lote as unidades andam em ritmos diferentes: com outra unidade ainda
+    // aguardando a aceitação, a licitação segue em JULGAMENTO e quem já teve a
+    // proposta aceita pode ser convocado (ensaio do pregão por lote 2026/00087)
+    await this.tentarIniciarHabilitacao(licitacaoId, ator);
 
     let jaHabilitado = false;
     const r = await this.dataSource.transaction(async (m) => {
       await this.prepararAto(m, licitacaoId, fornecedorId);
       const lic = await this.licitacao(m, licitacaoId);
-      if (lic.fase !== FaseLicitacao.HABILITACAO) throw new ConflictException(`A convocação para a habilitação ocorre na fase de habilitação; a licitação está em ${lic.fase}.`);
+      if (!FASES_DECISAO_HABILITACAO.includes(lic.fase)) throw new ConflictException(`A convocação para a habilitação ocorre depois da aceitação da proposta; a licitação está em ${lic.fase}.`);
       const existente = await this.habilitacaoDoLicitante(m, licitacaoId, fornecedorId);
       if (existente && STATUS_HABILITACAO_ATIVOS.includes(existente.status)) {
         throw new ConflictException('Este licitante já está convocado para a habilitação');
@@ -745,7 +760,7 @@ export class HabilitacaoService {
         prazoAte: prazoAte(new Date(), horas),
         ator,
       });
-      if (sessao) {
+      if (sessao && lic.fase === FaseLicitacao.HABILITACAO) {
         await m.query(
           `UPDATE sessoes_disputa SET etapa = $2, fornecedor_habilitacao_id = $3, updated_at = now() WHERE id = $1`,
           [sessao.id, EtapaSessao.CONVOCACAO_HABILITACAO, fornecedorId],
@@ -954,7 +969,10 @@ export class HabilitacaoService {
       throw new ConflictException('Inversão de fases: a habilitação de todos os licitantes é julgada depois do recebimento das propostas e antes da disputa (fase de análise das propostas).');
     }
     if (!previaInversao) {
-      if (lic0.fase !== FaseLicitacao.HABILITACAO) throw new ConflictException(`A habilitação é decidida na fase de habilitação; a licitação está em ${lic0.fase}.`);
+      // Por item/lote, as unidades andam em fases diferentes: a inabilitação de um
+      // licitante devolve a LICITAÇÃO ao julgamento (o próximo é chamado), mas quem
+      // já estava convocado para a habilitação continua podendo ser julgado.
+      if (!FASES_DECISAO_HABILITACAO.includes(lic0.fase)) throw new ConflictException(`A habilitação é decidida na fase de habilitação; a licitação está em ${lic0.fase}.`);
       const unidades = await this.ranking.unidadesDoLicitante(h0.licitacao_id, h0.fornecedor_id, [SituacaoLicitante.ACEITO, SituacaoLicitante.HABILITADO]);
       if (!unidades.length) throw new BadRequestException('O licitante não tem proposta aceita nesta licitação — não há o que habilitar.');
     }
@@ -992,7 +1010,10 @@ export class HabilitacaoService {
     });
     if (!previaInversao) {
       await this.aceitacao.aoHabilitar(h0.licitacao_id, h0.fornecedor_id, ator);
-      await this.ajustarEtapaAposDecisao(h0.licitacao_id);
+      // Com outra unidade de volta à aceitação (licitação em JULGAMENTO), a etapa
+      // da sessão segue sendo a da aceitação — não é esta decisão que a muda.
+      if (lic0.fase === FaseLicitacao.HABILITACAO) await this.ajustarEtapaAposDecisao(h0.licitacao_id);
+      else if (await this.tentarIniciarHabilitacao(h0.licitacao_id, ator)) await this.ajustarEtapaAposDecisao(h0.licitacao_id);
     }
     this.notificar(h0.licitacao_id, h0.fornecedor_id, 'Resultado da habilitação', 'Você foi HABILITADO(A) nesta licitação.');
     return this.visaoDoAto(habilitacaoId, 'ORGAO');
@@ -1004,7 +1025,7 @@ export class HabilitacaoService {
    * LANCES convocado para a aceitação; sem próximo, a unidade fracassa). Na
    * inversão, antes da disputa: a proposta é desclassificada (não disputa).
    */
-  async inabilitar(habilitacaoId: string, motivo: string | undefined, ator: AtorTransicao, usuarioNome?: string) {
+  async inabilitar(habilitacaoId: string, motivo: string | undefined, ator: AtorTransicao, usuarioNome?: string, unidadesIds?: string[]) {
     const texto = (motivo ?? '').trim();
     if (texto.length < MOTIVO_MINIMO) throw new BadRequestException(`Informe o motivo da inabilitação (mín. ${MOTIVO_MINIMO} caracteres)`);
     const h0 = await this.habilitacaoPorId(this.dataSource.manager, habilitacaoId);
@@ -1014,8 +1035,20 @@ export class HabilitacaoService {
     if (previaInversao && lic0.fase !== FaseLicitacao.ANALISE_PROPOSTAS) {
       throw new ConflictException('Inversão de fases: a habilitação é julgada antes da disputa; depois dela, só por recurso (art. 165).');
     }
-    if (!previaInversao && lic0.fase !== FaseLicitacao.HABILITACAO) {
+    if (!previaInversao && !FASES_DECISAO_HABILITACAO.includes(lic0.fase)) {
       throw new ConflictException(`A habilitação é decidida na fase de habilitação; a licitação está em ${lic0.fase}.`);
+    }
+    // DECISÃO POR UNIDADE: os documentos valem para todas, mas a inabilitação pode
+    // atingir só alguns itens/lotes; o licitante segue nos demais (e ainda pode
+    // ser habilitado neles). Atingindo todas as unidades com proposta aceita, é a
+    // inabilitação do licitante, como sempre.
+    const pedidas = [...new Set((unidadesIds ?? []).map(String).filter(Boolean))];
+    if (pedidas.length) {
+      if (previaInversao) throw new BadRequestException('Na inversão de fases a habilitação é julgada antes da disputa, para o licitante como um todo.');
+      const aceitas = (await this.ranking.unidadesDoLicitante(h0.licitacao_id, h0.fornecedor_id, [SituacaoLicitante.ACEITO])).map(String);
+      const fora = pedidas.filter((id) => !aceitas.includes(id));
+      if (fora.length) throw new BadRequestException('Só é possível inabilitar por item/lote onde o licitante tem proposta aceita ainda não decidida.');
+      if (pedidas.length < aceitas.length) return this.inabilitarEmUnidades(h0, pedidas, texto, ator, usuarioNome);
     }
     let sessaoId: string | null = null;
     await this.dataSource.transaction(async (m) => {
@@ -1083,6 +1116,76 @@ export class HabilitacaoService {
   }
 
   /** Sessão depois de uma decisão: falta habilitar alguém com proposta aceita → convocação; senão → intenção de recurso. */
+  /**
+   * Inabilitação em PARTE das unidades (item/lote): a habilitação do licitante
+   * continua aberta para as demais; nas atingidas ele sai do ranking e o
+   * próximo pelos lances é convocado (mesmo caminho da inabilitação total).
+   */
+  private async inabilitarEmUnidades(h0: HabilitacaoLicitante, unidadesIds: string[], motivo: string, ator: AtorTransicao, usuarioNome?: string) {
+    let sessaoId: string | null = null;
+    let rotulos: string[] = [];
+    await this.dataSource.transaction(async (m) => {
+      await this.prepararAto(m, h0.licitacao_id, h0.fornecedor_id);
+      const h = await this.habilitacaoPorId(m, h0.id, true);
+      const dils = await this.diligencias(m, h.id);
+      await this.normalizar(m, h, dils);
+      if (STATUS_HABILITACAO_FINAIS.includes(h.status)) throw new ConflictException('A habilitação deste licitante já foi decidida');
+      if (h.status === StatusHabilitacao.AGUARDANDO_ENVIO) {
+        throw new ConflictException('O licitante ainda está no prazo de envio — aguarde a entrega da documentação ou o fim do prazo');
+      }
+      const agora = new Date().toISOString();
+      const novas: HabilitacaoLicitante['inabilitacoes_unidade'] = [];
+      for (const id of unidadesIds) {
+        const u = await this.ranking.unidade(id, m);
+        if (!u) throw new BadRequestException('Item/lote não encontrado nesta licitação.');
+        novas.push({ unidade_id: id, rotulo: `${u.tipo === 'LOTE' ? 'Lote' : 'Item'} ${u.numero}`, motivo, em: agora, por_id: ator.id ?? null });
+      }
+      rotulos = novas.map((n) => n.rotulo);
+      h.inabilitacoes_unidade = [...(h.inabilitacoes_unidade ?? []), ...novas];
+      await m.save(h);
+      const sessao = await this.sessaoDaLicitacao(m, h.licitacao_id);
+      sessaoId = sessao?.id ?? null;
+      const nome = (await this.nomes(m, [h.fornecedor_id])).get(h.fornecedor_id)?.razaoSocial ?? h.fornecedor_id;
+      await this.evento(m, sessao?.id, {
+        tipo: TipoEvento.HABILITACAO_REPROVADA,
+        descricao:
+          `Habilitação REPROVADA em ${rotulos.join(', ')}: ${nome} inabilitado(a) só nessa(s) unidade(s). Motivo: ${motivo}. ` +
+          'O licitante segue nas demais unidades; o próximo classificado será convocado para a aceitação da proposta onde ele saiu.',
+        fornecedorId: h.fornecedor_id,
+        usuario: usuarioNome ?? sessao?.pregoeiro_nome ?? null,
+        sistema: false,
+        dados: { habilitacao_id: h.id, motivo, unidades: unidadesIds, parcial: true },
+      });
+    });
+    if (!sessaoId) throw new ConflictException('Sessão pública não encontrada para a licitação');
+    const r = await this.aceitacao.aoInabilitar(sessaoId, h0.fornecedor_id, motivo, ator, usuarioNome, unidadesIds);
+    if (r.reconvocadas > 0) {
+      await this.dataSource.query(`UPDATE sessoes_disputa SET etapa = $2, fornecedor_habilitacao_id = NULL, updated_at = now() WHERE id = $1`, [
+        sessaoId,
+        EtapaSessao.ACEITACAO_PROPOSTA,
+      ]);
+    }
+    this.notificar(h0.licitacao_id, h0.fornecedor_id, 'Resultado da habilitação', `Você foi INABILITADO(A) em ${rotulos.join(', ')} (segue nos demais). Motivo: ${motivo}`);
+    return this.visaoDoAto(h0.id, 'ORGAO');
+  }
+
+  /**
+   * Leva a licitação à fase HABILITACAO quando todas as unidades já têm proposta
+   * aceita. Com unidade ainda em aceitação, a licitação fica em JULGAMENTO (não é
+   * erro): devolve se a licitação está em HABILITACAO.
+   */
+  private async tentarIniciarHabilitacao(licitacaoId: string, ator: AtorTransicao): Promise<boolean> {
+    try {
+      await this.transicoes.executar(licitacaoId, AtoLicitacao.INICIAR_HABILITACAO, { ator, ignorarSeJaAplicado: true, registro: { origem: 'habilitacao' } });
+    } catch (e) {
+      const [l] = await this.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [licitacaoId]);
+      if (l?.fase !== FaseLicitacao.JULGAMENTO) throw e;
+      return false;
+    }
+    const [l] = await this.dataSource.query(`SELECT fase::text AS fase FROM licitacoes WHERE id = $1`, [licitacaoId]);
+    return l?.fase === FaseLicitacao.HABILITACAO;
+  }
+
   private async ajustarEtapaAposDecisao(licitacaoId: string): Promise<void> {
     await this.dataSource.transaction(async (m) => {
       const sessao = await this.sessaoDaLicitacao(m, licitacaoId);
@@ -1207,7 +1310,7 @@ export class HabilitacaoService {
       await this.prepararAto(m, doc.licitacao_id, fornecedorId);
       const h = await this.habilitacaoPorId(m, doc.habilitacao_id, true);
       habId = h.id;
-      const erro = motivoNaoRemove(h, doc);
+      const erro = motivoNaoRemove(h, doc, new Date(), this.estadoDils(await this.diligencias(m, h.id)));
       if (erro) throw new ConflictException(erro);
       await m.delete(DocumentoHabilitacao, { id: doc.id });
     });
@@ -1260,9 +1363,10 @@ export class HabilitacaoService {
       const h = await this.habilitacaoPorId(m, h0.id, true);
       habId = h.id;
       const d = await m.findOneOrFail(DiligenciaHabilitacao, { where: { id: diligenciaId }, lock: { mode: 'pessimistic_write' } });
-      if (!diligenciaVigente({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids })) {
-        throw new ConflictException('Esta diligência não está aberta (respondida ou com o prazo encerrado)');
+      if (!diligenciaRecebe({ id: d.id, status: d.status, prazo_ate: d.prazo_ate, exigencia_ids: d.exigencia_ids })) {
+        throw new ConflictException('O prazo desta diligência terminou');
       }
+      const atualizacao = d.status === StatusDiligencia.RESPONDIDA;
       d.status = StatusDiligencia.RESPONDIDA;
       d.respondida_em = new Date();
       d.resposta = (resposta ?? '').trim().slice(0, 2000) || null;
@@ -1271,7 +1375,7 @@ export class HabilitacaoService {
       await this.normalizar(m, h, dils);
       await this.evento(m, h.sessao_id ?? (await this.sessaoDaLicitacao(m, h.licitacao_id))?.id, {
         tipo: TipoEvento.DOCUMENTO_HABILITACAO_ENVIADO,
-        descricao: `Resposta à diligência de habilitação registrada pelo licitante${d.resposta ? `: ${d.resposta}` : '.'}`,
+        descricao: `Resposta à diligência de habilitação ${atualizacao ? 'atualizada' : 'registrada'} pelo licitante${d.resposta ? `: ${d.resposta}` : '.'}`,
         fornecedorId,
         usuario: fornecedorId,
         dados: { habilitacao_id: h.id, diligencia_id: d.id, ato: 'RESPOSTA_DILIGENCIA' },

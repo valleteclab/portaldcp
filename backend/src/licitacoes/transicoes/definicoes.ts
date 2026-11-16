@@ -234,6 +234,28 @@ export const editalAnexado: Precondicao = async (ctx) => {
 };
 
 /**
+ * Quem conduz o certame precisa estar designado ANTES da divulgação (Lei
+ * 14.133/2021, art. 8º: a licitação é conduzida por agente de contratação — no
+ * pregão, o pregoeiro, §5º). Sem isso o processo ia a público com "agente não
+ * designado" e a sala abria sem responsável identificado (dono, 10/11/2026).
+ * Vale para pregão, concorrência e dispensa eletrônica; `pregoeiro_nome` é o
+ * campo legado de texto, aceito para os processos antigos.
+ */
+const MODALIDADES_COM_AGENTE: string[] = [
+  ModalidadeLicitacao.PREGAO_ELETRONICO,
+  ModalidadeLicitacao.CONCORRENCIA,
+  ModalidadeLicitacao.DISPENSA_ELETRONICA,
+];
+export const agenteDesignado: Precondicao = async (ctx) => {
+  const lic = ctx.licitacao as any;
+  if (lic.selecao_externa) return null;
+  if (!MODALIDADES_COM_AGENTE.includes(lic.modalidade)) return null;
+  if (lic.pregoeiro_id || String(lic.pregoeiro_nome ?? '').trim()) return null;
+  const quem = lic.modalidade === ModalidadeLicitacao.PREGAO_ELETRONICO ? 'o pregoeiro' : 'o agente de contratação';
+  return `Designe ${quem} do processo antes de publicar (Lei 14.133/2021, art. 8º) — em Editar › Configurações.`;
+};
+
+/**
  * ME/EPP — LC 123/2006 art. 48 I (plano E3): exclusividade acima do limite
  * legal (`MPE_EXCLUSIVO_ITEM`, R$ 80.000; no lote, o valor total do lote)
  * BLOQUEIA a publicação; item até o limite sem exclusividade exige a
@@ -794,7 +816,7 @@ const PUBLICAR: DefinicaoAto = {
   requerDados: true,
   endpoint: 'PUT /licitacoes/:id/publicar-edital',
   principal: true,
-  precondicoes: [instrucaoCompleta, etapasDoFluxoConcluidas, haItensComValorEstimado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48, portaoCConformidade],
+  precondicoes: [instrucaoCompleta, etapasDoFluxoConcluidas, haItensComValorEstimado, agenteDesignado, editalAnexado, avisoContratacaoDiretaGerado, prazosDePublicacao, exclusividadeMpeArt48, portaoCConformidade],
   efeitos: [gravarCronogramaPublicacao, gravarJustificativaArt49],
   // o edital anexado vira o documento divulgado (E7a); na dispensa, o aviso
   // de contratação direta é (re)gerado com o cronograma publicado e guardado
@@ -889,6 +911,22 @@ export const habilitacaoPreviaJulgada: Precondicao = async (ctx) => {
 };
 
 /**
+ * INVERSÃO DE FASES — intenção de recurso da habilitação ANTES dos lances (IN
+ * SEGES 73/2022, art. 8º §1º II e art. 40; dono, 10/11/2026): julgada a
+ * habilitação de todos, o agente abre o prazo de intenção (mínimo de 10 min) e
+ * os lances só começam com ele encerrado. Quem não se manifesta ali perde o
+ * direito de recorrer da habilitação/inabilitação; as razões vêm depois do julgamento.
+ */
+export const intencaoDeRecursoDaHabilitacaoPrevia: Precondicao = async (ctx) => {
+  if (!(ctx.licitacao as any).inversao_fases || !ctx.consultas.estadoRecursal) return null;
+  const e = await ctx.consultas.estadoRecursal();
+  if (!e.janelaPrevia || e.janelaPrevia === 'ENCERRADA') return null;
+  return e.janelaPrevia === 'ABERTA'
+    ? 'Inversão de fases: o prazo de intenção de recurso da habilitação está em curso — os lances começam depois que ele encerrar (IN SEGES 73/2022, art. 8º §1º II).'
+    : 'Inversão de fases: abra na sala o prazo de intenção de recurso da habilitação (mínimo de 10 minutos) antes dos lances (IN SEGES 73/2022, art. 8º §1º II e art. 40).';
+};
+
+/**
  * ADJUDICAR / DECIDIR_RECURSOS (plano E4): toda unidade com proposta aceita
  * tem o licitante HABILITADO — o vencedor final nunca é quem não passou pela
  * habilitação (Lei 14.133 art. 62; fim do B3).
@@ -898,6 +936,18 @@ export const licitantesAceitosHabilitados: Precondicao = async (ctx) => {
   const pendentes = await ctx.consultas.unidadesSemHabilitado();
   if (!pendentes.length) return null;
   return `Habilitação pendente (Lei 14.133/2021, art. 62) do licitante com proposta aceita: ${pendentes.join(', ')}`;
+};
+
+/**
+ * HOMOLOGAR a dispensa eletrônica (homologação 08/11/2026): todo vencedor com a
+ * habilitação conferida e registrada (Lei 14.133/2021, art. 72, V; IN SEGES
+ * 67/2021, art. 17). Nas demais modalidades a consulta não se aplica.
+ */
+export const vencedoresDaDispensaHabilitados: Precondicao = async (ctx) => {
+  if (ctx.licitacao.modalidade !== 'DISPENSA_ELETRONICA' || !ctx.consultas.vencedoresDispensaSemHabilitacao) return null;
+  const pendentes = await ctx.consultas.vencedoresDispensaSemHabilitacao();
+  if (!pendentes.length) return null;
+  return `Habilitação do vencedor pendente (Lei 14.133/2021, art. 72, V; IN SEGES 67/2021, art. 17): ${pendentes.join(', ')}`;
 };
 
 const INICIAR_DISPUTA: DefinicaoAto = {
@@ -912,6 +962,7 @@ const INICIAR_DISPUTA: DefinicaoAto = {
     propostasConfirmadasAposRetificacao,
     haPropostasAptas,
     habilitacaoPreviaJulgada,
+    intencaoDeRecursoDaHabilitacaoPrevia,
   ],
   efeitos: [marcarData('data_inicio_disputa')],
   efeitosPersistidos: [excluirPropostasNaoConfirmadas],
@@ -1117,7 +1168,7 @@ const HOMOLOGAR: DefinicaoAto = {
   para: F.HOMOLOGACAO,
   endpoint: 'POST /resultado/licitacao/:id/homologar',
   principal: true,
-  precondicoes: [haItemAdjudicado, rehomologacaoSemContrato, semRecursoPendente],
+  precondicoes: [haItemAdjudicado, rehomologacaoSemContrato, semRecursoPendente, vencedoresDaDispensaHabilitados],
   efeitos: [marcarData('data_homologacao')],
 };
 

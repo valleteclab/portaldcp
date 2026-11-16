@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input"
 import { API_URL, authFetch } from "@/lib/api"
 
-type Modelo = { id: string; nome: string; descricao: string | null; status: string; versao: number }
+type Modelo = { id: string; nome: string; descricao: string | null; status: string; versao: number; tipo_processo?: string | null }
 type Execucao = { id: string; workflow_id: string; numero: string; titulo: string; status: string; created_at: string; updated_at: string }
 
 const BASE = `${API_URL}/api/workflows`
@@ -63,6 +63,18 @@ export default function CentralWorkflowsPage() {
     if (!titulo.trim()) return toast.error("Informe um assunto para o processo")
     setIniciando(true)
     try {
+      const modelo = modelos.find((m) => m.id === modeloId)
+      // Fluxo de trabalho (sem tipo ou de processo avulso): nasce como PROCESSO avulso, com número,
+      // autos e o documento de cada etapa (08/11/2026 — antes ficava só a execução, sem autos)
+      if (modelo && (!modelo.tipo_processo || modelo.tipo_processo === "AVULSO")) {
+        const p = await api<{ id: string }>(`${API_URL}/api/processos`, {
+          method: "POST",
+          body: JSON.stringify({ tipo: "AVULSO", objeto: titulo.trim(), fluxo_id: modeloId }),
+        })
+        setAberto(false)
+        router.push(`/orgao/processo/${p.id}`)
+        return
+      }
       const criada = await api<Execucao>(`${BASE}/${modeloId}/iniciar`, {
         method: "POST",
         body: JSON.stringify({ titulo: titulo.trim() }),

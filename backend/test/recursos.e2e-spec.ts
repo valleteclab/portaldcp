@@ -54,11 +54,13 @@ import {
   painelRecursos,
   precluirIntencaoDeRecurso,
   vencerPrazoDoRecurso,
+  PDF_RECURSO,
 } from './support/recursos';
 import { adjudicarResultado, homologarResultado, vencedoresPorUnidade } from './support/resultado';
 import { FaseLicitacao } from '../src/licitacoes/entities/licitacao.entity';
 import { EtapaSessao } from '../src/sessao/entities/sessao-disputa.entity';
 import { RoleUsuario } from '../src/usuarios/entities/usuario.entity';
+import { RecursosService } from '../src/sessao/recursos.service';
 import { migrarRecursos } from '../src/sessao/migracao-recursos';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -193,6 +195,14 @@ describe('E5 — recursos com efeito', () => {
       const adj = await adjudicarResultado(ctx, licId, orgao.token);
       expect(adj.status).toBe(400);
       expect(JSON.stringify(adj.body)).toMatch(/Janela de intenção de recurso em curso|art\. 168/);
+    });
+
+    test('com a janela aberta, a admissibilidade espera o fim dela (409) e o painel avisa', async () => {
+      const cedo = await http().post(`/api/recursos/${recursoA}/admitir`).set(bearer(pregoeira.token)).send({});
+      expect(cedo.status).toBe(409);
+      expect(cedo.body.message).toMatch(/janela de intenção de recurso está aberta/);
+      const p = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
+      expect(recursoDe(p, A.id)).toMatchObject({ podeAdmitir: false, aguardaFimDaJanela: expect.any(String) });
     });
 
     test('encerrada a janela, a intenção preclui (409)', async () => {
@@ -385,6 +395,17 @@ describe('E5 — recursos com efeito', () => {
       expect(recursoDe(p, D.id)).toMatchObject({ status: 'AGUARDANDO_AUTORIDADE', autoridadeAtrasada: false, podeDecidirAutoridade: true });
     });
 
+    test('usuário com o papel de Autoridade (não administrador) é autoridade superior; sem o papel → 403', async () => {
+      const presidente = await criarUsuarioOrgao(ctx, orgao, { nome: 'Presidente E5', role: RoleUsuario.EQUIPE_APOIO });
+      const corpo = { provido: false, fundamentacao: 'Teste de competência: ainda sem o papel de Autoridade.', cargo: 'Presidente' };
+      expect((await http().post(`/api/recursos/${recursoD}/decisao-autoridade`).set(bearer(presidente.token)).send(corpo)).status).toBe(403);
+      await q(`UPDATE usuarios SET papeis_fase_interna = $2 WHERE id = $1`, [presidente.id, JSON.stringify(['AUTORIDADE'])]);
+      // Com o papel, passa pela competência (a decisão em si é tomada no teste seguinte, pela outra autoridade)
+      const svc = ctx.app.get(RecursosService, { strict: false });
+      const rec = await svc.buscar(recursoD);
+      await expect(svc.exigirAutoridade(rec, { tipo: 'USUARIO', id: presidente.id } as any)).resolves.toBeUndefined();
+    });
+
     test('PROVIDO pela autoridade: A INABILITADO, licitação volta ao JULGAMENTO e D é convocado para a aceitação', async () => {
       const r = await http()
         .post(`/api/recursos/${recursoD}/decisao-autoridade`)
@@ -421,6 +442,109 @@ describe('E5 — recursos com efeito', () => {
     });
   });
   // ==========================================================================
+  // Ensaio na homologação (decisão do dono, 08/11/2026): órgão de TESTE no Railway testa o recurso
+  // sem esperar os dias úteis — razões e contrarrazões em minutos. Fora do Railway nada muda (cenários A e B).
+  describe('D. prazos de teste (órgão de teste no Railway)', () => {
+    const envAntes = { proj: process.env.RAILWAY_PROJECT_ID, orgs: process.env.PRAZOS_DE_TESTE_ORGAOS };
+    afterAll(() => {
+      for (const [k, v] of [['RAILWAY_PROJECT_ID', envAntes.proj], ['PRAZOS_DE_TESTE_ORGAOS', envAntes.orgs]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    });
+
+    test('razões e contrarrazões em 10 minutos cada; a ata diz que é prazo de teste', async () => {
+      const { licId, sessaoId, item } = await pregaoJulgado();
+      await aceitarPropostaDaUnidade(ctx, sessaoId, item, orgao.token, A.token);
+      await habilitarLicitante(ctx, licId, A, orgao.token);
+      expect((await abrirJanelaIntencao(ctx, sessaoId, orgao.token)).status).toBe(201);
+      const d = await manifestarIntencao(ctx, sessaoId, D.token, {
+        motivacao: 'O atestado técnico de A não comprova a quantidade exigida',
+        atoRecorrido: 'HABILITACAO_TERCEIRO',
+        fornecedorAlvoId: A.id,
+      });
+      expect(d.status).toBe(201);
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      process.env.RAILWAY_PROJECT_ID = 'projeto-de-teste';
+      process.env.PRAZOS_DE_TESTE_ORGAOS = orgao.id;
+      const antes = Date.now();
+      const adm = await http().post(`/api/recursos/${d.body.id}/admitir`).set(bearer(pregoeira.token)).send({});
+      expect(adm.status).toBe(201);
+      const razoes = new Date(adm.body.prazoRazoes).getTime();
+      expect(razoes - antes).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+      expect(razoes - antes).toBeLessThan(11 * 60_000);
+      const env = await enviarPeca(ctx, d.body.id, 'razoes', D.token, 'O atestado de A comprova só metade da quantidade exigida no edital.', null);
+      expect(env.status).toBe(201);
+      expect(new Date(env.body.prazoContrarrazoes).getTime() - razoes).toBe(10 * 60_000);
+      const [ev] = await q(
+        `SELECT descricao FROM eventos_sessao WHERE sessao_id = $1 AND descricao LIKE '%ADMITIDA%' ORDER BY created_at DESC LIMIT 1`,
+        [sessaoId],
+      );
+      expect(ev.descricao).toMatch(/PRAZO DE TESTE da homologação: 10 min/);
+    });
+  });
+
+  // Na fase externa quem opera o sistema é o agente de contratação: a autoridade decide (e assina)
+  // e o agente REGISTRA a decisão, como na adjudicação e na homologação (decisão do dono, 09/11/2026).
+  describe('E. o agente de contratação registra a decisão da autoridade superior', () => {
+    test('pregoeira (quem manteve) registra a decisão do cadastro de autoridades, com a decisão assinada', async () => {
+      const { licId, sessaoId, item } = await pregaoJulgado();
+      await aceitarPropostaDaUnidade(ctx, sessaoId, item, orgao.token, A.token);
+      await habilitarLicitante(ctx, licId, A, orgao.token);
+      expect((await abrirJanelaIntencao(ctx, sessaoId, orgao.token)).status).toBe(201);
+      const d = await manifestarIntencao(ctx, sessaoId, D.token, {
+        motivacao: 'O atestado técnico de A não comprova a quantidade exigida',
+        atoRecorrido: 'HABILITACAO_TERCEIRO',
+        fornecedorAlvoId: A.id,
+      });
+      const id: string = d.body.id;
+      await encerrarJanelaNoRelogio(ctx, sessaoId);
+      expect((await http().post(`/api/recursos/${id}/admitir`).set(bearer(pregoeira.token)).send({})).status).toBe(201);
+      expect((await enviarPeca(ctx, id, 'razoes', D.token, 'O atestado de A comprova só metade da quantidade exigida no edital.', null)).status).toBe(201);
+      await vencerPrazoDoRecurso(ctx, id, 'prazo_contrarrazoes');
+      const m = await http()
+        .post(`/api/recursos/${id}/reconsiderar`)
+        .set(bearer(pregoeira.token))
+        .send({ reconsiderar: false, fundamentacao: 'Mantenho: o atestado comprova a capacidade técnica exigida.' });
+      expect(m.body.status).toBe('AGUARDANDO_AUTORIDADE');
+      const [aut] = await q(
+        `INSERT INTO autoridades_orgao (orgao_id, nome, cargo, ativo, padrao) VALUES ($1, 'Presidente E5', 'Presidente da Câmara', true, false) RETURNING id::text AS id`,
+        [orgao.id],
+      );
+      const fund = 'Nego provimento: acolho os fundamentos do agente de contratação.';
+      // Sem escolher a autoridade do cadastro, a pregoeira não decide (ela não é a autoridade)
+      expect((await http().post(`/api/recursos/${id}/decisao-autoridade`).set(bearer(pregoeira.token)).send({ provido: false, fundamentacao: fund, nome: 'X', cargo: 'Y' })).status).toBe(403);
+      // Painel do órgão traz o cadastro de autoridades para a escolha
+      const p = (await painelRecursos(ctx, sessaoId, orgao.token).expect(200)).body;
+      expect(p.autoridades).toEqual(expect.arrayContaining([expect.objectContaining({ id: aut.id, nome: 'Presidente E5' })]));
+      const r = await http()
+        .post(`/api/recursos/${id}/decisao-autoridade`)
+        .set(bearer(pregoeira.token))
+        .field('provido', 'false')
+        .field('fundamentacao', fund)
+        .field('autoridadeId', aut.id)
+        .attach('arquivo', PDF_RECURSO, { filename: 'decisao-assinada.pdf', contentType: 'application/pdf' });
+      expect(r.status).toBe(201);
+      expect(r.body.status).toBe('IMPROVIDO');
+      const [rec] = await q(
+        `SELECT decidido_por, decidido_por_cargo, decidido_por_tipo, decidido_por_id, decisao_registrada_por_id, decisao_arquivo_nome FROM recursos_administrativos WHERE id = $1`,
+        [id],
+      );
+      expect(rec).toMatchObject({
+        decidido_por: 'Presidente E5',
+        decidido_por_cargo: 'Presidente da Câmara',
+        decidido_por_tipo: 'AUTORIDADE_CADASTRO',
+        decidido_por_id: aut.id,
+        decisao_registrada_por_id: pregoeira.id,
+        decisao_arquivo_nome: 'decisao-assinada.pdf',
+      });
+      const arq = await http().get(`/api/recursos/${id}/decisao/arquivo`).set(bearer(D.token));
+      expect(arq.status).toBe(200);
+      const [ev] = await q(`SELECT descricao FROM eventos_sessao WHERE sessao_id = $1 AND descricao LIKE '%IMPROVIDO%' ORDER BY created_at DESC LIMIT 1`, [sessaoId]);
+      expect(ev.descricao).toMatch(/Presidente E5, Presidente da Câmara.*decisão registrada por Pregoeira E5.*decisao-assinada\.pdf/);
+    });
+  });
+
   describe('C. migração do fluxo antigo (idempotente)', () => {
     test('intenções por evento, janelas e contrarrazões JSON vão ao modelo novo; rodar de novo não duplica', async () => {
       const { sessaoId, licId } = await pregaoJulgado();

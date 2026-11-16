@@ -1,5 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { ModuleRef } from '@nestjs/core';
 import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 import { ModeloDocumento } from '../fase-interna/entities/modelo-documento.entity';
 import { TipoDocumentoFaseInterna } from '../fase-interna/entities/documento-fase-interna.entity';
@@ -8,7 +9,8 @@ import { ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import { escolherDestinatarios, PerfilTramitacao } from '../fase-interna/tramitacao-regras';
 import { PrioridadeNotificacao, TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
-import { Processo } from './entities/processo.entity';
+import { Processo, TipoProcesso } from './entities/processo.entity';
+import { anoDeBrasilia, chaveSequenciaOficio, numerarTexto, numeroDoOficio, tituloDoOficio, TIPO_PECA_OFICIO } from './oficio';
 import { ProcessoMovimentacao, ProcessoPeca } from './entities/processo-tramitacao.entity';
 import { calcularEtapas, EtapaCalculada, etapaAtual, etapasPadraoDe, sugerirSetor } from './tipos/etapas-padrao';
 import {
@@ -21,6 +23,7 @@ import {
   validarDestino,
   validarPeca,
   folhasDaPeca,
+  TIPOS_COM_TRAMITACAO_PROPRIA,
 } from './processo-tramitacao-regras';
 import { ProcessoService } from './processo.service';
 import { textoDeAutuacao } from './processo-regras';
@@ -40,9 +43,16 @@ import {
   textoDaPeca,
 } from './peca-documento';
 import { gerarPdfPeca } from './peca-pdf';
+import { WorkflowService } from '../workflow/workflow.service';
+import { RegistroNos, type EventoFluxo } from '../workflow/nos/executor-no';
+import { definicaoDoNo } from '../workflow/nos/catalogo-nos';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { despachoForaDoFluxo, JUSTIFICATIVA_MINIMA, justificativaForaDoFluxo } from '../workflow/ponte/ponte-fase-interna';
+
+/** Começo do despacho de um envio fora do fluxo (ver `despachoForaDoFluxo`). */
+const PREFIXO_FORA_DO_FLUXO = 'Envio fora do fluxo.';
 
 interface Perfil extends PerfilTramitacao {
   orgao_id: string;
@@ -65,7 +75,7 @@ interface Destino {
  * precisam ser do mesmo órgão. A CONTRATAÇÃO continua nas rotas da fase interna.
  */
 @Injectable()
-export class ProcessoTramitacaoService {
+export class ProcessoTramitacaoService implements OnModuleInit {
   private readonly logger = new Logger(ProcessoTramitacaoService.name);
 
   constructor(
@@ -74,16 +84,80 @@ export class ProcessoTramitacaoService {
     private readonly notificacoes: NotificacoesService,
     private readonly ia: IaService,
     @InjectRepository(ModeloDocumento) private readonly modelosRepo: Repository<ModeloDocumento>,
+    private readonly workflow: WorkflowService,
+    private readonly registro: RegistroNos,
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  // ==========================================================================
+  // Tramitação acompanha o fluxo desenhado
+  // ==========================================================================
+
+  /** Quando uma etapa do fluxo começa, o processo vai para quem responde por ela. */
+  onModuleInit(): void {
+    this.registro.registrarOuvinte({ aoEvento: (e) => this.aoEventoDoFluxo(e) });
+  }
+
+  private async aoEventoDoFluxo(e: EventoFluxo): Promise<void> {
+    if (e.tipo !== 'TAREFA_CRIADA' || !e.ctx.processoId) return;
+    if (definicaoDoNo(e.ctx.acao.tipo)?.automatico) return; // nó automático (Notificar) não muda a posse
+    const { tarefa, instancia, acao, orgaoId, processoId } = e.ctx;
+    const lista = Array.isArray(tarefa.responsaveis) ? tarefa.responsaveis.map(String) : [];
+    const tipo = String(tarefa.responsavel_tipo).toUpperCase();
+    const alvo = tipo === 'SETOR' ? { para_setor_id: lista[0] } : tipo === 'USUARIO' ? { para_usuario_id: lista[0] } : tipo === 'SOLICITANTE' ? { para_usuario_id: instancia.iniciado_por_id } : null;
+    if (!alvo || !Object.values(alvo)[0]) return;
+    const [p] = await this.ds.query(`SELECT * FROM processos WHERE id = $1::uuid AND orgao_id::text = $2`, [processoId, orgaoId]);
+    if (!p || p.situacao !== 'ABERTO' || !temTramitacaoPropria(p.tipo)) return;
+    let destino: Destino;
+    try {
+      destino = await this.resolverDestino(orgaoId, alvo);
+    } catch {
+      return; // responsável que não é pessoa do órgão (ex.: login do próprio órgão): a posse fica onde está
+    }
+    await this.ds.transaction(async (m) => {
+      await this.travar(m, processoId!);
+      const atual = await this.atual({ id: processoId! }, m);
+      if (atual && atual.para_setor_id === destino.para_setor_id && atual.para_usuario_id === destino.para_usuario_id && atual.recebida_em) return;
+      const repo = m.getRepository(ProcessoMovimentacao);
+      await repo.save(
+        repo.create({
+          processo_id: processoId!,
+          orgao_id: orgaoId,
+          sequencia: (atual?.sequencia ?? 0) + 1,
+          tipo: 'ENVIO',
+          de_setor_id: atual?.para_setor_id ?? null,
+          de_setor_nome: atual?.para_setor_nome ?? null,
+          de_usuario_id: null,
+          de_usuario_nome: 'Fluxo do processo',
+          ...destino,
+          despacho: `Encaminhado pelo fluxo: etapa “${acao.nome}”.`,
+          recebida_em: new Date(),
+          recebida_por_id: null,
+          recebida_por_nome: 'Fluxo do processo',
+        }),
+      );
+    });
+  }
+
+  /** Enquanto houver fluxo em andamento, envio, devolução e encerramento são feitos pelas etapas. */
+  private async exigirSemFluxo(p: Processo) {
+    if (await this.workflow.temFluxoEmAndamento(p.orgao_id, p.id)) {
+      throw new ConflictException('Este processo segue um fluxo: ele anda pelas etapas (concluir, devolver ou indeferir), não pelo envio manual.');
+    }
+  }
 
   // ==========================================================================
   // Apoio
   // ==========================================================================
 
   /** Processo do órgão do ator, de um tipo com tramitação própria; senão 404/400. */
-  async carregar(ator: Ator, id: string): Promise<Processo> {
+  async carregar(ator: Ator, id: string, opcoes: { etapaDoFluxo?: string | null } = {}): Promise<Processo> {
     const p = await this.processos.obter(ator, id);
-    if (!temTramitacaoPropria(p.tipo)) {
+    // Documento de uma ETAPA DO FLUXO (`no:<acao_id>`): vale em qualquer processo que segue o fluxo,
+    // inclusive o da licitação (homologação 08/11/2026: a etapa "Portarias do agente e dos fiscais"
+    // do pregão travava — "segue pelas rotas da licitação" — e sem o documento a etapa não conclui).
+    const ehDocumentoDeEtapa = String(opcoes.etapaDoFluxo ?? '').startsWith('no:');
+    if (!temTramitacaoPropria(p.tipo) && !ehDocumentoDeEtapa) {
       throw new BadRequestException('A tramitação deste processo segue pelas rotas da licitação.');
     }
     return p;
@@ -208,6 +282,17 @@ export class ProcessoTramitacaoService {
   async enviar(ator: Ator, id: string, body: any) {
     const p = await this.carregar(ator, id);
     this.exigirAberto(p);
+    // Com fluxo em andamento, o envio é EXCEÇÃO (consulta, diligência) — mesma regra da contratação:
+    // justificativa obrigatória no despacho; a etapa do fluxo não muda e quem recebe devolve
+    if (await this.workflow.temFluxoEmAndamento(p.orgao_id, p.id)) {
+      const justificativa = justificativaForaDoFluxo(body?.justificativa_fora_do_fluxo);
+      if (!justificativa) {
+        throw new BadRequestException(
+          `Este processo segue um fluxo: ele anda pelas etapas. Para enviar a outro setor fora do fluxo (consulta, diligência), escreva a justificativa (mínimo ${JUSTIFICATIVA_MINIMA} caracteres).`,
+        );
+      }
+      body = { ...(body ?? {}), despacho: despachoForaDoFluxo(justificativa, body?.despacho) };
+    }
     const erro = validarDestino(body ?? {});
     if (erro) throw new BadRequestException(erro);
     const perfil = await this.perfil(ator, p.orgao_id);
@@ -266,6 +351,11 @@ export class ProcessoTramitacaoService {
   /** Devolve a quem enviou (o remetente da movimentação atual). */
   async devolver(ator: Ator, id: string, body: any) {
     const p = await this.carregar(ator, id);
+    // Com fluxo em andamento só se devolve o que chegou FORA do fluxo (consulta/diligência)
+    if (await this.workflow.temFluxoEmAndamento(p.orgao_id, p.id)) {
+      const vigente = await this.atual(p);
+      if (!String(vigente?.despacho ?? '').startsWith(PREFIXO_FORA_DO_FLUXO)) await this.exigirSemFluxo(p);
+    }
     this.exigirAberto(p);
     const erro = validarDespacho(body?.despacho);
     if (erro) throw new BadRequestException(erro);
@@ -310,8 +400,9 @@ export class ProcessoTramitacaoService {
    * com folhas na ordem de juntada. Só quem está com o processo. Com `etapa`,
    * a peça conclui a etapa ATUAL do processo.
    */
-  async juntar(ator: Ator, id: string, body: any) {
-    const p = await this.carregar(ator, id);
+  /** `interno.documentoDoSistema`: PDF gerado pelo próprio sistema (ex.: DFD consolidado) — não conta como "feito fora". Nunca vem do corpo da requisição. */
+  async juntar(ator: Ator, id: string, body: any, interno?: { documentoDoSistema?: boolean }) {
+    const p = await this.carregar(ator, id, { etapaDoFluxo: String(body?.etapa ?? '').trim() || null });
     this.exigirAberto(p);
     // Peça feita no editor: HTML limpo, sem lacuna aberta; o texto corrido vale para a validação e a busca
     const html = body?.texto_html ? htmlDaPecaSeguro(body.texto_html) : '';
@@ -320,21 +411,53 @@ export class ProcessoTramitacaoService {
     if ('erro' in v) throw new BadRequestException(v.erro);
     const perfil = await this.perfil(ator, p.orgao_id);
     const chaveEtapa = String(body?.etapa ?? '').trim() || null;
+    // Documento de um nó do fluxo de processo (convenção `no:<acao_id>`, ver workflow/nos):
+    // a conclusão da etapa é controlada pelo motor de workflow (concluir/devolver/indeferir),
+    // não pelas etapas padrão do ADITIVO/RENOVACAO — por isso pula a validação abaixo.
+    const ehEtapaDeNoDeFluxo = !!chaveEtapa && chaveEtapa.startsWith('no:');
+    // ...mas só para o responsável pela etapa aberta no fluxo deste processo (403/400 caso contrário)
+    if (ehEtapaDeNoDeFluxo) {
+      const regra = await this.workflow.exigirResponsavelDaEtapaDoProcesso(p.orgao_id, p.id, chaveEtapa!.slice(3), ator);
+      if (!html && !interno?.documentoDoSistema && !regra.aceitaDocumentoExterno) throw new BadRequestException('Esta etapa exige o documento feito no sistema: escreva no editor (pode usar a IA).');
+    }
     const iaModelo = html ? String(body?.ia_modelo ?? '').trim().slice(0, 100) || null : null;
     const peca = await this.ds.transaction(async (m) => {
       await this.travar(m, p.id);
       const atual = await this.atual(p, m);
-      if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
-        throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode juntar peças aos autos.');
+      if (!ehEtapaDeNoDeFluxo) {
+        if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
+          throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode juntar peças aos autos.');
+        }
+        if (atual && !atual.recebida_em && !perfil.admin_orgao) throw new ConflictException('Receba o processo antes de juntar peças.');
       }
-      if (atual && !atual.recebida_em && !perfil.admin_orgao) throw new ConflictException('Receba o processo antes de juntar peças.');
       let tipoPeca: string | null = String(body?.tipo_peca ?? '').trim().slice(0, 40) || null;
-      if (chaveEtapa) {
+      if (chaveEtapa && !ehEtapaDeNoDeFluxo) {
         const etapas = await this.etapasDoProcesso(p, m);
         const alvo = etapas.find((e) => e.chave === chaveEtapa);
         if (!alvo || alvo.resultado) throw new BadRequestException('Etapa inválida para juntar peça.');
         if (alvo.estado !== 'ATUAL') throw new BadRequestException('Esta não é a etapa atual do processo.');
         tipoPeca = tipoPeca ?? alvo.tipo_peca;
+      }
+      // Ofício: o número sai agora, na sequência do setor de quem assina (por ano, fuso de Brasília)
+      const ehOficio = p.tipo === TipoProcesso.OFICIO && tipoPeca === TIPO_PECA_OFICIO;
+      let titulo = v.dados.titulo;
+      let texto = v.dados.texto;
+      let htmlFinal = html;
+      let numeroDocumento: string | null = null;
+      if (ehOficio) {
+        const ano = anoDeBrasilia(new Date());
+        await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [chaveSequenciaOficio(p.orgao_id, perfil.setor_id ?? null, ano)]);
+        const [seq] = await m.query(
+          `SELECT COUNT(*)::int AS n FROM processo_pecas
+            WHERE orgao_id = $1::uuid AND tipo_peca = $2 AND setor_autor_id IS NOT DISTINCT FROM $3::uuid
+              AND EXTRACT(YEAR FROM created_at AT TIME ZONE 'America/Sao_Paulo') = $4`,
+          [p.orgao_id, TIPO_PECA_OFICIO, perfil.setor_id ?? null, ano],
+        );
+        numeroDocumento = numeroDoOficio(Number(seq?.n ?? 0) + 1, ano);
+        await m.query(`UPDATE processos SET rascunho_peca = NULL WHERE id = $1::uuid`, [p.id]);
+        titulo = tituloDoOficio(numeroDocumento);
+        if (htmlFinal) htmlFinal = numerarTexto(htmlFinal, numeroDocumento);
+        if (texto) texto = numerarTexto(texto, numeroDocumento);
       }
       const [u] = await m.query(
         `SELECT COALESCE(MAX(numero_peca), 0) AS n, COALESCE(MAX(folha_final), 0) AS f FROM processo_pecas WHERE processo_id = $1::uuid`,
@@ -342,7 +465,7 @@ export class ProcessoTramitacaoService {
       );
       const numeroPeca = Number(u.n) + 1;
       let arquivo = { arquivo_url: v.dados.arquivo_url, arquivo_nome: v.dados.arquivo_nome, paginas: v.dados.paginas };
-      if (html) arquivo = await this.gerarArquivoDaPeca(p, perfil, numeroPeca, v.dados.titulo, html, iaModelo);
+      if (htmlFinal) arquivo = await this.gerarArquivoDaPeca(p, perfil, numeroPeca, titulo, htmlFinal, iaModelo, ehOficio);
       const folhas = folhasDaPeca(Number(u.f), arquivo.paginas);
       const repo = m.getRepository(ProcessoPeca);
       return repo.save(
@@ -352,20 +475,59 @@ export class ProcessoTramitacaoService {
           numero_peca: numeroPeca,
           etapa: chaveEtapa,
           tipo_peca: tipoPeca,
-          titulo: v.dados.titulo,
-          texto: v.dados.texto,
-          texto_html: html || null,
+          titulo,
+          texto,
+          texto_html: htmlFinal || null,
           origem: html ? (iaModelo ? 'IA' : 'EDITOR') : 'ARQUIVO',
           ia_modelo: iaModelo,
           arquivo_url: arquivo.arquivo_url,
           arquivo_nome: arquivo.arquivo_nome,
           ...folhas,
+          setor_autor_id: perfil.setor_id ?? null,
+          numero_documento: numeroDocumento,
           criado_por_id: perfil.usuario_id ?? ator.id,
           criado_por_nome: perfil.nome,
         }),
       );
     });
+    await this.juntarNosAutosDaLicitacao(p, peca);
     return { peca, ...(await this.fluxo(p)) };
+  }
+
+  /**
+   * Processo de licitação (pregão, concorrência…): a peça juntada por uma etapa
+   * do fluxo (portaria, despacho, documento) vai também para o livro de autos
+   * da licitação — senão some da impressão dos autos, que é montada por lá.
+   * Nunca impede a juntada: falha fica no log.
+   */
+  private async juntarNosAutosDaLicitacao(p: Processo, peca: ProcessoPeca): Promise<void> {
+    if (p.tipo !== TipoProcesso.CONTRATACAO || p.referencia_tipo !== 'LICITACAO' || !p.referencia_id || !peca.arquivo_url) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('../fase-interna/juntada-autos.service');
+      const juntada = this.moduleRef.get(mod.JuntadaAutosService, { strict: false });
+      const caminho = mod.caminhoFisicoDeReferencia(peca.arquivo_url);
+      if (!juntada || !caminho) return;
+      await juntada.juntarPendentes(p.referencia_id, [
+        {
+          dados: {
+            natureza: 'DOCUMENTO',
+            vaga: `processo-peca:${peca.id}`,
+            chave: peca.tipo_peca || 'PECA_PROCESSO',
+            titulo: peca.titulo,
+            origem: peca.origem === 'ARQUIVO' ? 'ANEXADA' : 'GERADA',
+            conteudo: `processo-peca:${peca.id}:${peca.arquivo_url}`,
+            data_documento: peca.created_at ?? new Date(),
+            signatarios: peca.criado_por_nome ? [peca.criado_por_nome] : [],
+            juntado_por_nome: peca.criado_por_nome,
+          },
+          momento: peca.created_at ?? new Date(),
+          fonte: { tipo: 'COPIAR', caminho },
+        },
+      ]);
+    } catch (e: any) {
+      this.logger.warn(`[autos] peça "${peca.titulo}" do processo ${p.numero} não foi para os autos da licitação: ${e?.message ?? e}`);
+    }
   }
 
   /**
@@ -389,7 +551,7 @@ export class ProcessoTramitacaoService {
          JOIN LATERAL (SELECT * FROM processo_movimentacoes x WHERE x.processo_id = p.id ORDER BY x.sequencia DESC LIMIT 1) m ON true
         WHERE p.orgao_id::text = $1 AND p.situacao = 'ABERTO' AND p.tipo::text = ANY($2::text[])
         ORDER BY m.created_at DESC`,
-      [orgaoId, ['ADITIVO', 'RENOVACAO', 'AVULSO']],
+      [orgaoId, [...TIPOS_COM_TRAMITACAO_PROPRIA]],
     );
     const minhas = linhas.filter((l) => {
       if (perfil.admin_orgao) return true;
@@ -414,7 +576,7 @@ export class ProcessoTramitacaoService {
   }
 
   /** PDF da peça feita no sistema, gravado na pasta privada `processo/<id>/`. */
-  private async gerarArquivoDaPeca(p: Processo, perfil: Perfil, numeroPeca: number, titulo: string, html: string, iaModelo: string | null) {
+  private async gerarArquivoDaPeca(p: Processo, perfil: Perfil, numeroPeca: number, titulo: string, html: string, iaModelo: string | null, assinatura = false) {
     const [org] = await this.ds.query(`SELECT nome, cidade, uf, logo_url, pecas_papel_timbrado FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
     const pdf = await gerarPdfPeca({
       orgao_nome: org?.nome || 'Órgão',
@@ -430,6 +592,7 @@ export class ProcessoTramitacaoService {
       autor_cargo: perfil.cargo,
       juntada_em: new Date(),
       ia_modelo: iaModelo,
+      assinatura_eletronica: assinatura,
     });
     const nome = `peca-${numeroPeca}-${randomUUID()}.pdf`;
     const dir = path.join(diretorioDeGravacao('processo'), p.id);
@@ -457,28 +620,53 @@ export class ProcessoTramitacaoService {
   /** O que o modelo e a IA sabem do processo ao redigir a peça da etapa. */
   private async contextoDaPeca(ator: Ator, p: Processo, chaveEtapa: string | null): Promise<ContextoDaPeca> {
     const perfil = await this.perfil(ator, p.orgao_id);
-    const etapa = chaveEtapa ? (await this.etapasDoProcesso(p)).find((e) => e.chave === chaveEtapa) ?? null : null;
-    if (chaveEtapa && (!etapa || etapa.resultado)) throw new BadRequestException('Etapa inválida para redigir peça.');
+    // Etapa de um nó do fluxo de processo (`no:<acao_id>`): não está nas etapas padrão
+    // do ADITIVO/RENOVACAO; o modelo/rascunho tratam como peça avulsa (sem tipo de peça fixo).
+    const ehEtapaDeNoDeFluxo = !!chaveEtapa && chaveEtapa.startsWith('no:');
+    // Etapa do fluxo desenhado: o documento que ela produz e o modelo escolhido no desenho
+    const doNo = ehEtapaDeNoDeFluxo ? await this.workflow.documentoDaEtapa(p.orgao_id, p.id, chaveEtapa!.slice(3)) : null;
+    const etapa = chaveEtapa && !ehEtapaDeNoDeFluxo ? (await this.etapasDoProcesso(p)).find((e) => e.chave === chaveEtapa) ?? null : null;
+    if (chaveEtapa && !ehEtapaDeNoDeFluxo && (!etapa || etapa.resultado)) throw new BadRequestException('Etapa inválida para redigir peça.');
     const [org] = await this.ds.query(`SELECT nome FROM orgaos WHERE id::text = $1`, [p.orgao_id]);
     const [c] = p.contrato_id
       ? await this.ds.query(`SELECT numero_contrato, objeto, fornecedor_razao_social, valor_global FROM contratos WHERE id::text = $1`, [p.contrato_id])
       : [];
     const pecas = await this.pecas(p);
+    // DFD consolidado juntado como PDF não tem texto na peça: entra resumido para a IA
+    const dfds: Array<{ numero: number; ano: number; objeto: string; justificativa: string | null; itens: any[]; valor_total_estimado: string }> = await this.ds.query(
+      `SELECT numero, ano, objeto, justificativa, itens, valor_total_estimado FROM dfds_consolidados WHERE processo_id = $1::uuid AND orgao_id::text = $2`,
+      [p.id, p.orgao_id],
+    );
+    const resumoDfds = dfds.map((d) => ({
+      titulo: `DFD nº ${d.numero}/${d.ano} (consolidado)`,
+      folhas: 'nos autos',
+      texto: [
+        `Objeto: ${d.objeto}.`,
+        d.justificativa ? `Justificativa: ${d.justificativa}` : null,
+        `Valor total estimado: R$ ${Number(d.valor_total_estimado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`,
+        `Itens: ${(Array.isArray(d.itens) ? d.itens : []).slice(0, 30).map((i: any) => `${i.descricao} — ${Number(i.quantidade)} ${i.unidade_medida ?? ''}${Array.isArray(i.origens) && i.origens.length ? ` (setores: ${i.origens.map((o: any) => o.setor).join(', ')})` : ''}`).join('; ')}.`,
+      ].filter(Boolean).join(' ').slice(0, 1500),
+    }));
     return {
       orgao_nome: org?.nome || 'Órgão',
       setor_nome: await this.nomeDoSetor(perfil.setor_id),
       numero_processo: p.numero,
       tipo_processo: p.tipo,
       objeto: p.objeto,
-      etapa_rotulo: etapa?.rotulo ?? 'Peça avulsa',
-      tipo_peca: etapa?.tipo_peca ?? null,
-      titulo_peca: etapa?.titulo_peca ?? etapa?.rotulo ?? 'Peça',
+      // Ofício sem etapa: a peça é o próprio ofício (modelo e rascunho da IA de ofício)
+      etapa_rotulo: doNo?.nome ?? etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça avulsa'),
+      tipo_peca: doNo ? doNo.tipo_documento : etapa?.tipo_peca ?? (p.tipo === TipoProcesso.OFICIO ? TIPO_PECA_OFICIO : null),
+      titulo_peca: doNo?.nome ?? etapa?.titulo_peca ?? etapa?.rotulo ?? (p.tipo === TipoProcesso.OFICIO ? 'Ofício' : 'Peça'),
+      modelo_preferido_id: doNo?.modelo_documento_id ?? null,
       contrato: c ? { numero: c.numero_contrato, objeto: c.objeto ?? null, fornecedor: c.fornecedor_razao_social ?? null, valor_global: c.valor_global !== null && c.valor_global !== undefined ? Number(c.valor_global) : null } : null,
-      pecas: pecas.map((x) => ({
-        titulo: x.titulo,
-        folhas: x.folha_inicial === x.folha_final ? `fl. ${x.folha_inicial}` : `fls. ${x.folha_inicial}–${x.folha_final}`,
-        texto: x.texto ? x.texto.slice(0, 1500) : null,
-      })),
+      pecas: [
+        ...pecas.map((x) => ({
+          titulo: x.titulo,
+          folhas: x.folha_inicial === x.folha_final ? `fl. ${x.folha_inicial}` : `fls. ${x.folha_inicial}–${x.folha_final}`,
+          texto: x.texto ? x.texto.slice(0, 1500) : null,
+        })),
+        ...resumoDfds,
+      ],
       autor_nome: perfil.nome,
       autor_cargo: perfil.cargo,
     };
@@ -490,7 +678,7 @@ export class ProcessoTramitacaoService {
    * é o preferido. Sem modelo cadastrado, o texto padrão em código.
    */
   async modelo(ator: Ator, id: string, chaveEtapa: string | null) {
-    const p = await this.carregar(ator, id);
+    const p = await this.carregar(ator, id, { etapaDoFluxo: chaveEtapa });
     const c = await this.contextoDaPeca(ator, p, chaveEtapa);
     const cadastrados = c.tipo_peca
       ? await this.modelosRepo
@@ -500,6 +688,8 @@ export class ProcessoTramitacaoService {
           .addOrderBy('m.updated_at', 'DESC')
           .getMany()
       : [];
+    // O modelo escolhido no desenho do fluxo vai primeiro (é o que abre no editor)
+    if (c.modelo_preferido_id) cadastrados.sort((a, b) => Number(b.id === c.modelo_preferido_id) - Number(a.id === c.modelo_preferido_id));
     const modelos = cadastrados
       .map((m) => ({ id: m.id, nome: m.nome, padrao_sistema: m.padrao_sistema, do_orgao: !!m.orgao_id, html: aplicarVariaveisDaPeca(htmlDoModelo(m.secoes || []), c) }))
       .filter((m) => m.html.trim());
@@ -509,7 +699,7 @@ export class ProcessoTramitacaoService {
 
   /** Salva o texto do editor como modelo do órgão para o tipo de peça da etapa (aparece na tela "Modelos de documento"). */
   async salvarModelo(ator: Ator, id: string, body: any) {
-    const p = await this.carregar(ator, id);
+    const p = await this.carregar(ator, id, { etapaDoFluxo: String(body?.etapa ?? '').trim() || null });
     const c = await this.contextoDaPeca(ator, p, String(body?.etapa ?? '').trim() || null);
     if (!c.tipo_peca || !(Object.values(TipoDocumentoFaseInterna) as string[]).includes(c.tipo_peca)) {
       throw new BadRequestException('Esta etapa não tem tipo de peça com modelo.');
@@ -539,7 +729,7 @@ export class ProcessoTramitacaoService {
 
   /** Rascunho da peça pela IA: lê o processo, escreve e marca lacunas; nada é juntado sem revisão. */
   async rascunhoIa(ator: Ator, id: string, body: any) {
-    const p = await this.carregar(ator, id);
+    const p = await this.carregar(ator, id, { etapaDoFluxo: String(body?.etapa ?? '').trim() || null });
     this.exigirAberto(p);
     if (!(await this.ia.configurada())) throw new ConflictException('A IA não está configurada neste servidor. Escreva a peça no editor ou anexe o arquivo.');
     const c = await this.contextoDaPeca(ator, p, String(body?.etapa ?? '').trim() || null);
@@ -558,8 +748,48 @@ export class ProcessoTramitacaoService {
   }
 
   /** Encerra o processo sem conteúdo; só quem está com ele (ou o administrador do órgão). */
+  /** Rascunho da peça em elaboração (só quem está com o processo vê e grava). */
+  async rascunho(ator: Ator, id: string) {
+    const p = await this.carregar(ator, id);
+    await this.exigirQuemEstaCom(ator, p);
+    const [r] = await this.ds.query(`SELECT rascunho_peca FROM processos WHERE id = $1::uuid`, [p.id]);
+    return { processo_id: p.id, rascunho: r?.rascunho_peca ?? null };
+  }
+
+  async salvarRascunho(ator: Ator, id: string, body: any) {
+    const p = await this.carregar(ator, id);
+    this.exigirAberto(p);
+    const perfil = await this.exigirQuemEstaCom(ator, p);
+    const html = htmlDaPecaSeguro(body?.html ?? '');
+    const paraSetor = typeof body?.para_setor_id === 'string' && body.para_setor_id.trim() ? body.para_setor_id.trim() : null;
+    if (paraSetor) {
+      const [s] = await this.ds.query(`SELECT 1 FROM setores WHERE id::text = $1 AND orgao_id::text = $2`, [paraSetor, p.orgao_id]);
+      if (!s) throw new BadRequestException('Setor de destino não pertence ao órgão.');
+    }
+    const rascunho = {
+      titulo: String(body?.titulo ?? '').trim().slice(0, 300) || null,
+      html,
+      para_setor_id: paraSetor,
+      salvo_em: new Date().toISOString(),
+      salvo_por: perfil.nome,
+    };
+    await this.ds.query(`UPDATE processos SET rascunho_peca = $2::jsonb WHERE id = $1::uuid`, [p.id, JSON.stringify(rascunho)]);
+    return { processo_id: p.id, rascunho };
+  }
+
+  /** Mesma regra do juntar: quem está com o processo (ou o administrador do órgão). */
+  private async exigirQuemEstaCom(ator: Ator, p: Processo) {
+    const perfil = await this.perfil(ator, p.orgao_id);
+    const atual = await this.atual(p);
+    if (!podeAtuar(perfil, atual, await this.chefeDoSetor(atual?.para_setor_id))) {
+      throw new ForbiddenException('Só quem está com o processo (ou o administrador do órgão) pode ver ou alterar o rascunho.');
+    }
+    return perfil;
+  }
+
   async encerrar(ator: Ator, id: string, motivo: string | null) {
     const p = await this.processos.obter(ator, id);
+    await this.exigirSemFluxo(p);
     if (temTramitacaoPropria(p.tipo) && p.situacao !== 'ENCERRADO') {
       const perfil = await this.perfil(ator, p.orgao_id);
       const atual = await this.atual(p);

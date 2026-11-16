@@ -407,14 +407,9 @@ describe('E2 — disputa por LOTE no motor único', () => {
     });
 
     test('ranking por lote (melhor valor de cada licitante)', async () => {
-      // Leitura do órgão segue o interruptor de anonimização da sessão (como no item):
-      // o licitante vem pelo código anônimo da sessão
-      const codigo = new Map<string, string>(
-        (await q(`SELECT fornecedor_id, codigo_anonimo FROM mapeamento_anonimo WHERE sessao_id = $1`, [sessaoId])).map((m: any) => [
-          String(m.fornecedor_id),
-          m.codigo_anonimo,
-        ]),
-      );
+      // Lote ENCERRADO: o órgão já lê o ranking identificado (julgamento item a
+      // item, 13/11/2026); com o lote em disputa viria o código DAQUELE lote.
+      const codigo = new Map<string, string>([F1, F2, F3].map((f) => [f.id, f.razao_social]));
       const r1 = await http().get(`/api/disputa/item/${lote1}/melhores`).set(bearer(orgao.token)).expect(200);
       expect(r1.body.map((x: any) => [x.fornecedorNome, x.melhorValor])).toEqual([
         [codigo.get(F1.id), 1285],

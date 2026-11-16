@@ -197,6 +197,18 @@ export class OrcamentoService {
     return lic as { id: string; orgao_id: string; numero_processo: string; objeto: string; fase: string; situacao: string; valor_total_estimado: string | null; sigilo_orcamento: string };
   }
 
+  /**
+   * Uma gravação por vez na reserva do processo (homologação 08/11/2026: as
+   * duas declarações marcadas em seguida salvavam juntas e a segunda gravação,
+   * feita sobre a reserva lida antes, desmarcava a primeira).
+   */
+  private serializar<T>(licitacaoId: string, fn: () => Promise<T>): Promise<T> {
+    return this.ds.transaction(async (m) => {
+      await m.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`peca:${licitacaoId}:DO`]);
+      return fn();
+    });
+  }
+
   async reservaAtual(licitacaoId: string): Promise<ReservaOrcamentaria | null> {
     return this.reservaRepo.findOne({ where: { licitacao_id: licitacaoId, versao_atual: true }, relations: ['linhas'] });
   }
@@ -345,71 +357,73 @@ export class OrcamentoService {
    * "Renovar dotação", que criam versão nova). Devolvida volta a rascunho.
    */
   async salvar(licitacaoId: string, body: any, autor: Autor) {
-    const lic = await this.licitacao(licitacaoId);
-    let r = await this.reservaAtual(licitacaoId);
-    if (r && r.status === 'EMITIDA') {
-      throw new ConflictException('A informação orçamentária já foi emitida. Para alterar, use "Retificar" ou "Renovar dotação" (nova versão).');
-    }
-    if (!r) {
-      r = this.reservaRepo.create({
-        orgao_id: lic.orgao_id,
-        licitacao_id: licitacaoId,
-        versao: 1,
-        versao_atual: true,
-        status: 'RASCUNHO',
-        criado_por_id: autor.id,
-        criado_por_nome: autor.nome,
-        linhas: [],
-      });
-    }
-    if (body?.dotacao_id !== undefined) {
-      if (body.dotacao_id) {
-        const d = await this.dotacaoDoOrgao(String(body.dotacao_id), lic.orgao_id);
-        Object.assign(r, {
-          dotacao_id: d.id,
-          unidade_orcamentaria: d.unidade_orcamentaria,
-          programa: d.programa,
-          projeto_atividade: d.projeto_atividade,
-          elemento_despesa: d.elemento_despesa,
-          fonte_recurso: d.fonte_recurso,
-        });
-      } else {
-        Object.assign(r, { dotacao_id: null, unidade_orcamentaria: null, programa: null, projeto_atividade: null, elemento_despesa: null, fonte_recurso: null });
+    return this.serializar(licitacaoId, async () => {
+      const lic = await this.licitacao(licitacaoId);
+      let r = await this.reservaAtual(licitacaoId);
+      if (r && r.status === 'EMITIDA') {
+        throw new ConflictException('A informação orçamentária já foi emitida. Para alterar, use "Retificar" ou "Renovar dotação" (nova versão).');
       }
-    }
-    for (const [campo, tipo] of [
-      ['lei_ldo_id', 'LDO'],
-      ['lei_loa_id', 'LOA'],
-      ['lei_ppa_id', 'PPA'],
-    ] as const) {
-      if (body?.[campo] === undefined) continue;
-      (r as any)[campo] = body[campo] ? (await this.leiDoOrgao(String(body[campo]), lic.orgao_id, tipo)).id : null;
-    }
-    if (body?.declaracao_adequacao !== undefined) r.declaracao_adequacao = !!body.declaracao_adequacao;
-    if (body?.declaracao_lrf !== undefined) r.declaracao_lrf = !!body.declaracao_lrf;
-    if (body?.observacao !== undefined) r.observacao = texto(body.observacao, 4000) || null;
-    if (r.status === 'DEVOLVIDA') r.status = 'RASCUNHO';
-
-    let linhasNovas: LinhaReserva[] | null = null;
-    if (body?.linhas !== undefined) {
-      const v = validarLinhas(body.linhas);
-      if (!v.ok) throw new BadRequestException(v.erro);
-      linhasNovas = v.linhas;
-    }
-    await this.ds.transaction(async (m) => {
-      const { linhas: _l, ...semLinhas } = r as any;
-      const salvo = await m.getRepository(ReservaOrcamentaria).save(semLinhas);
-      r!.id = salvo.id;
-      if (linhasNovas) {
-        await m.getRepository(ReservaOrcamentariaLinha).delete({ reserva_id: salvo.id });
-        for (const l of linhasNovas) {
-          await m.getRepository(ReservaOrcamentariaLinha).save(
-            m.getRepository(ReservaOrcamentariaLinha).create({ reserva_id: salvo.id, exercicio: l.exercicio, valor: l.valor.toFixed(2), situacao: l.situacao, numero_reserva: l.numero_reserva ?? null }),
-          );
+      if (!r) {
+        r = this.reservaRepo.create({
+          orgao_id: lic.orgao_id,
+          licitacao_id: licitacaoId,
+          versao: 1,
+          versao_atual: true,
+          status: 'RASCUNHO',
+          criado_por_id: autor.id,
+          criado_por_nome: autor.nome,
+          linhas: [],
+        });
+      }
+      if (body?.dotacao_id !== undefined) {
+        if (body.dotacao_id) {
+          const d = await this.dotacaoDoOrgao(String(body.dotacao_id), lic.orgao_id);
+          Object.assign(r, {
+            dotacao_id: d.id,
+            unidade_orcamentaria: d.unidade_orcamentaria,
+            programa: d.programa,
+            projeto_atividade: d.projeto_atividade,
+            elemento_despesa: d.elemento_despesa,
+            fonte_recurso: d.fonte_recurso,
+          });
+        } else {
+          Object.assign(r, { dotacao_id: null, unidade_orcamentaria: null, programa: null, projeto_atividade: null, elemento_despesa: null, fonte_recurso: null });
         }
       }
+      for (const [campo, tipo] of [
+        ['lei_ldo_id', 'LDO'],
+        ['lei_loa_id', 'LOA'],
+        ['lei_ppa_id', 'PPA'],
+      ] as const) {
+        if (body?.[campo] === undefined) continue;
+        (r as any)[campo] = body[campo] ? (await this.leiDoOrgao(String(body[campo]), lic.orgao_id, tipo)).id : null;
+      }
+      if (body?.declaracao_adequacao !== undefined) r.declaracao_adequacao = !!body.declaracao_adequacao;
+      if (body?.declaracao_lrf !== undefined) r.declaracao_lrf = !!body.declaracao_lrf;
+      if (body?.observacao !== undefined) r.observacao = texto(body.observacao, 4000) || null;
+      if (r.status === 'DEVOLVIDA') r.status = 'RASCUNHO';
+
+      let linhasNovas: LinhaReserva[] | null = null;
+      if (body?.linhas !== undefined) {
+        const v = validarLinhas(body.linhas);
+        if (!v.ok) throw new BadRequestException(v.erro);
+        linhasNovas = v.linhas;
+      }
+      await this.ds.transaction(async (m) => {
+        const { linhas: _l, ...semLinhas } = r as any;
+        const salvo = await m.getRepository(ReservaOrcamentaria).save(semLinhas);
+        r!.id = salvo.id;
+        if (linhasNovas) {
+          await m.getRepository(ReservaOrcamentariaLinha).delete({ reserva_id: salvo.id });
+          for (const l of linhasNovas) {
+            await m.getRepository(ReservaOrcamentariaLinha).save(
+              m.getRepository(ReservaOrcamentariaLinha).create({ reserva_id: salvo.id, exercicio: l.exercicio, valor: l.valor.toFixed(2), situacao: l.situacao, numero_reserva: l.numero_reserva ?? null }),
+            );
+          }
+        }
+      });
+      return this.obter(licitacaoId);
     });
-    return this.obter(licitacaoId);
   }
 
   /** Contexto {{reserva.*}} do modelo da informação orçamentária. */
@@ -430,93 +444,95 @@ export class OrcamentoService {
    * tarefa de renovação aberta, ela é concluída aqui.
    */
   async emitir(licitacaoId: string, autor: Autor) {
-    const lic = await this.licitacao(licitacaoId);
-    const r = await this.reservaAtual(licitacaoId);
-    if (!r) throw new BadRequestException('Preencha a reserva antes de emitir.');
-    if (r.status === 'EMITIDA') throw new ConflictException('Esta versão já foi emitida.');
-    const exercicio = this.exercicioCorrente();
-    const conf = conferirParaEmitir(
-      { dotacao_ok: !!r.dotacao_id, lei_ldo_ok: !!r.lei_ldo_id, linhas: this.linhasDe(r), declaracao_adequacao: r.declaracao_adequacao, declaracao_lrf: r.declaracao_lrf },
-      { exercicio_corrente: exercicio, valor_estimado: await this.valorEstimado(licitacaoId, lic) },
-    );
-    if (conf.bloqueios.length) {
-      throw new BadRequestException({ message: `Não é possível emitir: ${conf.bloqueios.join(' ')}`, pendencias: conf.bloqueios });
-    }
-    const linhas = linhasNaEmissao(this.linhasDe(r), exercicio);
-    r.exercicio_base = exercicio;
-    const vars = await this.variaveisDaReserva(r, linhas);
-
-    // Conteúdo da peça pelo modelo (órgão → sistema)
-    const contexto = { ...(await this.modelos.montarContextoVariaveis(licitacaoId)), ...vars };
-    const modelo = await this.modelos.resolverModelo(lic.orgao_id, TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA);
-    const secoes: Record<string, string> = {};
-    for (const s of modelo?.secoes || []) secoes[s.id] = s.texto_padrao ? this.modelos.substituirVariaveis(s.texto_padrao, contexto) : '';
-    if (!Object.keys(secoes).length) {
-      secoes.distribuicao = vars['reserva.distribuicao'];
-    }
-    if (r.observacao) secoes.observacao = `<p>${r.observacao.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</p>`;
-
-    // A emissão É o ato: a peça DO conta como pronta com este conteúdo (mesmo
-    // se o PDF falhar — ele é gerado de novo nos autos)
-    const descricaoDo = Object.values(secoes).filter(Boolean).join('\n');
-    const dadosDo = { ...secoes, reserva_id: r.id, reserva_versao: r.versao };
-    const emitido = registroDeEmissao({ descricao: descricaoDo, dados_estruturados: dadosDo }, autor);
-    const doc = await this.ds.transaction(async (m) => {
-      await m.query(`SELECT id FROM licitacoes WHERE id::text = $1 FOR UPDATE`, [licitacaoId]);
-      const repo = m.getRepository(DocumentoFaseInterna);
-      const anterior = await repo.findOne({ where: { licitacao_id: licitacaoId, tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA, versao_atual: true } });
-      if (anterior) await repo.update(anterior.id, { versao_atual: false, status: StatusDocumento.SUBSTITUIDO });
-      const novo = await repo.save(
-        repo.create({
-          licitacao_id: licitacaoId,
-          tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
-          titulo: modelo?.nome || 'Informação orçamentária',
-          descricao: descricaoDo,
-          dados_estruturados: { ...dadosDo, _emitido: emitido },
-          status: StatusDocumento.EM_ELABORACAO,
-          origem: OrigemDocumento.INTERNO,
-          versao: (anterior?.versao ?? 0) + 1,
-          versao_anterior_id: (anterior?.id ?? null) as any,
-          versao_atual: true,
-          obrigatorio: anterior?.obrigatorio ?? false,
-          criado_por_id: (autor.id ?? undefined) as any,
-          criado_por_nome: (autor.nome ?? undefined) as any,
-        }),
+    return this.serializar(licitacaoId, async () => {
+      const lic = await this.licitacao(licitacaoId);
+      const r = await this.reservaAtual(licitacaoId);
+      if (!r) throw new BadRequestException('Preencha a reserva antes de emitir.');
+      if (r.status === 'EMITIDA') throw new ConflictException('Esta versão já foi emitida.');
+      const exercicio = this.exercicioCorrente();
+      const conf = conferirParaEmitir(
+        { dotacao_ok: !!r.dotacao_id, lei_ldo_ok: !!r.lei_ldo_id, linhas: this.linhasDe(r), declaracao_adequacao: r.declaracao_adequacao, declaracao_lrf: r.declaracao_lrf },
+        { exercicio_corrente: exercicio, valor_estimado: await this.valorEstimado(licitacaoId, lic) },
       );
-      await m.getRepository(ReservaOrcamentariaLinha).delete({ reserva_id: r.id });
-      for (const l of linhas) {
-        await m.getRepository(ReservaOrcamentariaLinha).save(
-          m.getRepository(ReservaOrcamentariaLinha).create({ reserva_id: r.id, exercicio: l.exercicio, valor: l.valor.toFixed(2), situacao: l.situacao, numero_reserva: l.numero_reserva ?? null }),
-        );
+      if (conf.bloqueios.length) {
+        throw new BadRequestException({ message: `Não é possível emitir: ${conf.bloqueios.join(' ')}`, pendencias: conf.bloqueios });
       }
-      await m.getRepository(ReservaOrcamentaria).update(r.id, {
-        status: 'EMITIDA',
-        exercicio_base: exercicio,
-        documento_id: novo.id,
-        emitida_em: new Date(),
-        emitida_por_id: autor.id,
-        emitida_por_nome: autor.nome,
-        motivo_devolucao: null,
+      const linhas = linhasNaEmissao(this.linhasDe(r), exercicio);
+      r.exercicio_base = exercicio;
+      const vars = await this.variaveisDaReserva(r, linhas);
+
+      // Conteúdo da peça pelo modelo (órgão → sistema)
+      const contexto = { ...(await this.modelos.montarContextoVariaveis(licitacaoId)), ...vars };
+      const modelo = await this.modelos.resolverModelo(lic.orgao_id, TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA);
+      const secoes: Record<string, string> = {};
+      for (const s of modelo?.secoes || []) secoes[s.id] = s.texto_padrao ? this.modelos.substituirVariaveis(s.texto_padrao, contexto) : '';
+      if (!Object.keys(secoes).length) {
+        secoes.distribuicao = vars['reserva.distribuicao'];
+      }
+      if (r.observacao) secoes.observacao = `<p>${r.observacao.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</p>`;
+
+      // A emissão É o ato: a peça DO conta como pronta com este conteúdo (mesmo
+      // se o PDF falhar — ele é gerado de novo nos autos)
+      const descricaoDo = Object.values(secoes).filter(Boolean).join('\n');
+      const dadosDo = { ...secoes, reserva_id: r.id, reserva_versao: r.versao };
+      const emitido = registroDeEmissao({ descricao: descricaoDo, dados_estruturados: dadosDo }, autor);
+      const doc = await this.ds.transaction(async (m) => {
+        await m.query(`SELECT id FROM licitacoes WHERE id::text = $1 FOR UPDATE`, [licitacaoId]);
+        const repo = m.getRepository(DocumentoFaseInterna);
+        const anterior = await repo.findOne({ where: { licitacao_id: licitacaoId, tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA, versao_atual: true } });
+        if (anterior) await repo.update(anterior.id, { versao_atual: false, status: StatusDocumento.SUBSTITUIDO });
+        const novo = await repo.save(
+          repo.create({
+            licitacao_id: licitacaoId,
+            tipo: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
+            titulo: modelo?.nome || 'Informação orçamentária',
+            descricao: descricaoDo,
+            dados_estruturados: { ...dadosDo, _emitido: emitido },
+            status: StatusDocumento.EM_ELABORACAO,
+            origem: OrigemDocumento.INTERNO,
+            versao: (anterior?.versao ?? 0) + 1,
+            versao_anterior_id: (anterior?.id ?? null) as any,
+            versao_atual: true,
+            obrigatorio: anterior?.obrigatorio ?? false,
+            criado_por_id: (autor.id ?? undefined) as any,
+            criado_por_nome: (autor.nome ?? undefined) as any,
+          }),
+        );
+        await m.getRepository(ReservaOrcamentariaLinha).delete({ reserva_id: r.id });
+        for (const l of linhas) {
+          await m.getRepository(ReservaOrcamentariaLinha).save(
+            m.getRepository(ReservaOrcamentariaLinha).create({ reserva_id: r.id, exercicio: l.exercicio, valor: l.valor.toFixed(2), situacao: l.situacao, numero_reserva: l.numero_reserva ?? null }),
+          );
+        }
+        await m.getRepository(ReservaOrcamentaria).update(r.id, {
+          status: 'EMITIDA',
+          exercicio_base: exercicio,
+          documento_id: novo.id,
+          emitida_em: new Date(),
+          emitida_por_id: autor.id,
+          emitida_por_nome: autor.nome,
+          motivo_devolucao: null,
+        });
+        return novo;
       });
-      return novo;
+      try {
+        await this.gerador.gerarPdf(doc.id, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
+      } catch (e: any) {
+        this.logger.warn(`PDF da informação orçamentária não gerado: ${e?.message ?? e}`);
+      }
+      await this.auditLog
+        .log({
+          licitacao_id: licitacaoId,
+          documento_id: doc.id,
+          acao: AcaoLogFaseInterna.DOCUMENTO_CRIADO,
+          descricao: `Informação orçamentária emitida (reserva v${r.versao}, ${BRL(totalDasLinhas(linhas))}) por ${autor.nome ?? 'usuário'}`,
+          dados_depois: { reserva_id: r.id, linhas },
+          contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
+        })
+        .catch(() => undefined);
+      await this.tarefas.concluirTarefaPorChave(licitacaoId, CHAVE_TAREFA_RENOVACAO, autor);
+      return this.obter(licitacaoId);
     });
-    try {
-      await this.gerador.gerarPdf(doc.id, { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined });
-    } catch (e: any) {
-      this.logger.warn(`PDF da informação orçamentária não gerado: ${e?.message ?? e}`);
-    }
-    await this.auditLog
-      .log({
-        licitacao_id: licitacaoId,
-        documento_id: doc.id,
-        acao: AcaoLogFaseInterna.DOCUMENTO_CRIADO,
-        descricao: `Informação orçamentária emitida (reserva v${r.versao}, ${BRL(totalDasLinhas(linhas))}) por ${autor.nome ?? 'usuário'}`,
-        dados_depois: { reserva_id: r.id, linhas },
-        contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
-      })
-      .catch(() => undefined);
-    await this.tarefas.concluirTarefaPorChave(licitacaoId, CHAVE_TAREFA_RENOVACAO, autor);
-    return this.obter(licitacaoId);
   }
 
   /**
@@ -528,138 +544,142 @@ export class OrcamentoService {
    *    Contabilidade "Renovar a informação orçamentária".
    */
   async novaVersao(licitacaoId: string, modo: 'RETIFICAR' | 'RENOVAR', body: any, autor: Autor) {
-    const lic = await this.licitacao(licitacaoId);
-    const atual = await this.reservaAtual(licitacaoId);
-    if (!atual) throw new BadRequestException('Não há reserva para versionar.');
-    if (atual.status !== 'EMITIDA') throw new ConflictException('Só a informação orçamentária emitida gera versão nova (a atual ainda é rascunho).');
-    const motivo = texto(body?.motivo, 2000);
-    let linhas = this.linhasDe(atual);
-    let novoExercicio: number | null = null;
-    if (modo === 'RENOVAR') {
-      const base = atual.exercicio_base ?? this.exercicioCorrente();
-      novoExercicio = body?.exercicio !== undefined && body?.exercicio !== null && body?.exercicio !== '' ? Number(body.exercicio) : Math.max(this.exercicioCorrente(), base + 1);
-      if (!Number.isInteger(novoExercicio) || novoExercicio <= base || novoExercicio > base + 5) {
-        throw new BadRequestException(`O novo exercício precisa ser posterior a ${base}.`);
+    return this.serializar(licitacaoId, async () => {
+      const lic = await this.licitacao(licitacaoId);
+      const atual = await this.reservaAtual(licitacaoId);
+      if (!atual) throw new BadRequestException('Não há reserva para versionar.');
+      if (atual.status !== 'EMITIDA') throw new ConflictException('Só a informação orçamentária emitida gera versão nova (a atual ainda é rascunho).');
+      const motivo = texto(body?.motivo, 2000);
+      let linhas = this.linhasDe(atual);
+      let novoExercicio: number | null = null;
+      if (modo === 'RENOVAR') {
+        const base = atual.exercicio_base ?? this.exercicioCorrente();
+        novoExercicio = body?.exercicio !== undefined && body?.exercicio !== null && body?.exercicio !== '' ? Number(body.exercicio) : Math.max(this.exercicioCorrente(), base + 1);
+        if (!Number.isInteger(novoExercicio) || novoExercicio <= base || novoExercicio > base + 5) {
+          throw new BadRequestException(`O novo exercício precisa ser posterior a ${base}.`);
+        }
+        linhas = planoRenovacao(linhas, novoExercicio);
+      } else if (motivo.length < 5) {
+        throw new BadRequestException('Informe o motivo da retificação.');
       }
-      linhas = planoRenovacao(linhas, novoExercicio);
-    } else if (motivo.length < 5) {
-      throw new BadRequestException('Informe o motivo da retificação.');
-    }
-    // Renovação: procura a dotação equivalente (mesma classificação) do novo exercício e a LDO dele
-    let dotacaoNova: DotacaoOrcamentaria | null = null;
-    let ldoNova: LeiOrcamentaria | null = null;
-    if (modo === 'RENOVAR' && novoExercicio) {
-      dotacaoNova = await this.dotacaoRepo.findOne({
-        where: {
-          orgao_id: lic.orgao_id,
-          exercicio: novoExercicio,
-          ativo: true,
-          projeto_atividade: atual.projeto_atividade ?? '',
-          elemento_despesa: atual.elemento_despesa ?? '',
-          fonte_recurso: atual.fonte_recurso ?? '',
-        },
-      });
-      ldoNova = await this.leiRepo.findOne({ where: { orgao_id: lic.orgao_id, tipo: 'LDO', exercicio: novoExercicio, ativo: true } });
-    }
-    const nova = await this.ds.transaction(async (m) => {
-      await m.getRepository(ReservaOrcamentaria).update(atual.id, { versao_atual: false, status: 'SUBSTITUIDA' });
-      const repo = m.getRepository(ReservaOrcamentaria);
-      const n = await repo.save(
-        repo.create({
-          orgao_id: atual.orgao_id,
-          licitacao_id: licitacaoId,
-          versao: atual.versao + 1,
-          versao_atual: true,
-          substitui_reserva_id: atual.id,
-          status: 'RASCUNHO',
-          exercicio_base: null,
-          ...(modo === 'RENOVAR'
-            ? {
-                dotacao_id: dotacaoNova?.id ?? null,
-                unidade_orcamentaria: dotacaoNova?.unidade_orcamentaria ?? null,
-                programa: dotacaoNova?.programa ?? null,
-                projeto_atividade: dotacaoNova?.projeto_atividade ?? null,
-                elemento_despesa: dotacaoNova?.elemento_despesa ?? null,
-                fonte_recurso: dotacaoNova?.fonte_recurso ?? null,
-                lei_ldo_id: ldoNova?.id ?? null,
-                lei_loa_id: null,
-                lei_ppa_id: atual.lei_ppa_id,
-                declaracao_adequacao: false,
-                declaracao_lrf: false,
-                motivo_renovacao: motivo || `Renovação da dotação para o exercício ${novoExercicio} (virada do exercício).`,
-              }
-            : {
-                dotacao_id: atual.dotacao_id,
-                unidade_orcamentaria: atual.unidade_orcamentaria,
-                programa: atual.programa,
-                projeto_atividade: atual.projeto_atividade,
-                elemento_despesa: atual.elemento_despesa,
-                fonte_recurso: atual.fonte_recurso,
-                lei_ldo_id: atual.lei_ldo_id,
-                lei_loa_id: atual.lei_loa_id,
-                lei_ppa_id: atual.lei_ppa_id,
-                declaracao_adequacao: atual.declaracao_adequacao,
-                declaracao_lrf: atual.declaracao_lrf,
-                motivo_renovacao: `Retificação: ${motivo}`,
-              }),
-          observacao: atual.observacao,
-          criado_por_id: autor.id,
-          criado_por_nome: autor.nome,
-        } as Partial<ReservaOrcamentaria>),
-      );
-      for (const l of linhas) {
-        await m.getRepository(ReservaOrcamentariaLinha).save(
-          m.getRepository(ReservaOrcamentariaLinha).create({ reserva_id: n.id, exercicio: l.exercicio, valor: l.valor.toFixed(2), situacao: l.situacao, numero_reserva: l.numero_reserva ?? null }),
+      // Renovação: procura a dotação equivalente (mesma classificação) do novo exercício e a LDO dele
+      let dotacaoNova: DotacaoOrcamentaria | null = null;
+      let ldoNova: LeiOrcamentaria | null = null;
+      if (modo === 'RENOVAR' && novoExercicio) {
+        dotacaoNova = await this.dotacaoRepo.findOne({
+          where: {
+            orgao_id: lic.orgao_id,
+            exercicio: novoExercicio,
+            ativo: true,
+            projeto_atividade: atual.projeto_atividade ?? '',
+            elemento_despesa: atual.elemento_despesa ?? '',
+            fonte_recurso: atual.fonte_recurso ?? '',
+          },
+        });
+        ldoNova = await this.leiRepo.findOne({ where: { orgao_id: lic.orgao_id, tipo: 'LDO', exercicio: novoExercicio, ativo: true } });
+      }
+      const nova = await this.ds.transaction(async (m) => {
+        await m.getRepository(ReservaOrcamentaria).update(atual.id, { versao_atual: false, status: 'SUBSTITUIDA' });
+        const repo = m.getRepository(ReservaOrcamentaria);
+        const n = await repo.save(
+          repo.create({
+            orgao_id: atual.orgao_id,
+            licitacao_id: licitacaoId,
+            versao: atual.versao + 1,
+            versao_atual: true,
+            substitui_reserva_id: atual.id,
+            status: 'RASCUNHO',
+            exercicio_base: null,
+            ...(modo === 'RENOVAR'
+              ? {
+                  dotacao_id: dotacaoNova?.id ?? null,
+                  unidade_orcamentaria: dotacaoNova?.unidade_orcamentaria ?? null,
+                  programa: dotacaoNova?.programa ?? null,
+                  projeto_atividade: dotacaoNova?.projeto_atividade ?? null,
+                  elemento_despesa: dotacaoNova?.elemento_despesa ?? null,
+                  fonte_recurso: dotacaoNova?.fonte_recurso ?? null,
+                  lei_ldo_id: ldoNova?.id ?? null,
+                  lei_loa_id: null,
+                  lei_ppa_id: atual.lei_ppa_id,
+                  declaracao_adequacao: false,
+                  declaracao_lrf: false,
+                  motivo_renovacao: motivo || `Renovação da dotação para o exercício ${novoExercicio} (virada do exercício).`,
+                }
+              : {
+                  dotacao_id: atual.dotacao_id,
+                  unidade_orcamentaria: atual.unidade_orcamentaria,
+                  programa: atual.programa,
+                  projeto_atividade: atual.projeto_atividade,
+                  elemento_despesa: atual.elemento_despesa,
+                  fonte_recurso: atual.fonte_recurso,
+                  lei_ldo_id: atual.lei_ldo_id,
+                  lei_loa_id: atual.lei_loa_id,
+                  lei_ppa_id: atual.lei_ppa_id,
+                  declaracao_adequacao: atual.declaracao_adequacao,
+                  declaracao_lrf: atual.declaracao_lrf,
+                  motivo_renovacao: `Retificação: ${motivo}`,
+                }),
+            observacao: atual.observacao,
+            criado_por_id: autor.id,
+            criado_por_nome: autor.nome,
+          } as Partial<ReservaOrcamentaria>),
         );
-      }
-      return n;
-    });
-    await this.auditLog
-      .log({
-        licitacao_id: licitacaoId,
-        documento_id: atual.documento_id ?? undefined,
-        acao: AcaoLogFaseInterna.DOCUMENTO_VERSIONADO,
-        descricao:
-          modo === 'RENOVAR'
-            ? `Dotação renovada para ${novoExercicio}: nova versão (v${nova.versao}) da informação orçamentária por ${autor.nome ?? 'usuário'}`
-            : `Informação orçamentária retificada: nova versão (v${nova.versao}) por ${autor.nome ?? 'usuário'}`,
-        dados_antes: { reserva_id: atual.id, versao: atual.versao, linhas: this.linhasDe(atual) },
-        dados_depois: { reserva_id: nova.id, versao: nova.versao, linhas, motivo },
-        contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
-      })
-      .catch(() => undefined);
-    let tarefaId: string | null = null;
-    if (modo === 'RENOVAR') {
-      tarefaId = await this.tarefas.criarTarefaDoSistema(licitacaoId, {
-        chave: CHAVE_TAREFA_RENOVACAO,
-        passo: PassoFaseInterna.RESERVA,
-        titulo: `Renovar a informação orçamentária (exercício ${novoExercicio})`,
-        descricao: `Processo ${lic.numero_processo}: a informação orçamentária foi emitida para ${atual.exercicio_base}. Escolha a dotação da LOA de ${novoExercicio}, confira a distribuição por exercício e emita a nova informação (ou anexe a feita fora).`,
-        tipo_peca: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
-        documento_id: atual.documento_id,
+        for (const l of linhas) {
+          await m.getRepository(ReservaOrcamentariaLinha).save(
+            m.getRepository(ReservaOrcamentariaLinha).create({ reserva_id: n.id, exercicio: l.exercicio, valor: l.valor.toFixed(2), situacao: l.situacao, numero_reserva: l.numero_reserva ?? null }),
+          );
+        }
+        return n;
       });
-    }
-    return { ...(await this.obter(licitacaoId)), tarefa_criada_id: tarefaId };
+      await this.auditLog
+        .log({
+          licitacao_id: licitacaoId,
+          documento_id: atual.documento_id ?? undefined,
+          acao: AcaoLogFaseInterna.DOCUMENTO_VERSIONADO,
+          descricao:
+            modo === 'RENOVAR'
+              ? `Dotação renovada para ${novoExercicio}: nova versão (v${nova.versao}) da informação orçamentária por ${autor.nome ?? 'usuário'}`
+              : `Informação orçamentária retificada: nova versão (v${nova.versao}) por ${autor.nome ?? 'usuário'}`,
+          dados_antes: { reserva_id: atual.id, versao: atual.versao, linhas: this.linhasDe(atual) },
+          dados_depois: { reserva_id: nova.id, versao: nova.versao, linhas, motivo },
+          contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
+        })
+        .catch(() => undefined);
+      let tarefaId: string | null = null;
+      if (modo === 'RENOVAR') {
+        tarefaId = await this.tarefas.criarTarefaDoSistema(licitacaoId, {
+          chave: CHAVE_TAREFA_RENOVACAO,
+          passo: PassoFaseInterna.RESERVA,
+          titulo: `Renovar a informação orçamentária (exercício ${novoExercicio})`,
+          descricao: `Processo ${lic.numero_processo}: a informação orçamentária foi emitida para ${atual.exercicio_base}. Escolha a dotação da LOA de ${novoExercicio}, confira a distribuição por exercício e emita a nova informação (ou anexe a feita fora).`,
+          tipo_peca: TipoDocumentoFaseInterna.DOTACAO_ORCAMENTARIA,
+          documento_id: atual.documento_id,
+        });
+      }
+      return { ...(await this.obter(licitacaoId)), tarefa_criada_id: tarefaId };
+    });
   }
 
   /** "Devolver sem saldo": a Contabilidade registra que não há dotação suficiente. */
   async devolver(licitacaoId: string, body: any, autor: Autor) {
-    const r = await this.reservaAtual(licitacaoId);
-    if (!r) throw new BadRequestException('Não há reserva em preparação.');
-    if (r.status !== 'RASCUNHO') throw new ConflictException('Só a reserva em rascunho pode ser devolvida.');
-    const motivo = texto(body?.motivo, 2000);
-    if (motivo.length < 5) throw new BadRequestException('Informe o motivo da devolução.');
-    await this.reservaRepo.update(r.id, { status: 'DEVOLVIDA', motivo_devolucao: motivo });
-    await this.auditLog
-      .log({
-        licitacao_id: licitacaoId,
-        acao: AcaoLogFaseInterna.DOCUMENTO_EDITADO,
-        descricao: `Pedido de reserva devolvido sem saldo por ${autor.nome ?? 'usuário'}: ${motivo}`,
-        dados_depois: { reserva_id: r.id, motivo },
-        contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
-      })
-      .catch(() => undefined);
-    return this.obter(licitacaoId);
+    return this.serializar(licitacaoId, async () => {
+      const r = await this.reservaAtual(licitacaoId);
+      if (!r) throw new BadRequestException('Não há reserva em preparação.');
+      if (r.status !== 'RASCUNHO') throw new ConflictException('Só a reserva em rascunho pode ser devolvida.');
+      const motivo = texto(body?.motivo, 2000);
+      if (motivo.length < 5) throw new BadRequestException('Informe o motivo da devolução.');
+      await this.reservaRepo.update(r.id, { status: 'DEVOLVIDA', motivo_devolucao: motivo });
+      await this.auditLog
+        .log({
+          licitacao_id: licitacaoId,
+          acao: AcaoLogFaseInterna.DOCUMENTO_EDITADO,
+          descricao: `Pedido de reserva devolvido sem saldo por ${autor.nome ?? 'usuário'}: ${motivo}`,
+          dados_depois: { reserva_id: r.id, motivo },
+          contexto: { usuario_id: autor.id ?? undefined, usuario_nome: autor.nome ?? undefined },
+        })
+        .catch(() => undefined);
+      return this.obter(licitacaoId);
+    });
   }
 
   /**

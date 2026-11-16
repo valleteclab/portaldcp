@@ -66,6 +66,8 @@ import { ehOrgao } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { licitacaoEhPublica, orcamentoSigiloso } from '../licitacoes/licitacao-visao.util';
 import { itensParaPublico } from '../itens/item-visao.util';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /** Lote na visão pública (sem identidade do melhor lance; sigilo do orçamento). */
 function loteParaPublico(lote: any, lic: { sigilo_orcamento?: string | null }) {
@@ -79,6 +81,7 @@ function loteParaPublico(lote: any, lic: { sigilo_orcamento?: string | null }) {
   };
 }
 
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS)
 @Controller('lotes')
 export class LotesController {
   constructor(

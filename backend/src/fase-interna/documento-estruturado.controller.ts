@@ -5,12 +5,15 @@ import { ContextoUsuario } from './audit-log.service';
 import { DocumentoFaseInterna } from './entities/documento-fase-interna.entity';
 import { FaseInternaService } from './fase-interna.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * Endpoints para manipulacao dos dados estruturados (jsonb)
  * dos documentos da Fase Interna (ETP, TR, PP, MR, etc.).
  */
 /** AUTORIZAÇÃO (E1a): só o órgão dono da licitação do documento (DonoFaseInternaGuard). */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna/estruturado')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class DocumentoEstruturadoController {

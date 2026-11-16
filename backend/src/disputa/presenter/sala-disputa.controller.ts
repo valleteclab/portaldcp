@@ -85,8 +85,9 @@ export class SalaDisputaController {
 
     // Órgão: só o dono da sessão (outro órgão → 403), sempre a visão do pregoeiro.
     // `?fornecedorId=` não troca a visão (ninguém olha "como" outro fornecedor).
-    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'escrita');
-    return this.salaService.getBoardPregoeiro(sessaoId);
+    const donoSessao = await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'escrita');
+    // Pedidos de cancelamento de lance etc.: sem identidade enquanto durarem os lances
+    return this.sigilo.paraOrgao(await this.salaService.getBoardPregoeiro(sessaoId), donoSessao.licitacaoId, sessaoId);
   }
 
   /** Últimos lances do fornecedor no item + flags para cancelamento (15s / solicitação). */

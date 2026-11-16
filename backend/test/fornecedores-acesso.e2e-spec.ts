@@ -184,7 +184,9 @@ describe('Cadastro do fornecedor — autorização das rotas de escrita', () => 
   });
 
   it('GET /:id não devolve hash de senha nem da API key', async () => {
-    const r = await http().get(`/api/fornecedores/${F1.id}`).set(bearer(F2.token));
+    // outro fornecedor não lê o cadastro (auditoria de 13/11/2026); órgão lê
+    expect((await http().get(`/api/fornecedores/${F1.id}`).set(bearer(F2.token))).status).toBe(403);
+    const r = await http().get(`/api/fornecedores/${F1.id}`).set(bearer(B.token));
     expect(r.status).toBe(200);
     expect(r.body).not.toHaveProperty('senha');
     expect(r.body).not.toHaveProperty('api_key_hash');

@@ -1,3 +1,4 @@
+import { WorkflowModule } from '../workflow/workflow.module';
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Licitacao } from './entities/licitacao.entity';
@@ -31,11 +32,17 @@ import { MigracaoFundamentoLegalBootService } from './migracao-fundamento-legal-
 import { DfdModule } from '../demandas/dfd/dfd.module';
 import { NumeroProcessoModule } from '../numero-processo/numero-processo.module';
 import { ProcessoModule } from '../processo/processo.module';
+import { LimpezaMotorAntigoBootService } from './limpeza-motor-antigo-boot.service';
+import { ExclusaoItemDispensa, HabilitacaoDispensa, NegociacaoDispensa } from './dispensa/pos-julgamento.entities';
+import { DispensaPosJulgamentoService } from './dispensa/pos-julgamento.service';
+import { DispensaPosJulgamentoController } from './dispensa/pos-julgamento.controller';
+import { AreaTrabalhoController } from './area-trabalho/area-trabalho.controller';
+import { AreaTrabalhoService } from './area-trabalho/area-trabalho.service';
 
 @Module({
   imports: [
     // DispensaLance/DispensaMensagem: @deprecated — só para o synchronize manter as tabelas legadas (migração E2; ninguém escreve)
-    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao]),
+    TypeOrmModule.forFeature([Licitacao, ItemLicitacao, LoteLicitacao, Demanda, DispensaLance, DispensaMensagem, IntegracaoPlataformaLicitacao, ExclusaoItemDispensa, HabilitacaoDispensa, NegociacaoDispensa]),
     forwardRef(() => ContratosModule),
     PncpModule,
     FaseInternaModule,
@@ -50,11 +57,12 @@ import { ProcessoModule } from '../processo/processo.module';
     DfdModule,
     // Gerador único do nº do processo administrativo (por órgão/ano)
     NumeroProcessoModule,
+    WorkflowModule,
     ProcessoModule,
   ],
   // FaseInternaExternaController: entrada "fase interna feita fora" (cria o processo pelo LicitacoesService)
-  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController],
-  providers: [LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService],
+  controllers: [LicitacoesController, BllIntegracaoController, PortalFornecedorController, FaseInternaExternaController, DispensaPosJulgamentoController, AreaTrabalhoController],
+  providers: [AreaTrabalhoService, LicitacoesService, LicitacoesSchedulerService, ProcessoPdfService, BllIntegracaoService, PortalFornecedorService, MigracaoLegadoE9BootService, MigracaoFundamentoLegalBootService, FaseInternaExternaService, LimpezaMotorAntigoBootService, DispensaPosJulgamentoService],
   exports: [TypeOrmModule, LicitacoesService, LicitacoesSchedulerService, TransicoesModule],
 })
 export class LicitacoesModule {}

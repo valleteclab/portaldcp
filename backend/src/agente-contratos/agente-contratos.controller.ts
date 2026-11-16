@@ -6,7 +6,10 @@ import {
   Query,
   UseGuards,
   Logger,
+  Req,
+  ForbiddenException,
 } from '@nestjs/common';
+import { atorDaRequisicao, ehOrgao } from '../auth/acesso/ator';
 import {
   ApiTags,
   ApiOperation,
@@ -29,6 +32,14 @@ export class AgenteContratosController {
 
   constructor(private readonly agenteService: AgenteContratosService) {}
 
+  /** Órgão do TOKEN; só o admin da plataforma escolhe pelo parâmetro. */
+  private orgaoDoToken(req: any, informado?: string): string {
+    const ator = atorDaRequisicao(req);
+    if (ator?.admin && informado) return informado;
+    if (ehOrgao(ator)) return ator.orgaoId;
+    throw new ForbiddenException('Ação exclusiva do órgão');
+  }
+
   @Post('executar')
   @ApiOperation({
     summary: 'Executar verificacao de termos aditivos pendentes',
@@ -36,8 +47,10 @@ export class AgenteContratosController {
       'Analisa contratos vencidos ou encerrados do orgao e verifica se ha termos aditivos no Portal de Transparencia ainda nao cadastrados no sistema',
   })
   async executarCiclo(
-    @Body('orgao_id') orgaoId: string,
+    @Body('orgao_id') orgaoIdInformado: string,
+    @Req() req: any,
   ): Promise<CicloAgenteResult> {
+    const orgaoId = this.orgaoDoToken(req, orgaoIdInformado);
     this.logger.log(
       `Executando verificacao manual de aditivos para o orgao: ${orgaoId}`,
     );
@@ -57,9 +70,11 @@ export class AgenteContratosController {
     description: 'Quantidade de logs (padrao: 50)',
   })
   async obterLogs(
-    @Query('orgao_id') orgaoId: string,
+    @Query('orgao_id') orgaoIdInformado: string,
     @Query('limite') limite: string,
+    @Req() req?: any,
   ): Promise<AgenteLog[]> {
+    const orgaoId = this.orgaoDoToken(req, orgaoIdInformado);
     const limiteNum = parseInt(limite, 10) || 50;
     return this.agenteService.obterLogsRecentes(orgaoId, limiteNum);
   }
@@ -71,7 +86,7 @@ export class AgenteContratosController {
       'Retorna estatisticas de execucao do verificador nos ultimos 7 dias',
   })
   @ApiQuery({ name: 'orgao_id', required: true, description: 'ID do orgao' })
-  async obterEstatisticas(@Query('orgao_id') orgaoId: string): Promise<{
+  async obterEstatisticas(@Query('orgao_id') orgaoIdInformado: string, @Req() req?: any): Promise<{
     total_acoes: number;
     sucessos: number;
     avisos: number;
@@ -79,6 +94,6 @@ export class AgenteContratosController {
     contratos_com_pendencias_7dias: number;
     ultima_execucao?: Date;
   }> {
-    return this.agenteService.obterEstatisticas(orgaoId);
+    return this.agenteService.obterEstatisticas(this.orgaoDoToken(req, orgaoIdInformado));
   }
 }

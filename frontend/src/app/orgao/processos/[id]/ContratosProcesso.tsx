@@ -34,7 +34,7 @@ export function ContratosProcesso({ dados, onAtualizado }: { dados: ProcessoComp
     if (!(await confirmar({
       titulo: `Termo de contrato ${ct.numero_contrato}`,
       mensagem:
-        `Gerar o termo em PDF e solicitar as assinaturas eletrônicas?\n\nSignatários:\n• ${nome} (órgão — assina pelo Portal de Assinaturas)\n• ${ct.fornecedor_razao_social || "Fornecedor"} (recebe o link por e-mail)\n\n` +
+        `Gerar o termo em PDF e solicitar as assinaturas eletrônicas?\n\nSignatários:\n• Autoridade competente do órgão, ou ${nome} se não houver autoridade cadastrada (assina pelo Portal de Assinaturas, com código enviado ao e-mail dela)\n• ${ct.fornecedor_razao_social || "Fornecedor"} (assina pela área "Meus Contratos" do portal do fornecedor; também recebe o link por e-mail)\n\n` +
         `Quando todos assinarem, a data de assinatura é registrada e o contrato é publicado automaticamente no PNCP (art. 94 — condição de eficácia).`,
       confirmarRotulo: "Gerar e solicitar",
     }))) return

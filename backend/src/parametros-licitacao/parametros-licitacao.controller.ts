@@ -18,12 +18,15 @@ import { LimiteLegal } from './entities/limite-legal.entity';
 import { AcessoLicitacaoService } from '../auth/acesso/acesso-licitacao.service';
 import { AtorAtual, SomenteOrgao } from '../auth/acesso/acesso.decorators';
 import type { Ator } from '../auth/acesso/ator';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * AUTORIZAÇÃO (E1a): leituras seguem abertas a quem está logado (são regras de
  * sessão/limites legais, sem dado sigiloso). Escritas só para o PRÓPRIO órgão;
  * valores do sistema/nacionais (orgao_id nulo) só para o ADMIN da plataforma.
  */
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('parametros-licitacao')
 export class ParametrosLicitacaoController {
   constructor(

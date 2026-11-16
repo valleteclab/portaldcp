@@ -31,6 +31,8 @@ import { StatusDocumento, TipoDocumentoFaseInterna } from './entities/documento-
 import { ANEXO_MAX_BYTES, PecasFaseInternaService } from './pecas-fase-interna.service';
 import { ConsumoLimiteService } from '../parametros-licitacao/consumo-limite.service';
 import { PesquisaPrecosAgentService } from './pesquisa-precos-agent.service';
+import { exigeConferencia } from './pesquisa-precos-providers.service';
+import { INCISO_DA_FONTE } from './telas/pesquisa-regras';
 import { GeradorPpService } from './gerador-pp.service';
 import { FontePesquisaTipo } from './types/pesquisa-precos.type';
 import { Public } from '../auth/public.decorator';
@@ -44,10 +46,11 @@ import { TarefasService } from './tarefas/tarefas.service';
 import { AuditLogService } from './audit-log.service';
 import { AcaoLogFaseInterna } from './entities/log-fase-interna.entity';
 import { JuntadaPecasService } from './juntada-pecas.service';
-import { AprovacaoPecasService } from './aprovacao-pecas.service';
 import { FluxoProcessoService } from './fluxo/fluxo-processo.service';
 import { TrabalhoNaEtapa, TrabalhoNaEtapaGuard } from './fluxo/trabalho-na-etapa.guard';
 import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * AUTORIZAÇÃO (E1a): DonoFaseInternaGuard na classe — toda rota exige órgão;
@@ -56,6 +59,7 @@ import { PermissaoEtapaService } from './fluxo/permissao-etapa.service';
  * usam o órgão do token (?orgao_id= só vale para o admin da plataforma).
  */
 
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.PROCESSOS, ModuloSistema.DEMANDAS, ModuloSistema.CREDENCIAMENTO)
 @Controller('fase-interna')
 @UseGuards(DonoFaseInternaGuard, TrabalhoNaEtapaGuard)
 export class FaseInternaController {
@@ -71,7 +75,6 @@ export class FaseInternaController {
     private readonly tarefas: TarefasService,
     private readonly auditLog: AuditLogService,
     private readonly juntada: JuntadaPecasService,
-    private readonly aprovacaoPecas: AprovacaoPecasService,
     private readonly fluxoProcesso: FluxoProcessoService,
     private readonly permissaoEtapa: PermissaoEtapaService,
   ) {}
@@ -107,12 +110,6 @@ export class FaseInternaController {
     // grava a peça e conclui renovação de dotação, devolução da autorização e
     // retorno à Procuradoria pendentes (Entregas 3A/3B)
     const doc = await this.juntada.anexar(licitacaoId, tipo, arquivo, body ?? {}, ator);
-    // Etapa com "aprovação interna": a peça anexada pela etapa vai para o fluxo
-    // de aprovação do órgão (a juntada em lote da fase feita fora não passa aqui)
-    await this.aprovacaoPecas.avaliarPeca(doc.id, { anexadaAgora: true });
-    // Sempre a peça RELIDA: o envio ao fluxo pode ter sido feito pela fila do
-    // processo antes desta avaliação (aí ela devolve false e o objeto em mãos
-    // ainda estaria com o status anterior)
     return (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
   }
 
@@ -172,9 +169,6 @@ export class FaseInternaController {
   async emitirPeca(@Param('licitacaoId') licitacaoId: string, @Param('tipo') tipo: string, @AtorAtual() ator: Ator) {
     const autor = await this.tarefas.autor(ator);
     let doc = await this.pecas.emitirPeca(licitacaoId, tipo, ator, autor);
-    // Etapa com "aprovação interna": a peça emitida vai para o fluxo do órgão
-    await this.aprovacaoPecas.avaliarPeca(doc.id);
-    // Relida sempre (a fila do processo pode ter enviado antes desta avaliação)
     doc = (await this.faseInternaService.getDocumento(doc.id).catch(() => null)) ?? doc;
     const emAprovacao = doc.status === StatusDocumento.AGUARDANDO_APROVACAO;
     return { documento_id: doc.id, tipo: doc.tipo, versao: doc.versao, status: doc.status, emitido: doc.dados_estruturados?._emitido ?? null, em_aprovacao: emAprovacao };
@@ -297,9 +291,6 @@ export class FaseInternaController {
     );
     if (!String(body.descricao ?? '').trim()) return doc;
     const gerada = await this.pecas.gerarDocumentoDaPecaCriada(doc.id, ator);
-    // Etapa com "aprovação interna": a peça gerada vai para o fluxo do órgão
-    await this.aprovacaoPecas.avaliarPeca(gerada.id);
-    // Relida sempre (a fila do processo pode ter enviado antes desta avaliação)
     return (await this.faseInternaService.getDocumento(gerada.id).catch(() => null)) ?? gerada;
   }
 
@@ -424,9 +415,8 @@ export class FaseInternaController {
     return this.faseInternaService.getDocumento(id);
   }
 
-  // O envio para aprovação é pelo fluxo por etapa (`documento/:id/submeter-fluxo`,
-  // `aprovacoes/etapa/:id/{aprovar,reprovar}`); a aprovação por documento
-  // (submeter/aprovar/reprovar e GET aprovacoes) foi apagada na E9.
+  // A aprovação das peças é etapa de Aprovação do fluxo do processo (11/2026): os
+  // fluxos de aprovação por documento do motor antigo saíram.
 
   /** Preço de referência rápido por código CATMAT/CATSER (dados abertos) */
   @Get('preco-referencia')
@@ -776,6 +766,10 @@ export class FaseInternaController {
 
     if (b.autoAprovar && execucao.candidatos?.length) {
       for (const candidato of execucao.candidatos) {
+        // Só entra sozinho o preço praticado e conferível. Valor estimado, preço
+        // de loja achado na web, aderência parcial e unidade diferente ficam à
+        // espera de quem pesquisa decidir, na lista de referências.
+        if (exigeConferencia(candidato)) continue;
         try {
           await this.pesquisaPrecosAgentService.aprovarCandidato(
             licitacaoId,
@@ -789,7 +783,18 @@ export class FaseInternaController {
     }
 
     await this.faseInternaService.removerCotacoesEstimadasDoAgente(licitacaoId);
-    return this.faseInternaService.getPrecos(licitacaoId);
+    // Fonte consultada sem preço também fica registrada (não volta a "Pendente")
+    // ...mas só a que respondeu: portal fora do ar não é "consultado, sem retorno"
+    const falhas = execucao.falhas || [];
+    // a fonte que falhou segura o inciso inteiro (PNCP e contratos do órgão são ambos o II)
+    const incisosComFalha = new Set(falhas.map((f) => INCISO_DA_FONTE[f.fonte]));
+    await this.faseInternaService.registrarConsultaAutomaticaSemRetorno(
+      licitacaoId,
+      ((execucao.escopo?.fontes as FontePesquisaTipo[]) || b.fontes || []).filter(
+        (f) => !incisosComFalha.has(INCISO_DA_FONTE[f]),
+      ),
+    );
+    return { ...(await this.faseInternaService.getPrecos(licitacaoId)), falhas };
   }
 
   @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'agente de pesquisa de preços' })
@@ -811,6 +816,15 @@ export class FaseInternaController {
       ...(body || {}),
       itemNumeros: [parseInt(itemNumero)],
     });
+  }
+
+  @Get(':licitacaoId/precos/agente/candidatos')
+  async listarCandidatosPendentesPrecos(
+    @Param('licitacaoId') licitacaoId: string,
+  ) {
+    return this.pesquisaPrecosAgentService.listarCandidatosPendentes(
+      licitacaoId,
+    );
   }
 
   @Get(':licitacaoId/precos/agente/execucoes')
@@ -843,6 +857,20 @@ export class FaseInternaController {
         id: body?.decisorId,
         nome: body?.decisorNome,
       },
+    );
+  }
+
+  @TrabalhoNaEtapa({ passo: 'PESQUISA', acao: 'pesquisa de preços' })
+  @Post(':licitacaoId/precos/item/:itemNumero/agente/candidatos/rejeitar-pendentes')
+  async rejeitarPendentesDoItemPreco(
+    @Param('licitacaoId') licitacaoId: string,
+    @Param('itemNumero') itemNumero: string,
+    @Body() body: { decisorId?: string; decisorNome?: string },
+  ) {
+    return this.pesquisaPrecosAgentService.rejeitarPendentesDoItem(
+      licitacaoId,
+      parseInt(itemNumero),
+      { id: body?.decisorId, nome: body?.decisorNome },
     );
   }
 

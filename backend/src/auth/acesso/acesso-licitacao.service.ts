@@ -108,6 +108,32 @@ export class AcessoLicitacaoService {
   }
 
   /**
+   * Por que o fornecedor está FORA da disputa (dono, 10/11/2026: "ela deve saber
+   * o motivo"). Proposta desclassificada — inclusive por inabilitação na
+   * habilitação prévia da inversão de fases — devolve o motivo e a data; quem
+   * nunca enviou proposta (ou cancelou) devolve null.
+   */
+  async situacaoForaDaDisputa(
+    fornecedorId: string,
+    licitacaoId: string,
+  ): Promise<{ tipo: 'INABILITADO' | 'DESCLASSIFICADO'; motivo: string | null; em: string | null } | null> {
+    if (!ehUuid(fornecedorId) || !ehUuid(licitacaoId)) return null;
+    const [p] = await this.dataSource.query(
+      `SELECT p.status::text AS status, p.motivo_desclassificacao, p.data_analise,
+              h.status::text AS hab_status, h.decisao_motivo, h.decidida_em
+         FROM propostas p
+         LEFT JOIN habilitacoes_licitante h ON h.licitacao_id = p.licitacao_id AND h.fornecedor_id::text = p.fornecedor_id::text
+        WHERE p.licitacao_id = $1 AND p.fornecedor_id = $2
+        ORDER BY h.decidida_em DESC NULLS LAST LIMIT 1`,
+      [licitacaoId, fornecedorId],
+    );
+    if (!p || p.status !== 'DESCLASSIFICADA') return null;
+    const data = (d: unknown) => (d ? new Date(d as string).toISOString() : null);
+    if (p.hab_status === 'INABILITADO') return { tipo: 'INABILITADO', motivo: p.decisao_motivo ?? p.motivo_desclassificacao ?? null, em: data(p.decidida_em ?? p.data_analise) };
+    return { tipo: 'DESCLASSIFICADO', motivo: p.motivo_desclassificacao ?? null, em: data(p.data_analise) };
+  }
+
+  /**
    * Relação do ator com a licitação (para gateways e leituras mistas):
    * 'ADMIN' | 'ORGAO_DONO' | 'FORNECEDOR_PARTICIPANTE' | null (nenhuma / não existe).
    */

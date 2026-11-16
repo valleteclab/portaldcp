@@ -1,0 +1,524 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { DataSource, EntityManager } from 'typeorm';
+import { WorkflowAcao, WorkflowCampo, WorkflowFase, WorkflowFormulario, WorkflowModelo } from '../workflow.entities';
+import { WorkflowService } from '../workflow.service';
+import { TeamsService } from '../avisos/teams.service';
+import { normalizarAvisos, normalizarNotificar } from '../avisos/destinatarios';
+import { definicaoDoNo, travaLegal } from '../nos/catalogo-nos';
+import { errosParaAtivar, normalizarEtapas, removidasComTrava, TIPOS_PROCESSO_DO_FLUXO, ETAPAS_EXIGIDAS, type EtapaDesenho } from './desenho';
+import {
+  aplicacaoEfetiva, cobertura, conflitosDeAplicacao, escolherFluxo, MODALIDADES_COM_ENQUADRAMENTO, MODALIDADES_CONTRATACAO, normalizarAplicacao, rotuloModalidade, rotulosDaAplicacao,
+  type AplicacaoFluxo,
+} from '../aplicacao/aplicacao-fluxo';
+import { definicaoDoFundamento, fundamentosDaModalidade } from '../../licitacoes/fundamento-legal';
+import { MODELOS_PRONTOS, modeloPronto, setorSugerido } from '../modelos-prontos/catalogo-modelos';
+import { ehFluxoDeInstrucao, errosDaInstrucao } from '../nos/definicao-modalidade';
+
+const CONTRATACAO = 'CONTRATACAO';
+
+const COR_ETAPA = '#1B4A63';
+
+/**
+ * DESENHO DO FLUXO — tela "Desenhar o fluxo" (mockup aprovado em 06/10/2026).
+ * Usa as tabelas do Workflow: cada etapa é uma ação na sua própria fase, na
+ * ordem do desenho. Só o RASCUNHO se edita; o fluxo ativo (PUBLICADO) gera
+ * um rascunho novo (nova versão) e, ao ativar, a versão anterior vira
+ * SUBSTITUIDO — os processos em andamento continuam apontando para ela.
+ */
+@Injectable()
+export class DesenhoFluxoService {
+  constructor(
+    private readonly ds: DataSource,
+    private readonly workflow: WorkflowService,
+    private readonly teams: TeamsService,
+  ) {}
+
+  private familia(m: { id: string; familia_id: string | null }) {
+    return m.familia_id ?? m.id;
+  }
+
+  /** Fluxos do órgão, um por família: a versão ativa, o rascunho em edição e quantos processos usam cada uma. */
+  async listar(orgaoId: string) {
+    const linhas: Array<{ id: string; familia: string; nome: string; tipo_processo: string | null; versao: number; status: string; updated_at: Date; em_andamento: number; aplicacao: AplicacaoFluxo | null; instrucao: boolean }> = await this.ds.query(
+      `SELECT m.id::text AS id, COALESCE(m.familia_id, m.id)::text AS familia, m.nome, m.tipo_processo, m.versao, m.status, m.updated_at, m.aplicacao,
+              EXISTS (SELECT 1 FROM workflow_fases f JOIN workflow_acoes a ON a.fase_id = f.id WHERE f.workflow_id = m.id AND a.tipo = 'DEFINICAO_MODALIDADE') AS instrucao,
+              (SELECT COUNT(*)::int FROM workflow_instancias i WHERE i.workflow_id = m.id AND i.status = 'EM_ANDAMENTO') AS em_andamento
+         FROM workflow_modelos m WHERE m.orgao_id::text = $1 ORDER BY m.versao DESC`,
+      [orgaoId],
+    );
+    const familias = new Map<string, typeof linhas>();
+    for (const l of linhas) familias.set(l.familia, [...(familias.get(l.familia) ?? []), l]);
+    return [...familias.values()]
+      .map((vs) => {
+        const ativo = vs.find((v) => v.status === 'PUBLICADO') ?? null;
+        const desativado = ativo ? null : (vs.find((v) => v.status === 'DESATIVADO') ?? null);
+        const rascunho = vs.find((v) => v.status === 'RASCUNHO') ?? null;
+        const atual = rascunho ?? ativo ?? vs[0];
+        return {
+          familia_id: atual.familia,
+          nome: atual.nome,
+          tipo_processo: atual.tipo_processo,
+          ativo: ativo ? { id: ativo.id, versao: ativo.versao } : null,
+          desativado: desativado ? { id: desativado.id, versao: desativado.versao } : null,
+          rascunho: rascunho ? { id: rascunho.id, versao: rascunho.versao } : null,
+          em_andamento: vs.reduce((t, v) => t + Number(v.em_andamento || 0), 0),
+          // Contratação: onde vale (o da versão ativa; sem ativa, o da versão em edição)
+          vale_para:
+            atual.tipo_processo !== CONTRATACAO ? [] : (ativo ?? atual).instrucao ? ['Instrução: toda contratação'] : rotulosDaAplicacao((ativo ?? atual).aplicacao ?? null),
+          instrucao: !!(ativo ?? atual).instrucao,
+          atualizado_em: vs.reduce((d, v) => (new Date(v.updated_at) > d ? new Date(v.updated_at) : d), new Date(0)),
+        };
+      })
+      .sort((a, b) => b.atualizado_em.getTime() - a.atualizado_em.getTime());
+  }
+
+  async criar(orgaoId: string, autorId: string | null, body: any) {
+    const nome = String(body?.nome ?? '').trim().slice(0, 160);
+    if (nome.length < 3) throw new BadRequestException('Informe o nome do fluxo.');
+    const tipo = this.tipoProcesso(body?.tipo_processo);
+    const m = await this.ds.getRepository(WorkflowModelo).save(
+      this.ds.getRepository(WorkflowModelo).create({ orgao_id: orgaoId, nome, descricao: null, status: 'RASCUNHO', versao: 1, tipo_processo: tipo, criado_por_id: autorId }),
+    );
+    return this.desenho(orgaoId, m.id);
+  }
+
+  private tipoProcesso(v: unknown): string | null {
+    if (v === null || v === undefined || v === '') return null;
+    const t = String(v).toUpperCase();
+    if (!(TIPOS_PROCESSO_DO_FLUXO as readonly string[]).includes(t)) throw new BadRequestException('Tipo de processo inválido para o fluxo.');
+    return t;
+  }
+
+  private etapasDoModelo(m: WorkflowModelo) {
+    return m.fases
+      .flatMap((f) => f.acoes)
+      .map((a) => {
+        const c = (a.configuracao ?? {}) as Record<string, any>;
+        const def = definicaoDoNo(a.tipo);
+        return {
+          chave: a.id,
+          tipo: a.tipo,
+          nome: a.nome,
+          responsavel_tipo: a.responsavel_tipo,
+          responsaveis: Array.isArray(c.responsaveis) ? c.responsaveis : a.responsavel_valor ? [a.responsavel_valor] : [],
+          prazo_dias_uteis: a.prazo_dias_uteis,
+          devolver_para: typeof c.devolver_para === 'string' ? c.devolver_para : null,
+          aceita_documento_externo: def?.documento.aceita_externo ? c.aceita_documento_externo !== false : false,
+          avisos: c.avisos ?? null,
+          notificar: c.notificar ?? null,
+          obrigatoria_lei: travaLegal(a.tipo),
+          formulario_id: a.formulario_id,
+          modelo_documento_id: typeof c.modelo_documento_id === 'string' ? c.modelo_documento_id : null,
+        };
+      });
+  }
+
+  async desenho(orgaoId: string, id: string) {
+    const m = await this.workflow.obter(orgaoId, id);
+    const etapas = this.etapasDoModelo(m);
+    const versoes: Array<{ id: string; versao: number; status: string; em_andamento: number }> = await this.ds.query(
+      `SELECT m.id::text AS id, m.versao, m.status,
+              (SELECT COUNT(*)::int FROM workflow_instancias i WHERE i.workflow_id = m.id AND i.status = 'EM_ANDAMENTO') AS em_andamento
+         FROM workflow_modelos m WHERE m.orgao_id::text = $1 AND COALESCE(m.familia_id, m.id)::text = $2 ORDER BY m.versao DESC`,
+      [orgaoId, this.familia(m)],
+    );
+    return {
+      modelo: { id: m.id, nome: m.nome, descricao: m.descricao, tipo_processo: m.tipo_processo, versao: m.versao, status: m.status, familia_id: this.familia(m), aplicacao: m.aplicacao ?? null },
+      etapas,
+      instrucao: this.ehInstrucao(m),
+      editavel: m.status === 'RASCUNHO',
+      etapas_exigidas: ETAPAS_EXIGIDAS[m.tipo_processo ?? ''] ?? [],
+      pendencias_para_ativar: m.status === 'RASCUNHO' ? this.pendenciasParaAtivar(m) : [],
+      versoes,
+    };
+  }
+
+  private ehInstrucao(m: WorkflowModelo): boolean {
+    return m.tipo_processo === CONTRATACAO && ehFluxoDeInstrucao(m.fases.flatMap((f) => f.acoes).map((a) => a.tipo));
+  }
+
+  /** O que impede ativar: travas legais, responsáveis, formulário vinculado e aviso configurado. */
+  private pendenciasParaAtivar(m: WorkflowModelo): string[] {
+    const etapas = this.etapasDoModelo(m);
+    const instrucao = this.ehInstrucao(m);
+    // Instrução: as travas da lei (parecer, publicação) ficam nos fluxos de modalidade, que vêm depois
+    const erros = errosParaAtivar(instrucao ? null : m.tipo_processo, etapas.map((e) => ({ ...e, responsavel_tipo: e.responsavel_tipo as any })));
+    erros.push(...errosDaInstrucao(etapas.map((e) => e.tipo)));
+    for (const e of etapas) if (e.tipo === 'FORMULARIO' && !e.formulario_id) erros.push(`Vincule um formulário à etapa "${e.nome}".`);
+    for (const e of etapas) if (e.tipo === 'NOTIFICAR' && !(e.notificar as any)?.destinatarios?.length) erros.push(`Configure quem recebe e por qual canal o aviso "${e.nome}".`);
+    if (m.tipo_processo === CONTRATACAO && !instrucao && !m.aplicacao) erros.push('Diga onde este fluxo vale: as modalidades da contratação (ou use-o como padrão).');
+    return erros;
+  }
+
+  /** Confere que setores, usuários, canais do Teams e destinatários citados são do órgão — antes de gravar qualquer coisa. */
+  private async validarReferencias(orgaoId: string, etapas: EtapaDesenho[]) {
+    const ids = (tipo: 'SETOR' | 'USUARIO') => [
+      ...new Set([
+        ...etapas.filter((e) => e.responsavel_tipo === tipo).flatMap((e) => e.responsaveis),
+        ...etapas.flatMap((e) => ((e.notificar as any)?.destinatarios ?? []).filter((d: any) => d?.tipo === tipo && d?.id).map((d: any) => String(d.id))),
+      ]),
+    ];
+    for (const [tipo, tabela] of [['SETOR', 'setores'], ['USUARIO', 'usuarios']] as const) {
+      const lista = ids(tipo);
+      if (!lista.length) continue;
+      const achados: Array<{ id: string }> = await this.ds.query(`SELECT id::text AS id FROM ${tabela} WHERE orgao_id::text = $1 AND id::text = ANY($2::text[])`, [orgaoId, lista]);
+      if (achados.length !== lista.length) throw new BadRequestException(`Há ${tipo === 'SETOR' ? 'setor' : 'pessoa'} selecionado que não pertence a este órgão.`);
+    }
+  }
+
+  async salvar(orgaoId: string, id: string, body: any) {
+    const m = await this.workflow.obter(orgaoId, id);
+    if (m.status !== 'RASCUNHO') throw new ConflictException('Este fluxo está ativo. Crie uma nova versão para alterar.');
+    let etapas: EtapaDesenho[];
+    const configs = new Map<string, { avisos: unknown; notificar: unknown }>();
+    try {
+      etapas = normalizarEtapas(body);
+      for (const e of etapas) {
+        configs.set(e.chave, {
+          avisos: e.avisos === undefined || e.avisos === null ? null : normalizarAvisos(e.avisos),
+          notificar: e.tipo === 'NOTIFICAR' && e.notificar ? normalizarNotificar(e.notificar) : null,
+        });
+      }
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    const tipoProcesso = body?.tipo_processo !== undefined ? this.tipoProcesso(body.tipo_processo) : m.tipo_processo;
+    const acoesAtuais = m.fases.flatMap((f) => f.acoes);
+    const novaInstrucao = tipoProcesso === CONTRATACAO && ehFluxoDeInstrucao(etapas.map((e) => e.tipo));
+    const travadas = novaInstrucao ? [] : removidasComTrava(tipoProcesso, acoesAtuais.map((a) => a.tipo), etapas.map((e) => e.tipo));
+    if (travadas.length) throw new BadRequestException(travadas.join(' '));
+    const porId = new Map(acoesAtuais.map((a) => [a.id, a]));
+    for (const e of etapas) if (!e.chave.startsWith('novo-') && !porId.has(e.chave)) throw new BadRequestException('Etapa não pertence a este fluxo.');
+    await this.validarReferencias(orgaoId, etapas);
+    for (const e of etapas) {
+      if (!e.modelo_documento_id) continue;
+      const [mod] = await this.ds.query(
+        `SELECT 1 FROM modelos_documento WHERE id::text = $1 AND tipo::text = $2 AND (orgao_id IS NULL OR orgao_id::text = $3)`,
+        [e.modelo_documento_id, definicaoDoNo(e.tipo)?.tipo_documento ?? '', orgaoId],
+      );
+      if (!mod) throw new BadRequestException(`O modelo escolhido para "${e.nome}" não serve para esta etapa.`);
+    }
+    for (const c of configs.values()) {
+      const canais = [(c.avisos as any)?.teams_canal_id, (c.notificar as any)?.teams_canal_id].filter(Boolean) as string[];
+      for (const canal of canais) if (!(await this.teams.pertenceAoOrgao(orgaoId, canal))) throw new BadRequestException('Canal do Teams não pertence a este órgão.');
+    }
+
+    await this.ds.transaction(async (mg: EntityManager) => {
+      if (body?.nome !== undefined) m.nome = String(body.nome).trim().slice(0, 160) || m.nome;
+      m.tipo_processo = tipoProcesso;
+      await mg.update(WorkflowModelo, { id: m.id }, { nome: m.nome, tipo_processo: tipoProcesso });
+      // Ordem é única por fluxo: tira tudo do caminho antes de renumerar
+      for (const [i, f] of m.fases.entries()) await mg.update(WorkflowFase, { id: f.id }, { ordem: 10000 + i });
+      const reivindicadas = new Set<string>();
+      const idReal = new Map<string, string>();
+      for (const [i, e] of etapas.entries()) {
+        const existente = porId.get(e.chave);
+        let faseId: string;
+        if (existente && !reivindicadas.has(existente.fase_id)) {
+          faseId = existente.fase_id;
+          await mg.update(WorkflowFase, { id: faseId }, { ordem: i + 1, nome: e.nome.slice(0, 140) });
+        } else {
+          const fase = await mg.save(WorkflowFase, mg.create(WorkflowFase, { workflow_id: m.id, nome: e.nome.slice(0, 140), ordem: i + 1, cor: COR_ETAPA }));
+          faseId = fase.id;
+        }
+        reivindicadas.add(faseId);
+        const c = configs.get(e.chave)!;
+        const configuracao = {
+          ...((existente?.configuracao ?? {}) as Record<string, unknown>),
+          responsaveis: e.responsaveis,
+          aceita_documento_externo: e.aceita_documento_externo,
+          avisos: c.avisos ?? undefined,
+          notificar: c.notificar ?? undefined,
+          devolver_para: null as string | null,
+          modelo_documento_id: e.modelo_documento_id,
+        };
+        const dados = { fase_id: faseId, ordem: 1, nome: e.nome, tipo: e.tipo, responsavel_tipo: e.responsavel_tipo, responsavel_valor: null, prazo_dias_uteis: e.prazo_dias_uteis, configuracao };
+        if (existente) {
+          await mg.update(WorkflowAcao, { id: existente.id }, dados as any);
+          idReal.set(e.chave, existente.id);
+        } else {
+          const nova = await mg.save(WorkflowAcao, mg.create(WorkflowAcao, { ...dados, formulario_id: null }));
+          idReal.set(e.chave, nova.id);
+        }
+      }
+      // Fases que não sobraram (com as ações removidas do desenho)
+      for (const f of m.fases) if (!reivindicadas.has(f.id)) await mg.delete(WorkflowFase, { id: f.id });
+      // "Devolve para": a chave da tela vira o id real da etapa
+      for (const e of etapas) {
+        if (!e.devolver_para) continue;
+        const acaoId = idReal.get(e.chave)!;
+        const acao = await mg.findOneByOrFail(WorkflowAcao, { id: acaoId });
+        await mg.update(WorkflowAcao, { id: acaoId }, { configuracao: { ...(acao.configuracao ?? {}), devolver_para: idReal.get(e.devolver_para) ?? null } as any });
+      }
+    });
+    return this.desenho(orgaoId, id);
+  }
+
+  /** Rascunho novo a partir da versão ativa (ou devolve o rascunho que já existe na família). */
+  async novaVersao(orgaoId: string, id: string, autorId: string | null) {
+    const origem = await this.workflow.obter(orgaoId, id);
+    const familia = this.familia(origem);
+    const [existente] = await this.ds.query(
+      `SELECT id::text AS id FROM workflow_modelos WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2 AND status = 'RASCUNHO' LIMIT 1`,
+      [orgaoId, familia],
+    );
+    if (existente) return this.desenho(orgaoId, existente.id);
+    const [{ max }] = await this.ds.query(`SELECT COALESCE(MAX(versao), 0)::int AS max FROM workflow_modelos WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2`, [orgaoId, familia]);
+    const novoId = await this.ds.transaction(async (mg) => {
+      const novo = await mg.save(WorkflowModelo, mg.create(WorkflowModelo, { orgao_id: orgaoId, nome: origem.nome, descricao: origem.descricao, status: 'RASCUNHO', versao: Number(max) + 1, tipo_processo: origem.tipo_processo, familia_id: familia, criado_por_id: autorId, aplicacao: origem.aplicacao ?? null }));
+      const formularios = new Map<string, string>();
+      for (const f of origem.formularios) {
+        const nf = await mg.save(WorkflowFormulario, mg.create(WorkflowFormulario, { workflow_id: novo.id, nome: f.nome, descricao: f.descricao }));
+        formularios.set(f.id, nf.id);
+        for (const c of f.campos) await mg.save(WorkflowCampo, mg.create(WorkflowCampo, { formulario_id: nf.id, chave: c.chave, rotulo: c.rotulo, tipo: c.tipo, obrigatorio: c.obrigatorio, ordem: c.ordem, opcoes: c.opcoes, validacao: c.validacao }));
+      }
+      const acoes = new Map<string, string>();
+      for (const fase of origem.fases) {
+        const nfase = await mg.save(WorkflowFase, mg.create(WorkflowFase, { workflow_id: novo.id, nome: fase.nome, ordem: fase.ordem, cor: fase.cor }));
+        for (const a of fase.acoes) {
+          const na = await mg.save(WorkflowAcao, mg.create(WorkflowAcao, { fase_id: nfase.id, nome: a.nome, tipo: a.tipo, ordem: a.ordem, formulario_id: a.formulario_id ? formularios.get(a.formulario_id) ?? null : null, responsavel_tipo: a.responsavel_tipo, responsavel_valor: a.responsavel_valor, prazo_dias_uteis: a.prazo_dias_uteis, configuracao: a.configuracao }));
+          acoes.set(a.id, na.id);
+        }
+      }
+      for (const nova of acoes.values()) {
+        const a = await mg.findOneByOrFail(WorkflowAcao, { id: nova });
+        const destino = (a.configuracao as any)?.devolver_para;
+        if (destino) await mg.update(WorkflowAcao, { id: nova }, { configuracao: { ...(a.configuracao ?? {}), devolver_para: acoes.get(destino) ?? null } as any });
+      }
+      return novo.id;
+    });
+    return this.desenho(orgaoId, novoId);
+  }
+
+  /**
+   * Ativa o rascunho (ou reativa a versão desativada): confere as travas e
+   * substitui a versão ativa da família.
+   *  - Contratação: vários fluxos ativos, cada um onde vale (modalidade e
+   *    enquadramento); um caso já coberto por outro fluxo barra a ativação.
+   *  - Demais tipos: um fluxo ativo por tipo; os outros são desativados.
+   */
+  async ativar(orgaoId: string, id: string) {
+    const m = await this.workflow.obter(orgaoId, id);
+    if (m.status !== 'RASCUNHO' && m.status !== 'DESATIVADO') throw new ConflictException('Só um rascunho ou uma versão desativada pode ser ativada.');
+    const erros = this.pendenciasParaAtivar(m);
+    if (erros.length) throw new BadRequestException({ message: 'O fluxo ainda não pode ser ativado.', erros });
+    if (m.tipo_processo === CONTRATACAO && this.ehInstrucao(m)) {
+      const outra = (await this.workflow.instrucoesAtivas(orgaoId)).find((x) => x.familia !== this.familia(m));
+      if (outra) throw new ConflictException({ message: 'Só uma instrução da contratação fica ativa.', erros: [`"${outra.nome}" já é a instrução ativa: desative-a antes.`] });
+    } else if (m.tipo_processo === CONTRATACAO) await this.exigirSemConflito(orgaoId, this.familia(m), m.aplicacao ?? null);
+    const desativados: string[] = [];
+    await this.ds.transaction(async (mg) => {
+      await mg.query(
+        `UPDATE workflow_modelos SET status = 'SUBSTITUIDO', updated_at = now()
+          WHERE orgao_id::text = $1 AND COALESCE(familia_id, id)::text = $2 AND status IN ('PUBLICADO', 'DESATIVADO') AND id::text <> $3`,
+        [orgaoId, this.familia(m), m.id],
+      );
+      if (m.tipo_processo && m.tipo_processo !== CONTRATACAO) {
+        const outros: Array<{ nome: string }> = await mg.query(
+          `UPDATE workflow_modelos SET status = 'DESATIVADO', updated_at = now()
+            WHERE orgao_id::text = $1 AND tipo_processo = $2 AND status = 'PUBLICADO' AND COALESCE(familia_id, id)::text <> $3
+            RETURNING nome`,
+          [orgaoId, m.tipo_processo, this.familia(m)],
+        ).then((r: any) => (Array.isArray(r?.[0]) ? r[0] : r));
+        desativados.push(...outros.map((o) => o.nome));
+      }
+      await mg.update(WorkflowModelo, { id: m.id }, { status: 'PUBLICADO' });
+    });
+    return { ...(await this.desenho(orgaoId, id)), desativados };
+  }
+
+  /**
+   * Desativa a versão ativa: nenhum processo novo começa por ela (nem pelo início
+   * automático da contratação). Os que já estão em andamento seguem nela até o fim.
+   */
+  async desativar(orgaoId: string, id: string) {
+    const m = await this.workflow.obter(orgaoId, id);
+    if (m.status !== 'PUBLICADO') throw new ConflictException('Só a versão ativa pode ser desativada.');
+    await this.ds.getRepository(WorkflowModelo).update({ id: m.id }, { status: 'DESATIVADO' });
+    return this.desenho(orgaoId, id);
+  }
+
+  // ==========================================================================
+  // ONDE O FLUXO VALE (contratação por modalidade e enquadramento)
+  // ==========================================================================
+
+  /** Fluxos de contratação ativos de OUTRAS famílias (a própria família é substituída ao ativar). */
+  private async outrosAtivos(orgaoId: string, familia: string | null) {
+    return (await this.workflow.ativosDaContratacao(orgaoId)).filter((x) => x.familia !== familia);
+  }
+
+  /** Um caso já coberto por outro fluxo ativo → 409 com a lista. */
+  private async exigirSemConflito(orgaoId: string, familia: string, aplicacao: AplicacaoFluxo | null) {
+    const conflitos = conflitosDeAplicacao(aplicacao, await this.outrosAtivos(orgaoId, familia));
+    if (conflitos.length) throw new ConflictException({ message: 'Cada caso só pode estar em um fluxo ativo. Ajuste onde este fluxo vale ou o outro fluxo.', erros: conflitos });
+  }
+
+  /** Grava onde o fluxo de contratação vale. Na versão ativa, confere antes os casos dos outros fluxos. */
+  async salvarAplicacao(orgaoId: string, id: string, body: unknown) {
+    const m = await this.workflow.obter(orgaoId, id);
+    if (m.tipo_processo !== CONTRATACAO) throw new BadRequestException('Só o fluxo de Contratação escolhe modalidades.');
+    if (m.status === 'SUBSTITUIDO') throw new ConflictException('Esta versão foi substituída.');
+    let aplicacao: AplicacaoFluxo;
+    try {
+      aplicacao = normalizarAplicacao(body);
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    if (m.status === 'PUBLICADO') await this.exigirSemConflito(orgaoId, this.familia(m), aplicacao);
+    await this.ds.getRepository(WorkflowModelo).update({ id: m.id }, { aplicacao: aplicacao as any });
+    return this.desenho(orgaoId, id);
+  }
+
+  /** Modalidades e enquadramentos que a tela oferece, com o fluxo ativo que já tem cada caso. */
+  async opcoesAplicacao(orgaoId: string, id?: string | null) {
+    const familia = id ? this.familia(await this.workflow.obter(orgaoId, id)) : null;
+    const outros = await this.outrosAtivos(orgaoId, familia);
+    const ocupado = (modalidade: string, fundamento: string | null) => {
+      const daModalidade = new Set(fundamentosDaModalidade(modalidade).map((d) => d.codigo as string));
+      for (const o of outros) {
+        const ap = aplicacaoEfetiva(o.aplicacao);
+        if (!ap.modalidades.includes(modalidade)) continue;
+        const fs = ap.fundamentos.filter((f) => daModalidade.has(f));
+        if (fundamento === null ? !fs.length : fs.includes(fundamento)) return o.nome;
+      }
+      return null;
+    };
+    return {
+      modalidades: MODALIDADES_CONTRATACAO.map((md) => ({
+        codigo: md.codigo,
+        rotulo: md.rotulo,
+        ocupado_por: ocupado(md.codigo, null),
+        enquadramentos: MODALIDADES_COM_ENQUADRAMENTO.includes(md.codigo)
+          ? fundamentosDaModalidade(md.codigo).map((d) => ({ codigo: d.codigo, referencia: d.referencia, descricao: d.descricao, ocupado_por: ocupado(md.codigo, d.codigo) }))
+          : [],
+      })),
+      padrao_de: outros.find((o) => aplicacaoEfetiva(o.aplicacao).padrao)?.nome ?? null,
+    };
+  }
+
+  /** Tabela "Qual fluxo cada contratação segue". */
+  async coberturaDaContratacao(orgaoId: string) {
+    return cobertura(await this.workflow.ativosDaContratacao(orgaoId));
+  }
+
+  /** Etapas de um fluxo com o nome de quem faz (para as prévias). */
+  private async resumoDasEtapas(orgaoId: string, modeloId: string) {
+    const m = await this.workflow.obter(orgaoId, modeloId);
+    const etapas = this.etapasDoModelo(m).filter((e) => e.tipo !== 'NOTIFICAR');
+    const ids = [...new Set(etapas.flatMap((e) => e.responsaveis as string[]))];
+    const nomes = new Map<string, string>();
+    if (ids.length) {
+      const linhas: Array<{ id: string; nome: string }> = await this.ds.query(
+        `SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1 AND id::text = ANY($2::text[])
+         UNION ALL SELECT id::text AS id, nome FROM usuarios WHERE orgao_id::text = $1 AND id::text = ANY($2::text[])`,
+        [orgaoId, ids],
+      );
+      linhas.forEach((l) => nomes.set(l.id, l.nome));
+    }
+    const rotuloResponsavel: Record<string, string> = { SOLICITANTE: 'Solicitante', FISCAL_CONTRATO: 'Fiscal do contrato', GESTOR_CONTRATO: 'Gestor do contrato' };
+    return {
+      fluxo: { id: m.id, nome: m.nome, versao: m.versao },
+      etapas: etapas.map((e) => ({
+        nome: e.nome,
+        tipo: e.tipo,
+        responsavel: rotuloResponsavel[String(e.responsavel_tipo).toUpperCase()] ?? ((e.responsaveis as string[]).map((r) => nomes.get(r)).filter(Boolean).join(', ') || null),
+      })),
+    };
+  }
+
+  /**
+   * Antes de abrir o processo: por onde ele começa (a instrução, quando há uma
+   * ativa) e o fluxo da modalidade que ele segue depois (ou já de início, sem
+   * instrução), com o motivo da escolha e as etapas.
+   */
+  async previaDaContratacao(orgaoId: string, modalidade: string, fundamento: string | null) {
+    const instrucoes = await this.workflow.instrucoesAtivas(orgaoId);
+    const instrucao = instrucoes.length === 1 ? await this.resumoDasEtapas(orgaoId, instrucoes[0].id) : null;
+    const escolha = modalidade ? escolherFluxo(await this.workflow.ativosDaContratacao(orgaoId), modalidade, fundamento) : null;
+    const enquadramento = definicaoDoFundamento(fundamento)?.referencia ?? null;
+    if (!escolha) return { instrucao, fluxo: null, motivo: null, por: [rotuloModalidade(modalidade), enquadramento].filter(Boolean).join(', '), etapas: [] };
+    const r = await this.resumoDasEtapas(orgaoId, escolha.fluxo.id);
+    return {
+      instrucao,
+      fluxo: r.fluxo,
+      motivo: escolha.motivo,
+      por: escolha.motivo === 'PADRAO' ? 'fluxo padrão da contratação' : [rotuloModalidade(modalidade), escolha.motivo === 'ENQUADRAMENTO' ? enquadramento : null].filter(Boolean).join(', '),
+      etapas: r.etapas,
+    };
+  }
+
+
+  // ==========================================================================
+  // MODELOS PRONTOS (desenhos tirados dos autos da Câmara)
+  // ==========================================================================
+
+  /** Catálogo para a tela "Novo fluxo": nome, de onde veio e as etapas. */
+  listarModelosProntos() {
+    return MODELOS_PRONTOS.map((m) => ({
+      chave: m.chave,
+      nome: m.nome,
+      descricao: m.descricao,
+      origem: m.origem,
+      tipo_processo: m.tipo_processo,
+      vale_para: m.tipo_processo === CONTRATACAO ? rotulosDaAplicacao(m.aplicacao) : [],
+      etapas: m.etapas.map((e) => e.nome),
+    }));
+  }
+
+  /**
+   * Cria um RASCUNHO a partir do modelo: as etapas na ordem dos autos, os
+   * responsáveis sugeridos pelo nome dos setores do órgão e, na contratação,
+   * onde o fluxo vale. Nada é ativado: o administrador confere e ativa.
+   */
+  async criarDeModelo(orgaoId: string, autorId: string | null, chave: string, opcoes?: { semSetorFicaComQuemAbriu?: boolean }) {
+    const modelo = modeloPronto(chave);
+    if (!modelo) throw new NotFoundException('Modelo pronto não encontrado.');
+    const setores: Array<{ id: string; nome: string }> = await this.ds.query(`SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1 ORDER BY nome`, [orgaoId]);
+    const criado = await this.criar(orgaoId, autorId, { nome: modelo.nome, tipo_processo: modelo.tipo_processo });
+    const id = criado.modelo.id;
+    const semResponsavel: string[] = [];
+    const etapas = modelo.etapas.map((e, i) => {
+      const setor = e.solicitante ? null : setorSugerido(setores, e.setor);
+      if (!e.solicitante && !setor) semResponsavel.push(e.nome);
+      // Fluxo padrão ativado sozinho: sem setor parecido, a etapa fica com quem abriu o processo
+      const comQuemAbriu = e.solicitante || (!setor && !!opcoes?.semSetorFicaComQuemAbriu);
+      return {
+        chave: `novo-${i + 1}`,
+        tipo: e.tipo,
+        nome: e.nome,
+        responsavel_tipo: comQuemAbriu ? 'SOLICITANTE' : 'SETOR',
+        responsaveis: setor && !comQuemAbriu ? [setor] : [],
+        prazo_dias_uteis: e.prazo,
+      };
+    });
+    await this.salvar(orgaoId, id, { etapas });
+    if (modelo.aplicacao) await this.ds.getRepository(WorkflowModelo).update({ id }, { aplicacao: modelo.aplicacao as any });
+    return { ...(await this.desenho(orgaoId, id)), sem_responsavel: semResponsavel };
+  }
+
+  /** Modelos de documento de um tipo (os do sistema e os do órgão) para o "Documento produzido" da etapa. */
+  async modelos(orgaoId: string, tipo: string) {
+    if (!/^[A-Z_]{1,40}$/.test(tipo)) return [];
+    return this.ds.query(
+      `SELECT id::text AS id, nome, (orgao_id IS NOT NULL) AS do_orgao FROM modelos_documento
+        WHERE tipo::text = $1 AND ativo = true AND (orgao_id IS NULL OR orgao_id::text = $2) ORDER BY (orgao_id IS NULL), nome`,
+      [tipo, orgaoId],
+    );
+  }
+
+  /** Opções do painel da etapa: setores, pessoas ativas e canais do Teams do órgão (só do órgão do token). */
+  async opcoes(orgaoId: string) {
+    const [setores, usuarios, teams] = await Promise.all([
+      this.ds.query(`SELECT id::text AS id, nome FROM setores WHERE orgao_id::text = $1 ORDER BY nome`, [orgaoId]),
+      this.ds.query(`SELECT id::text AS id, nome, cargo, setor_id::text AS setor_id FROM usuarios WHERE orgao_id::text = $1 AND ativo = true ORDER BY nome LIMIT 1000`, [orgaoId]),
+      this.teams.listar(orgaoId),
+    ]);
+    return { setores, usuarios, teams };
+  }
+
+  /** Lança 404 se o fluxo não é do órgão (usado pelo controller antes de ações sem retorno de desenho). */
+  async exigir(orgaoId: string, id: string) {
+    const [m] = await this.ds.query(`SELECT 1 FROM workflow_modelos WHERE id::text = $1 AND orgao_id::text = $2`, [id, orgaoId]);
+    if (!m) throw new NotFoundException('Fluxo não encontrado');
+  }
+}

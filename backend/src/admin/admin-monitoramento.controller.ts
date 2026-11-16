@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Body, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Post, Put, Param, Body, ForbiddenException, NotFoundException, Req, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import { OrigemLance } from '../disputa/modelo-lance';
@@ -258,12 +258,21 @@ export class AdminMonitoramentoController {
   @Put('sessao/:sessaoId/anonimizacao')
   async toggleAnonimizacao(
     @Param('sessaoId') sessaoId: string,
-    @Body() body: { ativa: boolean; justificativa: string; usuarioId?: string },
+    @Body() body: { ativa: boolean; justificativa: string },
+    @Req() req: any,
   ) {
     const sessao = await this.sessaoRepo.findOne({ where: { id: sessaoId } });
     if (!sessao) {
       throw new NotFoundException('Sessão não encontrada');
     }
+    // Recurso do suporte (superadministrador): quem pratica vem do TOKEN e a
+    // justificativa é obrigatória — desligar o anonimato revela os licitantes ao órgão.
+    if (typeof body?.ativa !== 'boolean') throw new BadRequestException('Informe se a anonimização fica ativa');
+    const justificativa = String(body?.justificativa ?? '').trim();
+    if (justificativa.length < 15) {
+      throw new BadRequestException('Justificativa obrigatória (mínimo de 15 caracteres) para alterar a anonimização');
+    }
+    const autor = `ADMIN ${req?.user?.email || req?.user?.sub || 'plataforma'}`;
 
     const estadoAnterior = sessao.anonimizacao_ativa;
     
@@ -271,17 +280,19 @@ export class AdminMonitoramentoController {
     await this.anonimizacaoService.toggleAnonimizacao(
       sessaoId,
       body.ativa,
-      body.usuarioId || 'ADMIN',
-      body.justificativa,
+      autor,
+      justificativa,
     );
 
     // Registrar evento de auditoria
     const evento = this.eventoRepo.create({
       sessao_id: sessaoId,
-      tipo: TipoEvento.LANCE_REGISTRADO, // TODO: Criar tipo específico
-      descricao: `[AUDITORIA] Anonimização ${body.ativa ? 'ATIVADA' : 'DESATIVADA'} por ${body.usuarioId || 'ADMIN'}. Estado anterior: ${estadoAnterior}. Justificativa: ${body.justificativa}`,
-      usuario_nome: body.usuarioId || 'ADMIN',
+      // Mensagem do sistema: fica na trilha da sessão e aparece no chat para todos os participantes
+      tipo: TipoEvento.MENSAGEM_SISTEMA,
+      descricao: `[AUDITORIA] Anonimização ${body.ativa ? 'ATIVADA' : 'DESATIVADA'} pelo suporte da plataforma. Justificativa: ${justificativa}`,
+      usuario_nome: 'SISTEMA',
       is_sistema: true,
+      dados_adicionais: { auditoria: 'ANONIMIZACAO', ativa: body.ativa, estado_anterior: estadoAnterior, autor, justificativa } as any,
     });
     await this.eventoRepo.save(evento);
 

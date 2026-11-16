@@ -1,6 +1,9 @@
-import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException } from '@nestjs/common';
+import { eventoVisivel } from '../julgamento/regras-negociacao';
+import type { VisaoEvento } from '../julgamento/regras-negociacao';
+import { Controller, Get, Post, Put, Param, Body, Query, NotFoundException, BadRequestException , ForbiddenException } from '@nestjs/common';
 import { DisputaService } from './disputa.service';
 import { SigiloDisputaService } from './sigilo-disputa.service';
+import { FilaDisputaService } from './fila-disputa.service';
 import { DisputaGateway } from './disputa.gateway';
 import { AcessoLicitacaoService, ehUuid } from '../auth/acesso/acesso-licitacao.service';
 import {
@@ -13,6 +16,8 @@ import {
 import { ehFornecedor } from '../auth/acesso/ator';
 import type { Ator } from '../auth/acesso/ator';
 import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
+import { RequireModule } from '../auth/require-module.decorator';
+import { ModuloSistema } from '../orgaos/enums/modulos.enum';
 
 /**
  * ============================================================================
@@ -34,6 +39,7 @@ import { atorTransicaoDe } from '../licitacoes/transicoes/transicoes.tipos';
  * ============================================================================
  */
 
+@RequireModule(ModuloSistema.LICITACOES, ModuloSistema.DISPUTA)
 @Controller('disputa')
 export class DisputaController {
   constructor(
@@ -41,6 +47,7 @@ export class DisputaController {
     private readonly acesso: AcessoLicitacaoService,
     private readonly sigilo: SigiloDisputaService,
     private readonly gateway: DisputaGateway,
+    private readonly fila: FilaDisputaService,
   ) {}
 
   /** Licitação da sessão (404 se não existe). */
@@ -100,7 +107,10 @@ export class DisputaController {
       const dados = await this.disputaService.getItensParaFornecedor(sessaoId, fid);
       return this.sigilo.aplicarVisao(dados, licitacaoId, { tipo: 'FORNECEDOR', fornecedorId: fid }, { sessaoId });
     }
-    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    const dono = await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    if (!(await this.sigilo.orgaoVeIdentidades(dono.licitacaoId))) {
+      throw new ForbiddenException('A visão de um licitante só fica disponível ao órgão depois do fim da etapa de lances');
+    }
     return this.disputaService.getItensParaFornecedor(sessaoId, fornecedorId);
   }
 
@@ -121,6 +131,9 @@ export class DisputaController {
     const visao = await this.sigilo.visaoDoAtor(ator, dono.licitacaoId);
     const dados = await ler(visao.tipo === 'ORGAO');
     // Identidades só depois do fim da etapa de lances da licitação inteira (E2)
+    // Órgão dono: o serviço já entrega o código DAQUELA unidade enquanto ela
+    // disputa e a identidade depois que encerra (julgamento item a item).
+    if (visao.tipo === 'ORGAO') return dados;
     const reveladas = await this.sigilo.identidadesReveladasNoItem(itemId);
     return this.sigilo.aplicarVisao(dados, dono.licitacaoId, visao, { identidades: !reveladas });
   }
@@ -162,14 +175,39 @@ export class DisputaController {
   ) {
     const licitacaoId = await this.licitacaoDaSessao(sessaoId);
     const visao = await this.sigilo.visaoDoAtor(ator, licitacaoId);
-    const mensagens = await this.disputaService.getMensagens(sessaoId, Math.min(Number(limite) || 50, 200));
+    const mensagens = await this.disputaService.getMensagens(sessaoId, Math.min(Number(limite) || 50, 200), (e) => eventoVisivel(e, visao as VisaoEvento));
     const reveladas = await this.sigilo.identidadesReveladas(sessaoId);
+    // O órgão também só vê o código durante os lances (IN 73 art. 20): a mensagem ao vivo já
+    // chegava anônima, mas o histórico devolvia o nome real ao recarregar a sala
+    if (visao.tipo === 'ORGAO' && !reveladas) return this.sigilo.anonimizar(mensagens, licitacaoId, { sessaoId });
     return this.sigilo.aplicarVisao(mensagens, licitacaoId, visao, { sessaoId, identidades: !reveladas });
   }
 
   // ============================================================================
   // AÇÕES DO PREGOEIRO (alternativa ao WebSocket) — só o órgão dono
   // ============================================================================
+
+  // Fila automática (dono, 09/11/2026): até N unidades simultâneas, aviso prévio, ordem da numeração
+  @SomenteOrgao()
+  @Get('sessao/:sessaoId/fila')
+  async estadoFila(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId, 'leitura');
+    return this.fila.estado(sessaoId);
+  }
+
+  @SomenteOrgao()
+  @Post('sessao/:sessaoId/fila')
+  async ligarFila(@Param('sessaoId') sessaoId: string, @Body() body: { maxSimultaneos?: number; avisoMinutos?: number }, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    return this.fila.ligar(sessaoId, body ?? {}, atorTransicaoDe(ator));
+  }
+
+  @SomenteOrgao()
+  @Post('sessao/:sessaoId/fila/desligar')
+  async desligarFila(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    return this.fila.desligar(sessaoId);
+  }
 
   @SomenteOrgao()
   @Post('sessao/:sessaoId/iniciar-itens')
@@ -196,7 +234,7 @@ export class DisputaController {
     const dono = await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
     const resultado = await this.disputaService.encerrarItem(sessaoId, itemId, atorTransicaoDe(ator));
     await this.gateway.difundirItemEncerrado(sessaoId, dono.licitacaoId, itemId, resultado).catch(() => undefined);
-    return resultado;
+    return this.sigilo.paraOrgao(resultado, dono.licitacaoId, sessaoId);
   }
 
   @SomenteOrgao()
@@ -233,12 +271,22 @@ export class DisputaController {
   @Post('sessao/:sessaoId/reiniciar')
   async reiniciarSessao(
     @Param('sessaoId') sessaoId: string,
-    @Body() body: { justificativa: string },
+    @Body() body: { justificativa: string; confirmaVicio?: boolean },
     @AtorAtual() ator: Ator,
   ) {
     await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
-    const resultado = await this.disputaService.reiniciarSessao(sessaoId, body?.justificativa, atorTransicaoDe(ator));
+    const resultado = await this.disputaService.reiniciarSessao(sessaoId, body?.justificativa, atorTransicaoDe(ator), {
+      confirmaVicio: body?.confirmaVicio === true,
+    });
     return { success: true, ...resultado };
+  }
+
+  /** Como o reinício se apresenta agora: simples, reforçado (anulação por vício) ou bloqueado. */
+  @SomenteOrgao()
+  @Get('sessao/:sessaoId/reinicio')
+  async consultarReinicio(@Param('sessaoId') sessaoId: string, @AtorAtual() ator: Ator) {
+    await this.acesso.assertOrgaoDaSessao(ator, sessaoId);
+    return this.disputaService.consultarReinicio(sessaoId);
   }
 
   /** Mensagem do pregoeiro na sala (o remetente é sempre o pregoeiro). */

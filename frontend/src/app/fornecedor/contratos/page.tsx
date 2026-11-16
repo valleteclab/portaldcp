@@ -70,6 +70,8 @@ import {
 } from '@/lib/fornecedor-medicoes'
 
 const STATUS_CONTRATO = {
+  // Contrato gerado e ainda não assinado: o fornecedor precisa achá-lo aqui para assinar
+  'AGUARDANDO_ASSINATURA': { label: 'Aguardando assinatura', cor: 'bg-amber-100 text-amber-800' },
   'VIGENTE': { label: 'Vigente', cor: 'bg-green-100 text-green-800' },
   'ENCERRADO': { label: 'Encerrado', cor: 'bg-gray-100 text-gray-800' },
   'RESCINDIDO': { label: 'Rescindido', cor: 'bg-red-100 text-red-800' },
@@ -137,8 +139,9 @@ export default function ContratosFornecedorPage() {
     }
   }
 
-  const formatarMoeda = (valor: number) => {
-    return (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const formatarMoeda = (valor: number | string) => {
+    // A API devolve o valor como texto ("4950.00"): sem o Number o número saía cru na tela
+    return (Number(valor) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
 
   const formatarData = (data: string) => {

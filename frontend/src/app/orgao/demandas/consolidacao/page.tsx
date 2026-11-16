@@ -119,6 +119,11 @@ type Ordem = 'ANTIGOS' | 'VALOR' | 'SETOR'
 
 function DfdConsolidadoContent() {
   const router = useRouter()
+  // Veio da etapa DFD de um processo (?processo=): o DFD montado volta para lá
+  const [processoDestino, setProcessoDestino] = useState<string | null>(null)
+  useEffect(() => {
+    setProcessoDestino(new URLSearchParams(window.location.search).get('processo'))
+  }, [])
   const anoAtual = new Date().getFullYear()
   const [ano, setAno] = useState(anoAtual)
   // O aviso "demanda aprovada — monte o DFD" e a pendência em Minhas tarefas trazem o exercício no link (?ano=)
@@ -291,7 +296,7 @@ function DfdConsolidadoContent() {
       const j = await r.json().catch(() => null)
       if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`)
       // A tela do DFD mostra a faixa de sucesso e o próximo passo em destaque
-      router.push(rotaDoDfd(j.id, { montado: true }))
+      router.push(rotaDoDfd(j.id, { montado: true, processo: processoDestino }))
     } catch (e: unknown) {
       toast.error(`DFD não montado: ${e instanceof Error ? e.message : String(e)}`)
       setMontando(false)
@@ -348,7 +353,7 @@ function DfdConsolidadoContent() {
             <p className="text-xs text-gray-600 mt-1">
               Quem monta: {permissoes.responsavel_dfd}.{' '}
               {permissoes.exige_aprovacao_dfd ? `2ª aprovação do DFD ligada (${permissoes.aprovador_dfd}).` : '2ª aprovação do DFD desligada.'}{' '}
-              <Link href="/orgao/configuracoes/fluxo" className="text-blue-800 underline">Configurações › Fluxo</Link>
+              <Link href="/orgao/configuracoes/fase-interna#planejamento" className="text-blue-800 underline">Configurações › Fase interna</Link>
             </p>
           )}
         </div>
@@ -574,7 +579,7 @@ function DfdConsolidadoContent() {
                   <Button variant="outline" size="sm" onClick={() => setPreviaAberta(true)} disabled={!previa}>
                     <Eye className="h-4 w-4 mr-1" aria-hidden="true" /> Prévia
                   </Button>
-                  <Button size="sm" onClick={() => montarDfd()} disabled={montando || carregandoPrevia || !previa}>
+                  <Button size="sm" data-guia="montar-dfd" onClick={() => montarDfd()} disabled={montando || carregandoPrevia || !previa}>
                     {montando ? <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4 mr-1" aria-hidden="true" />}
                     Montar DFD
                   </Button>
