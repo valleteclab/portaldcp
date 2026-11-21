@@ -398,7 +398,7 @@ export default function MedicoesV2Page() {
     if (!res.ok) { toast('Boletim não disponível'); return }
     const { pdf_url, filename } = await res.json()
     const fileUrl = pdf_url.startsWith('http') ? pdf_url : `${API_URL}${pdf_url}`
-    const fileRes = await fetch(fileUrl)
+    const fileRes = await fetch(fileUrl, { cache: 'no-store' })
     const blob = await fileRes.blob()
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
@@ -2214,7 +2214,7 @@ export default function MedicoesV2Page() {
                   if (!resBoletim.ok) return
                   const boletim = await resBoletim.json()
                   if (!boletim?.pdf_url) return
-                  const arquivoRes = await fetch(boletim.pdf_url)
+                  const arquivoRes = await fetch(boletim.pdf_url, { cache: 'no-store' })
                   if (!arquivoRes.ok) return
                   const pdfBlob = await arquivoRes.blob()
                   const objectUrl = window.URL.createObjectURL(pdfBlob)

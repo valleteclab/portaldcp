@@ -1620,7 +1620,7 @@ export default function MedicoesPage() {
                   const boletim = await resBoletim.json()
                   if (!boletim?.pdf_url) return
 
-                  const arquivoRes = await fetch(boletim.pdf_url)
+                  const arquivoRes = await fetch(boletim.pdf_url, { cache: 'no-store' })
                   if (!arquivoRes.ok) return
 
                   const pdfBlob = await arquivoRes.blob()
