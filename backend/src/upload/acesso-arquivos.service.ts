@@ -168,6 +168,10 @@ export class AcessoArquivosService {
         // Termo da ARP (E6): órgão gerenciador e fornecedor da ata
         const r = await q(`SELECT orgao_id, fornecedor_id FROM atas_registro_preco WHERE id = $1`, [sub]);
         r.forEach((x) => (addOrgao(x.orgao_id), addForn(x.fornecedor_id)));
+      } else if (c.tipo === 'termos-atesto') {
+        // Termo de atesto da nota de fornecimento (pasta termos-atesto/<notaId>/): só o órgão
+        const r = await q(`SELECT orgao_id FROM notas_fiscais_fornecedor WHERE id = $1`, [sub]);
+        r.forEach((x) => addOrgao(x.orgao_id));
       } else if (c.tipo === 'resultados') {
         // Termo de adjudicação/homologação (E6 — formalização): órgão da
         // licitação; ato público depois da homologação (só o termo efetivado)

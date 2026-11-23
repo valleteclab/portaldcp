@@ -48,6 +48,7 @@ import { EmailModule } from './email/email.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { AssinaturasModule } from './assinaturas/assinaturas.module';
 import { PortalAssinaturasModule } from './portal-assinaturas/portal-assinaturas.module';
+import { NotasFornecimentoModule } from './notas-fornecimento/notas-fornecimento.module';
 import { AssinadorModule } from './assinador/assinador.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { AgenteContratosModule } from './agente-contratos/agente-contratos.module';
@@ -167,6 +168,7 @@ import { GuiaModule } from './guia/guia.module';
     WebhooksModule,
     AssinaturasModule,
     PortalAssinaturasModule,
+    NotasFornecimentoModule,
     AssinadorModule,
     WhatsAppModule,
     AgenteContratosModule,

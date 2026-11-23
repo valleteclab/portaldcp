@@ -118,6 +118,7 @@ export default function ConfiguracoesPage() {
     email: '',
     site: '',
     whatsapp_responsavel_medicoes: '' as string | null,
+    destino_nota_fornecimento: 'ALMOXARIFADO' as 'ALMOXARIFADO' | 'MEDICOES' | 'AMBOS',
     whatsapp_responsavel_frota: '' as string | null,
     logo_url: '' as string | null,
     pecas_papel_timbrado: false,
@@ -145,6 +146,7 @@ export default function ConfiguracoesPage() {
           email: dados.email || dados.email_login || '',
           site: dados.site || '',
           whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
+          destino_nota_fornecimento: dados.destino_nota_fornecimento || 'ALMOXARIFADO',
           whatsapp_responsavel_frota: dados.whatsapp_responsavel_frota || '',
           logo_url: dados.logo_url || null,
           pecas_papel_timbrado: !!dados.pecas_papel_timbrado,
@@ -171,6 +173,7 @@ export default function ConfiguracoesPage() {
           email: dados.email || dados.email_login || '',
           site: dados.site || '',
           whatsapp_responsavel_medicoes: dados.whatsapp_responsavel_medicoes || '',
+          destino_nota_fornecimento: dados.destino_nota_fornecimento || 'ALMOXARIFADO',
           whatsapp_responsavel_frota: dados.whatsapp_responsavel_frota || '',
           logo_url: dados.logo_url || null,
           pecas_papel_timbrado: !!dados.pecas_papel_timbrado,
@@ -362,6 +365,7 @@ export default function ConfiguracoesPage() {
           email: orgao.email,
           site: orgao.site,
           whatsapp_responsavel_medicoes: orgao.whatsapp_responsavel_medicoes || null,
+          destino_nota_fornecimento: orgao.destino_nota_fornecimento || 'ALMOXARIFADO',
           whatsapp_responsavel_frota: orgao.whatsapp_responsavel_frota || null,
         }),
       })
@@ -733,6 +737,22 @@ export default function ConfiguracoesPage() {
                   />
                   <p className="text-xs text-muted-foreground">
                     Recebe alerta quando uma medição aprovada há mais de 15 dias ainda não constar liquidada no portal da transparência (processo de pagamento possivelmente não encaminhado à contabilidade).
+                  </p>
+                </div>
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="destino-nota-fornecimento">Nota fiscal das ordens de fornecimento vai para</Label>
+                  <select
+                    id="destino-nota-fornecimento"
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    value={orgao.destino_nota_fornecimento || 'ALMOXARIFADO'}
+                    onChange={(e) => setOrgao({...orgao, destino_nota_fornecimento: e.target.value as 'ALMOXARIFADO' | 'MEDICOES' | 'AMBOS'})}
+                  >
+                    <option value="ALMOXARIFADO">Almoxarifado e patrimônio (tela Recebimentos)</option>
+                    <option value="AMBOS">Almoxarifado/patrimônio e também quem cuida das medições</option>
+                    <option value="MEDICOES">Só quem cuida das medições</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Define quem é avisado quando o fornecedor envia a nota e em que tela ela aparece. Com as medições no destino, a tela Medições ganha a aba Notas de fornecimento, para imprimir a nota, colher assinaturas e encaminhar à contabilidade. A conferência e o aceite do material continuam na tela Recebimentos.
                   </p>
                 </div>
                 <div className="col-span-2 space-y-2">

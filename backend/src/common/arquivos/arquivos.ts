@@ -71,6 +71,7 @@ export const TIPOS_SENSIVEIS_CONHECIDOS: readonly string[] = [
   'fiscal-estadual', // registro cadastral do fornecedor
   'geral',
   'notas-fiscais',
+  'termos-atesto', // termo de atesto da nota de fornecimento (pasta termos-atesto/<notaId>/)
   'medicoes',
   'medicao-chat',
   'boletins',
