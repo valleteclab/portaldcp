@@ -4908,9 +4908,8 @@ Campos:
 - periodo_fim (YYYY-MM-DD ou null, somente se a nota trouxer o período de medição/prestação)
 - competencia (MÊS/ANO ou null)
 - descricao_servico (string ou null)
-- retencoes (array — TODAS as retenções/deduções DESTACADAS na nota: ISS, IRRF/IR, INSS, CSLL, PIS, COFINS etc. Cada item {"tipo":"ISS","valor":43.73}. Use o nome como aparece na nota. Se a nota não destaca nenhuma retenção, retorne []. NUNCA invente valores — só o que está impresso.)
 Retorne exatamente:
-{"numero":"","data_emissao":null,"valor_bruto":null,"valor_liquido":null,"periodo_inicio":null,"periodo_fim":null,"competencia":null,"descricao_servico":null,"retencoes":[]}`;
+{"numero":"","data_emissao":null,"valor_bruto":null,"valor_liquido":null,"periodo_inicio":null,"periodo_fim":null,"competencia":null,"descricao_servico":null}`;
 
     let resposta = '';
     if (file.mimetype === 'application/pdf') {
@@ -4963,21 +4962,17 @@ Retorne exatamente:
         parsed.descricao_servico != null
           ? String(parsed.descricao_servico)
           : null,
-      retencoes: Array.isArray(parsed.retencoes)
-        ? parsed.retencoes
-            .map((r: any) => ({
-              descricao: String(r?.tipo || r?.descricao || '').trim().toUpperCase(),
-              valor: Number(r?.valor),
-            }))
-            .filter((r: any) => r.descricao && Number.isFinite(r.valor) && r.valor > 0)
-        : [],
+      // Impostos/retenções NÃO são mais lidos da nota: notas em padrões
+      // diferentes eram lidas errado e a discriminação saía com impostos que
+      // não batiam (portal, chat e bot). A discriminação é sempre digitada.
+      retencoes: [] as Array<{ descricao: string; valor: number }>,
     };
   }
 
   /**
-   * Extração pública de dados da NF (número, data de emissão, valores e
-   * RETENÇÕES destacadas) — usada pelo formulário clássico do fornecedor
-   * para pré-preencher a medição e a discriminação de despesas.
+   * Extração pública de dados da NF (número, data de emissão e valores) —
+   * usada pelo formulário clássico do fornecedor para pré-preencher a
+   * medição. Não lê impostos: a discriminação de despesas é digitada.
    */
   async extrairDadosNotaFiscal(
     file: Express.Multer.File,
