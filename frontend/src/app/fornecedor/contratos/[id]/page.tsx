@@ -68,6 +68,7 @@ import { TermoContratoFornecedor } from '@/components/fornecedor/TermoContratoFo
 import { API_URL, authFetch } from '@/lib/api';
 import { textoFrequenciaNaTela, textoUnidadeCronogramaNaTela } from '@/lib/cronograma-contrato';
 import { toast } from "sonner"
+import { abrirSuporteWhatsApp } from "@/components/fornecedor/SuporteWhatsApp"
 import { confirmarAcao, pedirTextoAcao } from "@/components/DialogoGlobal"
 
 // ============ INTERFACES ============
@@ -1649,7 +1650,10 @@ export default function FornecedorContratoDetalhePage() {
 
       if (!resCriar.ok) {
         const err = await resCriar.json();
-        toast.error(err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+        const msgErro = err.message || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`;
+        toast.error(msgErro, {
+          action: { label: 'Falar com o suporte', onClick: () => abrirSuporteWhatsApp(`Erro ao enviar medição do contrato ${contrato?.numero_contrato || ''}: ${msgErro}`) },
+        });
         setSubmitting(false);
         return;
       }
@@ -1700,7 +1704,10 @@ export default function FornecedorContratoDetalhePage() {
       const medicaoIdParaOtp = medicaoCriada.id;
       setTimeout(() => { abrirModalOtp(medicaoIdParaOtp); }, 150);
     } catch (error) {
-      toast.error(`Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`);
+      const msgErro = (error instanceof Error && error.message) || `Erro ao ${medicaoParaEditar ? 'atualizar' : 'criar'} medição`;
+      toast.error(msgErro, {
+        action: { label: 'Falar com o suporte', onClick: () => abrirSuporteWhatsApp(`Erro ao enviar medição do contrato ${contrato?.numero_contrato || ''}: ${msgErro}`) },
+      });
     } finally {
       setSubmitting(false);
     }
