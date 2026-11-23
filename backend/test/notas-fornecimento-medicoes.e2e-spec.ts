@@ -21,6 +21,7 @@ import { ModuloSistema } from '../src/orgaos/enums/modulos.enum';
 import { OrdemFornecimento, StatusOrdemFornecimento } from '../src/almoxarifado/entities/ordem-fornecimento.entity';
 import { Recebimento, StatusRecebimento } from '../src/almoxarifado/entities/recebimento.entity';
 import { destinatariosDaNota, normalizarDestinoNotaFornecimento } from '../src/almoxarifado/destino-nota-fornecimento';
+import { AssinaturasService } from '../src/assinaturas/assinaturas.service';
 import { gerarTermoAtestoPdf, posicaoAssinaturaTermo } from '../src/notas-fornecimento/termo-atesto-pdf';
 
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -386,7 +387,11 @@ describe('Nota de fornecimento na tela das Medições', () => {
           `SELECT usuario_id, link FROM notificacoes WHERE entidade_id = $1 AND entidade_tipo = 'nota_fiscal_fornecedor'`,
           [nota],
         );
-        expect(avisos).toEqual([{ usuario_id: fiscal.id, link: '/orgao/aprovacoes' }]);
+        expect(avisos.sort((x: any, y: any) => String(x.usuario_id).localeCompare(String(y.usuario_id)))).toEqual(
+          [{ usuario_id: fiscal.id, link: '/orgao/aprovacoes' }, { usuario_id: 'SYSTEM', link: null }].sort((x, y) => x.usuario_id.localeCompare(y.usuario_id)),
+        );
+        // cada pessoa recebe o seu link pessoal; quem pediu vê o link para reenviar
+        expect(r.body.assinatura.signatarios.every((x: any) => /\/assinar-nota\/[a-f0-9]{64}$/.test(x.link))).toBe(true);
 
         const termo = await http().get(`/api/notas-fornecimento/${nota}/arquivo/termo`).set(bearer(fiscal.token));
         expect(termo.status).toBe(200);
@@ -489,6 +494,103 @@ describe('Nota de fornecimento na tela das Medições', () => {
         const d = await http().get(`/api/notas-fornecimento/${nota3}`).set(bearer(fiscal.token));
         expect(d.body.status).toBe('PROCESSADA');
       });
+    });
+  });
+
+  describe('assinatura pelo link pessoal (como na medição)', () => {
+    let ordem: string;
+    let nota: string;
+    let tokenFiscal: string;
+    let tokenComum: string;
+    const codigoDe = (email: string) => {
+      const cache: Map<string, { codigo: string }> = (ctx.app.get(AssinaturasService) as any).otpCache;
+      const achado = [...cache.entries()].find(([k]) => k.includes(email));
+      if (!achado) throw new Error('código não gerado para ' + email);
+      return achado[1].codigo;
+    };
+
+    beforeAll(async () => {
+      ordem = await criarOrdem();
+      nota = await enviarNota(ordem, 401);
+      const r = await http()
+        .post(`/api/notas-fornecimento/${nota}/assinaturas`)
+        .set(bearer(fiscal.token))
+        .send({ signatarios: [{ usuario_id: fiscal.id, papel: 'Fiscal do contrato' }, { usuario_id: comum.id }] });
+      expect([200, 201]).toContain(r.status);
+      [tokenFiscal, tokenComum] = r.body.assinatura.signatarios.map((x: any) => x.link.split('/').pop());
+    });
+
+    it('o link abre sem login e mostra a nota, quem assina e os demais; link errado não abre', async () => {
+      const r = await http().get(`/api/assinar-nota/${tokenFiscal}`);
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({
+        situacao: 'PENDENTE',
+        signatario: { nome: 'Fiscal das Medições', papel: 'Fiscal do contrato', canal: 'email' },
+        nota: { numero: '401', valor_total: 500, tem_pdf: true },
+        demais: [{ nome: 'Usuário Comum', status: 'PENDENTE' }],
+      });
+      expect(r.body.signatario.destino_codigo).not.toContain(fiscal.email.split('@')[0]); // e-mail mascarado
+      expect(JSON.stringify(r.body)).not.toContain(tokenComum);
+
+      for (const tipo of ['termo', 'nota']) {
+        const a = await http().get(`/api/assinar-nota/${tokenFiscal}/arquivo/${tipo}`);
+        expect({ tipo, status: a.status }).toEqual({ tipo, status: 200 });
+        expect(a.headers['content-type']).toContain('application/pdf');
+      }
+      expect((await http().get(`/api/assinar-nota/${tokenFiscal}/arquivo/xml`)).status).toBe(404);
+      expect((await http().get(`/api/assinar-nota/${'0'.repeat(64)}`)).status).toBe(404);
+      expect((await http().get(`/api/assinar-nota/qualquer`)).status).toBe(404);
+      expect((await http().get(`/api/assinar-nota/${'0'.repeat(64)}/arquivo/termo`)).status).toBe(404);
+    });
+
+    it('sem código, ou com código errado, não assina', async () => {
+      expect((await http().post(`/api/assinar-nota/${tokenFiscal}/assinar`).send({ codigo: '123456' })).status).toBe(400);
+      expect((await http().post(`/api/assinar-nota/${tokenFiscal}/solicitar-codigo`)).status).toBe(201);
+      const certo = codigoDe(fiscal.email);
+      const errado = certo === '111111' ? '222222' : '111111';
+      expect((await http().post(`/api/assinar-nota/${tokenFiscal}/assinar`).send({ codigo: errado })).status).toBe(400);
+      expect((await http().post(`/api/assinar-nota/${tokenFiscal}/assinar`).send({ codigo: 'abc' })).status).toBe(400);
+      const [s] = await ctx.dataSource.query(`SELECT status FROM signatarios_documento WHERE token_acesso = $1`, [tokenFiscal]);
+      expect(s.status).toBe('PENDENTE');
+    });
+
+    it('com o código certo assina; o link não assina duas vezes', async () => {
+      const r = await http().post(`/api/assinar-nota/${tokenFiscal}/assinar`).send({ codigo: codigoDe(fiscal.email) });
+      expect(r.status).toBe(201);
+      expect((await http().get(`/api/assinar-nota/${tokenFiscal}`)).body.situacao).toBe('ASSINADO');
+      expect((await http().post(`/api/assinar-nota/${tokenFiscal}/solicitar-codigo`)).status).toBe(400);
+      const d = await http().get(`/api/notas-fornecimento/${nota}`).set(bearer(fiscal.token));
+      expect(d.body.assinatura.signatarios.map((x: any) => [x.nome, x.status, !!x.link])).toEqual([
+        ['Fiscal das Medições', 'ASSINADO', false],
+        ['Usuário Comum', 'PENDENTE', true],
+      ]);
+      expect(d.body.historico.some((h: any) => h.tipo === 'TERMO_ASSINADO')).toBe(true);
+    });
+
+    it('quem recusa fica registrado, quem pediu é avisado e o link deixa de valer', async () => {
+      const r = await http().post(`/api/assinar-nota/${tokenComum}/recusar`).send({ motivo: 'Material não conferido por mim' });
+      expect(r.status).toBe(201);
+      expect((await http().get(`/api/assinar-nota/${tokenComum}`)).body.situacao).toBe('REJEITADO');
+      expect((await http().post(`/api/assinar-nota/${tokenComum}/solicitar-codigo`)).status).toBe(400);
+      const d = await http().get(`/api/notas-fornecimento/${nota}`).set(bearer(fiscal.token));
+      expect(d.body.assinatura.signatarios[1]).toMatchObject({ status: 'REJEITADO', link: null });
+      expect(d.body.historico.some((h: any) => h.tipo === 'ASSINATURA_RECUSADA' && /Material não conferido/.test(h.descricao))).toBe(true);
+      const avisos = await ctx.dataSource.query(
+        `SELECT usuario_id FROM notificacoes WHERE entidade_id = $1 AND titulo LIKE 'Assinatura recusada%'`,
+        [nota],
+      );
+      expect(avisos).toEqual([{ usuario_id: fiscal.id }]);
+    });
+
+    it('pedido cancelado pelo órgão: o link avisa e não assina', async () => {
+      const ordem2 = await criarOrdem();
+      const nota2 = await enviarNota(ordem2, 402);
+      const r = await http().post(`/api/notas-fornecimento/${nota2}/assinaturas`).set(bearer(fiscal.token)).send({ signatarios: [{ usuario_id: fiscal.id }] });
+      const token = r.body.assinatura.signatarios[0].link.split('/').pop();
+      expect((await http().delete(`/api/notas-fornecimento/${nota2}/assinaturas`).set(bearer(fiscal.token))).status).toBe(200);
+      expect((await http().get(`/api/assinar-nota/${token}`)).body.situacao).toBe('CANCELADO');
+      expect((await http().post(`/api/assinar-nota/${token}/solicitar-codigo`)).status).toBe(400);
+      expect((await http().post(`/api/assinar-nota/${token}/recusar`).send({})).status).toBe(400);
     });
   });
 

@@ -19,17 +19,21 @@ import { NotaFiscalFornecedor, StatusNotaFiscalFornecedor } from '../almoxarifad
 import { OrdemFornecimento } from '../almoxarifado/entities/ordem-fornecimento.entity';
 import { Recebimento, StatusRecebimento } from '../almoxarifado/entities/recebimento.entity';
 import { NotaFiscalFornecedorService } from '../almoxarifado/nota-fiscal-fornecedor.service';
-import { DestinoNotaFornecimento, notaVaiParaMedicoes } from '../almoxarifado/destino-nota-fornecimento';
+import { DestinoNotaFornecimento, LINK_NOTAS_FORNECIMENTO_MEDICOES, notaVaiParaMedicoes } from '../almoxarifado/destino-nota-fornecimento';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { PortalAssinaturasService } from '../portal-assinaturas/portal-assinaturas.service';
 import { StatusDocumentoAssinatura } from '../assinaturas/entities/documento-assinatura.entity';
+import { SignatarioDocumento, StatusAssinaturaSignatario } from '../assinaturas/entities/signatario-documento.entity';
 import { diretorioDeGravacao, resolverArquivoDeUrl } from '../common/arquivos/arquivos';
 import { MAX_SIGNATARIOS_TERMO, gerarTermoAtestoPdf, posicaoAssinaturaTermo } from './termo-atesto-pdf';
 
 export const PASTA_TERMOS_ATESTO = 'termos-atesto';
+/** Página pública onde cada pessoa confere a nota e assina com código (link pessoal). */
+export const CAMINHO_ASSINAR_NOTA = '/assinar-nota';
+const baseApp = () => (process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://portaldcp.com.br').replace(/\/$/, '');
 
 export interface Ator {
   usuarioId: string | null;
@@ -81,6 +85,7 @@ export class NotasFornecimentoService {
     private readonly nfService: NotaFiscalFornecedorService,
     private readonly assinaturas: PortalAssinaturasService,
     private readonly notificacoes: NotificacoesService,
+    @InjectRepository(SignatarioDocumento) private readonly sigRepo: Repository<SignatarioDocumento>,
   ) {}
 
   // ── Acesso ──────────────────────────────────────────────────────────────
@@ -207,12 +212,16 @@ export class NotasFornecimentoService {
       documento_id: doc.id,
       status: doc.status,
       criado_em: doc.created_at,
-      signatarios: (doc.signatarios || []).map((s: any) => ({
+      // sempre na ordem dos quadros do termo (a do pedido)
+      signatarios: [...(doc.signatarios || [])].sort((x: any, y: any) => (x.pos_y - y.pos_y) || (x.pos_x - y.pos_x)).map((s: any) => ({
         nome: s.nome,
         papel: s.papel ?? null,
         status: s.status,
         interno: !!s.is_orgao_user,
         data_assinatura: s.data_assinatura ?? null,
+        canal: s.telefone ? 'whatsapp' : 'email',
+        // link pessoal de assinatura, para quem pediu poder reenviar por conta própria
+        link: s.status === 'PENDENTE' && doc.status === StatusDocumentoAssinatura.AGUARDANDO_ASSINATURAS ? `${baseApp()}${CAMINHO_ASSINAR_NOTA}/${s.token_acesso}` : null,
       })),
     };
   }
@@ -223,7 +232,7 @@ export class NotasFornecimentoService {
     const us = await this.usuarioRepo.find({ where: { orgao_id: orgaoId, ativo: true } as any, order: { nome: 'ASC' } as any });
     return us
       .filter((u) => !!u.email)
-      .map((u) => ({ id: u.id, nome: u.nome, cargo: (u as any).cargo ?? null, fiscal: !!u.eh_fiscal_contrato }));
+      .map((u) => ({ id: u.id, nome: u.nome, cargo: (u as any).cargo ?? null, fiscal: !!u.eh_fiscal_contrato, tem_whatsapp: !!(u as any).telefone }));
   }
 
   // ── Arquivos ────────────────────────────────────────────────────────────
@@ -397,32 +406,7 @@ export class NotasFornecimentoService {
     );
     await this.nfRepo.update(nf.id, { termo_atesto_url: rel, documento_assinatura_id: doc.id });
     await this.registrar(nf.id, 'ASSINATURAS_SOLICITADAS', `Termo de atesto enviado para assinatura de ${signatarios.map((s) => s.nome).join(', ')}`, ator.nome);
-    await this.assinaturas.dispararNotificacoesAssinatura(doc.id).catch((e: any) =>
-      this.logger.warn(`Aviso de assinatura do termo de atesto (NF ${nf.id}) não enviado: ${e?.message ?? e}`),
-    );
-    // Usuário do órgão: além do e-mail do Portal de Assinaturas, aviso no sino e
-    // no WhatsApp cadastrado, com o link da tela onde ele assina (Aprovações).
-    // Pessoa de fora recebe o link de assinatura por e-mail e, se informado, WhatsApp.
-    const base = process.env.APP_URL || process.env.FRONTEND_URL || 'https://portaldcp.com.br';
-    for (const s of signatarios) {
-      if (!s.usuario_id) continue;
-      await this.notificacoes.criar({
-        orgao_id: orgaoId,
-        usuario_id: s.usuario_id,
-        usuario_telefone: s.telefone || undefined,
-        tipo: TipoNotificacao.SISTEMA,
-        titulo: `Assinatura pendente: ${titulo}`,
-        mensagem: `${ator.nome} pediu a sua assinatura no termo de atesto da nota fiscal nº ${nf.numero || 's/n'} (${ordem?.numero ?? ''}). Assine em Aprovações.`,
-        entidade_tipo: 'nota_fiscal_fornecedor',
-        entidade_id: nf.id,
-        link: '/orgao/aprovacoes',
-        enviar_email: !!s.telefone,
-        metadata: {
-          whatsapp_text: `*Assinatura pendente*\n\n${ator.nome} pediu a sua assinatura no termo de atesto da nota fiscal nº ${nf.numero || 's/n'} (${ordem?.numero ?? ''}).\nAssine pelo sistema, em Aprovações.`,
-          whatsapp_url: `${base}/orgao/aprovacoes`,
-        },
-      } as any).catch((e: any) => this.logger.warn(`Aviso ao signatário ${s.nome} não enviado: ${e?.message ?? e}`));
-    }
+    await this.avisarSignatarios(nf, doc, ator.nome);
     return this.detalhe(id, orgaoId);
   }
 
@@ -458,6 +442,150 @@ export class NotasFornecimentoService {
     await this.nfRepo.update(nf.id, { enviado_contabilidade_em: new Date(), enviado_contabilidade_por: ator.nome });
     await this.registrar(nf.id, 'ENVIADA_CONTABILIDADE', 'Nota marcada como enviada à contabilidade', ator.nome);
     return this.detalhe(id, orgaoId);
+  }
+
+  // ── Assinatura por link (mesma experiência da medição) ──────────────────
+
+  /**
+   * Cada pessoa recebe no WhatsApp (e no e-mail) um link pessoal: abre, confere
+   * a nota e o termo, pede o código e assina — ou recusa. Usuário do órgão
+   * também é avisado no sino e pode assinar em Aprovações.
+   */
+  private async avisarSignatarios(nf: NotaFiscalFornecedor, doc: any, solicitante: string) {
+    const ordem = nf.ordem_fornecimento;
+    const orgaoNome = (await this.orgaoRepo.findOne({ where: { id: nf.orgao_id } }))?.nome ?? 'Órgão';
+    const fornecedor = (ordem as any)?.fornecedor?.razao_social ?? nf.razao_social_emitente ?? 'Fornecedor';
+    const valor = Number(nf.valor_total ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const internos = await this.usuarioRepo.find({ where: { orgao_id: nf.orgao_id } });
+    for (const s of doc.signatarios || []) {
+      const link = `${baseApp()}${CAMINHO_ASSINAR_NOTA}/${s.token_acesso}`;
+      const usuario = s.is_orgao_user ? internos.find((u) => (u.email || '').toLowerCase() === String(s.email || '').toLowerCase()) : null;
+      const whatsapp =
+        `Olá, *${s.nome}*! 👋\n\n` +
+        `Você recebeu uma solicitação de *assinatura do termo de atesto de nota fiscal*.\n\n` +
+        `🏛️ *Órgão:* ${orgaoNome}\n` +
+        `🧾 *Nota fiscal:* ${nf.numero || 's/n'} — ${valor}\n` +
+        `🏢 *Fornecedor:* ${fornecedor}\n` +
+        `📦 *Ordem:* ${ordem?.numero ?? '—'}\n` +
+        `👤 *Solicitado por:* ${solicitante}\n\n` +
+        `Acesse o link abaixo para conferir os documentos e assinar digitalmente:`;
+      await this.notificacoes.criar({
+        orgao_id: nf.orgao_id,
+        usuario_id: usuario?.id ?? 'SYSTEM',
+        usuario_email: s.email || undefined,
+        usuario_telefone: s.telefone || undefined,
+        tipo: TipoNotificacao.SISTEMA,
+        titulo: `Assinatura pendente: termo de atesto da NF ${nf.numero || 's/n'}`,
+        mensagem:
+          `<p>Olá, <strong>${s.nome}</strong>,</p>` +
+          `<p>${solicitante} pediu a sua assinatura no termo de atesto da nota fiscal nº ${nf.numero || 's/n'} (${valor}), de ${fornecedor}, ordem ${ordem?.numero ?? '—'}.</p>` +
+          `<p><a href="${link}">Conferir os documentos e assinar</a></p>`,
+        entidade_tipo: 'nota_fiscal_fornecedor',
+        entidade_id: nf.id,
+        link: usuario ? '/orgao/aprovacoes' : undefined,
+        enviar_email: true,
+        metadata: { whatsapp_text: whatsapp, whatsapp_url: link },
+      } as any).catch((e: any) => this.logger.warn(`Aviso ao signatário ${s.nome} não enviado: ${e?.message ?? e}`));
+    }
+  }
+
+  /** Signatário, documento e nota a partir do link pessoal. */
+  private async porToken(token: string) {
+    const sig = /^[a-f0-9]{64}$/.test(String(token))
+      ? await this.sigRepo.findOne({ where: { token_acesso: token }, relations: ['documento', 'documento.signatarios'] })
+      : null;
+    const nf = sig
+      ? await this.nfRepo.findOne({
+          where: { documento_assinatura_id: sig.documento_id },
+          relations: ['ordem_fornecimento', 'ordem_fornecimento.contrato', 'ordem_fornecimento.fornecedor'],
+        })
+      : null;
+    if (!sig || !nf) throw new NotFoundException('Link de assinatura inválido.');
+    return { sig, doc: sig.documento, nf };
+  }
+
+  private exigirPendente(sig: SignatarioDocumento, doc: { status: string }) {
+    if (doc.status === StatusDocumentoAssinatura.CANCELADO) throw new BadRequestException('Este pedido de assinatura foi cancelado pelo órgão.');
+    if (sig.status === StatusAssinaturaSignatario.ASSINADO) throw new BadRequestException('Você já assinou este documento.');
+    if (sig.status === StatusAssinaturaSignatario.REJEITADO) throw new BadRequestException('Você recusou a assinatura deste documento.');
+  }
+
+  /** O que a página do link mostra: quem assina, a nota e a situação dos demais. */
+  async publicoDados(token: string) {
+    const { sig, doc, nf } = await this.porToken(token);
+    const ordem = nf.ordem_fornecimento;
+    const orgao = await this.orgaoRepo.findOne({ where: { id: nf.orgao_id } });
+    const fone = String(sig.telefone || '');
+    return {
+      situacao: doc.status === StatusDocumentoAssinatura.CANCELADO ? 'CANCELADO' : sig.status,
+      signatario: {
+        nome: sig.nome,
+        papel: sig.papel,
+        data_assinatura: sig.data_assinatura ?? null,
+        canal: fone ? 'whatsapp' : 'email',
+        destino_codigo: fone ? `(${fone.slice(-11, -9) || '••'}) •••••-${fone.slice(-4)}` : String(sig.email || '').replace(/^(.).*(@.*)$/, '$1•••$2'),
+      },
+      orgao_nome: orgao?.nome ?? '',
+      nota: {
+        numero: nf.numero,
+        serie: nf.serie,
+        data_emissao: nf.data_emissao,
+        valor_total: nf.valor_total == null ? null : Number(nf.valor_total),
+        fornecedor: (ordem as any)?.fornecedor?.razao_social ?? nf.razao_social_emitente ?? '—',
+        ordem: ordem?.numero ?? null,
+        contrato: (ordem?.contrato as any)?.numero_contrato ?? null,
+        tem_pdf: !!this.existe(nf.caminho_pdf),
+      },
+      itens: (nf.produtos_xml ?? []).map((p) => ({
+        descricao: p.xProd, unidade: p.uCom, quantidade: Number(p.qCom), valor_unitario: Number(p.vUnCom), valor_total: Number(p.vProd),
+      })),
+      demais: (doc.signatarios || []).filter((x) => x.id !== sig.id).map((x) => ({ nome: x.nome, papel: x.papel, status: x.status })),
+    };
+  }
+
+  /** PDF do termo ou da nota, para quem tem o link. */
+  async publicoArquivo(token: string, tipo: string): Promise<{ caminho: string; nome: string }> {
+    const { nf } = await this.porToken(token);
+    const caminho = tipo === 'termo' ? await this.caminhoDoTermo(nf) : tipo === 'nota' ? this.existe(nf.caminho_pdf) : null;
+    if (!caminho) throw new NotFoundException('Arquivo não disponível');
+    return { caminho, nome: tipo === 'termo' ? 'termo-de-atesto.pdf' : `nota-fiscal-${nf.numero || ''}.pdf` };
+  }
+
+  async publicoSolicitarCodigo(token: string) {
+    const { sig, doc } = await this.porToken(token);
+    this.exigirPendente(sig, doc);
+    return this.assinaturas.solicitarCodigoAssinatura(token, sig.cpf_cnpj || '');
+  }
+
+  async publicoAssinar(token: string, codigo: string, ip: string, userAgent: string) {
+    const { sig, doc, nf } = await this.porToken(token);
+    this.exigirPendente(sig, doc);
+    if (!/^\d{6}$/.test(String(codigo ?? ''))) throw new BadRequestException('Informe o código de 6 dígitos');
+    await this.assinaturas.assinarDocumento(token, sig.cpf_cnpj || '', codigo, ip, userAgent);
+    await this.registrar(nf.id, 'TERMO_ASSINADO', `${sig.nome} assinou o termo de atesto`, sig.nome);
+    return { sucesso: true };
+  }
+
+  /** Recusa de quem foi chamado a assinar: fica registrada e quem pediu é avisado. */
+  async publicoRecusar(token: string, motivo: string) {
+    const { sig, doc, nf } = await this.porToken(token);
+    this.exigirPendente(sig, doc);
+    const texto = String(motivo ?? '').trim().slice(0, 500) || 'sem motivo informado';
+    await this.sigRepo.update(sig.id, { status: StatusAssinaturaSignatario.REJEITADO });
+    await this.registrar(nf.id, 'ASSINATURA_RECUSADA', `${sig.nome} recusou assinar o termo de atesto: ${texto}`, sig.nome);
+    if (doc.criado_por_id && doc.criado_por_id !== nf.orgao_id) {
+      await this.notificacoes.criar({
+        orgao_id: nf.orgao_id,
+        usuario_id: doc.criado_por_id,
+        tipo: TipoNotificacao.SISTEMA,
+        titulo: `Assinatura recusada: termo de atesto da NF ${nf.numero || 's/n'}`,
+        mensagem: `${sig.nome} recusou assinar o termo de atesto da nota fiscal nº ${nf.numero || 's/n'}. Motivo: ${texto}`,
+        entidade_tipo: 'nota_fiscal_fornecedor',
+        entidade_id: nf.id,
+        link: LINK_NOTAS_FORNECIMENTO_MEDICOES,
+      } as any).catch((e: any) => this.logger.warn(`Aviso de recusa não enviado: ${e?.message ?? e}`));
+    }
+    return { sucesso: true };
   }
 
   private fraseRecebimento(rec: Recebimento | null): string {

@@ -30,7 +30,7 @@ import { confirmarAcao } from '@/components/DialogoGlobal'
 
 export type DestinoNotaFornecimento = 'ALMOXARIFADO' | 'MEDICOES' | 'AMBOS'
 
-interface Signatario { nome: string; papel: string | null; status: string; interno: boolean; data_assinatura: string | null }
+interface Signatario { nome: string; papel: string | null; status: string; interno: boolean; data_assinatura: string | null; canal?: 'whatsapp' | 'email'; link?: string | null }
 export interface NotaFornecimento {
   id: string
   numero: string | null
@@ -54,7 +54,7 @@ export interface NotaFornecimento {
   itens?: Array<{ descricao: string; unidade: string; quantidade: number; valor_unitario: number; valor_total: number }>
   historico?: Array<{ data: string; tipo: string; descricao: string; usuario: string }>
 }
-interface UsuarioOrgao { id: string; nome: string; cargo: string | null; fiscal: boolean }
+interface UsuarioOrgao { id: string; nome: string; cargo: string | null; fiscal: boolean; tem_whatsapp?: boolean }
 interface LinhaSignatario { tipo: 'interno' | 'externo'; usuario_id: string; nome: string; email: string; cpf_cnpj: string; telefone: string; papel: string }
 
 const BASE = `${API_URL}/api/notas-fornecimento`
@@ -88,6 +88,7 @@ function SituacaoAssinatura({ n }: { n: NotaFornecimento }) {
   const a = n.assinatura
   if (!a || a.status === 'CANCELADO') return <span className="text-xs text-gray-400">Não solicitadas</span>
   const feitas = a.signatarios.filter((s) => s.status === 'ASSINADO').length
+  if (a.signatarios.some((s) => s.status === 'REJEITADO')) return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Assinatura recusada</Badge>
   if (a.status === 'CONCLUIDO') return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Assinado ({feitas}/{a.signatarios.length})</Badge>
   return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Aguardando ({feitas}/{a.signatarios.length})</Badge>
 }
@@ -131,6 +132,18 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
         .some((v) => String(v || '').toLowerCase().includes(t))
     })
   }, [notas, busca, filtro])
+
+  // Coleta em andamento: a tela acompanha sozinha quem já assinou (como na medição)
+  const abertaId = aberta?.id
+  const acompanhando = aberta?.assinatura?.status === 'AGUARDANDO_ASSINATURAS'
+  useEffect(() => {
+    if (!abertaId || !acompanhando) return
+    const t = setInterval(async () => {
+      const res = await authFetch(`${BASE}/${abertaId}`).catch(() => null)
+      if (res?.ok) { const n = await res.json(); setNotas((ns) => ns.map((x) => (x.id === n.id ? { ...x, ...n } : x))); setAberta((a) => (a && a.id === n.id ? { ...a, ...n } : a)) }
+    }, 8000)
+    return () => clearInterval(t)
+  }, [abertaId, acompanhando])
 
   const atualizar = (n: NotaFornecimento) => {
     setNotas((ns) => ns.map((x) => (x.id === n.id ? { ...x, ...n } : x)))
@@ -217,7 +230,7 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
       })
       if (!res.ok) { toast.error(await mensagemDeErro(res, 'Não foi possível abrir a coleta de assinaturas')); return }
       atualizar(await res.json())
-      toast.success('Termo de atesto gerado. As pessoas escolhidas foram avisadas para assinar.')
+      toast.success('Termo de atesto gerado. O link de assinatura foi enviado a cada pessoa.')
       setAssinar(null)
     } finally { setOcupado(null) }
   }
@@ -399,16 +412,28 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
                   <ul className="rounded-lg border border-gray-200 divide-y divide-gray-100 text-sm">
                     {aberta.assinatura!.signatarios.map((s, i) => (
                       <li key={i} className="flex items-center justify-between px-3 py-2">
-                        <span>{s.nome}{s.papel ? <span className="text-gray-500"> · {s.papel}</span> : null}{!s.interno ? <span className="text-gray-400"> · por link no e-mail</span> : null}</span>
+                        <span>{s.nome}{s.papel ? <span className="text-gray-500"> · {s.papel}</span> : null}</span>
                         {s.status === 'ASSINADO'
                           ? <span className="text-emerald-700">Assinou em {dataBr(s.data_assinatura, true)}</span>
-                          : <span className="text-amber-700">Aguardando</span>}
+                          : s.status === 'REJEITADO'
+                            ? <span className="text-red-700">Recusou assinar</span>
+                            : (
+                              <span className="flex items-center gap-2 text-amber-700">
+                                Aguardando
+                                {s.link && (
+                                  <button type="button" className="text-xs text-blue-600 underline" title="Copiar o link pessoal de assinatura para enviar você mesmo"
+                                    onClick={() => { navigator.clipboard?.writeText(s.link!); toast.success(`Link de ${s.nome} copiado`) }}>
+                                    Copiar link
+                                  </button>
+                                )}
+                              </span>
+                            )}
                       </li>
                     ))}
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500">
-                    Nenhuma assinatura solicitada. Ao solicitar, o sistema gera um termo de atesto com os dados da nota e avisa cada pessoa para assinar.
+                    Nenhuma assinatura solicitada. Ao solicitar, o sistema gera um termo de atesto com os dados da nota e envia a cada pessoa, pelo WhatsApp, o link para conferir e assinar — como na medição.
                   </p>
                 )}
               </div>
@@ -475,7 +500,7 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
           <DialogHeader>
             <DialogTitle>Colher assinaturas</DialogTitle>
             <DialogDescription>
-              O sistema gera o termo de atesto da nota {assinar?.numero || ''} e avisa cada pessoa. Usuário do órgão é avisado no sistema, por e-mail e no WhatsApp cadastrado, e assina em Aprovações; pessoa de fora recebe o link de assinatura por e-mail e, se informado, por WhatsApp.
+              O sistema gera o termo de atesto da nota {assinar?.numero || ''} e envia a cada pessoa, pelo WhatsApp e pelo e-mail, um link para conferir os documentos e assinar com código — como na medição. Usuário do órgão também pode assinar em Aprovações.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -497,7 +522,7 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
                       <select className="w-full h-9 rounded-md border border-gray-200 bg-white px-2 text-sm" value={l.usuario_id}
                         onChange={(e) => { const u = usuarios.find((x) => x.id === e.target.value); mudarLinha(i, { usuario_id: e.target.value, papel: l.papel || u?.cargo || (u?.fiscal ? 'Fiscal do contrato' : '') }) }}>
                         <option value="">Selecione</option>
-                        {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}{u.fiscal ? ' (fiscal)' : ''}</option>)}
+                        {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome}{u.fiscal ? ' (fiscal)' : ''}{u.tem_whatsapp ? '' : ' — sem WhatsApp, recebe por e-mail'}</option>)}
                       </select>
                     </div>
                     <div className="space-y-1">

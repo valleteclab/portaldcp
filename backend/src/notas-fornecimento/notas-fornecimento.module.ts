@@ -7,18 +7,20 @@ import { Orgao } from '../orgaos/entities/orgao.entity';
 import { AlmoxarifadoModule } from '../almoxarifado/almoxarifado.module';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
 import { NotificacoesModule } from '../notificacoes/notificacoes.module';
+import { SignatarioDocumento } from '../assinaturas/entities/signatario-documento.entity';
+import { AssinarNotaController } from './assinar-nota.controller';
 import { NotasFornecimentoController } from './notas-fornecimento.controller';
 import { NotasFornecimentoService } from './notas-fornecimento.service';
 
 /** Notas de fornecimento tratadas na tela das Medições (destino MEDICOES/AMBOS do órgão). */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([NotaFiscalFornecedor, Recebimento, Usuario, Orgao]),
+    TypeOrmModule.forFeature([NotaFiscalFornecedor, Recebimento, Usuario, Orgao, SignatarioDocumento]),
     AlmoxarifadoModule,
     PortalAssinaturasModule,
     NotificacoesModule,
   ],
-  controllers: [NotasFornecimentoController],
+  controllers: [NotasFornecimentoController, AssinarNotaController],
   providers: [NotasFornecimentoService],
 })
 export class NotasFornecimentoModule {}
