@@ -597,7 +597,6 @@ export default function FornecedorContratoDetalhePage() {
   // Medição por OS (publicidade): fornecedor escolhe a OS autorizada que está medindo
   const [osMedicao, setOsMedicao] = useState<string>('');
   // Retenções lidas da NF por IA (validação cruzada no envio)
-  const [retencoesNf, setRetencoesNf] = useState<{ descricao: string; valor: number }[] | null>(null);
   const [lendoNf, setLendoNf] = useState(false);
 
   // Arquivos pendentes para upload após criação da medição
@@ -1437,8 +1436,9 @@ export default function FornecedorContratoDetalhePage() {
     }
   };
 
-  // Lê a NF anexada por IA: pré-preenche nº/data/valor da nota e a
-  // discriminação de despesas (retenções destacadas + linha de serviços)
+  // Lê a NF anexada por IA: pré-preenche só nº/data/valor da nota. Os impostos
+  // NÃO vêm mais da leitura — notas em padrões diferentes eram lidas errado e a
+  // trava de conferência bloqueava o fornecedor; a discriminação é digitada.
   const extrairDadosNf = async (file: File) => {
     if (!fornecedor || !contrato) return;
     setLendoNf(true);
@@ -1474,26 +1474,6 @@ export default function FornecedorContratoDetalhePage() {
         nota_fiscal_valor: usarDadosDaNota && nf.nota_fiscal_valor != null ? String(nf.nota_fiscal_valor).replace('.', ',') : (prev.nota_fiscal_valor || (nf.nota_fiscal_valor != null ? String(nf.nota_fiscal_valor).replace('.', ',') : '')),
         nota_fiscal_data: usarDadosDaNota ? (nf.nota_fiscal_data || prev.nota_fiscal_data) : (prev.nota_fiscal_data || nf.nota_fiscal_data || ''),
       }));
-      const rets: { descricao: string; valor: number }[] = Array.isArray(nf.retencoes) ? nf.retencoes : [];
-      if (rets.length > 0) {
-        setRetencoesNf(rets);
-        setDiscriminacoes(prev => {
-          if (prev.length > 0) return prev; // não sobrescreve o que já foi digitado
-          const bruto = Number(nf.nota_fiscal_valor || 0);
-          const totalRet = rets.reduce((s, r) => s + Number(r.valor || 0), 0);
-          const servicos = Math.round((bruto - totalRet) * 100) / 100;
-          const linhas = rets.map(r => ({
-            descricao: String(r.descricao),
-            valor: Number(r.valor),
-            percentual: bruto > 0 ? Math.round((Number(r.valor) / bruto) * 10000) / 100 : 0,
-          }));
-          if (servicos > 0) {
-            linhas.push({ descricao: 'SERVIÇOS', valor: servicos, percentual: bruto > 0 ? Math.round((servicos / bruto) * 10000) / 100 : 0 });
-          }
-          return linhas;
-        });
-        toast(`🧾 Nota fiscal lida: ${rets.length} retenção(ões) encontradas e discriminação pré-preenchida. Confira os valores antes de enviar.`);
-      }
     } catch { /* leitura da NF é melhor-esforço */ } finally {
       setLendoNf(false);
     }
@@ -1544,26 +1524,11 @@ export default function FornecedorContratoDetalhePage() {
         return;
       }
 
-      // Validação cruzada: a IA leu retenções na NF — todas precisam constar
-      // na discriminação (pelo valor). Bloqueia com a diferença apontada.
-      if (retencoesNf && retencoesNf.length > 0) {
-        const faltantes = retencoesNf.filter(r =>
-          !discriminacoes.some(d => Math.abs(Number(d.valor) - Number(r.valor)) <= 0.01)
-        );
-        if (faltantes.length > 0) {
-          const lista = faltantes.map(r => `• ${r.descricao}: ${formatarMoeda(Number(r.valor))}`).join('\n');
-          toast.error(`❌ A nota fiscal anexada destaca retenções que NÃO estão na discriminação de despesas:\n\n${lista}\n\n` +
-            'Inclua essas linhas (ou corrija os valores) antes de enviar — medições com discriminação divergente da NF são recusadas pela contabilidade.', { className: 'whitespace-pre-line' });
-          setSubmitting(false);
-          return;
-        }
-      }
-
       // Alerta de retenções ausentes: medições sem IR/ISS/INSS discriminados são recusadas pela contabilidade
       const temRetencao = discriminacoes.some(d =>
         /imposto\s*de\s*renda|irrf|\bir\b|\biss\b|\binss\b|csll|pis|cofins|reten[cç]/i.test(d.descricao || '')
       );
-      if (!(retencoesNf && retencoesNf.length > 0) && !temRetencao) {
+      if (!temRetencao) {
         const confirmaSemRetencao = (await confirmarAcao({ titulo: 'Confirmação', mensagem: 'ATENÇÃO: nenhuma linha da discriminação parece ser uma retenção (Imposto de Renda, ISS, INSS...).\n\n' +
           'Confira a nota fiscal: se houver retenções destacadas, TODAS devem ser discriminadas — medições com discriminação incompleta são devolvidas pela contabilidade.\n\n' +
           'Confirma que a nota fiscal NÃO possui retenções e deseja enviar assim mesmo?' }));
@@ -1897,7 +1862,6 @@ export default function FornecedorContratoDetalhePage() {
 
   const abrirModalNovaMedicao = async () => {
     setOsMedicao('');
-    setRetencoesNf(null);
     setEquipeMedicao(equipeVazia());
     setNovaMedicao({
       periodo_inicio: '', periodo_fim: '', competencia: '', observacoes: '',
