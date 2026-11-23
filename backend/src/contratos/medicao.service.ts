@@ -29,6 +29,7 @@ import { Medicao, StatusMedicao } from './entities/medicao.entity';
 import { AnexoMedicao } from './entities/anexo-medicao.entity';
 import { ItemMedicao } from './entities/item-medicao.entity';
 import { MensagemSolicitacaoMedicao } from './entities/mensagem-solicitacao-medicao.entity';
+import { conferirDiscriminacaoFechaNota } from './discriminacao-fecha-nota.util';
 import { DiscriminacaoDespesaMedicao } from './entities/discriminacao-despesa-medicao.entity';
 import { ItemContrato } from '../almoxarifado/entities/item-contrato.entity';
 import { TermoAditivo } from './entities/termo-aditivo.entity';
@@ -2732,6 +2733,10 @@ export class MedicaoService {
       medicao.periodo_fim,
       medicao.id,
     );
+
+    // A discriminação das despesas tem que fechar com o valor da nota fiscal
+    // (vale para o portal, o chat, o WhatsApp e a API: todos submetem por aqui).
+    await this.exigirDiscriminacaoFechandoNota(medicao, dados?.nota_fiscal_valor);
 
     if (contrato) {
       const servicoContinuado = this.isServicoContinuado(contrato);
@@ -7385,6 +7390,25 @@ export class MedicaoService {
     return novas;
   }
 
+  /**
+   * A discriminação das despesas tem que fechar com o valor da nota fiscal.
+   * Só vale para medição que ainda vai ser enviada (rascunho ou devolvida).
+   */
+  private async exigirDiscriminacaoFechandoNota(
+    medicao: Medicao,
+    valorNotaInformado?: number | null,
+  ): Promise<void> {
+    if (medicao.status !== StatusMedicao.RASCUNHO && medicao.status !== StatusMedicao.DEVOLVIDA) return;
+    const conferencia = conferirDiscriminacaoFechaNota(
+      await this.discriminacaoRepository.find({ where: { medicao_id: medicao.id } }),
+      Number(valorNotaInformado) > 0 ? valorNotaInformado : medicao.nota_fiscal_valor,
+      medicao.valor_medido,
+    );
+    if (!conferencia.ok) {
+      throw new BadRequestException(`Não é possível enviar a medição. ${conferencia.mensagem}`);
+    }
+  }
+
   private normalizarValoresDiscriminacoes(
     itens: { descricao: string; valor: number; percentual: number }[],
     valorBruto: number,
@@ -9561,6 +9585,9 @@ export class MedicaoService {
       relations: ['contrato'],
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
+    // Antes de pedir ou conferir o código: não deixa o fornecedor assinar uma
+    // medição que não vai poder ser enviada (discriminação ≠ valor da nota).
+    await this.exigirDiscriminacaoFechandoNota(medicao);
 
     const contrato =
       medicao.contrato ||
@@ -9705,6 +9732,9 @@ export class MedicaoService {
       relations: ['contrato'],
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
+    // Antes de pedir ou conferir o código: não deixa o fornecedor assinar uma
+    // medição que não vai poder ser enviada (discriminação ≠ valor da nota).
+    await this.exigirDiscriminacaoFechandoNota(medicao);
 
     const contrato =
       medicao.contrato ||
@@ -9908,6 +9938,9 @@ export class MedicaoService {
       relations: ['contrato', 'contrato.fornecedor'],
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
+    // Antes de pedir ou conferir o código: não deixa o fornecedor assinar uma
+    // medição que não vai poder ser enviada (discriminação ≠ valor da nota).
+    await this.exigirDiscriminacaoFechandoNota(medicao);
 
     const contrato =
       medicao.contrato ||
@@ -10004,6 +10037,9 @@ export class MedicaoService {
       relations: ['contrato', 'contrato.fornecedor'],
     });
     if (!medicao) throw new NotFoundException('Medição não encontrada');
+    // Antes de pedir ou conferir o código: não deixa o fornecedor assinar uma
+    // medição que não vai poder ser enviada (discriminação ≠ valor da nota).
+    await this.exigirDiscriminacaoFechandoNota(medicao);
 
     const contrato =
       medicao.contrato ||
