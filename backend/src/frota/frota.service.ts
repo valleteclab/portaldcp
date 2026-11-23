@@ -389,11 +389,15 @@ export class FrotaService {
 
   private async gerarCodigoRequisicao(orgaoId: string): Promise<string> {
     const ano = new Date().getFullYear();
-    const count = await this.requisicaoRepository.count({
+    // Próximo número = maior já usado + 1 (contar as linhas repetia o número
+    // quando uma requisição do ano tinha sido excluída).
+    const ultima = await this.requisicaoRepository.findOne({
       where: { orgao_id: orgaoId, codigo: Like(`REQ-${ano}-%`) },
+      order: { codigo: 'DESC' },
+      select: ['id', 'codigo'],
     });
-    const seq = String(count + 1).padStart(4, '0');
-    return `REQ-${ano}-${seq}`;
+    const anterior = Number(String(ultima?.codigo ?? '').split('-').pop()) || 0;
+    return `REQ-${ano}-${String(anterior + 1).padStart(4, '0')}`;
   }
 
   async listarRequisicoes(orgaoId: string, mes?: string, status?: string) {
@@ -594,7 +598,10 @@ export class FrotaService {
           orgao_id: orgaoId,
         });
         try {
-          const criado = await manager.save(FrotaRequisicao, requisicao);
+          // Em transação aninhada (SAVEPOINT): se o código colidir, só este
+          // trecho é desfeito e a tentativa seguinte ainda roda — sem isso o
+          // Postgres abortava a transação inteira e a nova tentativa dava erro 500.
+          const criado = await manager.transaction((m) => m.save(FrotaRequisicao, requisicao));
           // Leitura do hodômetro informada no pedido vale como km atual do veículo
           // (se for maior que a registrada) — a confirmação no posto atualiza de novo.
           const kmPedido = Number(dados.km_hodometro) || 0;
@@ -606,7 +613,7 @@ export class FrotaService {
           }
           return criado;
         } catch (err: any) {
-          const colisao = err?.code === '23505' && String(err?.detail || '').includes('(codigo)');
+          const colisao = err?.code === '23505' && /codigo\)/.test(String(err?.detail || '')) && !/codigo_posto/.test(String(err?.detail || ''));
           if (!colisao || tentativa >= 4) throw err;
           codigoAtual = await this.gerarCodigoRequisicao(orgaoId);
         }
