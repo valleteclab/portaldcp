@@ -353,7 +353,11 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
                 <div>
                   <p className="text-sm font-black uppercase tracking-widest">{notaFiscal.status || 'VINCULADA'}</p>
                   {notaFiscal.produtos_xml?.length > 0 && (
-                    <p className="text-xs font-semibold">{notaFiscal.produtos_xml.length} produtos no XML</p>
+                    <p className="text-xs font-semibold">
+                      {notaFiscal.caminho_xml
+                        ? `${notaFiscal.produtos_xml.length} produtos no XML`
+                        : `${notaFiscal.produtos_xml.length} itens presumidos pelo que falta entregar da ordem`}
+                    </p>
                   )}
                 </div>
               </div>
@@ -362,16 +366,27 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
         </Card>
 
         <div className="space-y-4">
-          <div className="rounded-xl bg-[#1c2d47] p-4 font-mono text-[10px] leading-relaxed text-blue-100 shadow-none">
-            <pre className="max-h-[168px] overflow-hidden whitespace-pre-wrap break-all">
-              {(notaFiscal.xml_raw || '<xml>Preview do XML indisponivel</xml>').substring(0, 520)}
-            </pre>
-          </div>
+          {notaFiscal.caminho_xml || notaFiscal.xml_raw ? (
+            <div className="rounded-xl bg-[#1c2d47] p-4 font-mono text-[10px] leading-relaxed text-blue-100 shadow-none">
+              <pre className="max-h-[168px] overflow-hidden whitespace-pre-wrap break-all">
+                {(notaFiscal.xml_raw || '<xml>Preview do XML indisponivel</xml>').substring(0, 520)}
+              </pre>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900">
+              <p className="font-black">Nota enviada só em PDF</p>
+              <p className="mt-1">
+                O número e o valor foram informados por quem enviou. Como não há XML, o sistema presume que a nota cobre o que falta entregar da ordem — confira pelo PDF e ajuste na conferência se a entrega for parcial.
+              </p>
+            </div>
+          )}
 
           <div className="rounded-xl border border-[#b8c8f5] bg-[#eef3ff] p-5 text-[#1f32b0]">
             <p className="mb-3 text-sm font-black">Proximo passo</p>
             <p className="text-sm leading-relaxed">
-              Clique no botao abaixo para extrair os produtos do XML e vincula-los aos itens da ordem.
+              {notaFiscal.caminho_xml || notaFiscal.xml_raw
+                ? 'Clique no botão abaixo para extrair os produtos do XML e vinculá-los aos itens da ordem.'
+                : 'Clique no botão abaixo para vincular os itens da nota aos itens da ordem.'}
             </p>
           </div>
 
@@ -381,7 +396,7 @@ export function EtapaNF({ notaFiscal, ordem, notasFiscais = [], nfsPendentes = [
             className="h-[74px] w-full rounded-xl bg-[#123f82] px-6 text-base font-black leading-tight text-white shadow-[0_10px_18px_rgba(16,43,99,0.18)] hover:bg-[#0e3470]"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <FileCode className="h-5 w-5 mr-2 text-[#ffd33d]" />}
-            {loading ? 'Processando IA...' : 'Importar XML e Vincular Produtos'}
+            {loading ? 'Processando IA...' : notaFiscal.caminho_xml || notaFiscal.xml_raw ? 'Importar XML e Vincular Produtos' : 'Vincular Itens da Nota'}
           </Button>
         </div>
       </div>

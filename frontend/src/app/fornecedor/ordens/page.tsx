@@ -70,8 +70,8 @@ export default function OrdensFornecedorPage() {
     }
   }
 
-  const formatarMoeda = (valor: number) =>
-    (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const formatarMoeda = (valor: number | string | null | undefined) =>
+    (Number(valor) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   const ordensPendentes = ordens.filter(
     (o) => ['ENVIADA', 'EM_ATENDIMENTO'].includes(o.status)

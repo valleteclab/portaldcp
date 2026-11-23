@@ -61,3 +61,40 @@ describe('Frota: código da requisição de abastecimento por órgão', () => {
     expect((r.body as any[]).every((x) => x.veiculo_placa === 'BBB1B11')).toBe(true);
   });
 });
+
+describe('Frota: acesso do posto guarda o contrato escolhido no cadastro', () => {
+  let ctx: AppE2E;
+  let A: OrgaoFixture;
+  let B: OrgaoFixture;
+  const contrato = (o: OrgaoFixture, n: string) =>
+    ctx.http().post('/api/frota/contratos').set(bearer(o.token)).send({ numero_contrato: n, fornecedor_nome: 'Posto Teste', preco_litro: 6.19, data_inicio: '2026-01-01', data_fim: '2026-12-31' });
+  const posto = (o: OrgaoFixture, codigo: string, contrato_id: string | null) =>
+    ctx.http().post('/api/frota/credenciais').set(bearer(o.token)).send({ tipo: 'POSTO', nome: `Posto ${codigo}`, codigo_acesso: codigo, senha: 'senha-de-teste', contrato_id });
+
+  beforeAll(async () => {
+    ctx = await criarApp();
+    A = await criarOrgao(ctx, { nome: 'Câmara Posto A' });
+    B = await criarOrgao(ctx, { nome: 'Câmara Posto B' });
+  });
+  afterAll(async () => {
+    await ctx?.fechar();
+  });
+
+  it('o vínculo com o contrato vale desde a criação; contrato de outro órgão é recusado', async () => {
+    const cA = await contrato(A, '001/2026');
+    const cB = await contrato(B, '001/2026');
+    expect([cA.status, cB.status]).toEqual([201, 201]);
+
+    const p = await posto(A, 'POSTO01', cA.body.id);
+    expect(p.status).toBe(201);
+    const lista = await ctx.http().get('/api/frota/credenciais').set(bearer(A.token));
+    const criado = (lista.body as any[]).find((x) => x.codigo_acesso === 'POSTO01');
+    expect(criado).toMatchObject({ contrato_id: cA.body.id, contrato: { numero_contrato: '001/2026' } });
+
+    const deOutro = await posto(A, 'POSTO02', cB.body.id);
+    expect(deOutro.status).toBe(400);
+    const semVinculo = await posto(A, 'POSTO03', null);
+    expect(semVinculo.status).toBe(201);
+    expect(semVinculo.body.contrato_id ?? null).toBeNull();
+  });
+});

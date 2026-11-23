@@ -87,6 +87,9 @@ export class FrotaAuthService {
       url_slug,
       ativo: dados.ativo ?? true,
       orgao_id: orgaoId,
+      // O contrato escolhido no cadastro era ignorado: o posto nascia "sem
+      // contrato vinculado" e só a edição gravava o vínculo.
+      contrato_id: await this.contratoDoOrgao(dados.contrato_id, orgaoId),
     });
     return this.credencialRepo.save(credencial);
   }
@@ -109,8 +112,21 @@ export class FrotaAuthService {
       delete dados[k];
     }
 
+    if (dados.contrato_id !== undefined) dados.contrato_id = await this.contratoDoOrgao(dados.contrato_id, orgaoId);
+
     Object.assign(credencial, dados);
     return this.credencialRepo.save(credencial);
+  }
+
+  /** Contrato de combustível a vincular: tem que ser do mesmo órgão (vazio = sem vínculo). */
+  private async contratoDoOrgao(contratoId: unknown, orgaoId: string): Promise<string | null> {
+    if (!contratoId) return null;
+    const r = await this.credencialRepo.manager.query(
+      `SELECT id FROM frota_contratos_abastecimento WHERE id::text = $1 AND orgao_id::text = $2`,
+      [String(contratoId), orgaoId],
+    );
+    if (!r.length) throw new BadRequestException('Contrato de combustível não encontrado neste órgão');
+    return r[0].id;
   }
 
   async excluirCredencial(id: string, orgaoId: string) {
