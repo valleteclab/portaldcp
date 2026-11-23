@@ -33,6 +33,7 @@ import { PdfOrdemService } from './pdf-ordem.service';
 import { CriarConfiguracaoAprovacaoDto, AtualizarConfiguracaoAprovacaoDto } from './dto/configuracao-aprovacao.dto';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { NotaFiscalFornecedorService } from './nota-fiscal-fornecedor.service';
+import type { DadosNotaSemXml } from './nota-fiscal-fornecedor.service';
 import { MatchingIaService } from './matching-ia.service';
 import { DossieService } from './dossie.service';
 import { TipoAprovador } from './entities/configuracao-aprovacao.entity';
@@ -1579,6 +1580,7 @@ export class AlmoxarifadoController {
     @Param('ordemId', ParseUUIDPipe) ordemId: string,
     @Req() request: { user: JwtPayload },
     @UploadedFiles() arquivos: Express.Multer.File[],
+    @Body() body: DadosNotaSemXml,
   ) {
     const orgaoId = this.getOrgaoId(request.user);
 
@@ -1588,8 +1590,9 @@ export class AlmoxarifadoController {
     const pdfFile = arquivos?.find(f => f.mimetype === 'application/pdf');
     const outrosArquivos = arquivos?.filter(f => f !== xmlFile && f !== pdfFile) || [];
 
-    if (!xmlFile) {
-      throw new BadRequestException('Arquivo XML é obrigatório');
+    // XML ou PDF: sem XML, valem o número e o valor digitados.
+    if (!xmlFile && !pdfFile) {
+      throw new BadRequestException('Anexe o PDF ou o XML da nota fiscal');
     }
 
     const ordem = await this.ordemRepository.findOne({ where: { id: ordemId, orgao_id: orgaoId } });
@@ -1604,6 +1607,8 @@ export class AlmoxarifadoController {
       xmlFile,
       pdfFile,
       outrosArquivos,
+      false,
+      body,
     );
   }
 

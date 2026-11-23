@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, Length, IsEmail, Matches } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, Length, IsEmail, Matches, IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { TipoOrgao, EsferaAdministrativa } from '../entities/orgao.entity';
 
@@ -107,6 +107,11 @@ export class CreateOrgaoDto {
   @IsString()
   @IsOptional()
   whatsapp_responsavel_frota?: string;
+
+  /** Destino da nota fiscal das ordens de fornecimento (almoxarifado, medições ou ambos). */
+  @IsIn(['ALMOXARIFADO', 'MEDICOES', 'AMBOS'])
+  @IsOptional()
+  destino_nota_fornecimento?: 'ALMOXARIFADO' | 'MEDICOES' | 'AMBOS';
 
   pecas_papel_timbrado?: boolean;
 

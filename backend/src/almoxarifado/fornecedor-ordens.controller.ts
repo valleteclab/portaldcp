@@ -20,6 +20,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { OrdemFornecimentoService } from './ordem-fornecimento.service';
 import { NotaFiscalFornecedorService } from './nota-fiscal-fornecedor.service';
+import type { DadosNotaSemXml } from './nota-fiscal-fornecedor.service';
 import { JwtPayload, UserType } from '../auth/auth.service';
 import { StatusOrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -138,6 +139,7 @@ export class FornecedorOrdensController {
     @Param('id', ParseUUIDPipe) ordemId: string,
     @Req() request: { user: JwtPayload },
     @UploadedFiles() arquivos: Express.Multer.File[],
+    @Body() body: DadosNotaSemXml,
   ) {
     const fornecedorId = this.getFornecedorId(request.user);
 
@@ -149,9 +151,7 @@ export class FornecedorOrdensController {
       f !== xmlFile && f !== pdfFile
     ) || [];
 
-    if (!xmlFile) {
-      throw new BadRequestException('Arquivo XML é obrigatório');
-    }
+    // O XML é opcional: sem ele, valem o número e o valor digitados.
     if (!pdfFile) {
       throw new BadRequestException('Arquivo PDF da nota fiscal é obrigatório');
     }
@@ -169,6 +169,7 @@ export class FornecedorOrdensController {
       pdfFile,
       outrosArquivos,
       true, // upload por fornecedor - mensagem adequada
+      body,
     );
   }
 

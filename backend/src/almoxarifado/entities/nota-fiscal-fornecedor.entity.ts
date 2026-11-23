@@ -140,6 +140,22 @@ export class NotaFiscalFornecedor {
   @Column({ type: 'text', nullable: true })
   motivo_recusa: string | null;
 
+  // ── Tratamento pela equipe das medições (destino MEDICOES/AMBOS) ──
+
+  /** Termo de atesto gerado para colher assinaturas (caminho lógico do PDF). */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  termo_atesto_url: string | null;
+
+  /** Documento do Portal de Assinaturas com o termo de atesto. */
+  @Column({ type: 'uuid', nullable: true })
+  documento_assinatura_id: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  enviado_contabilidade_em: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  enviado_contabilidade_por: string | null;
+
   @Column({ type: 'jsonb', default: [] })
   historico: Array<{
     data: string;

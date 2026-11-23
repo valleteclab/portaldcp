@@ -1,5 +1,6 @@
+import { DESTINOS_NOTA_FORNECIMENTO } from '../almoxarifado/destino-nota-fornecimento';
 import { hashSenha } from '../common/senha.util';
-import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, HttpException, HttpStatus, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Orgao } from './entities/orgao.entity';
@@ -155,6 +156,12 @@ export class OrgaosService {
   async update(id: string, updateData: Partial<CreateOrgaoDto>): Promise<Orgao> {
     const orgao = await this.findOne(id);
     const { senha, id: _id, ...restData } = updateData as any;
+    // O corpo chega como Partial<...> (sem classe para o ValidationPipe conferir):
+    // o destino da nota de fornecimento é validado aqui.
+    if (restData.destino_nota_fornecimento !== undefined &&
+        !(DESTINOS_NOTA_FORNECIMENTO as readonly string[]).includes(restData.destino_nota_fornecimento)) {
+      throw new BadRequestException('Destino da nota de fornecimento inválido. Use ALMOXARIFADO, MEDICOES ou AMBOS.');
+    }
     Object.assign(orgao, restData);
 
     // Hash da senha se fornecida

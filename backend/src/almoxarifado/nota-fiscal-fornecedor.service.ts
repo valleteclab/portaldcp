@@ -8,8 +8,67 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { XmlNfeParserService } from './xml-nfe-parser.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import {
+  DestinoNotaFornecimento,
+  LINK_NOTAS_FORNECIMENTO_MEDICOES,
+  destinatariosDaNota,
+  normalizarDestinoNotaFornecimento,
+} from './destino-nota-fornecimento';
 import * as fs from 'fs';
 import * as path from 'path';
+
+export interface DadosNotaSemXml {
+  numero?: string;
+  serie?: string;
+  valor_total?: string | number;
+  data_emissao?: string;
+}
+
+/** "1.234,56", "1234.56" ou número → valor em reais (NaN se não der para ler). */
+export function lerValorDigitado(v: unknown): number {
+  if (typeof v === 'number') return v;
+  const t = String(v ?? '').trim().replace(/[R$\s]/g, '');
+  if (!t) return NaN;
+  return Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+}
+
+/**
+ * Nota enviada só em PDF: cabeçalho com o que foi digitado e itens presumidos
+ * pelo saldo que falta entregar da ordem.
+ */
+export function notaSemXml(d: DadosNotaSemXml | undefined, ordem: OrdemFornecimento): { header: any; produtos: any[] } {
+  const numero = String(d?.numero ?? '').trim();
+  const valor = lerValorDigitado(d?.valor_total);
+  if (!numero) throw new BadRequestException('Informe o número da nota fiscal (ou anexe o XML).');
+  if (!Number.isFinite(valor) || valor <= 0) throw new BadRequestException('Informe o valor da nota fiscal (ou anexe o XML).');
+  const emissao = String(d?.data_emissao ?? '').trim();
+  if (emissao && !/^\d{4}-\d{2}-\d{2}$/.test(emissao)) throw new BadRequestException('Data de emissão inválida.');
+  const produtos = (ordem.itens || [])
+    .map((i) => ({ i, pendente: Math.max(0, Number(i.quantidade ?? 0) - Number(i.quantidade_entregue ?? 0)) }))
+    .filter((x) => x.pendente > 0)
+    .map((x, idx) => ({
+      nItem: idx + 1,
+      cProd: String(x.i.numero_item ?? idx + 1),
+      xProd: x.i.descricao,
+      qCom: x.pendente,
+      uCom: x.i.unidade_medida || '',
+      vUnCom: Number(x.i.valor_unitario ?? 0),
+      vProd: Math.round(x.pendente * Number(x.i.valor_unitario ?? 0) * 100) / 100,
+      NCM: '',
+    }));
+  return {
+    header: {
+      numero: numero.slice(0, 20),
+      serie: String(d?.serie ?? '').trim().slice(0, 5),
+      chaveAcesso: null,
+      dataEmissao: emissao ? `${emissao}T12:00:00-03:00` : '',
+      valorTotal: Math.round(valor * 100) / 100,
+      cnpjEmitente: null,
+      razaoSocialEmitente: null,
+    },
+    produtos,
+  };
+}
 
 @Injectable()
 export class NotaFiscalFornecedorService {
@@ -32,10 +91,12 @@ export class NotaFiscalFornecedorService {
     ordemId: string,
     fornecedorId: string,
     orgaoId: string,
-    xmlFile: Express.Multer.File,
+    xmlFile: Express.Multer.File | undefined,
     pdfFile?: Express.Multer.File,
     outrosArquivos?: Express.Multer.File[],
     uploadPorFornecedor = false,
+    /** Dados digitados quando a nota vem só em PDF (sem XML). */
+    semXml?: DadosNotaSemXml,
   ): Promise<NotaFiscalFornecedor> {
     const ordem = await this.ordemRepository.findOne({
       where: { id: ordemId, fornecedor_id: fornecedorId },
@@ -54,13 +115,20 @@ export class NotaFiscalFornecedorService {
       throw new BadRequestException(`Ordem com status ${ordem.status} não permite envio de NF`);
     }
 
-    const xmlContent = fs.readFileSync(xmlFile.path, 'utf-8');
+    // Com XML, o sistema lê número, valor e itens. Só com o PDF, o número e o
+    // valor são os digitados e os itens são presumidos: o que falta entregar
+    // da ordem (quem confere o material ajusta no recebimento).
+    const xmlContent = xmlFile ? fs.readFileSync(xmlFile.path, 'utf-8') : null;
     let parseResult: { header: any; produtos: any[] };
 
-    try {
-      parseResult = this.xmlParser.parse(xmlContent);
-    } catch (parseErr: any) {
-      throw new BadRequestException(`Erro ao processar XML: ${parseErr.message}`);
+    if (xmlContent !== null) {
+      try {
+        parseResult = this.xmlParser.parse(xmlContent);
+      } catch (parseErr: any) {
+        throw new BadRequestException(`Erro ao processar XML: ${parseErr.message}`);
+      }
+    } else {
+      parseResult = notaSemXml(semXml, ordem);
     }
 
     // Pré-análise: valor total da NF vs valor total da OF (considerando o já entregue)
@@ -107,7 +175,7 @@ export class NotaFiscalFornecedorService {
         cnpj_emitente: parseResult.header.cnpjEmitente,
         razao_social_emitente: parseResult.header.razaoSocialEmitente,
         produtos_xml: parseResult.produtos,
-        caminho_xml: xmlFile.path,
+        caminho_xml: xmlFile?.path ?? null,
         caminho_pdf: pdfFile?.path || null,
         documentos_extras: (outrosArquivos || []).map(f => ({
           nome: f.originalname,
@@ -118,6 +186,14 @@ export class NotaFiscalFornecedorService {
         status: StatusNotaFiscalFornecedor.PROCESSADA,
       });
 
+      if (xmlContent === null) {
+        nf.historico = [{
+          data: new Date().toISOString(),
+          tipo: 'NF_SEM_XML',
+          descricao: 'Nota enviada só em PDF: número e valor informados por quem enviou; itens presumidos pelo que falta entregar da ordem.',
+          usuario: uploadPorFornecedor ? 'Fornecedor' : 'Órgão',
+        }];
+      }
       nf = await this.nfRepository.save(nf);
       this.logger.log(`NF ${nf.numero}/${nf.serie} processada para OF ${ordemId}`);
     } catch (error) {
@@ -126,7 +202,7 @@ export class NotaFiscalFornecedorService {
         fornecedor_id: fornecedorId,
         ordem_fornecimento_id: ordemId,
         tipo_itens: null,
-        caminho_xml: xmlFile.path,
+        caminho_xml: xmlFile?.path ?? null,
         caminho_pdf: pdfFile?.path || null,
         documentos_extras: (outrosArquivos || []).map(f => ({
           nome: f.originalname,
@@ -138,8 +214,8 @@ export class NotaFiscalFornecedorService {
         erro_processamento: error.message,
       });
       nf = await this.nfRepository.save(nf);
-      this.logger.error(`Erro ao processar XML da OF ${ordemId}: ${error.message}`);
-      throw new BadRequestException(`Erro ao processar XML: ${error.message}`);
+      this.logger.error(`Erro ao registrar a NF da OF ${ordemId}: ${error.message}`);
+      throw new BadRequestException(`Erro ao registrar a nota fiscal: ${error.message}`);
     }
 
     this.notificarUsuariosOrgao(orgaoId, ordem, nf).catch(err => {
@@ -287,60 +363,87 @@ export class NotaFiscalFornecedorService {
       throw new NotFoundException('Ordem de fornecimento não encontrada para esta nota fiscal');
     }
 
-    const usuarios = await this.usuarioRepository.find({
-      where: { orgao_id: orgaoId },
-    });
-
-    const destinatarios = usuarios.filter(u =>
-      (u as any).pode_receber_patrimonio || (u as any).pode_aprovar_requisicoes
-    );
-
-    if (destinatarios.length === 0) {
-      return { success: true, destinatarios: 0 };
-    }
-
-    await this.notificarUsuariosOrgao(orgaoId, ordem, nf);
-    return { success: true, destinatarios: destinatarios.length };
+    const enviados = await this.notificarUsuariosOrgao(orgaoId, ordem, nf);
+    return { success: true, destinatarios: enviados };
   }
 
+  /** Destino configurado pelo órgão para a nota de fornecimento. */
+  async destinoDoOrgao(orgaoId: string): Promise<DestinoNotaFornecimento> {
+    const r = await this.nfRepository.manager.query(
+      `SELECT destino_nota_fornecimento AS d FROM orgaos WHERE id = $1`,
+      [orgaoId],
+    );
+    return normalizarDestinoNotaFornecimento(r?.[0]?.d);
+  }
+
+  /**
+   * Avisa quem trata a nota, conforme o destino do órgão: a fila de
+   * Recebimentos (almoxarifado/patrimônio), a equipe das medições, ou as duas.
+   * Quem está nas duas listas recebe um aviso só (o da fila de recebimento).
+   */
   private async notificarUsuariosOrgao(
     orgaoId: string,
     ordem: OrdemFornecimento,
     nf: NotaFiscalFornecedor,
-  ): Promise<void> {
-    const usuarios = await this.usuarioRepository.find({
-      where: { orgao_id: orgaoId },
-    });
-
-    const destinatarios = usuarios.filter(u => 
-      (u as any).pode_receber_patrimonio || (u as any).pode_aprovar_requisicoes
-    );
+  ): Promise<number> {
+    const destino = await this.destinoDoOrgao(orgaoId);
+    const usuarios = await this.usuarioRepository.find({ where: { orgao_id: orgaoId } });
+    const contrato = ordem.contrato_id
+      ? (await this.nfRepository.manager.query(`SELECT fiscal_id, gestor_id FROM contratos WHERE id = $1`, [ordem.contrato_id]))?.[0]
+      : null;
+    const { almoxarifado, medicoes } = destinatariosDaNota(destino, usuarios as any[], [
+      contrato?.fiscal_id,
+      contrato?.gestor_id,
+      ordem.usuario_fiscal_id,
+    ]);
+    const jaAvisados = new Set(almoxarifado.map((u) => u.id));
+    const soMedicoes = medicoes.filter((u) => !jaAvisados.has(u.id));
 
     const fornecedorNome = (ordem as any)?.fornecedor?.razao_social
       || (ordem as any)?.fornecedor?.nome
       || nf.razao_social_emitente
       || 'Fornecedor';
+    const numeroNf = `${nf.numero || '(sem número)'}/${nf.serie || ''}`;
+    const base = process.env.APP_URL || 'https://portaldcp.com.br';
+    const para = (lista: any[]) => lista.map((u) => ({ id: u.id, email: u.email, telefone: u.telefone }));
 
-    if (destinatarios.length === 0) return;
-
-    await this.notificacoesService.criarParaMultiplos(
-      destinatarios.map(u => ({ id: u.id, email: (u as any).email, telefone: (u as any).telefone })),
-      {
+    if (almoxarifado.length > 0) {
+      const link = `/orgao/almoxarifado/recebimentos/${ordem.id}`;
+      await this.notificacoesService.criarParaMultiplos(para(almoxarifado), {
         orgao_id: orgaoId,
         tipo: TipoNotificacao.NF_DISPONIVEL,
         titulo: `NF disponível - OF ${ordem.numero}`,
-        mensagem: `O fornecedor ${fornecedorNome} enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''} para a Ordem de Fornecimento ${ordem.numero}. Acesse a tela de recebimentos para processar.`,
+        mensagem: `O fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf} para a Ordem de Fornecimento ${ordem.numero}. Acesse a tela de recebimentos para processar.`,
         entidade_tipo: 'ordem_fornecimento',
         entidade_id: ordem.id,
-        link: `/orgao/almoxarifado/recebimentos/${ordem.id}`,
+        link,
         enviar_email: true,
         metadata: {
-          whatsapp_text: `*NF disponível - OF ${ordem.numero}*\n\nO fornecedor ${fornecedorNome} enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''}.\nAcesse a tela de recebimentos para processar.`,
-          whatsapp_url: `${process.env.APP_URL || 'https://portaldcp.com.br'}/orgao/almoxarifado/recebimentos/${ordem.id}`,
+          whatsapp_text: `*NF disponível - OF ${ordem.numero}*\n\nO fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf}.\nAcesse a tela de recebimentos para processar.`,
+          whatsapp_url: `${base}${link}`,
         },
-      },
-    );
+      });
+    }
 
-    this.logger.log(`Notificações enviadas para ${destinatarios.length} usuários`);
+    if (soMedicoes.length > 0) {
+      await this.notificacoesService.criarParaMultiplos(para(soMedicoes), {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.NF_DISPONIVEL,
+        titulo: `Nota de fornecimento recebida - OF ${ordem.numero}`,
+        mensagem: `O fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf} para a Ordem de Fornecimento ${ordem.numero}. Ela está na tela Medições, aba Notas de fornecimento.`,
+        entidade_tipo: 'ordem_fornecimento',
+        entidade_id: ordem.id,
+        link: LINK_NOTAS_FORNECIMENTO_MEDICOES,
+        enviar_email: true,
+        metadata: {
+          whatsapp_text: `*Nota de fornecimento recebida - OF ${ordem.numero}*\n\nO fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf}.\nEla está na tela Medições, aba Notas de fornecimento.`,
+          whatsapp_url: `${base}${LINK_NOTAS_FORNECIMENTO_MEDICOES}`,
+        },
+      });
+    }
+
+    const total = almoxarifado.length + soMedicoes.length;
+    this.logger.log(`NF ${numeroNf} (destino ${destino}): ${almoxarifado.length} aviso(s) ao recebimento, ${soMedicoes.length} às medições`);
+    return total;
   }
 }
