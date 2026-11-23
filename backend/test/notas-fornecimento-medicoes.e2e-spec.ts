@@ -368,7 +368,7 @@ describe('Nota de fornecimento na tela das Medições', () => {
           .send({
             signatarios: [
               { usuario_id: fiscal.id, papel: 'Fiscal do contrato' },
-              { nome: 'Presidente da Mesa', email: 'presidente@e2e.local', cpf_cnpj: '529.982.247-25', papel: 'Ordenador de despesa' },
+              { nome: 'Presidente da Mesa', email: 'presidente@e2e.local', cpf_cnpj: '529.982.247-25', telefone: '(77) 99999-0000', papel: 'Ordenador de despesa' },
             ],
           });
         expect([200, 201]).toContain(r.status);
@@ -380,6 +380,13 @@ describe('Nota de fornecimento na tela das Medições', () => {
           ],
         });
         expect(r.body.historico.some((h: any) => h.tipo === 'ASSINATURAS_SOLICITADAS')).toBe(true);
+
+        // o usuário do órgão é avisado no sino, com o link de onde assina
+        const avisos = await ctx.dataSource.query(
+          `SELECT usuario_id, link FROM notificacoes WHERE entidade_id = $1 AND entidade_tipo = 'nota_fiscal_fornecedor'`,
+          [nota],
+        );
+        expect(avisos).toEqual([{ usuario_id: fiscal.id, link: '/orgao/aprovacoes' }]);
 
         const termo = await http().get(`/api/notas-fornecimento/${nota}/arquivo/termo`).set(bearer(fiscal.token));
         expect(termo.status).toBe(200);
@@ -482,6 +489,62 @@ describe('Nota de fornecimento na tela das Medições', () => {
         const d = await http().get(`/api/notas-fornecimento/${nota3}`).set(bearer(fiscal.token));
         expect(d.body.status).toBe('PROCESSADA');
       });
+    });
+  });
+
+  describe('nota enviada só em PDF (sem XML)', () => {
+    const enviarSoPdf = (ordem: string, campos: Record<string, string>) => {
+      let r = http().post(`/api/fornecedor/ordens/${ordem}/nota-fiscal`).set(bearer(F.token));
+      for (const [k, v] of Object.entries(campos)) r = r.field(k, v);
+      return r.attach('arquivos', PDF, { filename: 'nf.pdf', contentType: 'application/pdf' });
+    };
+    let ordem: string;
+
+    beforeAll(async () => {
+      ordem = await criarOrdem(500);
+      await ctx.dataSource.query(`UPDATE ordens_fornecimento SET itens = $2::jsonb WHERE id = $1`, [
+        ordem,
+        JSON.stringify([
+          { item_contrato_id: '00000000-0000-4000-8000-000000000001', numero_item: 1, descricao: 'Cadeira giratória', unidade_medida: 'UN', quantidade: 4, quantidade_entregue: 1, valor_unitario: 100, valor_total: 400 },
+          { item_contrato_id: '00000000-0000-4000-8000-000000000002', numero_item: 2, descricao: 'Mesa', unidade_medida: 'UN', quantidade: 1, quantidade_entregue: 1, valor_unitario: 100, valor_total: 100 },
+        ]),
+      ]);
+    });
+
+    it('sem XML, número e valor são obrigatórios; o PDF continua obrigatório', async () => {
+      expect((await enviarSoPdf(ordem, {})).status).toBe(400);
+      expect((await enviarSoPdf(ordem, { numero: '900' })).status).toBe(400);
+      expect((await enviarSoPdf(ordem, { numero: '900', valor_total: 'abc' })).status).toBe(400);
+      const semPdf = await http()
+        .post(`/api/fornecedor/ordens/${ordem}/nota-fiscal`)
+        .set(bearer(F.token))
+        .attach('arquivos', xmlNota(901, 300, F.cnpj), { filename: 'nf.xml', contentType: 'application/xml' });
+      expect(semPdf.status).toBe(400);
+      const [n] = await ctx.dataSource.query(`SELECT count(*)::int AS n FROM notas_fiscais_fornecedor WHERE ordem_fornecimento_id = $1`, [ordem]);
+      expect(n.n).toBe(0);
+    });
+
+    it('o bloqueio de valor acima da ordem continua valendo para o valor digitado', async () => {
+      const r = await enviarSoPdf(ordem, { numero: '900', valor_total: '501,00' });
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(/maior que o valor da Ordem/i);
+    });
+
+    it('entra com o número e o valor digitados; os itens são o que falta entregar da ordem', async () => {
+      const r = await enviarSoPdf(ordem, { numero: '900', valor_total: '300,00', data_emissao: '2026-03-07' });
+      expect([200, 201]).toContain(r.status);
+      expect(r.body).toMatchObject({ numero: '900', status: 'PROCESSADA', caminho_xml: null });
+      expect(Number(r.body.valor_total)).toBe(300);
+
+      const d = await http().get(`/api/notas-fornecimento/${r.body.id}`).set(bearer(fiscal.token));
+      expect(d.status).toBe(200);
+      expect(d.body).toMatchObject({ numero: '900', valor_total: 300, tem_pdf: true, tem_xml: false, qtd_itens: 1 });
+      expect(String(d.body.data_emissao).slice(0, 10)).toBe('2026-03-07');
+      expect(d.body.itens).toEqual([{ descricao: 'Cadeira giratória', unidade: 'UN', quantidade: 3, valor_unitario: 100, valor_total: 300 }]);
+      expect(d.body.historico.some((h: any) => h.tipo === 'NF_SEM_XML')).toBe(true);
+
+      const xml = await http().get(`/api/notas-fornecimento/${r.body.id}/arquivo/xml`).set(bearer(fiscal.token));
+      expect(xml.status).toBe(404);
     });
   });
 

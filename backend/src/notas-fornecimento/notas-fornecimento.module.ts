@@ -6,6 +6,7 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
 import { AlmoxarifadoModule } from '../almoxarifado/almoxarifado.module';
 import { PortalAssinaturasModule } from '../portal-assinaturas/portal-assinaturas.module';
+import { NotificacoesModule } from '../notificacoes/notificacoes.module';
 import { NotasFornecimentoController } from './notas-fornecimento.controller';
 import { NotasFornecimentoService } from './notas-fornecimento.service';
 
@@ -15,6 +16,7 @@ import { NotasFornecimentoService } from './notas-fornecimento.service';
     TypeOrmModule.forFeature([NotaFiscalFornecedor, Recebimento, Usuario, Orgao]),
     AlmoxarifadoModule,
     PortalAssinaturasModule,
+    NotificacoesModule,
   ],
   controllers: [NotasFornecimentoController],
   providers: [NotasFornecimentoService],

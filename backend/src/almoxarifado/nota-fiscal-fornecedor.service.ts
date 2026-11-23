@@ -17,6 +17,59 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 
+export interface DadosNotaSemXml {
+  numero?: string;
+  serie?: string;
+  valor_total?: string | number;
+  data_emissao?: string;
+}
+
+/** "1.234,56", "1234.56" ou número → valor em reais (NaN se não der para ler). */
+export function lerValorDigitado(v: unknown): number {
+  if (typeof v === 'number') return v;
+  const t = String(v ?? '').trim().replace(/[R$\s]/g, '');
+  if (!t) return NaN;
+  return Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+}
+
+/**
+ * Nota enviada só em PDF: cabeçalho com o que foi digitado e itens presumidos
+ * pelo saldo que falta entregar da ordem.
+ */
+export function notaSemXml(d: DadosNotaSemXml | undefined, ordem: OrdemFornecimento): { header: any; produtos: any[] } {
+  const numero = String(d?.numero ?? '').trim();
+  const valor = lerValorDigitado(d?.valor_total);
+  if (!numero) throw new BadRequestException('Informe o número da nota fiscal (ou anexe o XML).');
+  if (!Number.isFinite(valor) || valor <= 0) throw new BadRequestException('Informe o valor da nota fiscal (ou anexe o XML).');
+  const emissao = String(d?.data_emissao ?? '').trim();
+  if (emissao && !/^\d{4}-\d{2}-\d{2}$/.test(emissao)) throw new BadRequestException('Data de emissão inválida.');
+  const produtos = (ordem.itens || [])
+    .map((i) => ({ i, pendente: Math.max(0, Number(i.quantidade ?? 0) - Number(i.quantidade_entregue ?? 0)) }))
+    .filter((x) => x.pendente > 0)
+    .map((x, idx) => ({
+      nItem: idx + 1,
+      cProd: String(x.i.numero_item ?? idx + 1),
+      xProd: x.i.descricao,
+      qCom: x.pendente,
+      uCom: x.i.unidade_medida || '',
+      vUnCom: Number(x.i.valor_unitario ?? 0),
+      vProd: Math.round(x.pendente * Number(x.i.valor_unitario ?? 0) * 100) / 100,
+      NCM: '',
+    }));
+  return {
+    header: {
+      numero: numero.slice(0, 20),
+      serie: String(d?.serie ?? '').trim().slice(0, 5),
+      chaveAcesso: null,
+      dataEmissao: emissao ? `${emissao}T12:00:00-03:00` : '',
+      valorTotal: Math.round(valor * 100) / 100,
+      cnpjEmitente: null,
+      razaoSocialEmitente: null,
+    },
+    produtos,
+  };
+}
+
 @Injectable()
 export class NotaFiscalFornecedorService {
   private readonly logger = new Logger(NotaFiscalFornecedorService.name);
@@ -38,10 +91,12 @@ export class NotaFiscalFornecedorService {
     ordemId: string,
     fornecedorId: string,
     orgaoId: string,
-    xmlFile: Express.Multer.File,
+    xmlFile: Express.Multer.File | undefined,
     pdfFile?: Express.Multer.File,
     outrosArquivos?: Express.Multer.File[],
     uploadPorFornecedor = false,
+    /** Dados digitados quando a nota vem só em PDF (sem XML). */
+    semXml?: DadosNotaSemXml,
   ): Promise<NotaFiscalFornecedor> {
     const ordem = await this.ordemRepository.findOne({
       where: { id: ordemId, fornecedor_id: fornecedorId },
@@ -60,13 +115,20 @@ export class NotaFiscalFornecedorService {
       throw new BadRequestException(`Ordem com status ${ordem.status} não permite envio de NF`);
     }
 
-    const xmlContent = fs.readFileSync(xmlFile.path, 'utf-8');
+    // Com XML, o sistema lê número, valor e itens. Só com o PDF, o número e o
+    // valor são os digitados e os itens são presumidos: o que falta entregar
+    // da ordem (quem confere o material ajusta no recebimento).
+    const xmlContent = xmlFile ? fs.readFileSync(xmlFile.path, 'utf-8') : null;
     let parseResult: { header: any; produtos: any[] };
 
-    try {
-      parseResult = this.xmlParser.parse(xmlContent);
-    } catch (parseErr: any) {
-      throw new BadRequestException(`Erro ao processar XML: ${parseErr.message}`);
+    if (xmlContent !== null) {
+      try {
+        parseResult = this.xmlParser.parse(xmlContent);
+      } catch (parseErr: any) {
+        throw new BadRequestException(`Erro ao processar XML: ${parseErr.message}`);
+      }
+    } else {
+      parseResult = notaSemXml(semXml, ordem);
     }
 
     // Pré-análise: valor total da NF vs valor total da OF (considerando o já entregue)
@@ -113,7 +175,7 @@ export class NotaFiscalFornecedorService {
         cnpj_emitente: parseResult.header.cnpjEmitente,
         razao_social_emitente: parseResult.header.razaoSocialEmitente,
         produtos_xml: parseResult.produtos,
-        caminho_xml: xmlFile.path,
+        caminho_xml: xmlFile?.path ?? null,
         caminho_pdf: pdfFile?.path || null,
         documentos_extras: (outrosArquivos || []).map(f => ({
           nome: f.originalname,
@@ -124,6 +186,14 @@ export class NotaFiscalFornecedorService {
         status: StatusNotaFiscalFornecedor.PROCESSADA,
       });
 
+      if (xmlContent === null) {
+        nf.historico = [{
+          data: new Date().toISOString(),
+          tipo: 'NF_SEM_XML',
+          descricao: 'Nota enviada só em PDF: número e valor informados por quem enviou; itens presumidos pelo que falta entregar da ordem.',
+          usuario: uploadPorFornecedor ? 'Fornecedor' : 'Órgão',
+        }];
+      }
       nf = await this.nfRepository.save(nf);
       this.logger.log(`NF ${nf.numero}/${nf.serie} processada para OF ${ordemId}`);
     } catch (error) {
@@ -132,7 +202,7 @@ export class NotaFiscalFornecedorService {
         fornecedor_id: fornecedorId,
         ordem_fornecimento_id: ordemId,
         tipo_itens: null,
-        caminho_xml: xmlFile.path,
+        caminho_xml: xmlFile?.path ?? null,
         caminho_pdf: pdfFile?.path || null,
         documentos_extras: (outrosArquivos || []).map(f => ({
           nome: f.originalname,
@@ -144,8 +214,8 @@ export class NotaFiscalFornecedorService {
         erro_processamento: error.message,
       });
       nf = await this.nfRepository.save(nf);
-      this.logger.error(`Erro ao processar XML da OF ${ordemId}: ${error.message}`);
-      throw new BadRequestException(`Erro ao processar XML: ${error.message}`);
+      this.logger.error(`Erro ao registrar a NF da OF ${ordemId}: ${error.message}`);
+      throw new BadRequestException(`Erro ao registrar a nota fiscal: ${error.message}`);
     }
 
     this.notificarUsuariosOrgao(orgaoId, ordem, nf).catch(err => {

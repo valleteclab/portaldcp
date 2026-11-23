@@ -22,6 +22,8 @@ import { NotaFiscalFornecedorService } from '../almoxarifado/nota-fiscal-fornece
 import { DestinoNotaFornecimento, notaVaiParaMedicoes } from '../almoxarifado/destino-nota-fornecimento';
 import { Usuario } from '../usuarios/entities/usuario.entity';
 import { Orgao } from '../orgaos/entities/orgao.entity';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
+import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import { PortalAssinaturasService } from '../portal-assinaturas/portal-assinaturas.service';
 import { StatusDocumentoAssinatura } from '../assinaturas/entities/documento-assinatura.entity';
 import { diretorioDeGravacao, resolverArquivoDeUrl } from '../common/arquivos/arquivos';
@@ -41,6 +43,8 @@ export interface SignatarioPedido {
   nome?: string;
   email?: string;
   cpf_cnpj?: string;
+  /** WhatsApp de quem não é usuário do órgão: recebe o link de assinatura por lá também. */
+  telefone?: string;
   papel?: string;
 }
 
@@ -76,6 +80,7 @@ export class NotasFornecimentoService {
     @InjectRepository(Orgao) private readonly orgaoRepo: Repository<Orgao>,
     private readonly nfService: NotaFiscalFornecedorService,
     private readonly assinaturas: PortalAssinaturasService,
+    private readonly notificacoes: NotificacoesService,
   ) {}
 
   // ── Acesso ──────────────────────────────────────────────────────────────
@@ -333,6 +338,7 @@ export class NotasFornecimentoService {
         if (!u) throw new BadRequestException('Uma das pessoas escolhidas não pertence a este órgão');
         if (!u.email) throw new BadRequestException(`${u.nome} não tem e-mail cadastrado e não pode assinar`);
         return {
+          usuario_id: u.id,
           nome: u.nome, email: u.email, cpf_cnpj: (u as any).cpf ?? undefined, telefone: (u as any).telefone ?? undefined,
           is_orgao_user: true, papel: (p.papel || (u as any).cargo || '').trim() || undefined, ...posicaoAssinaturaTermo(i),
         };
@@ -343,7 +349,9 @@ export class NotasFornecimentoService {
       if (!nome || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || ![11, 14].includes(cpf.length)) {
         throw new BadRequestException('Para quem não é usuário do órgão, informe nome, e-mail e CPF');
       }
-      return { nome, email, cpf_cnpj: cpf, is_orgao_user: false, papel: (p.papel || '').trim() || undefined, ...posicaoAssinaturaTermo(i) };
+      const fone = String(p.telefone ?? '').replace(/\D/g, '');
+      if (fone && (fone.length < 10 || fone.length > 13)) throw new BadRequestException('WhatsApp inválido: informe DDD e número');
+      return { usuario_id: null as string | null, nome, email, cpf_cnpj: cpf, telefone: fone || undefined, is_orgao_user: false, papel: (p.papel || '').trim() || undefined, ...posicaoAssinaturaTermo(i) };
     });
     const emails = signatarios.map((s) => s.email.toLowerCase());
     if (new Set(emails).size !== emails.length) throw new BadRequestException('A mesma pessoa foi escolhida mais de uma vez');
@@ -383,7 +391,7 @@ export class NotasFornecimentoService {
       {
         titulo,
         descricao: `Atesto da nota fiscal nº ${nf.numero || 's/n'} de ${(ordem as any)?.fornecedor?.razao_social ?? nf.razao_social_emitente ?? 'fornecedor'}, ordem de fornecimento ${ordem?.numero ?? ''}.`,
-        signatarios: signatarios.map((s) => ({ ...s, pagina_assinatura: ultimaPagina })),
+        signatarios: signatarios.map(({ usuario_id: _u, ...s }) => ({ ...s, pagina_assinatura: ultimaPagina })),
       } as any,
       rel,
     );
@@ -392,6 +400,29 @@ export class NotasFornecimentoService {
     await this.assinaturas.dispararNotificacoesAssinatura(doc.id).catch((e: any) =>
       this.logger.warn(`Aviso de assinatura do termo de atesto (NF ${nf.id}) não enviado: ${e?.message ?? e}`),
     );
+    // Usuário do órgão: além do e-mail do Portal de Assinaturas, aviso no sino e
+    // no WhatsApp cadastrado, com o link da tela onde ele assina (Aprovações).
+    // Pessoa de fora recebe o link de assinatura por e-mail e, se informado, WhatsApp.
+    const base = process.env.APP_URL || process.env.FRONTEND_URL || 'https://portaldcp.com.br';
+    for (const s of signatarios) {
+      if (!s.usuario_id) continue;
+      await this.notificacoes.criar({
+        orgao_id: orgaoId,
+        usuario_id: s.usuario_id,
+        usuario_telefone: s.telefone || undefined,
+        tipo: TipoNotificacao.SISTEMA,
+        titulo: `Assinatura pendente: ${titulo}`,
+        mensagem: `${ator.nome} pediu a sua assinatura no termo de atesto da nota fiscal nº ${nf.numero || 's/n'} (${ordem?.numero ?? ''}). Assine em Aprovações.`,
+        entidade_tipo: 'nota_fiscal_fornecedor',
+        entidade_id: nf.id,
+        link: '/orgao/aprovacoes',
+        enviar_email: !!s.telefone,
+        metadata: {
+          whatsapp_text: `*Assinatura pendente*\n\n${ator.nome} pediu a sua assinatura no termo de atesto da nota fiscal nº ${nf.numero || 's/n'} (${ordem?.numero ?? ''}).\nAssine pelo sistema, em Aprovações.`,
+          whatsapp_url: `${base}/orgao/aprovacoes`,
+        },
+      } as any).catch((e: any) => this.logger.warn(`Aviso ao signatário ${s.nome} não enviado: ${e?.message ?? e}`));
+    }
     return this.detalhe(id, orgaoId);
   }
 

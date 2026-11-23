@@ -55,7 +55,7 @@ export interface NotaFornecimento {
   historico?: Array<{ data: string; tipo: string; descricao: string; usuario: string }>
 }
 interface UsuarioOrgao { id: string; nome: string; cargo: string | null; fiscal: boolean }
-interface LinhaSignatario { tipo: 'interno' | 'externo'; usuario_id: string; nome: string; email: string; cpf_cnpj: string; papel: string }
+interface LinhaSignatario { tipo: 'interno' | 'externo'; usuario_id: string; nome: string; email: string; cpf_cnpj: string; telefone: string; papel: string }
 
 const BASE = `${API_URL}/api/notas-fornecimento`
 const moeda = (v: number | null | undefined) =>
@@ -70,7 +70,7 @@ const dataBr = (d: string | null | undefined, hora = false) => {
 const mensagemDeErro = async (res: Response, padrao: string) => {
   try { const j = await res.json(); return Array.isArray(j?.message) ? j.message.join(' ') : j?.message || padrao } catch { return padrao }
 }
-const linhaVazia = (): LinhaSignatario => ({ tipo: 'interno', usuario_id: '', nome: '', email: '', cpf_cnpj: '', papel: '' })
+const linhaVazia = (): LinhaSignatario => ({ tipo: 'interno', usuario_id: '', nome: '', email: '', cpf_cnpj: '', telefone: '', papel: '' })
 
 function SituacaoNota({ n }: { n: NotaFornecimento }) {
   if (n.status === 'RECUSADA') return <Badge className="bg-red-100 text-red-700 hover:bg-red-100">Devolvida ao fornecedor</Badge>
@@ -208,7 +208,7 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
       .filter((l) => (l.tipo === 'interno' ? l.usuario_id : l.nome.trim() || l.email.trim()))
       .map((l) => l.tipo === 'interno'
         ? { usuario_id: l.usuario_id, papel: l.papel.trim() || undefined }
-        : { nome: l.nome.trim(), email: l.email.trim(), cpf_cnpj: l.cpf_cnpj, papel: l.papel.trim() || undefined })
+        : { nome: l.nome.trim(), email: l.email.trim(), cpf_cnpj: l.cpf_cnpj, telefone: l.telefone.trim() || undefined, papel: l.papel.trim() || undefined })
     if (signatarios.length === 0) { toast.error('Escolha pelo menos uma pessoa para assinar'); return }
     setOcupado(`ass-${assinar.id}`)
     try {
@@ -475,7 +475,7 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
           <DialogHeader>
             <DialogTitle>Colher assinaturas</DialogTitle>
             <DialogDescription>
-              O sistema gera o termo de atesto da nota {assinar?.numero || ''} e avisa cada pessoa. Usuário do órgão assina dentro do sistema, em Aprovações; pessoa de fora recebe um link por e-mail.
+              O sistema gera o termo de atesto da nota {assinar?.numero || ''} e avisa cada pessoa. Usuário do órgão é avisado no sistema, por e-mail e no WhatsApp cadastrado, e assina em Aprovações; pessoa de fora recebe o link de assinatura por e-mail e, se informado, por WhatsApp.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -510,7 +510,8 @@ export default function NotasFornecimentoTab({ destino, onContagem }: { destino:
                     <div className="space-y-1"><Label>Nome</Label><Input value={l.nome} onChange={(e) => mudarLinha(i, { nome: e.target.value })} /></div>
                     <div className="space-y-1"><Label>E-mail</Label><Input type="email" value={l.email} onChange={(e) => mudarLinha(i, { email: e.target.value })} /></div>
                     <div className="space-y-1"><Label>CPF</Label><Input value={l.cpf_cnpj} onChange={(e) => mudarLinha(i, { cpf_cnpj: e.target.value })} placeholder="000.000.000-00" /></div>
-                    <div className="space-y-1"><Label>Papel no termo</Label><Input value={l.papel} onChange={(e) => mudarLinha(i, { papel: e.target.value })} placeholder="Ex.: Ordenador de despesa" /></div>
+                    <div className="space-y-1"><Label>WhatsApp (opcional)</Label><Input value={l.telefone} onChange={(e) => mudarLinha(i, { telefone: e.target.value })} placeholder="DDD + número" /></div>
+                    <div className="col-span-2 space-y-1"><Label>Papel no termo</Label><Input value={l.papel} onChange={(e) => mudarLinha(i, { papel: e.target.value })} placeholder="Ex.: Ordenador de despesa" /></div>
                   </div>
                 )}
               </div>

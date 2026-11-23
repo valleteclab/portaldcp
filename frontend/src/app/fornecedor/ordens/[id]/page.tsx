@@ -116,16 +116,29 @@ export default function OrdemDetalheFornecedorPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [outrosFiles, setOutrosFiles] = useState<File[]>([])
 
+  // Sem XML, o fornecedor informa o número e o valor da nota
+  const [nfNumero, setNfNumero] = useState('')
+  const [nfValor, setNfValor] = useState('')
+  const [nfEmissao, setNfEmissao] = useState('')
+
   const handleEnviarNf = async () => {
-    if (!xmlFile) { setErroNf('Arquivo XML é obrigatório'); return }
     if (!pdfFile) { setErroNf('Arquivo PDF da nota fiscal é obrigatório'); return }
+    if (!xmlFile && !nfNumero.trim()) { setErroNf('Informe o número da nota fiscal'); return }
+    if (!xmlFile && !nfValor.trim()) { setErroNf('Informe o valor da nota fiscal'); return }
 
     setUploadingNf(true)
     setErroNf(null)
     setAvisoNf(null)
     try {
       const formData = new FormData()
-      formData.append('arquivos', xmlFile)
+      // campos de texto antes dos arquivos (o servidor lê o corpo na ordem em que chega)
+      if (!xmlFile) {
+        formData.append('numero', nfNumero.trim())
+        formData.append('valor_total', nfValor.trim())
+        if (nfEmissao) formData.append('data_emissao', nfEmissao)
+      } else {
+        formData.append('arquivos', xmlFile)
+      }
       formData.append('arquivos', pdfFile)
       outrosFiles.forEach(f => formData.append('arquivos', f))
 
@@ -141,6 +154,7 @@ export default function OrdemDetalheFornecedorPage() {
         setXmlFile(null)
         setPdfFile(null)
         setOutrosFiles([])
+        setNfNumero(''); setNfValor(''); setNfEmissao('')
         await carregarOrdem()
         if (data.valor_total < (ordem?.valor_total || 0) - 0.01) {
           setAvisoNf('A OF ficará aberta para envio do restante. Envie novas notas fiscais até atingir o valor da ordem.')
@@ -379,7 +393,7 @@ export default function OrdemDetalheFornecedorPage() {
               Nota Fiscal
             </CardTitle>
             <CardDescription>
-              Envie o XML e o PDF da nota fiscal. O sistema fará a pré-análise: se o valor da NF for maior que o da ordem, o envio será bloqueado.
+              Envie o PDF da nota fiscal. O XML é opcional: com ele o sistema lê o número, o valor e os itens; sem ele, informe o número e o valor. Nota com valor maior que o da ordem não é aceita.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -476,10 +490,10 @@ export default function OrdemDetalheFornecedorPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className={`border-2 border-dashed rounded-lg p-4 text-center ${xmlFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
                   <FileCode className={`h-6 w-6 mx-auto mb-1 ${xmlFile ? 'text-green-600' : 'text-gray-400'}`} />
-                  <p className="text-xs font-medium mb-2">{xmlFile ? xmlFile.name : 'XML da NF-e *'}</p>
+                  <p className="text-xs font-medium mb-2">{xmlFile ? xmlFile.name : 'XML da NF-e (opcional)'}</p>
                   <label className="cursor-pointer">
                     <input type="file" accept=".xml" onChange={(e) => { setXmlFile(e.target.files?.[0] || null); e.target.value = '' }} className="hidden" />
-                    <Button variant={xmlFile ? 'outline' : 'default'} size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{xmlFile ? 'Trocar' : 'Selecionar XML'}</span></Button>
+                    <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />{xmlFile ? 'Trocar' : 'Selecionar XML'}</span></Button>
                   </label>
                 </div>
                 <div className={`border-2 border-dashed rounded-lg p-4 text-center ${pdfFile ? 'border-green-400 bg-green-50' : 'border-gray-300'}`}>
@@ -491,6 +505,23 @@ export default function OrdemDetalheFornecedorPage() {
                   </label>
                 </div>
               </div>
+              {!xmlFile && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-lg border border-gray-200 p-3">
+                  <div className="space-y-1">
+                    <label htmlFor="nf-numero" className="text-xs font-medium">Número da nota *</label>
+                    <input id="nf-numero" className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm" value={nfNumero} onChange={(e) => setNfNumero(e.target.value)} placeholder="Ex.: 4501" />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="nf-valor" className="text-xs font-medium">Valor da nota (R$) *</label>
+                    <input id="nf-valor" inputMode="decimal" className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm" value={nfValor} onChange={(e) => setNfValor(e.target.value)} placeholder="Ex.: 2.580,00" />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="nf-emissao" className="text-xs font-medium">Data de emissão</label>
+                    <input id="nf-emissao" type="date" className="w-full h-9 rounded-md border border-gray-300 px-3 text-sm" value={nfEmissao} onChange={(e) => setNfEmissao(e.target.value)} />
+                  </div>
+                  <p className="md:col-span-3 text-xs text-gray-500">Sem o XML, informe o número e o valor como estão na nota. Se preferir, anexe o XML e o sistema preenche sozinho.</p>
+                </div>
+              )}
               <div className={`border-2 border-dashed rounded-lg p-4 text-center ${outrosFiles.length > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
                 <p className="text-xs text-gray-500 mb-2">Outros documentos (opcional)</p>
                 {outrosFiles.length > 0 && (
@@ -508,7 +539,7 @@ export default function OrdemDetalheFornecedorPage() {
                   <Button variant="outline" size="sm" asChild><span><Upload className="h-3 w-3 mr-1" />Anexar Documento</span></Button>
                 </label>
               </div>
-              <Button onClick={() => handleEnviarNf()} disabled={uploadingNf || !xmlFile || !pdfFile} className="w-full" size="lg">
+              <Button onClick={() => handleEnviarNf()} disabled={uploadingNf || !pdfFile} className="w-full" size="lg">
                 {uploadingNf ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
                 {uploadingNf ? 'Enviando...' : 'Enviar Nota Fiscal'}
               </Button>
