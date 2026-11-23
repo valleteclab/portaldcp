@@ -8,6 +8,12 @@ import { Usuario } from '../usuarios/entities/usuario.entity';
 import { XmlNfeParserService } from './xml-nfe-parser.service';
 import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
+import {
+  DestinoNotaFornecimento,
+  LINK_NOTAS_FORNECIMENTO_MEDICOES,
+  destinatariosDaNota,
+  normalizarDestinoNotaFornecimento,
+} from './destino-nota-fornecimento';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -287,60 +293,87 @@ export class NotaFiscalFornecedorService {
       throw new NotFoundException('Ordem de fornecimento não encontrada para esta nota fiscal');
     }
 
-    const usuarios = await this.usuarioRepository.find({
-      where: { orgao_id: orgaoId },
-    });
-
-    const destinatarios = usuarios.filter(u =>
-      (u as any).pode_receber_patrimonio || (u as any).pode_aprovar_requisicoes
-    );
-
-    if (destinatarios.length === 0) {
-      return { success: true, destinatarios: 0 };
-    }
-
-    await this.notificarUsuariosOrgao(orgaoId, ordem, nf);
-    return { success: true, destinatarios: destinatarios.length };
+    const enviados = await this.notificarUsuariosOrgao(orgaoId, ordem, nf);
+    return { success: true, destinatarios: enviados };
   }
 
+  /** Destino configurado pelo órgão para a nota de fornecimento. */
+  async destinoDoOrgao(orgaoId: string): Promise<DestinoNotaFornecimento> {
+    const r = await this.nfRepository.manager.query(
+      `SELECT destino_nota_fornecimento AS d FROM orgaos WHERE id = $1`,
+      [orgaoId],
+    );
+    return normalizarDestinoNotaFornecimento(r?.[0]?.d);
+  }
+
+  /**
+   * Avisa quem trata a nota, conforme o destino do órgão: a fila de
+   * Recebimentos (almoxarifado/patrimônio), a equipe das medições, ou as duas.
+   * Quem está nas duas listas recebe um aviso só (o da fila de recebimento).
+   */
   private async notificarUsuariosOrgao(
     orgaoId: string,
     ordem: OrdemFornecimento,
     nf: NotaFiscalFornecedor,
-  ): Promise<void> {
-    const usuarios = await this.usuarioRepository.find({
-      where: { orgao_id: orgaoId },
-    });
-
-    const destinatarios = usuarios.filter(u => 
-      (u as any).pode_receber_patrimonio || (u as any).pode_aprovar_requisicoes
-    );
+  ): Promise<number> {
+    const destino = await this.destinoDoOrgao(orgaoId);
+    const usuarios = await this.usuarioRepository.find({ where: { orgao_id: orgaoId } });
+    const contrato = ordem.contrato_id
+      ? (await this.nfRepository.manager.query(`SELECT fiscal_id, gestor_id FROM contratos WHERE id = $1`, [ordem.contrato_id]))?.[0]
+      : null;
+    const { almoxarifado, medicoes } = destinatariosDaNota(destino, usuarios as any[], [
+      contrato?.fiscal_id,
+      contrato?.gestor_id,
+      ordem.usuario_fiscal_id,
+    ]);
+    const jaAvisados = new Set(almoxarifado.map((u) => u.id));
+    const soMedicoes = medicoes.filter((u) => !jaAvisados.has(u.id));
 
     const fornecedorNome = (ordem as any)?.fornecedor?.razao_social
       || (ordem as any)?.fornecedor?.nome
       || nf.razao_social_emitente
       || 'Fornecedor';
+    const numeroNf = `${nf.numero || '(sem número)'}/${nf.serie || ''}`;
+    const base = process.env.APP_URL || 'https://portaldcp.com.br';
+    const para = (lista: any[]) => lista.map((u) => ({ id: u.id, email: u.email, telefone: u.telefone }));
 
-    if (destinatarios.length === 0) return;
-
-    await this.notificacoesService.criarParaMultiplos(
-      destinatarios.map(u => ({ id: u.id, email: (u as any).email, telefone: (u as any).telefone })),
-      {
+    if (almoxarifado.length > 0) {
+      const link = `/orgao/almoxarifado/recebimentos/${ordem.id}`;
+      await this.notificacoesService.criarParaMultiplos(para(almoxarifado), {
         orgao_id: orgaoId,
         tipo: TipoNotificacao.NF_DISPONIVEL,
         titulo: `NF disponível - OF ${ordem.numero}`,
-        mensagem: `O fornecedor ${fornecedorNome} enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''} para a Ordem de Fornecimento ${ordem.numero}. Acesse a tela de recebimentos para processar.`,
+        mensagem: `O fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf} para a Ordem de Fornecimento ${ordem.numero}. Acesse a tela de recebimentos para processar.`,
         entidade_tipo: 'ordem_fornecimento',
         entidade_id: ordem.id,
-        link: `/orgao/almoxarifado/recebimentos/${ordem.id}`,
+        link,
         enviar_email: true,
         metadata: {
-          whatsapp_text: `*NF disponível - OF ${ordem.numero}*\n\nO fornecedor ${fornecedorNome} enviou a Nota Fiscal ${nf.numero || '(sem número)'}/${nf.serie || ''}.\nAcesse a tela de recebimentos para processar.`,
-          whatsapp_url: `${process.env.APP_URL || 'https://portaldcp.com.br'}/orgao/almoxarifado/recebimentos/${ordem.id}`,
+          whatsapp_text: `*NF disponível - OF ${ordem.numero}*\n\nO fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf}.\nAcesse a tela de recebimentos para processar.`,
+          whatsapp_url: `${base}${link}`,
         },
-      },
-    );
+      });
+    }
 
-    this.logger.log(`Notificações enviadas para ${destinatarios.length} usuários`);
+    if (soMedicoes.length > 0) {
+      await this.notificacoesService.criarParaMultiplos(para(soMedicoes), {
+        orgao_id: orgaoId,
+        tipo: TipoNotificacao.NF_DISPONIVEL,
+        titulo: `Nota de fornecimento recebida - OF ${ordem.numero}`,
+        mensagem: `O fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf} para a Ordem de Fornecimento ${ordem.numero}. Ela está na tela Medições, aba Notas de fornecimento.`,
+        entidade_tipo: 'ordem_fornecimento',
+        entidade_id: ordem.id,
+        link: LINK_NOTAS_FORNECIMENTO_MEDICOES,
+        enviar_email: true,
+        metadata: {
+          whatsapp_text: `*Nota de fornecimento recebida - OF ${ordem.numero}*\n\nO fornecedor ${fornecedorNome} enviou a Nota Fiscal ${numeroNf}.\nEla está na tela Medições, aba Notas de fornecimento.`,
+          whatsapp_url: `${base}${LINK_NOTAS_FORNECIMENTO_MEDICOES}`,
+        },
+      });
+    }
+
+    const total = almoxarifado.length + soMedicoes.length;
+    this.logger.log(`NF ${numeroNf} (destino ${destino}): ${almoxarifado.length} aviso(s) ao recebimento, ${soMedicoes.length} às medições`);
+    return total;
   }
 }

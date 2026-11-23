@@ -255,6 +255,14 @@ export class Orgao {
   fluxo_os: 'REQUISICAO' | 'MODULO_OS';
 
   /**
+   * Destino da nota fiscal das ordens de fornecimento: ALMOXARIFADO (fila de
+   * Recebimentos), MEDICOES (tela Medições) ou AMBOS. Ver
+   * almoxarifado/destino-nota-fornecimento.ts.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true, default: 'ALMOXARIFADO' })
+  destino_nota_fornecimento: 'ALMOXARIFADO' | 'MEDICOES' | 'AMBOS';
+
+  /**
    * Quando true, ao aprovar uma OS envia automaticamente email e WhatsApp ao fornecedor.
    * Quando false (padrão), o aprovador decide manualmente no modal pós-aprovação.
    */

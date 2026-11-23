@@ -310,6 +310,12 @@ export default function CentralAprovacoesPage() {
   const { temAcesso } = useModulosOrgao();
   // Assinaturas (homologação E1): quantas esperam o usuário do login — badge da aba
   const [assinaturasPendentes, setAssinaturasPendentes] = useState(0);
+  // A caixa de assinaturas aparece para quem contratou o Portal de Assinaturas e
+  // também para quem TEM algo a assinar (ex.: termo de atesto de nota de
+  // fornecimento) — senão o documento fica sem ter onde ser assinado. Uma vez
+  // mostrada, continua na tela mesmo depois da última assinatura.
+  const [teveAssinatura, setTeveAssinatura] = useState(false);
+  useEffect(() => { if (assinaturasPendentes > 0) setTeveAssinatura(true); }, [assinaturasPendentes]);
   useEffect(() => {
     carregarAssinaturasPendentes()
       .then((r) => setAssinaturasPendentes(r?.itens.length ?? 0))
@@ -1012,6 +1018,7 @@ export default function CentralAprovacoesPage() {
 
   const pendentesPlanejamento = demandas.length + dfdsPendentes.length + processosPendentes.length;
 
+  const mostraAssinaturas = temAcesso(ModuloSistema.PORTAL_ASSINATURAS) || teveAssinatura;
   // Abas na ordem da tela, com o que cada uma tem para ESTE usuário
   const abasDaCentral = [
     { valor: 'contratos', visivel: podeLiberarContratos, pendentes: contratos.length },
@@ -1020,7 +1027,7 @@ export default function CentralAprovacoesPage() {
     // aparecem para quem contratou cada um. As demais são do dia a dia e
     // seguem a permissão do usuário, como sempre.
     { valor: 'etapas', visivel: (temAcesso(ModuloSistema.PROCESSOS) || temAcesso(ModuloSistema.LICITACOES)), pendentes: pendentesEtapas },
-    { valor: 'assinaturas', visivel: temAcesso(ModuloSistema.PORTAL_ASSINATURAS), pendentes: assinaturasPendentes },
+    { valor: 'assinaturas', visivel: mostraAssinaturas, pendentes: assinaturasPendentes },
     { valor: 'requisicoes', visivel: podeAprovarRequisicoes, pendentes: requisicoes.length },
     { valor: 'medicoes', visivel: true, pendentes: medicoes.length },
     { valor: 'ordens-servico', visivel: true, pendentes: ordensServico.length },
@@ -1064,7 +1071,7 @@ export default function CentralAprovacoesPage() {
         <CaixaEtapasFluxo />
         {/* Assinaturas também para quem não aprova contratos/demandas/requisições (homologação 08/11/2026:
             a agente de contratação assina o termo e não tinha a aba) */}
-        {temAcesso(ModuloSistema.PORTAL_ASSINATURAS) && (
+        {mostraAssinaturas && (
           <div className="space-y-2">
             <h2 className="text-lg font-semibold text-gray-900">Assinaturas</h2>
             <CaixaAssinaturas processoDestacado={searchParams.get('processo')} onContagem={setAssinaturasPendentes} />

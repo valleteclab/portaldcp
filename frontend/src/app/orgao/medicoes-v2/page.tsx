@@ -27,6 +27,7 @@ import { gerarPdfMedicao } from '@/lib/pdf-medicao'
 import dynamic from 'next/dynamic'
 import { toast } from "sonner"
 import { confirmarAcao } from "@/components/DialogoGlobal"
+import NotasFornecimentoTab, { type DestinoNotaFornecimento } from '@/components/medicoes/NotasFornecimentoTab'
 
 const TabMedicao = dynamic(() => import('@/components/contratos/TabMedicao'), {
   loading: () => (
@@ -248,6 +249,40 @@ const ITENS_POR_PAGINA = 10
 
 export default function MedicoesV2Page() {
   const [pendentesAteste, setPendentesAteste] = useState<MedicaoPendente[]>([])
+
+  // Notas de fornecimento: a aba só existe quando o órgão as encaminha para cá
+  const [destinoNotas, setDestinoNotas] = useState<DestinoNotaFornecimento>('ALMOXARIFADO')
+  const [aba, setAba] = useState<'medicoes' | 'notas-fornecimento'>('medicoes')
+  const [notasATratar, setNotasATratar] = useState<number | null>(null)
+  const notasNaTela = destinoNotas === 'MEDICOES' || destinoNotas === 'AMBOS'
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('aba') === 'notas-fornecimento') setAba('notas-fornecimento')
+    authFetch(`${API_URL}/api/notas-fornecimento`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j) return
+        setDestinoNotas(j.destino)
+        setNotasATratar((j.notas || []).filter((n: any) => n.status !== 'RECUSADA' && !n.contabilidade).length)
+      })
+      .catch(() => {})
+  }, [])
+  const trocarAba = (nova: 'medicoes' | 'notas-fornecimento') => {
+    setAba(nova)
+    const url = new URL(window.location.href)
+    if (nova === 'medicoes') url.searchParams.delete('aba'); else url.searchParams.set('aba', nova)
+    window.history.replaceState(null, '', url.toString())
+  }
+  const seletorDeAbas = notasNaTela ? (
+    <div className="flex gap-1 border-b border-gray-200" role="tablist">
+      {([['medicoes', 'Medições de serviço', null], ['notas-fornecimento', 'Notas de fornecimento', notasATratar]] as const).map(([k, rotulo, n]) => (
+        <button key={k} type="button" role="tab" aria-selected={aba === k} onClick={() => trocarAba(k)}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${aba === k ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          {rotulo}
+          {n ? <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">{n}</span> : null}
+        </button>
+      ))}
+    </div>
+  ) : null
   const [pendentesAprovacao, setPendentesAprovacao] = useState<MedicaoAprovacao[]>([])
   const [contratos, setContratos] = useState<ContratoResumo[]>([])
   const [contratoMap, setContratoMap] = useState<Map<string, ContratoResumo>>(new Map())
@@ -810,6 +845,25 @@ export default function MedicoesV2Page() {
     )
   }
 
+  if (notasNaTela && aba === 'notas-fornecimento') {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Notas de fornecimento</h1>
+          <nav className="flex items-center gap-1 text-sm text-gray-500 mt-1">
+            <span>Início</span>
+            <span className="mx-1 text-gray-300">/</span>
+            <span>Medições</span>
+            <span className="mx-1 text-gray-300">/</span>
+            <span className="text-blue-600">Notas de fornecimento</span>
+          </nav>
+        </div>
+        {seletorDeAbas}
+        <NotasFornecimentoTab destino={destinoNotas} onContagem={setNotasATratar} />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
 
@@ -839,6 +893,8 @@ export default function MedicoesV2Page() {
           </Button>
         </div>
       </div>
+
+      {seletorDeAbas}
 
       {/* ============ STAT CARDS ============ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
