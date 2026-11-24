@@ -156,7 +156,7 @@ export default function OrdemDetalheFornecedorPage() {
         setOutrosFiles([])
         setNfNumero(''); setNfValor(''); setNfEmissao('')
         await carregarOrdem()
-        if (data.valor_total < (ordem?.valor_total || 0) - 0.01) {
+        if (Number(data.valor_total) < (Number(ordem?.valor_total) || 0) - 0.01) {
           setAvisoNf('A OF ficará aberta para envio do restante. Envie novas notas fiscais até atingir o valor da ordem.')
         }
       } else {
@@ -187,8 +187,8 @@ export default function OrdemDetalheFornecedorPage() {
     }
   }
 
-  const formatarMoeda = (valor: number) =>
-    (valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const formatarMoeda = (valor: number | string | null | undefined) =>
+    (Number(valor) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   const handleCienciaRecebimento = async () => {
     setSubmitting(true)
@@ -475,7 +475,11 @@ export default function OrdemDetalheFornecedorPage() {
                     </div>
                   </div>
                 ))}
-                {(ordem?.valor_entregue ?? 0) < (ordem?.valor_total ?? 0) - 0.01 && (
+                {/* Só pede outra nota quando o que já foi entregue ou está em análise não cobre a ordem */}
+                {Math.max(
+                  Number(ordem?.valor_entregue) || 0,
+                  nfsEnviadas.filter((n: any) => !['RECUSADA', 'ERRO'].includes(n.status)).reduce((s: number, n: any) => s + (Number(n.valor_total) || 0), 0),
+                ) < (Number(ordem?.valor_total) || 0) - 0.01 && (
                   <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded">
                     OF aberta — envie novas notas até atingir o valor da ordem.
                   </p>

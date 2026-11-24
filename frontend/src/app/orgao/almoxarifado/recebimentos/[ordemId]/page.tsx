@@ -200,7 +200,7 @@ function RecebimentoUnificadoContent() {
     return completed
   })()
 
-  const fmt = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const fmt = (v: number | string | null | undefined) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const getFileUrl = (caminho: string | null) => {
     if (!caminho) return null
     const filename = caminho.split(/[/\\]/).pop()

@@ -1,4 +1,4 @@
-import { AcessoContratoDoOrgao } from '../auth/acesso';
+import { AcessoContratoDoOrgao, ParametrosContrato } from '../auth/acesso';
 import { 
   Controller, 
   Get, 
@@ -1629,6 +1629,10 @@ export class AlmoxarifadoController {
   }
 
   @Post('recebimentos/:id/confirmar-mapeamento')
+  // O :id desta rota é o da NOTA FISCAL (o recebimento nasce aqui). Sem este
+  // ajuste, a conferência de dono procurava um recebimento com o id da nota e
+  // devolvia 404 — ninguém passava de "Vincular produtos" para o recebimento.
+  @ParametrosContrato({ 'recebimentos/:id': 'nf_fornecedor' })
   async confirmarMapeamento(
     @Param('id', ParseUUIDPipe) nfId: string,
     @Req() request: { user: JwtPayload },

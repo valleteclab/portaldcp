@@ -42,6 +42,10 @@ export class PapelGuard implements CanActivate {
     ]);
     if (!papeis || papeis.length === 0) return true;
 
+    // Rota marcada @Public() numa classe restrita (ex.: `pca/publico/*`, a página
+    // de transparência do PCA) continua pública: sem isto ela pedia login.
+    if (this.reflector.get<boolean>(IS_PUBLIC_KEY, context.getHandler())) return true;
+
     const ator = atorDaRequisicao(context.switchToHttp().getRequest());
     if (!ator) throw new UnauthorizedException('Autenticação necessária');
 

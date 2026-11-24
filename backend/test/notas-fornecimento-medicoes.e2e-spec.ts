@@ -650,6 +650,29 @@ describe('Nota de fornecimento na tela das Medições', () => {
     });
   });
 
+  describe('recebimento: confirmar os vínculos da nota cria o recebimento', () => {
+    it('a rota recebe o id da NOTA: o próprio órgão passa (não é 404) e outro órgão não', async () => {
+      const ordem = await criarOrdem(500);
+      const item = '00000000-0000-4000-8000-0000000000aa';
+      await ctx.dataSource.query(`UPDATE ordens_fornecimento SET itens = $2::jsonb WHERE id = $1`, [
+        ordem,
+        JSON.stringify([{ item_contrato_id: item, numero_item: 1, descricao: 'Cadeira giratória', unidade_medida: 'UN', quantidade: 2, quantidade_entregue: 0, valor_unitario: 250, valor_total: 500 }]),
+      ]);
+      const nota = await enviarNota(ordem, 501);
+      const corpo = { mapeamento: [{ produto_nf_index: 1, xProd_nf: 'Cadeira giratória', item_contrato_id: item, descricao_of: 'Cadeira giratória' }] };
+
+      const deOutro = await http().post(`/api/almoxarifado/recebimentos/${nota}/confirmar-mapeamento`).set(bearer(B.token)).send(corpo);
+      expect([403, 404]).toContain(deOutro.status);
+      const [antes] = await ctx.dataSource.query(`SELECT status FROM notas_fiscais_fornecedor WHERE id = $1`, [nota]);
+      expect(antes.status).toBe('PROCESSADA');
+
+      const r = await http().post(`/api/almoxarifado/recebimentos/${nota}/confirmar-mapeamento`).set(bearer(A.token)).send(corpo);
+      expect({ status: r.status, msg: r.body?.message }).toEqual({ status: 201, msg: undefined });
+      expect(r.body.nf.status).toBe('VINCULADA');
+      expect(r.body.recebimento).toMatchObject({ ordem_fornecimento_id: ordem, nota_fiscal_fornecedor_id: nota });
+    });
+  });
+
   describe('destino MEDICOES', () => {
     it('só a equipe das medições é avisada; a fila de recebimentos não', async () => {
       expect((await definirDestino('MEDICOES')).status).toBe(200);

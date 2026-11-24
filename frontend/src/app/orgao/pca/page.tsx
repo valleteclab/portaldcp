@@ -433,6 +433,8 @@ function PcaPageContent() {
         setShowNovoPCA(false)
         await carregarPCAs()
         setPcaAtual(novoPca)
+        // o cabeçalho e os textos da tela seguem o ano selecionado: tem que ser o do plano criado
+        setAnoSelecionado(novoPca.ano_exercicio ?? anoNovoPCA)
         setVisualizacao('detalhes')
       } else {
         const error = await response.json()
@@ -732,6 +734,7 @@ function PcaPageContent() {
 
   const aprovarPCA = async () => {
     if (!pcaAtual) return
+    if (!(await confirmarAcao({ titulo: `Aprovar o PCA ${pcaAtual.ano_exercicio}?`, mensagem: `O plano tem ${pcaAtual.itens?.length || 0} item(ns). Depois de aprovado, ele pode ser publicado.` }))) return
 
     try {
       const orgaoData = localStorage.getItem('orgao')
@@ -759,6 +762,7 @@ function PcaPageContent() {
 
   const publicarPCA = async () => {
     if (!pcaAtual) return
+    if (!(await confirmarAcao({ titulo: `Publicar o PCA ${pcaAtual.ano_exercicio}?`, mensagem: 'O plano passa a aparecer na página pública do órgão e pode ser enviado ao PNCP.' }))) return
 
     try {
       const response = await authFetch(`${API_URL}/api/pca/${pcaAtual.id}/publicar`, {
@@ -1571,7 +1575,7 @@ function PcaPageContent() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full table-fixed text-sm">
+                  <table className="w-full min-w-[1500px] table-auto text-sm">
                     <thead>
                       <tr className="border-b bg-gray-50">
                         <th className="text-left py-3 px-2 whitespace-nowrap">Nº</th>

@@ -1,6 +1,6 @@
 import {
   Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn,
-  CreateDateColumn, UpdateDateColumn,
+  CreateDateColumn, UpdateDateColumn, Unique,
 } from 'typeorm';
 import { Orgao } from '../../orgaos/entities/orgao.entity';
 import { FrotaContrato } from './frota-contrato.entity';
@@ -14,13 +14,17 @@ export enum StatusRequisicaoFrota {
   CANCELADO = 'CANCELADO',
 }
 
+// O código REQ-AAAA-NNNN é numerado POR ÓRGÃO: a unicidade também é por órgão.
+// (Era única no sistema inteiro: o segundo órgão a usar o módulo colidia no
+// REQ-AAAA-0001 do primeiro e nunca conseguia criar a primeira requisição.)
+@Unique('uq_frota_requisicao_orgao_codigo', ['orgao_id', 'codigo'])
 @Entity('frota_requisicoes_abastecimento')
 export class FrotaRequisicao {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** Código de autorização: REQ-YYYY-NNNN */
-  @Column({ unique: true })
+  /** Código de autorização: REQ-YYYY-NNNN (único dentro do órgão) */
+  @Column()
   codigo: string;
 
   @Column()

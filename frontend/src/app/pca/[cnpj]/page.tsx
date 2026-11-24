@@ -36,9 +36,11 @@ function formatarCnpj(cnpj: string) {
   return limpo.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
 }
 
-function logoOrgao(orgao?: OrgaoPublico | null) {
-  if (orgao?.logo_url) return getAssetUrl(orgao.logo_url)
-  return '/logo_cmlem.png'
+/** Logo do órgão; o brasão embutido vale só para a própria Câmara de LEM (legado). Sem logo → null. */
+function logoOrgao(orgao?: OrgaoPublico | null): string | null {
+  if (orgao?.logo_url) return getAssetUrl(orgao.logo_url) || null
+  if (/lu[ií]s eduardo magalh[ãa]es/i.test(orgao?.nome || '')) return '/logo_cmlem.png'
+  return null
 }
 
 export default function PcaOrgaoPage() {
@@ -79,7 +81,7 @@ export default function PcaOrgaoPage() {
       className="pca-publica min-h-screen bg-[#F0F2F5] text-[#1B1C1E]"
     >
       <SkipLinks />
-      <PortalHeader />
+      <PortalHeader orgao={orgao} />
 
       <section className="bg-white border-b border-[#D9DDE3]" aria-labelledby="titulo-pagina-pca">
         <div className="mx-auto max-w-[1760px] px-6 py-8 lg:px-10 xl:px-14">
@@ -100,7 +102,7 @@ export default function PcaOrgaoPage() {
           ) : (
             <div className="flex items-start gap-5">
               <div className="grid h-24 w-24 shrink-0 place-items-center rounded-md border border-[#D9DDE3] bg-white p-3 shadow-sm">
-                <img src={logoOrgao(orgao)} alt={`Brasão ou logomarca de ${orgao.nome}`} className="max-h-full max-w-full object-contain" />
+                {logoOrgao(orgao) ? <img src={logoOrgao(orgao)!} alt={`Brasão ou logomarca de ${orgao.nome}`} className="max-h-full max-w-full object-contain" /> : null}
               </div>
               <div>
                 <p className="text-[12px] font-bold uppercase tracking-[1.4px] text-[#718096]">Consulta pública</p>
@@ -163,12 +165,12 @@ function SkipLinks() {
   )
 }
 
-function PortalHeader() {
+function PortalHeader({ orgao }: { orgao?: OrgaoPublico | null }) {
   return (
     <>
       <div className="flex min-h-[34px] items-center justify-between gap-4 bg-[#071D41] px-6 py-1 md:px-12">
         <span className="text-[11.5px] text-white/70">
-          Câmara Municipal de <strong className="font-bold text-[#FFCD07]">Luís Eduardo Magalhães</strong> · Poder Legislativo Municipal
+          <strong className="font-bold text-[#FFCD07]">{orgao?.nome || 'Portal de Compras Públicas'}</strong>{orgao ? ` · ${[orgao.cidade, orgao.uf].filter(Boolean).join(' - ')}` : ''}
         </span>
         <div className="hidden items-center gap-4 sm:flex" aria-label="Barra de acessibilidade">
           <a href="#conteudo-principal" className="text-[11px] font-semibold text-white/80 hover:text-white">Conteúdo</a>
@@ -180,10 +182,14 @@ function PortalHeader() {
       </div>
       <header role="banner" className="flex min-h-[80px] items-center justify-between gap-4 border-b-2 border-[#1351B4] bg-white px-6 py-3 shadow-sm md:px-12">
         <Link href="/" className="flex items-center gap-4">
-          <img src="/logo_cmlem.png" alt="Brasão da Câmara Municipal de Luís Eduardo Magalhães" className="h-14 w-14 object-contain" />
-          <div className="h-10 w-px bg-[#D9DDE3]" />
+          {logoOrgao(orgao) ? (
+            <>
+              <img src={logoOrgao(orgao)!} alt={`Brasão ou logomarca de ${orgao?.nome}`} className="h-14 w-14 object-contain" />
+              <div className="h-10 w-px bg-[#D9DDE3]" />
+            </>
+          ) : null}
           <div>
-            <div className="text-[16px] font-bold leading-tight text-[#0C326F]">Câmara Municipal de Luís Eduardo Magalhães</div>
+            <div className="text-[16px] font-bold leading-tight text-[#0C326F]">{orgao?.nome || 'Portal DCP'}</div>
             <div className="mt-0.5 text-[12.5px] text-[#718096]">Portal de Compras Públicas</div>
           </div>
         </Link>
