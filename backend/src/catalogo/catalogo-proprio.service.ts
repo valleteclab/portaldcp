@@ -3,6 +3,21 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, ILike } from 'typeorm';
 import { ClassificacaoCatalogoProprio, ItemCatalogoProprio } from './entities/catalogo-proprio.entity';
 
+/**
+ * Próximo código de classificação: maior código NUMÉRICO do tipo + 100, pulando
+ * os que já existem em qualquer tipo (o código é único na tabela).
+ * Antes se pegava o "maior" pela ordem de TEXTO: com serviços 100…900 e 1821,
+ * o maior era "900", o próximo "1000" — que já é de material — e criar
+ * classificação de serviço dava erro 500.
+ */
+export function proximoCodigoClassificacao(prefixo: number, codigosDoTipo: string[], todosOsCodigos: string[]): string {
+  const numeros = codigosDoTipo.map((c) => parseInt(c, 10)).filter((n) => Number.isFinite(n));
+  const usados = new Set(todosOsCodigos.map((c) => String(c)));
+  let proximo = numeros.length ? Math.max(...numeros) + 100 : prefixo;
+  while (usados.has(String(proximo))) proximo += 100;
+  return String(proximo);
+}
+
 @Injectable()
 export class CatalogoProprioService implements OnModuleInit {
   private readonly logger = new Logger(CatalogoProprioService.name);
@@ -92,19 +107,8 @@ export class CatalogoProprioService implements OnModuleInit {
     // Materiais: 1000, 1100, 1200...
     // Serviços: 100, 200, 300...
     const prefixo = tipo === 'MATERIAL' ? 1000 : 100;
-    const incremento = 100;
-
-    const ultima = await this.classificacaoRepository.findOne({
-      where: { tipo },
-      order: { codigo: 'DESC' }
-    });
-
-    if (!ultima) {
-      return String(prefixo);
-    }
-
-    const ultimoCodigo = parseInt(ultima.codigo);
-    return String(ultimoCodigo + incremento);
+    const todas = await this.classificacaoRepository.find({ select: ['codigo', 'tipo'] });
+    return proximoCodigoClassificacao(prefixo, todas.filter((c) => c.tipo === tipo).map((c) => c.codigo), todas.map((c) => c.codigo));
   }
 
   async findClassificacaoById(id: string): Promise<ClassificacaoCatalogoProprio> {
