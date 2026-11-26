@@ -239,9 +239,32 @@ export function BuscaItemCatalogoProprio({
     }
   }, [tipo])
 
+  // Classificação que falta na lista: quem está cadastrando o item cria na hora
+  const [novaClasse, setNovaClasse] = useState('')
+  const [mostraNovaClasse, setMostraNovaClasse] = useState(false)
+  const [criandoClasse, setCriandoClasse] = useState(false)
+  const criarClassificacao = async () => {
+    const nome = novaClasse.trim()
+    if (nome.length < 3) { toast.error('Informe o nome da classificação'); return }
+    setCriandoClasse(true)
+    try {
+      const res = await authFetch(`${API_URL}/api/catalogo-proprio/classificacoes`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome, tipo: novoItem.tipo }),
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); toast.error(e.message || 'Não foi possível criar a classificação'); return }
+      const criada = await res.json()
+      setClassificacoes((cs) => [...cs, criada])
+      setNovoItem((n) => ({ ...n, classificacaoId: criada.id }))
+      setNovaClasse(''); setMostraNovaClasse(false)
+      toast.success(`Classificação ${criada.codigo} — ${criada.nome} criada`)
+    } catch {
+      toast.error('Não foi possível criar a classificação')
+    } finally { setCriandoClasse(false) }
+  }
+
   const carregarClassificacoes = async (tipoItem: 'MATERIAL' | 'SERVICO') => {
     try {
-      const response = await authFetch(`${API_URL}/api/catalogo-proprio/classificacoes?tipo=${tipoItem}&limite=50`)
+      const response = await authFetch(`${API_URL}/api/catalogo-proprio/classificacoes?tipo=${tipoItem}&limite=200`)
       if (response.ok) {
         const data = await response.json()
         setClassificacoes(data)
@@ -508,6 +531,26 @@ export function BuscaItemCatalogoProprio({
               <p className="text-xs text-gray-500 mt-1">
                 O código do item será gerado automaticamente com base na classificação.
               </p>
+              {mostraNovaClasse ? (
+                <div className="mt-2 flex gap-2">
+                  <Input
+                    autoFocus
+                    value={novaClasse}
+                    onChange={(e) => setNovaClasse(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); criarClassificacao() } }}
+                    placeholder={novoItem.tipo === 'SERVICO' ? 'Ex.: Locação de imóveis' : 'Ex.: Combustíveis e lubrificantes'}
+                    aria-label="Nome da nova classificação"
+                  />
+                  <Button type="button" onClick={criarClassificacao} disabled={criandoClasse}>
+                    {criandoClasse ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Criar'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => { setMostraNovaClasse(false); setNovaClasse('') }}>Cancelar</Button>
+                </div>
+              ) : (
+                <button type="button" className="mt-1 text-xs font-medium text-blue-600 hover:underline" onClick={() => setMostraNovaClasse(true)}>
+                  Não achou a classificação? Criar uma nova
+                </button>
+              )}
             </div>
 
             <div>
