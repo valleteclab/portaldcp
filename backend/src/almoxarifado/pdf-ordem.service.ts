@@ -5,6 +5,7 @@ import * as path from 'path';
 import { OrdemFornecimento } from './entities/ordem-fornecimento.entity';
 import { GeradorPdfService } from '../assinaturas/gerador-pdf.service';
 import { AssinaturaDigital, EntidadeTipo } from '../assinaturas/entities/assinatura-digital.entity';
+import { nomeDoSolicitante } from './nome-solicitante.util';
 
 @Injectable()
 export class PdfOrdemService {
@@ -82,7 +83,8 @@ export class PdfOrdemService {
         cpf_cnpj: ordem.fornecedor.cpf_cnpj,
       } : undefined,
       requisicao: ordem.requisicao ? {
-        usuario_solicitante_nome: ordem.requisicao.usuario_solicitante_nome,
+        usuario_solicitante_nome:
+          (await nomeDoSolicitante(this.ordemRepository.manager, ordem.requisicao)) ?? undefined,
         setor_solicitante: ordem.requisicao.setor_solicitante,
         prioridade: ordem.requisicao.prioridade,
       } : undefined,
