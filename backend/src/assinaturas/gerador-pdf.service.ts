@@ -161,6 +161,12 @@ export class GeradorPdfService {
           rowY += altSetor;
         }
 
+        const solicitanteOS = dadosOS.solicitante_nome || dadosOS.usuario_solicitante_nome;
+        if (solicitanteOS) {
+          campo('Solicitante:', solicitanteOS, marginL, rowY, contentW - labelW);
+          rowY += alturaLinha(solicitanteOS, contentW - labelW);
+        }
+
         if (dadosOS.local_execucao) {
           campo('Local de Execução:', dadosOS.local_execucao, marginL, rowY, contentW - labelW);
           rowY += alturaLinha(dadosOS.local_execucao, contentW - labelW);
