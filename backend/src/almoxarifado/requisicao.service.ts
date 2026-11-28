@@ -44,6 +44,7 @@ import { WhatsAppService } from '../whatsapp/whatsapp.service';
 import { TipoNotificacao } from '../notificacoes/entities/notificacao.entity';
 import * as fs from 'fs';
 import { Usuario } from '../usuarios/entities/usuario.entity';
+import { nomeDoSolicitante } from './nome-solicitante.util';
 
 @Injectable()
 export class RequisicaoService {
@@ -467,6 +468,13 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     usuarioNome: string,
     usuarioEmail?: string,
   ): Promise<Requisicao> {
+    // O controller manda o e-mail como nome (o token não traz o nome)
+    const nomeSolicitante =
+      (await nomeDoSolicitante(this.requisicaoRepository.manager, {
+        usuario_solicitante_id: usuarioId,
+        usuario_solicitante_nome: usuarioNome,
+      })) || usuarioNome;
+
     // Gera número da requisição
     const ano = new Date().getFullYear();
     const ultimaRequisicao = await this.requisicaoRepository.findOne({
@@ -616,7 +624,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       novaOS.prioridade = dto.prioridade || PrioridadeRequisicao.NORMAL;
       novaOS.data_necessidade = dto.data_necessidade ? new Date(dto.data_necessidade) : null;
       novaOS.usuario_solicitante_id = usuarioId;
-      novaOS.usuario_solicitante_nome = usuarioNome;
+      novaOS.usuario_solicitante_nome = nomeSolicitante;
       novaOS.usuario_solicitante_email = usuarioEmail || null;
       novaOS.data_solicitacao = new Date();
       novaOS.status = StatusRequisicao.RASCUNHO;
@@ -834,7 +842,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       novaRequisicao.prioridade = dto.prioridade || PrioridadeRequisicao.NORMAL;
       novaRequisicao.data_necessidade = dto.data_necessidade ? new Date(dto.data_necessidade) : null;
       novaRequisicao.usuario_solicitante_id = usuarioId;
-      novaRequisicao.usuario_solicitante_nome = usuarioNome;
+      novaRequisicao.usuario_solicitante_nome = nomeSolicitante;
       novaRequisicao.usuario_solicitante_email = usuarioEmail || null;
       novaRequisicao.data_solicitacao = new Date();
       novaRequisicao.status = StatusRequisicao.RASCUNHO;
@@ -1426,7 +1434,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
 
           this.logger.log(`PDF OS ${requisicao.numero}: itensOS=${requisicaoParaPdf.itensOS?.length ?? 0}, itens=${requisicaoParaPdf.itens?.length ?? 0}, etapasOS=${requisicaoParaPdf.etapasOS?.length ?? 0}`);
 
-          const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+          const pdfPath = await this.gerarPdfOS(
             requisicaoParaPdf,
             [assinatura],
             `${urlBase}/validar-documento`,
@@ -1642,7 +1650,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
                 itens: ordemParaPdf.itens || [],
                 orgao: ordemParaPdf.orgao ? { nome: ordemParaPdf.orgao.nome, logo_url: ordemParaPdf.orgao.logo_url, logradouro: ordemParaPdf.orgao.logradouro, bairro: ordemParaPdf.orgao.bairro, cidade: ordemParaPdf.orgao.cidade, uf: ordemParaPdf.orgao.uf } : undefined,
                 contrato: ordemParaPdf.contrato ? { numero_contrato: ordemParaPdf.contrato.numero_contrato, numero_processo: ordemParaPdf.contrato.numero_processo, tipo: ordemParaPdf.contrato.tipo, objeto: ordemParaPdf.contrato.objeto, fornecedor: ordemParaPdf.contrato.fornecedor ? { razao_social: ordemParaPdf.contrato.fornecedor.razao_social, cpf_cnpj: ordemParaPdf.contrato.fornecedor.cpf_cnpj } : undefined } : undefined,
-                requisicao: ordemParaPdf.requisicao ? { usuario_solicitante_nome: ordemParaPdf.requisicao.usuario_solicitante_nome, setor_solicitante: ordemParaPdf.requisicao.setor_solicitante, prioridade: ordemParaPdf.requisicao.prioridade } : undefined,
+                requisicao: ordemParaPdf.requisicao ? { usuario_solicitante_nome: (await nomeDoSolicitante(this.requisicaoRepository.manager, ordemParaPdf.requisicao)) ?? undefined, setor_solicitante: ordemParaPdf.requisicao.setor_solicitante, prioridade: ordemParaPdf.requisicao.prioridade } : undefined,
                 numeros_empenhos: ordemParaPdf.numeros_empenhos?.length
                   ? JSON.stringify(ordemParaPdf.numeros_empenhos)
                   : (ordemParaPdf.requisicao as any)?.numeros_empenhos ?? null,
@@ -2625,7 +2633,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
       assinaturas = [assinatura];
     }
 
-    const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+    const pdfPath = await this.gerarPdfOS(
       requisicao,
       assinaturas,
       `${urlBase}/validar-documento`,
@@ -2682,7 +2690,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     );
 
     const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
-    const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+    const pdfPath = await this.gerarPdfOS(
       requisicao,
       assinaturasCorrigidas,
       `${urlBase}/validar-documento`,
@@ -2759,6 +2767,20 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
     ));
   }
 
+  /** PDF da OS com o nome de quem fez a requisição (ver nome-solicitante.util). */
+  private async gerarPdfOS(
+    requisicao: Requisicao,
+    assinaturas: Parameters<GeradorPdfService['gerarPdfOrdemServico']>[1],
+    urlValidacaoBase: string,
+  ): Promise<string> {
+    const solicitante_nome = await nomeDoSolicitante(this.requisicaoRepository.manager, requisicao);
+    return this.geradorPdfService.gerarPdfOrdemServico(
+      { ...requisicao, solicitante_nome },
+      assinaturas,
+      urlValidacaoBase,
+    );
+  }
+
   async vincularEmpenhos(id: string, empenhos: string[]): Promise<{ pdf_regenerado: boolean }> {
     const requisicao = await this.requisicaoRepository.findOne({
       where: { id },
@@ -2781,7 +2803,7 @@ ${ordem.usuario_autorizador_nome || 'Gestão de Contratos'}</p>`,
 
     const assinaturas = await this.assinaturasService.buscarPorEntidade(id, EntidadeTipo.ORDEM_SERVICO);
     const urlBase = process.env.APP_URL || 'https://portaldcp.com.br';
-    const pdfPath = await this.geradorPdfService.gerarPdfOrdemServico(
+    const pdfPath = await this.gerarPdfOS(
       requisicao,
       assinaturas,
       `${urlBase}/validar-documento`,
